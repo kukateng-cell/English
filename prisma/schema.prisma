@@ -1,0 +1,25 @@
+// Prisma schema
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  // Generate into src so it resolves with bundler module resolution.
+  // Import as: import { PrismaClient } from "@/generated/prisma"
+  output = "../src/generated/prisma"
+  engineType = "library"
+}
+
+datasource db {
+  // NOTE: Prisma 7 no longer supports `url` here.
+  // The connection string is provided via prisma.config.ts -> datasource.url
+  provider = "postgresql"
+}
+
+// Example model — adjust to your domain.
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
