@@ -707,7 +707,6 @@
 - excited — 兴奋的,激动的
 - ready — 准备好了,准备就绪
 
-
 ## A2 Level / A2 级别
 
 ### Home Appliances and Devices (家用电器和设备)
@@ -2440,7 +2439,6 @@
 - several — 几个
 - whose — 谁的
 - which — 哪个
-
 
 ## B1 Level / B1 级别
 
@@ -4466,7 +4464,6 @@
 - feeling — 感觉
 - plus — 另外
 - promise — 承诺
-
 
 ## B2 Level / B2 级别
 
@@ -6881,4 +6878,3 @@
 - very — 正是
 - vital — 至关重要的
 - willing — 愿意
-
