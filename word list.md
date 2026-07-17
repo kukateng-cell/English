@@ -1,0 +1,6884 @@
+# Word List
+
+## A1 Level / A1 级别
+
+### Hello and Goodbye (你好和再见)
+
+- hello — 你好
+- goodbye — 再见
+- hi — 嗨
+- bye — 再见！
+- good morning — 早上好
+- good afternoon — 下午好
+- good evening — 晚上好
+- good night — 晚安
+- thank you — 谢谢
+- thanks — 谢谢
+- please — 请
+- OK — 好的
+- yes — 是的
+- no — 不
+- sorry — 对不起
+- welcome — 欢迎
+
+### People
+
+- man — 男人
+- woman — 女人
+- boy — 男孩
+- girl — 女孩
+- friend — 朋友
+- boyfriend — 男朋友
+- girlfriend — 女朋友
+- person — 人
+- people — 人们
+- adult — 成人
+- baby — 婴儿
+- Mr — 先生
+- Mrs — 夫人
+- miss — 小姐
+
+### Numbers 0 to 100 (0到100的数字)
+
+- zero — 零
+- one — 一
+- two — 二
+- three — 三
+- four — 四
+- five — 五
+- six — 六
+- seven — 七
+- eight — 八
+- nine — 九
+- ten — 十
+- eleven — 十一
+- twelve — 十二,数字十二
+- thirteen — 十三
+- fourteen — 十四
+- fifteen — 十五
+- sixteen — 十六
+- seventeen — 十七
+- eighteen — 十八
+- nineteen — 十九
+- twenty — 二十
+- thirty — 三十
+- forty — 四十
+- fifty — 五十
+- sixty — 六十
+- seventy — 七十
+- eighty — 八十
+- ninety — 九十
+- hundred — 百
+
+### Family
+
+- parent — 父母
+- father — 父亲
+- mother — 母亲
+- dad — 爸爸
+- mom — 妈妈
+- wife — 妻子
+- husband — 丈夫
+- child — 孩子
+- son — 儿子
+- daughter — 女儿
+- sister — 姐妹
+- brother — 兄弟
+- family — 家庭
+- grandmother — 祖母
+- grandfather — 祖父
+- grandchild — 孙子
+- aunt — 姑姑
+- uncle — 叔叔
+- niece — 侄女
+- nephew — 侄子
+- cousin — 堂兄弟
+
+### Colors (颜色)
+
+- black — 黑色的
+- white — 白色
+- blue — 蓝色
+- green — 绿色
+- yellow — 黄色的
+- red — 红色
+- pink — 粉红色
+- orange — 橙色的
+- purple — 紫色
+- gray — 灰色的
+- brown — 棕色的
+- dark — 深色的
+- light — 浅
+- color — 颜色
+
+### Months and Seasons (月份和季节)
+
+- month — 月
+- January — 一月
+- February — 二月
+- March — 三月
+- April — 四月
+- May — 五月
+- June — 六月
+- July — 七月
+- August — 八月
+- September — 九月
+- October — 十月
+- November — 十一月
+- December — 十二月
+- season — 季节
+- spring — 春天
+- summer — 夏天
+- fall — 秋天
+- winter — 冬天
+
+### Time and Date (时间和日期)
+
+- clock — 钟
+- year — 年
+- time — 时间
+- date — 日期
+- day — 天
+- hour — 小时
+- o'clock — 点
+- minute — 分钟
+- second — 秒
+- morning — 早晨
+- afternoon — 下午
+- evening — 傍晚
+- night — 夜晚
+- week — 周
+- Sunday — 星期日
+- Monday — 星期一
+- Tuesday — 星期二
+- Wednesday — 星期三
+- Thursday — 星期四
+- Friday — 星期五
+- Saturday — 星期六
+- weekend — 周末
+- next — 下一个
+- half — 一半
+
+### Personal Information (个人信息)
+
+- name — 名字
+- last name — 姓氏
+- age — 年龄
+- address — 地址
+- birthday — 生日
+- birthdate — 出生日期
+- single — 单身
+- married — 已婚的
+- passport — 护照
+- phone number — 电话号码
+- question — 问题
+- answer — 答案
+
+### The Body (身体)
+
+- body — 身体
+- hand — 手
+- arm — 手臂
+- foot — 脚
+- head — 头
+- leg — 腿
+- knee — 膝盖
+- back — 背
+- stomach — 胃
+
+### The Head and Face (头部和面部)
+
+- hair — 头发
+- neck — 脖子
+- face — 脸
+- eye — 眼睛
+- nose — 鼻子
+- ear — 耳朵
+- cheek — 脸颊
+- chin — 下巴
+- mouth — 嘴
+- tooth — 牙齿
+- lip — 嘴唇
+
+### Opposite Adjectives (相反形容词)
+
+- good — 好
+- bad — 坏
+- high — 高
+- low — 低
+- big — 大
+- small — 小的
+- heavy — 重的
+- light — 轻
+- expensive — 昂贵的
+- cheap — 便宜
+- old — 旧的
+- new — 新的
+- beautiful — 美丽的
+- ugly — 丑陋的
+- clean — 干净的
+- dirty — 脏的
+- easy — 容易
+- difficult — 困难的
+- fast — 快的
+- slow — 慢
+- different — 不同的
+- same — 相同的
+- right — 正确的
+- wrong — 错误的
+- open — 开放的
+- closed — 关闭的
+- true — 真实的
+- false — 假的
+- rich — 富有的
+- poor — 贫穷的
+- sure — 确信的
+- unsure — 不确定的
+- correct — 正确的
+- incorrect — 不正确的
+
+### House and Apartment (房屋和公寓)
+
+- building — 建筑物
+- house — 房子
+- home — 家
+- apartment — 公寓
+- floor — 地板
+- door — 门,门口
+- window — 窗户
+- wall — 墙
+- room — 房间
+- roof — 屋顶
+- ceiling — 天花板
+- living room — 客厅
+- dining room — 餐厅
+- kitchen — 厨房
+- bedroom — 卧室
+- bathroom — 浴室
+- garden — 花园
+- upstairs — 楼上
+- downstairs — 楼下
+- closet — 壁橱
+- part — 部分
+- elevator — 电梯
+- yard — 院子
+
+### Furniture and Home Appliances (家具和家用电器)
+
+- desk — 桌子
+- chair — 椅子
+- table — 桌子
+- sofa — 沙发
+- bed — 床
+- cabinet — 橱柜
+- refrigerator — 冰箱
+- television — 电视
+- stove — 炉子
+
+### Jobs (工作)
+
+- money — 钱
+- job — 工作
+- work — 工作
+- doctor — 医生
+- dentist — 牙医
+- nurse — 护士
+- teacher — 老师
+- engineer — 工程师
+- actor — 演员
+- actress — 女演员
+- police officer — 警察
+- waiter — 服务员
+- waitress — 女服务员
+- driver — 司机
+
+### Clothes and Shoes (服装和鞋子)
+
+- clothes — 衣服
+- shirt — 衬衫
+- T-shirt — T恤
+- pants — 裤子
+- dress — 连衣裙
+- skirt — 裙子
+- coat — 外套
+- jacket — 夹克
+- jeans — 牛仔裤，牛仔布裤子
+- sweater — 毛衣
+- suit — 西装
+- tie — 领带
+- hat — 帽子
+- purse — 钱包
+- shoe — 鞋
+- boot — 靴子
+- sock — 袜子
+- pajamas — 睡衣
+- underwear — 内衣
+- swimsuit — 泳衣
+
+### Animals (动物)
+
+- animal — 动物
+- cat — 猫
+- dog — 狗
+- horse — 马
+- sheep — 羊
+- cow — 奶牛
+- pig — 猪
+- lion — 狮子
+- rabbit — 兔子
+- mouse — 老鼠
+- snake — 蛇
+- fish — 鱼
+- elephant — 大象
+- bird — 鸟
+- chicken — 鸡
+
+### Basic Verbs (基本动词)
+
+- to be — 是
+- to wake up — 醒来
+- to sleep — 睡觉
+- to work — 工作
+- to drive — 驾驶
+- to buy — 买
+- to sell — 卖
+- to read — 读
+- to write — 写
+- to play — 玩
+- to pay — 支付
+- to rest — 休息
+- to wash — 洗
+- to drink — 喝
+- to cook — 烹饪
+- to eat — 吃
+- to have — 吃
+- to make — 制作
+- to wear — 穿
+- to clean — 清洁
+- to think — 认为
+- to take — 拿
+- to stand — 站立
+- to speak — 说
+- to spell — 拼写
+- to dislike — 不喜欢
+- to add — 添加
+- to call — 称呼
+- to create — 创造
+- to cut — 切
+
+### Household Items (家居用品)
+
+- dish — 盘子
+- spoon — 勺子
+- fork — 叉子
+- knife — 刀
+- plate — 盘子
+- glass — 玻璃杯
+- bottle — 瓶子
+- cup — 杯子
+- soap — 肥皂
+- brush — 刷子
+- toothbrush — 牙刷
+- pillow — 枕头
+- trash can — 垃圾桶
+- box — 盒子
+- thing — 东西
+- ball — 球
+- doll — 玩偶
+
+### Food and Ingredients (食物与配料)
+
+- food — 食物
+- meat — 肉
+- fish — 鱼
+- chicken — 鸡肉
+- vegetable — 蔬菜
+- cucumber — 黄瓜
+- potato — 土豆
+- onion — 洋葱
+- tomato — 番茄
+- carrot — 胡萝卜
+- pepper — 胡椒
+- fruit — 水果
+- apple — 苹果
+- orange — 橙子
+- grape — 葡萄
+- banana — 香蕉
+- peach — 桃子
+- lemon — 柠檬
+- milk — 牛奶
+- cheese — 奶酪
+- butter — 黄油
+- egg — 蛋
+- cream — 奶油
+
+### Food and Drinks (食物和饮料)
+
+- meal — 餐
+- breakfast — 早餐
+- lunch — 午餐
+- dinner — 晚餐
+- tea — 茶
+- coffee — 咖啡
+- cake — 蛋糕
+- cookie — 饼干
+- bread — 面包
+- honey — 蜂蜜
+- jam — 果酱
+- juice — 果汁
+- ice cream — 冰淇淋
+- water — 水
+- rice — 米饭
+- chocolate milk — 巧克力牛奶
+- soup — 汤
+- salad — 沙拉
+- pizza — 披萨
+- sandwich — 三明治
+- sugar — 糖
+- salt — 盐
+
+### The Weather and Nature (天气与自然)
+
+- weather — 天气
+- fire — 火
+- hot — 热
+- cold — 冷的
+- sunny — 阳光明媚的
+- cloud — 云
+- cloudy — 多云的
+- rain — 雨
+- rainy — 多雨的
+- snowy — 多雪的
+- ice — 冰
+- nature — 自然
+- sun — 太阳
+- moon — 月亮
+- Earth — 地球
+- sky — 天空
+- river — 河流
+- sea — 海
+- mountain — 山
+- beach — 海滩
+- forest — 森林
+- island — 岛
+- star — 星星
+- tree — 树
+- flower — 花
+
+### Useful Verbs (有用的动词)
+
+- to hear — 听到
+- to listen — 听
+- to see — 看
+- to look — 看
+- to watch — 观看
+- to touch — 触摸
+- to feel — 感觉
+- to talk — 说
+- to call — 打电话
+- to like — 喜欢
+- to love — 爱
+- to hate — 讨厌
+- to know — 知道
+- to learn — 学习
+- to ask — 问
+- to study — 学习
+- to teach — 教
+- to need — 需要
+- to want — 想要
+- to share — 分享
+- to put — 放
+- to prepare — 准备
+- to plan — 计划
+- to explain — 解释
+- to fill — 填满
+- to fly — 飞
+- to get — 得到
+- to become — 成为
+
+### School
+
+- school — 学校
+- college — 大学
+- university — 大学
+- preschool — 幼儿园
+- classroom — 教室
+- student — 学生
+- book — 书
+- notebook — 笔记本
+- bag — 包
+- pen — 笔
+- pencil — 铅笔
+- eraser — 橡皮
+- marker — 马克笔
+- homework — 家庭作业
+- history — 历史
+- language — 语言
+- science — 科学
+- class — 班级
+
+### City
+
+- city — 城市
+- town — 镇
+- street — 街道
+- bank — 银行
+- hospital — 医院
+- restaurant — 餐厅
+- movie theater — 电影院
+- supermarket — 超市
+- post office — 邮局
+- bench — 长凳
+- museum — 博物馆
+- park — 公园
+- hotel — 酒店
+- police — 警察
+- map — 地图
+
+### Free Time Activities (空闲时间活动)
+
+- hobby — 爱好
+- movie — 电影
+- music — 音乐
+- guitar — 吉他
+- piano — 钢琴
+- violin — 小提琴
+- swimming — 游泳
+- soccer — 足球
+- volleyball — 排球
+- hiking — 徒步旅行
+- tennis — 网球
+- bicycle — 自行车
+- sport — 运动
+- game — 游戏
+- video game — 电子游戏
+- newspaper — 报纸
+- magazine — 杂志
+
+### Countries and Nationalities (国家和国籍)
+
+- country — 国家
+- the United States — 美国
+- American — 美国的
+- Canada — 加拿大
+- Canadian — 加拿大的
+- United Kingdom — 英国
+- British — 英国的
+- Germany — 德国
+- German — 德国的
+- France — 法国
+- French — 法国的
+- Spain — 西班牙
+- Spanish — 西班牙的
+- Italy — 意大利
+- Italian — 意大利的
+
+### Simple Verbs (简单动词)
+
+- to walk — 走
+- to run — 跑
+- to go — 去
+- to come — 来
+- to sit — 坐
+- to fall — 跌倒
+- to jump — 跳
+- to bring — 带来
+- to give — 给
+- to find — 找到
+- to open — 打开
+- to close — 关闭
+- to start — 开始
+- to stop — 停止
+- to finish — 完成
+- to build — 建造
+- to do — 做
+- to get — 收到
+- to turn — 转
+- to introduce — 介绍
+- to travel — 旅行
+- to let — 让
+- to choose — 选择
+- to help — 帮助
+- to swim — 游泳
+
+### Transportation
+
+- car — 汽车
+- motorcycle — 摩托车
+- bus — 公共汽车
+- truck — 卡车
+- train — 火车
+- taxi — 出租车
+- subway — 地铁
+- airplane — 飞机
+- helicopter — 直升机
+- ship — 船
+- boat — 船
+- ticket — 票
+- van — 厢式货车
+- station — 车站
+- airport — 机场
+- train station — 火车站
+
+### Directions and Continents (方向与大陆)
+
+- place — 地方,场所
+- north — 北,北方
+- south — 南,中午
+- east — 东,东方
+- west — 西,西方
+- back — 向后,往回
+- right — 右
+- left — 左
+- far — 远
+- continent — 大陆
+- Asia — 亚洲
+- Asian — 亚洲的
+- Europe — 欧洲
+- European — 欧洲的
+- Africa — 非洲
+- African — 非洲的
+
+### Adverbs and Pronouns (副词和代词)
+
+- outside — 外面
+- always — 总是
+- never — 从不
+- usually — 通常
+- often — 经常
+- sometimes — 有时
+- now — 现在
+- soon — 很快
+- too — 也
+- here — 这里
+- there — 那里
+- again — 再次
+- of course — 当然
+- really — 真的
+- why — 为什么
+- where — 哪里
+- when — 什么时候
+- what — 什么
+- who — 谁
+- how — 怎么
+- else — 别的
+
+### Prepositions and Determiners (介词和限定词)
+
+- before — 在...之前
+- after — 之后
+- at — 在
+- in — 在
+- on — 在...上
+- below — 在...下面
+- above — 在...之上
+- across — 在...的另一边
+- near — 靠近
+- between — 在...之间
+- next to — 旁边
+- behind — 后面
+- with — 和
+- to — 到
+- another — 另一个
+- this — 这个
+- that — 那
+- both — 两个
+- what — 什么
+- a — 一个
+- over — 在...上面
+- under — 在...下面
+
+### Describing People (描述人物)
+
+- young — 年轻的,幼小的
+- old — 年老的,古老的
+- stupid — 愚蠢的,笨的
+- thirsty — 口渴的,渴的
+- fat — 胖的,肥胖的
+- thin — 瘦,纤细
+- tall — 高的,高大的
+- short — 矮
+- smart — 聪明,机灵
+- angry — 生气的,愤怒的
+- fine — 好,健康状况良好
+- sad — 悲伤的,难过的
+- happy — 快乐,高兴
+- hungry — 饿,饥饿
+- excited — 兴奋的,激动的
+- ready — 准备好了,准备就绪
+
+
+## A2 Level / A2 级别
+
+### Home Appliances and Devices (家用电器和设备)
+
+- alarm clock — 闹钟
+- equipment — 设备
+- device — 设备
+- loudspeaker — 扬声器
+- camera — 相机
+- dishwasher — 洗碗机
+- washing machine — 洗衣机
+- oven — 烤箱
+- coffee maker — 咖啡机
+- toaster oven — 烤面包机烤箱
+- air conditioner — 空调
+- heater — 加热器
+- radio — 收音机
+- telephone — 电话
+- line — 线路
+- hair dryer — 吹风机
+- fan — 风扇
+- vacuum cleaner — 吸尘器
+- iron — 熨斗
+- remote control — 遥控器
+- smoke detector — 烟雾探测器
+- to turn on — 打开
+- to turn off — 关闭
+- to work — 运作
+- broken — 坏的
+- to use — 使用
+- system — 系统
+- to repair — 修理
+- flashlight — 手电筒
+- carpet — 地毯
+- furniture — 家具
+
+### Clothes and Accessories (服装和配饰)
+
+- fashion — 时尚
+- clothing — 服装
+- blouse — 女式衬衫
+- shorts — 短裤
+- pocket — 口袋
+- button — 纽扣
+- uniform — 制服
+- umbrella — 雨伞
+- accessory — 配件
+- watch — 手表
+- glasses — 眼镜
+- sunglasses — 太阳镜
+- briefcase — 公文包
+- cap — 帽子
+- bracelet — 手镯
+- wallet — 钱包
+- chain — 链子
+- earring — 耳环
+- ring — 戒指
+- necklace — 项链
+- jewelry — 珠宝
+- perfume — 香水
+- loose — 宽松的
+- tight — 紧
+- to fit — 适合
+- to try on — 试穿
+- to put on — 穿上
+- to take off — 脱下
+- to change — 换
+- worn-out — 破旧的
+- belt — 腰带
+
+### Colors and Shapes (颜色和形状)
+
+- darkness — 黑暗
+- brightness — 亮度
+- lightness — 轻盈
+- golden — 金色的
+- gold — 金色的
+- silver — 银色的
+- pale — 淡
+- bright — 鲜艳的
+- colorful — 多彩的
+- colored — 彩色的
+- cream — 奶油色
+- shape — 形状
+- center — 中心
+- circle — 圆
+- cross — 十字
+- square — 正方形
+- diamond — 菱形
+- star — 星星
+- line — 线
+- dot — 点
+- side — 侧
+- surface — 表面
+- straight — 直的
+- flat — 平的
+- round — 圆的
+- to draw — 画
+- to color — 上色
+- whole — 整个
+- paint — 油漆
+
+### Computer and Information (计算机与信息)
+
+- computer — 电脑
+- information — 信息
+- chat — 聊天
+- laptop — 笔记本电脑
+- monitor — 屏幕
+- screen — 屏幕
+- keyboard — 键盘
+- mouse — 鼠标
+- printer — 打印机
+- DVD — DVD
+- calculator — 计算器
+- username — 用户名
+- password — 密码
+- the Internet — 互联网
+- website — 网站
+- web page — 网页
+- online — 在线
+- email — 电子邮件
+- message — 消息
+- video — 视频
+- post — 帖子
+- comment — 评论
+- address — 地址
+- file — 文件
+- document — 文档
+- to download — 下载
+- to upload — 上传
+- to click — 点击
+- to email — 发送电子邮件
+- to google — 谷歌搜索
+- to sign in — 登录
+- to sign out — 登出
+- digital — 数字的
+- news — 新闻
+- image — 图像
+- to copy — 复制
+
+### School and Education (学校与教育)
+
+- course — 课程
+- lesson — 课
+- subject — 科目
+- level — 水平
+- semester — 学期
+- major — 主修
+- classmate — 同学
+- partner — 伙伴
+- dictionary — 字典
+- exam — 考试
+- test — 考试
+- practice — 练习
+- activity — 活动
+- problem — 问题
+- to solve — 解决
+- grade — 成绩
+- project — 项目
+- research — 研究
+- summary — 摘要
+- article — 文章
+- page — 页
+- whiteboard — 白板
+- cafeteria — 自助餐厅
+- list — 列表
+- line — 线
+- note — 笔记
+- to pass — 通过
+- to fail — 失败
+- present — 出席的
+- absent — 缺席的
+- junior — 大三学生
+- to focus — 集中
+- freshman — 大一新生
+- sophomore — 大二学生
+- senior — 大四学生
+- board — 板
+- drawing — 图画
+
+### Animals (动物)
+
+- pet — 宠物
+- lamb — 羔羊
+- camel — 骆驼
+- tiger — 老虎
+- whale — 鲸鱼
+- penguin — 企鹅
+- shark — 鲨鱼
+- insect — 昆虫
+- fly — 苍蝇
+- spider — 蜘蛛
+- crocodile — 鳄鱼
+- dolphin — 海豚
+- fox — 狐狸
+- hamster — 仓鼠
+- tail — 尾巴
+- wool — 羊毛
+- egg — 蛋
+- web — 蜘蛛网
+- zoo — 动物园
+- deer — 鹿
+- eagle — 鹰
+- beetle — 甲虫
+- bee — 蜜蜂
+- bear — 熊
+- monkey — 猴子
+- butterfly — 蝴蝶
+- mosquito — 蚊子
+- ladybug — 瓢虫
+- cockroach — 蟑螂
+- firefly — 萤火虫
+- type — 类型
+- wild — 野生的
+- to hunt — 打猎
+- to ride — 骑
+- kind — 种类
+
+### Appearance
+
+- appearance — 外貌
+- attractive — 有吸引力的
+- good-looking — 好看的
+- handsome — 英俊
+- pretty — 漂亮
+- cute — 可爱的
+- curly — 卷曲的
+- wavy — 波浪的
+- straight — 直的
+- male — 男性的
+- female — 女性的
+- blond — 金发的
+- bald — 秃头的
+- slim — 苗条
+- skinny — 瘦的
+- fit — 健康
+- tiny — 微小的
+- beard — 胡须
+- mustache — 胡子
+- to brush — 刷
+- smile — 微笑
+- to look — 看起来
+- to describe — 描述
+- to appear — 显得
+- to show — 展示
+- to hide — 隐藏
+- other — 其他
+- similar — 相似的
+
+### The Human Body (人体)
+
+- skin — 皮肤
+- blood — 血液
+- bone — 骨头
+- muscle — 肌肉
+- chest — 胸部
+- backbone — 脊柱
+- breath — 呼吸
+- breathing — 呼吸
+- fat — 脂肪
+- skull — 头骨
+- gum — 牙龈
+- eyelash — 睫毛
+- palm — 手掌
+- forearm — 前臂
+- thigh — 大腿
+- heel — 脚跟
+- throat — 喉咙
+- physical — 身体的
+- physically — 身体上
+- strong — 强壮的
+- weak — 脆弱的
+- wrist — 手腕
+- brain — 脑
+- elbow — 肘
+- finger — 手指
+- heart — 心脏
+- human — 人
+- shoulder — 肩膀
+
+### Conjunctions and Prepositions (连词和介词)
+
+- and — 和
+- or — 或
+- but — 但是
+- if — 如果
+- as — 当
+- because — 因为
+- so — 所以
+- since — 自从
+- now — 既然
+- after — 之后
+- before — 在...之前
+- once — 一旦
+- although — 虽然
+- though — 虽然
+- that — 那
+- yet — 然而，可是
+- when — 当
+- whenever — 每当
+- where — 哪里
+- whereas — 而
+- whether — 是否
+- during — 在...期间
+- until — 直到
+- from — 从
+- of — 的
+- through — 通过
+- except — 除了
+- apart from — 除了
+- around — 周围
+- by — 通过
+- outside — 在...外面
+- inside — 里面
+- nor — 也不
+- for — 为
+- about — 关于，有关
+- against — 反对
+- than — 比
+- like — 像
+
+### Communication
+
+- communication — 沟通
+- conversation — 对话
+- opinion — 意见
+- talk — 谈话
+- call — 电话
+- cell phone — 手机
+- argument — 论点
+- discussion — 讨论
+- fight — 争吵
+- letter — 信
+- mail — 邮件
+- envelope — 信封
+- to say — 说
+- to tell — 告诉
+- to discuss — 讨论
+- to visit — 拜访
+- to reply — 回复
+- to argue — 争论
+- to mail — 寄
+- together — 一起
+- calmly — 平静地
+- alone — 独自
+- social — 社交的，好交际的
+- to send — 发送
+- to receive — 收到
+- to understand — 理解
+- to misunderstand — 误解
+- to agree — 同意
+- to disagree — 不同意
+- to accept — 接受
+- to reject — 拒绝
+- all right — 好的
+- statement — 声明
+- wow — 哇
+- ah — 啊
+- oh — 哦
+- yeah — 是的
+- hey — 嘿
+- note — 便条
+- invitation — 邀请
+- to communicate — 沟通
+- to complain — 抱怨
+- to invite — 邀请
+- to pronounce — 发音
+
+### Cinema and Theater (电影与戏剧)
+
+- cinema — 电影院
+- the movies — 电影院
+- theater — 剧院
+- artist — 艺术家
+- acting — 表演
+- role — 角色
+- scene — 场景
+- screen — 屏幕
+- character — 角色
+- director — 导演
+- hero — 英雄
+- heroine — 女主角
+- cartoon — 卡通
+- comedy — 喜剧
+- detective story — 侦探故事
+- drama — 戏剧
+- fantasy — 幻想
+- horror — 恐怖
+- ending — 结尾
+- adventure story — 冒险故事
+- science fiction — 科幻
+- documentary — 纪录片
+- Hollywood — 好莱坞
+- review — 评论
+- performance — 表演
+- festival — 节日
+- award — 奖项
+- celebrity — 名人
+- entertainment — 娱乐
+- to act — 表演
+- to film — 拍摄
+- to perform — 表演
+
+### Music and Literature (音乐与文学)
+
+- culture — 文化
+- art — 艺术
+- painting — 绘画
+- picture — 图片
+- hit — 热门
+- instrument — 乐器
+- guitarist — 吉他手
+- musician — 音乐家
+- jazz — 爵士乐
+- rock music — 摇滚音乐
+- record — 唱片
+- tour — 巡回演出
+- voice — 声音
+- work — 作品
+- concert — 音乐会
+- dancer — 舞者
+- drum — 鼓
+- poet — 诗人
+- story — 故事
+- novel — 小说
+- song — 歌曲
+- player — 音乐家
+- painter — 画家
+- classical — 古典的
+- musical — 音乐的
+- opera — 歌剧
+- loud — 大声的
+- loudly — 大声地
+- to sing — 唱歌
+- to play — 演奏
+- pop music — 流行音乐
+- to dance — 跳舞
+
+### Family and Friends (家人和朋友)
+
+- daddy — 爸爸
+- mommy — 妈妈
+- grandparent — 祖父
+- grandpa — 爷爷
+- grandma — 奶奶
+- granddaughter — 孙女
+- grandson — 孙子
+- group — 群组
+- guest — 客人
+- dude — 哥们
+- guy — 家伙
+- neighbor — 邻居
+- surname — 姓氏
+- family name — 姓氏
+- background — 背景
+- couple — 一对
+- partner — 伙伴
+- twin — 双胞胎
+- kid — 孩子
+- member — 成员
+- to date — 约会
+- to care — 关心
+- to marry — 结婚
+- to break up — 分手
+- to grow — 成长
+- wedding — 婚礼
+- to raise — 抚养
+- middle name — 中间名
+
+### Restaurants and Food (餐厅和食物)
+
+- menu — 菜单
+- order — 订单
+- pasta — 意大利面
+- fast food — 快餐
+- hamburger — 汉堡
+- hot dog — 热狗
+- sausage — 香肠
+- pea — 豌豆
+- bean — 豆子
+- mushroom — 蘑菇
+- noodle — 面条
+- dessert — 甜点
+- hot chocolate — 热巧克力
+- pie — 馅饼
+- sauce — 酱
+- toast — 吐司
+- delicious — 美味的
+- flavor — 味道
+- fresh — 新鲜的
+- salty — 咸的
+- sweet — 甜的
+- junk food — 垃圾食品
+- potato chip — 薯片
+- French fries — 薯条
+- snack — 小吃
+- to order — 点
+- to serve — 提供
+- taste — 味道
+- sour — 酸的
+- to fry — 炸
+- dark chocolate — 黑巧克力
+- coffee shop — 咖啡店
+
+### Health and Sickness (健康与疾病)
+
+- health — 健康
+- life — 生活
+- death — 死亡
+- diet — 饮食
+- energy — 能量
+- habit — 习惯
+- illness — 疾病
+- disease — 疾病
+- ache — 疼痛
+- earache — 耳痛
+- headache — 头痛
+- backache — 背痛
+- toothache — 牙痛
+- flu — 流感
+- virus — 病毒
+- effect — 效果
+- problem — 问题
+- fever — 发烧
+- cough — 咳嗽
+- sneeze — 喷嚏
+- cold — 感冒
+- sore throat — 喉咙痛
+- medication — 药物
+- rest — 休息
+- pill — 药丸
+- patient — 病人
+- cure — 治疗方法
+- to live — 生活
+- to die — 死
+- need — 需要
+- to [go] to bed
+- stomachache — 胃痛
+
+### Hobbies and Daily Activities (爱好与日常活动)
+
+- fishing — 钓鱼
+- to fish — 钓鱼
+- walk — 散步
+- yoga — 瑜伽
+- ball game — 球赛
+- card game — 纸牌游戏
+- table tennis — 乒乓球
+- barbecue — 烧烤
+- camp — 营地
+- camping — 露营
+- campsite — 露营地
+- club — 夜总会
+- party — 派对
+- picnic — 野餐
+- tent — 帐篷
+- shower — 淋浴
+- bath — 洗澡
+- laundry — 要洗的衣物
+- bored — 无聊
+- surprising — 令人惊讶的
+- enjoyable — 愉快的
+- delightful — 令人愉快的
+- pleased — 高兴
+- cooking — 烹饪
+- fun — 乐趣
+- cleaning — 清洁
+- to begin — 开始
+- to end — 结束
+- to relax — 放松
+- to smoke — 吸烟
+- dance — 舞蹈
+- water park — 水上乐园
+- to celebrate — 庆祝
+- toy — 玩具
+
+### Home
+
+- hall — 走廊
+- level — 层
+- stair — 楼梯
+- entrance — 入口
+- gate — 门
+- emergency exit — 紧急出口
+- fence — 栅栏
+- light — 光
+- utility — 公用事业
+- electricity — 电
+- gas — 气体
+- heat — 暖气
+- cable — 电缆
+- mailbox — 信箱
+- landlord — 房东
+- tenant — 租户
+- lease — 租约
+- to rent — 租
+- cozy — 舒适的
+- neighborhood — 邻里
+- to live — 居住
+- to move in — 搬入
+- to move out — 搬出
+
+### Time and Date (时间和日期)
+
+- calendar — 日历
+- century — 世纪
+- decade — 十年
+- today — 今天
+- tonight — 今晚
+- yesterday — 昨天
+- tomorrow — 明天
+- the past — 过去
+- future — 未来
+- moment — 瞬间
+- lunchtime — 午餐时间
+- long — 长久地
+- short — 短的
+- early — 早
+- late — 晚
+- daily — 每天
+- weekly — 每周
+- monthly — 每月
+- yearly — 每年
+- immediately — 立即
+- recently — 最近
+- last — 最后的
+- later — 稍后
+- before — 以前
+- on time — 准时
+- suddenly — 突然
+- yet — 还
+- a.m. — 上午
+- p.m. — 下午
+- after — 之后
+- close — 接近
+- modern — 现代的
+- to pass — 过去
+
+### Necessary Opposite Adjectives (必要的相反形容词)
+
+- intelligent — 聪明的
+- unintelligent — 不聪明的
+- pleasant — 愉快的
+- unpleasant — 不愉快的
+- careful — 小心的
+- careless — 粗心的
+- polite — 有礼貌的
+- impolite — 不礼貌的
+- friendly — 友好的
+- unfriendly — 不友好的
+- usual — 通常的
+- unusual — 不寻常
+- lucky — 幸运的
+- unlucky — 不幸的
+- complete — 完整的
+- incomplete — 不完整的
+- healthy — 健康的
+- unhealthy — 不健康的
+- popular — 受欢迎的
+- unpopular — 不受欢迎的
+- safe — 安全的
+- unsafe — 不安全的
+- well — 健康
+- unwell — 不舒服
+- important — 重要的
+- unimportant — 不重要的
+- possible — 可能的
+- impossible — 不可能
+- formal — 正式的
+- informal — 非正式的
+- dead — 死的
+- alive — 活着的
+
+### Nature and Natural Disasters (自然与自然灾害)
+
+- world — 世界
+- environment — 环境
+- plant — 植物
+- ground — 地面
+- field — 田地
+- landscape — 风景
+- view — 景色
+- grass — 草
+- coast — 海岸
+- hill — 小山
+- rock — 岩石
+- valley — 山谷
+- lake — 湖
+- the ocean — 海洋
+- rainforest — 雨林
+- wood — 木材
+- area — 地区
+- path — 小路
+- natural — 自然的
+- disaster — 灾难
+- flood — 洪水
+- earthquake — 地震
+- hurricane — 飓风
+- tornado — 龙卷风
+- avalanche — 雪崩
+- drought — 干旱
+- climate change — 气候变化
+- to happen — 发生
+- terrible — 可怕的
+- northeast — 东北
+- northwest — 西北
+- southeast — 东南
+- southwest — 西南
+- desert — 沙漠
+- wave — 波浪
+
+### Money and Shopping (金钱与购物)
+
+- cash — 现金
+- dollar — 美元
+- euro — 欧元
+- pound — 英镑
+- cent — 分
+- credit card — 信用卡
+- debit card — 借记卡
+- check — 账单
+- receipt — 收据
+- bill — 纸币
+- price — 价格
+- cost — 成本
+- shopping — 购物
+- store — 商店
+- clothes store — 服装店
+- shopping bag — 购物袋
+- shopping center — 购物中心
+- department — 部门
+- customer — 顾客
+- item — 项目
+- gift — 礼物
+- sale — 促销
+- cart — 购物车
+- advertisement — 广告
+- available — 可用的
+- free — 免费
+- open — 开放
+- closed — 关闭的
+- to spend — 花费
+- to offer — 提供
+- to save — 节省
+- (up|) for sale
+- to lend — 借出
+- to borrow — 借
+- to cost — 花费
+
+### Jobs and Work (工作和劳动)
+
+- pilot — 飞行员
+- boss — 老板
+- business — 生意
+- businessman — 商人
+- businesswoman — 女商人
+- expert — 专家
+- manager — 经理
+- assistant — 助理
+- receptionist — 接待员
+- detective — 侦探
+- model — 模特
+- cook — 厨师
+- pharmacist — 药剂师
+- journalist — 记者
+- writer — 作家
+- singer — 歌手
+- professor — 教授
+- researcher — 研究员
+- hairdresser — 理发师
+- designer — 设计师
+- cleaner — 清洁工
+- painter — 油漆工
+- instructor — 教练
+- employment — 就业
+- department — 部门
+- payment — 付款
+- shift — 班次
+- bonus — 奖金
+- to employ — 雇佣
+- to retire — 退休
+- successful — 成功的
+- employer — 雇主
+- company — 公司
+- factory — 工厂
+
+### Sports (体育)
+
+- exercise — 锻炼
+- field — 场地
+- football — 足球
+- to throw — 扔
+- to kick — 踢
+- basketball — 篮球
+- baseball — 棒球
+- to hit — 击打
+- to catch — 抓住
+- hockey — 曲棍球
+- golf — 高尔夫
+- rugby — 橄榄球
+- cricket — 板球
+- field hockey — 曲棍球
+- diving — 跳水
+- to dive — 跳水
+- training — 训练
+- to train — 训练
+- competition — 比赛
+- to compete — 竞争
+- jogging — 慢跑
+- to jog — 慢跑
+- climbing — 攀岩
+- to climb — 攀登
+- game — 比赛
+- player — 玩家
+- goal — 进球
+- score — 分数
+- coach — 教练
+- athlete — 运动员
+- cup — 杯
+- tired — 疲倦的
+- to join — 加入
+
+### Tourism
+
+- tour — 旅行
+- tourism — 旅游业
+- tourist — 游客
+- sightseeing — 观光
+- guide — 导游
+- passenger — 乘客
+- traveler — 旅行者
+- suitcase — 行李箱
+- baggage — 行李
+- reception — 接待处
+- twin bed — 单人床
+- single bed — 单人床
+- single room — 单人房
+- double room — 双人间
+- airline — 航空公司
+- flight — 航班
+- gate — 门
+- international — 国际的
+- seat — 座位
+- boarding pass — 登机牌
+- round-trip ticket — 往返票
+- one-way ticket — 单程票
+- to book — 预订
+- public transportation — 公共交通
+- platform — 站台
+- railroad — 铁路
+- fare — 票价
+- route — 路线
+- to ride — 乘坐
+- to catch — 赶上
+- to miss — 错过
+- to welcome — 欢迎
+- way — 路
+
+### The Weather (天气)
+
+- climate — 气候
+- condition — 状态
+- air — 空气
+- cold — 冷
+- heat — 热
+- wind — 风
+- windy — 多风的
+- fog — 雾
+- foggy — 有雾的
+- breeze — 微风
+- storm — 风暴
+- stormy — 暴风雨的
+- blizzard — 暴风雪
+- thunderstorm — 雷暴
+- hail — 冰雹
+- warm — 温暖的
+- cool — 凉爽的
+- freezing — 冰冻的
+- chilly — 寒冷的
+- clear — 晴朗
+- dark — 黑暗的
+- light — 明亮的
+- wet — 湿的
+- dry — 干的
+- to blow — 吹
+- to change — 改变
+- awful — 糟糕的
+- mild — 温和的
+- severe — 严重的
+- to snow — 下雪
+- to rain — 下雨
+
+### Quantity
+
+- much — 很多
+- many — 许多
+- most — 大多数
+- least — 最少的
+- all — 所有
+- few — 少数
+- more — 更多
+- more — 更
+- less — 更少
+- less — 较少
+- little — 少
+- little — 很少
+- very — 非常
+- quite — 完全
+- too — 太
+- pretty — 相当
+- really — 真的
+- fairly — 相当
+- first — 第一
+- second — 第二
+- third — 第三
+- completely — 完全地
+- so — 非常
+- great — 巨大的
+- extremely — 极其
+- rather — 相当
+- totally — 完全地
+- unusually — 异常地
+- either — 要么
+
+### Countries and Nationalities (国家和国籍)
+
+- Australia — 澳大利亚
+- Australian — 澳大利亚的
+- Switzerland — 瑞士
+- Swiss — 瑞士的
+- Austria — 奥地利
+- Austrian — 奥地利的
+- the Netherlands — 荷兰
+- Dutch — 荷兰的
+- Norway — 挪威
+- Norwegian — 挪威的
+- Sweden — 瑞典
+- Swedish — 瑞典的
+- Poland — 波兰
+- polish — 波兰的
+- Egypt — 埃及
+- Egyptian — 埃及的
+- Turkey — 土耳其
+- Turkish — 土耳其的
+- Greece — 希腊
+- Greek — 希腊的
+- Vietnam — 越南
+- Vietnamese — 越南的
+- Saudi Arabia — 沙特阿拉伯
+- Saudi — 沙特的
+- Afghanistan — 阿富汗
+- Afghan — 阿富汗的
+- Israel — 以色列
+- Israeli — 以色列的
+
+### Languages and Grammar (语言和语法)
+
+- English — 英语
+- Spanish — 西班牙语
+- French — 法语
+- German — 德语
+- Italian — 意大利语
+- Portuguese — 葡萄牙语
+- Dutch — 荷兰语
+- Russian — 俄语
+- Chinese — 中文
+- Japanese — 日语
+- Korean — 韩语
+- Vietnamese — 越南语
+- Greek — 希腊语
+- Hindi — 印地语
+- Arabic — 阿拉伯语
+- Persian — 波斯语
+- Turkish — 土耳其语
+- grammar — 语法
+- letter — 字母
+- word — 词
+- phrase — 短语
+- sentence — 句子
+- verb — 动词
+- adjective — 形容词
+- noun — 名词
+- vocabulary — 词汇
+- adverb — 副词
+- clause — 从句
+
+### Basic Phrasal Verbs (基本短语动词)
+
+- to deal with — 处理
+- to go in — 进入
+- to go out — 出去
+- to get in — 上车
+- to get out — 出去
+- to turn up — 调高
+- to turn down — 调低
+- to go up — 上去
+- to go down — 下去
+- to get on — 登上
+- to get off — 下车
+- to put down — 放下
+- to pick up — 捡起
+- to come in — 进来
+- to grow up — 长大
+- to find out — 发现
+- to get up — 起床
+- to hurry up — 赶快
+- to throw out — 扔掉
+- to calm down — 冷静下来
+- to slow down — 减速
+- to look around — 环顾
+- to turn around — 转身
+- to get back — 返回
+- to look up — 查找
+- to let in — 让...进入
+- to try on — 试穿
+- to switch on — 打开
+- to switch off — 关闭
+- to wake up — 叫醒
+
+### Flowers, Fruits, and Nuts (花、水果和坚果)
+
+- farm — 农场
+- farming — 农业
+- to pick — 摘
+- to plant — 种植
+- to water — 浇水
+- to grow — 种植
+- to produce — 生产
+- to feed — 喂食
+- strawberry — 草莓
+- blueberry — 蓝莓
+- watermelon — 西瓜
+- pear — 梨
+- pineapple — 菠萝
+- mango — 芒果
+- kiwi — 猕猴桃
+- avocado — 鳄梨
+- grapefruit — 葡萄柚
+- rose — 玫瑰
+- lily — 百合
+- orchid — 兰花
+- sunflower — 向日葵
+- cactus — 仙人掌
+- nut — 坚果
+- peanut — 花生
+- walnut — 核桃
+- hazelnut — 榛子
+- almond — 杏仁
+- pecan — 山核桃
+- hard — 硬
+- soft — 柔软的
+- to smell — 闻
+
+### Personality and Behavior (性格与行为)
+
+- behavior — 行为
+- personality — 个性
+- character — 性格
+- shy — 害羞的
+- talkative — 健谈的
+- serious — 严肃的
+- funny — 有趣的
+- interesting — 有趣的
+- boring — 无聊的
+- exciting — 令人兴奋的
+- wonderful — 美妙的
+- amazing — 惊人的
+- excellent — 优秀的
+- awesome — 太棒了
+- kind — 善良的
+- weird — 奇怪的
+- normal — 正常的
+- strange — 奇怪的
+- nice — 愉快的
+- great — 伟大的
+- tough — 坚强
+- unique — 独特的
+- jealous — 嫉妒的
+- brilliant — 出色的
+- creative — 有创造力的
+- crazy — 疯狂的
+- perfect — 完美的
+- helpful — 乐于助人的
+- fair — 公平的
+- rude — 粗鲁
+- unhappy — 不开心
+- confident — 自信的
+- scary — 可怕的
+- active — 活跃的
+- mild — 温和的
+- individual — 个别的
+- foolish — 愚蠢的
+- certain — 确定
+- quiet — 安静的
+- own — 自己的
+
+### Food
+
+- to taste — 品尝
+- pork — 猪肉
+- beef — 牛肉
+- lamb — 羔羊
+- tuna — 金枪鱼
+- omelet — 煎蛋卷
+- cookbook — 烹饪书
+- grocery — 食品杂货
+- tip — 小费
+- rest — 剩余部分
+- leftovers — 剩菜
+- steak — 牛排
+- well-done — 全熟的
+- medium — 五分熟
+- rare — 三分熟
+- watery — 水分过多的
+- spicy — 辣的
+- bitter — 苦的
+- vegetarian — 素食者
+- vegan — 纯素食者
+- broccoli — 西兰花
+- celery — 芹菜
+- eggplant — 茄子
+- cabbage — 卷心菜
+- spinach — 菠菜
+- to tip — 给小费
+
+### Injuries and Sickness (伤害与疾病)
+
+- bad — 生病
+- sick — 生病的
+- better — 更好
+- broken — 破碎的
+- serious — 严重的
+- dangerous — 危险的
+- appointment — 约会
+- sickness — 疾病
+- pain — 疼痛
+- accident — 事故
+- injury — 伤害
+- to test — 测试
+- to examine — 检查
+- to break — 折断
+- to cut — 切
+- to hurt — 伤害
+- to injure — 伤害
+- to hit — 撞
+- to see — 见
+- to catch — 感染
+- to prescribe — 开处方
+- to sneeze — 打喷嚏
+- to cough — 咳嗽
+- to protect — 保护
+
+### Employment and Occupations (就业与职业)
+
+- fashion designer — 时装设计师
+- farmer — 农民
+- soldier — 士兵
+- officer — 警官
+- hairstylist — 发型师
+- scientist — 科学家
+- head — 头
+- politician — 政治家
+- organization — 组织
+- title — 头衔
+- staff — 员工
+- salary — 工资
+- raise — 加薪
+- overtime — 加班
+- promotion — 晋升
+- recommendation — 推荐
+- meeting — 会议
+- break — 休息
+- job interview — 工作面试
+- apprentice — 学徒
+- full-time — 全职
+- part-time — 兼职
+- retired — 退休的
+- to hire — 雇佣
+- to fire — 解雇
+- to earn — 赚
+- to quit — 辞职
+- employee — 员工
+- dancer — 舞者
+- pay — 工资
+- resume — 简历
+
+### Exercise and Matches (锻炼与比赛)
+
+- to exercise — 锻炼
+- to hike — 徒步旅行
+- race — 比赛
+- point — 分
+- to score — 得分
+- medal — 奖牌
+- winner — 赢家
+- to win — 赢
+- loser — 失败者
+- to lose — 输
+- ski — 滑雪板
+- skiing — 滑雪
+- skate — 溜冰鞋
+- skating — 滑冰
+- ice skate — 冰鞋
+- ice skating — 滑冰
+- snowboard — 滑雪板
+- snowboarding — 滑雪板
+- skateboard — 滑板
+- skateboarding — 滑板运动
+- surfboard — 冲浪板
+- surfing — 冲浪
+- registration — 注册
+- membership — 会员资格
+- to practice — 练习
+- team — 队
+- fan — 粉丝
+- record — 记录
+- net — 网
+- prize — 奖品
+
+### Travelling (旅行)
+
+- vacation — 假期
+- adventure — 冒险
+- journey — 旅程
+- cruise — 巡航
+- trip — 旅行
+- foreign — 外国的
+- foreigner — 外国人
+- motel — 汽车旅馆
+- cancelation — 取消
+- reservation — 预订
+- to reserve — 预订
+- visa — 签证
+- to stay — 停留
+- postcard — 明信片
+- souvenir — 纪念品
+- to visit — 访问
+- to sightsee — 观光
+- to check in — 办理入住
+- to check out — 退房
+- abroad — 在国外
+- to change — 换乘
+- to fly — 飞
+- to land — 着陆
+- to take off — 起飞
+- schedule — 时刻表
+- to wander — 漫步
+- arrival — 到达
+- departure — 出发
+- customs — 海关
+- ride — 骑行
+- to leave — 离开
+- to arrive — 到达
+- to cancel — 取消
+- to reach — 到达
+
+### Furniture and Household Items (家具和家居用品)
+
+- bookshelf — 书架
+- curtain — 窗帘
+- tissue — 纸巾
+- napkin — 餐巾
+- toothpaste — 牙膏
+- razor — 剃刀
+- light bulb — 灯泡
+- switch — 开关
+- outlet — 插座
+- scissors — 剪刀
+- shower — 淋浴
+- toilet — 马桶
+- sink — 水槽
+- bathtub — 浴缸
+- towel — 毛巾
+- mirror — 镜子
+- key — 钥匙
+- lock — 锁
+- gutter — 檐槽
+- cushion — 垫子
+
+### City and the Countryside (城市与乡村)
+
+- countryside — 乡村
+- village — 村庄
+- the country — 乡村
+- rural — 乡村的
+- district — 区
+- urban — 城市的
+- downtown — 市中心
+- amusement park — 游乐园
+- gas station — 加油站
+- police station — 警察局
+- prison — 监狱
+- city hall — 市政厅
+- market — 市场
+- library — 图书馆
+- church — 教堂
+- mosque — 清真寺
+- temple — 寺庙
+- avenue — 大道
+- alley — 小巷
+- boulevard — 林荫大道
+- traffic — 交通
+- traffic jam — 交通堵塞
+- road — 道路
+- highway — 高速公路
+- expressway — 高速公路
+- bridge — 桥
+- path — 路径
+- underpass — 地下通道
+- noise — 噪音
+- pollution — 污染
+- to cross — 穿过
+- across — 横过
+- to move — 移动
+- noisy — 嘈杂的
+- local — 当地的
+- tower — 塔
+
+### Measurement
+
+- measurement — 测量
+- to measure — 测量
+- quality — 质量
+- quantity — 数量
+- to increase — 增加
+- to decrease — 减少
+- unit — 单位
+- degree — 度
+- meter — 米
+- centimeter — 厘米
+- millimeter — 毫米
+- kilometer — 公里
+- gram — 克
+- metric ton — 公吨
+- milligram — 毫克
+- liter — 升
+- milliliter — 毫升
+- foot — 英尺
+- mile — 英里
+- pound — 磅
+- width — 宽度
+- depth — 深度
+- length — 长度
+- height — 高度
+- weight — 重量
+- size — 尺寸
+- large — 大的
+- medium — 中等
+- long — 长的
+- thin — 薄的
+- wide — 宽的
+- narrow — 狭窄的
+- thick — 厚的
+- yard — 码
+- amount — 数量
+- close — 近的
+- average — 平均
+
+### The Mind (心灵)
+
+- mind — 心灵
+- mental — 心理的
+- talent — 天赋
+- skill — 技能
+- knowledge — 知识
+- guess — 猜测
+- to guess — 猜测
+- to believe — 相信
+- belief — 信念
+- memory — 记忆
+- to remember — 记得
+- to forget — 忘记
+- idea — 想法
+- favorite — 最喜欢的
+- suggestion — 建议
+- to suggest — 建议
+- goal — 目标
+- plan — 计划
+- to hope — 希望
+- hope — 希望
+- to imagine — 想象
+- to dream — 做梦
+- to enjoy — 享受
+- worried — 担心的
+- nervous — 紧张的
+- calm — 冷静的
+- afraid — 害怕
+- experience — 经验
+- matter — 问题
+- to decide — 决定
+- decision — 决定
+- power — 权力
+- clear — 清晰
+- choice — 选择
+- to smell — 闻
+- to remind — 提醒
+- danger — 危险
+
+### Essential Adverbs (基本副词)
+
+- maybe — 也许
+- probably — 可能
+- around — 大约
+- out — 外
+- in — 里面
+- also — 也，还
+- actually — 实际上
+- exactly — 确切地
+- almost — 几乎
+- greatly — 大大地
+- especially — 尤其
+- generally — 通常
+- finally — 终于
+- only — 只
+- just — 只
+- over — 越过
+- at least — 至少
+- at last — 终于
+- ahead — 前面
+- past — 经过
+- easily — 容易地
+- carefully — 仔细地
+- well — 好
+- still — 仍然
+- then — 然后
+- sadly — 悲伤地
+- slowly — 慢慢地
+- once — 一次
+- twice — 两次
+- anytime — 随时
+- fast — 快速地
+
+### Essential Opposite Adjectives (必备的反义形容词)
+
+- full — 满的
+- empty — 空的
+- necessary — 必要的
+- unnecessary — 不必要的
+- simple — 简单
+- hard — 难的
+- maximum — 最大的
+- minimum — 最小的
+- near — 近的
+- far — 远的
+- common — 普通的
+- uncommon — 不常见的
+- busy — 忙碌的
+- free — 空闲的
+- lazy — 懒惰的
+- hardworking — 勤奋的
+- relaxing — 放松的
+- stressful — 有压力的
+- dumb — 愚蠢的
+- comfortable — 舒适的
+- uncomfortable — 不舒服的
+- direct — 直接的
+- indirect — 间接的
+- special — 特别
+- ordinary — 普通的
+- famous — 著名的
+- unknown — 未知的
+- deep — 深的
+- shallow — 浅的
+
+### Emotions (情感)
+
+- emotion — 情感
+- fear — 恐惧
+- anger — 愤怒
+- sadness — 悲伤
+- happiness — 幸福
+- joy — 快乐
+- disgust — 厌恶
+- surprise — 惊讶
+- trust — 信任
+- shame — 羞耻
+- hatred — 仇恨
+- love — 爱
+- kindness — 善良
+- sympathy — 同情
+- amusement — 娱乐
+- confusion — 困惑
+- to laugh — 笑
+- to cry — 哭
+- to smile — 微笑
+- to frown — 皱眉
+- to miss — 想念
+- to worry — 担心
+- to surprise — 使惊讶
+- surprised — 惊讶的
+- to annoy — 惹恼
+- scared — 害怕的
+
+### Modal and Other Verbs (情态动词和其他动词)
+
+- can — 能
+- may — 可能
+- must — 必须
+- will — 会
+- could — 你可以
+- might — 可能
+- would — 会
+- should — 应该
+- used to — 过去常常
+- to mean — 意思是
+- to check — 检查
+- to carry — 携带
+- to keep — 保留
+- to wait — 等待
+- to compare — 比较
+- to improve — 改善
+- to try — 尝试
+- to prefer — 更喜欢
+- to repeat — 重复
+- to follow — 跟随
+- to allow — 允许
+- to hurry — 赶快
+- to change — 改变
+- to complete — 完成
+- to pick — 挑选
+- to drop — 丢下
+- to reduce — 减少
+- to continue — 继续
+- to stay — 停留
+- to point — 指向
+- to enter — 进入
+- to refuse — 拒绝
+- to return — 返回
+- have to — 必须
+- to break — 打破
+- take care — 保重
+- to worsen — 恶化
+
+### Mathematics
+
+- to calculate — 计算
+- calculation — 计算
+- to add — 加
+- to add up — 加起来
+- to subtract — 减去
+- to multiply — 乘
+- to divide — 除
+- to count — 数
+- count — 计数
+- average — 平均
+- to equal — 等于
+- figure — 数字
+- mathematics — 数学
+- thousand — 千
+- million — 百万
+- billion — 十亿
+- minus sign — 减号
+- plus sign — 加号
+- negative — 负的
+- positive — 正的
+- number — 号码
+- operation — 运算
+- sign — 符号
+- symbol — 符号
+- solution — 解决方案
+- sum — 总和
+- total — 总数
+- percent — 百分之
+
+### Science and the Natural World (科学与自然世界)
+
+- atom — 原子
+- organism — 生物
+- chemical — 化学的
+- gas — 气体
+- liquid — 液体
+- solid — 固体
+- material — 材料
+- substance — 物质
+- electric — 电的
+- real — 真实的
+- systematic — 系统的
+- metal — 金属
+- plastic — 塑料
+- iron — 铁
+- gold — 黄金
+- silver — 银
+- carbon — 碳
+- oxygen — 氧气
+- stone — 石头
+- to research — 研究
+- method — 方法
+- example — 例子
+- to invent — 发明
+- inventor — 发明家
+- to discover — 发现
+- discovery — 发现
+- tool — 工具
+- fact — 事实
+- reason — 原因
+- technology — 技术
+- data — 数据
+- focus — 专注
+- engine — 发动机
+- sound — 声音
+- laboratory — 实验室
+- result — 结果
+
+### Necessary Verbs (必要的动词)
+
+- to act — 行动
+- to affect — 影响
+- to analyze — 分析
+- to apply — 申请
+- to arrange — 安排
+- to avoid — 避免
+- to beat — 打败
+- to behave — 表现
+- to blow — 吹
+- to boil — 煮沸
+- to burn — 燃烧
+- to cause — 引起
+- to collect — 收集
+- to connect — 连接
+- to consider — 考虑
+- to control — 控制
+- to cover — 覆盖
+- to depend — 取决于
+- to destroy — 破坏
+- to develop — 发展
+- to dry — 擦干
+- to exist — 存在
+- to expect — 期待
+- to express — 表达
+- to fight — 战斗
+- to fix — 修理
+- to greet — 问候
+- to carry out — 执行
+- to look — 寻找
+- to stop — 停止
+- to disappear — 消失
+- to name — 命名
+
+### Common Verbs (常见动词)
+
+- to raise — 举起
+- to react — 反应
+- to realize — 意识到
+- to recognize — 认出
+- to recommend — 推荐
+- to record — 记录
+- to refer — 转诊
+- to remove — 移除
+- to replace — 替换
+- to report — 报告
+- to respond — 回答
+- to rise — 上升
+- to sail — 航行
+- to save — 拯救
+- to seem — 似乎
+- to shake — 摇动，抖动
+- to shout — 喊叫
+- to sign — 签名
+- to ski — 滑雪
+- to star — 主演
+- to steal — 偷
+- to suppose — 假设
+- to text — 发短信
+- to tie — 绑
+- to notice — 注意到
+- to attend — 参加
+- to attack — 攻击
+- to provide — 提供
+- to search — 搜索
+- to keep — 保持
+- to pull — 拉
+- to push — 推
+
+### Essential Verbs (基本动词)
+
+- to hold — 拿
+- to identify — 识别
+- to involve — 涉及
+- to joke — 开玩笑
+- to knock — 敲
+- to lead — 引导
+- to lift — 举起
+- to light — 点燃
+- to link — 连接
+- to lock — 锁上
+- to mark — 标记
+- to matter — 重要
+- to mention — 提到
+- to mind — 介意
+- to number — 编号
+- to organize — 组织
+- to own — 拥有
+- to pack — 打包
+- to photograph — 拍照
+- to predict — 预测
+- to present — 赠送
+- to prevent — 防止
+- to print — 打印
+- to promise — 承诺
+- to race — 赛跑
+- to shut — 关闭
+- to guide — 引导
+- to kill — 杀死
+- to set — 设置
+- to park — 停车
+
+### Pronouns and Determiners (代词和限定词)
+
+- everyone — 每个人
+- everything — 一切
+- everywhere — 到处
+- someone — 某人
+- something — 某物
+- somewhere — 某处
+- someplace — 某个地方
+- no one — 没有人
+- nothing — 什么都没有
+- nowhere — 无处
+- anyone — 有人
+- anything — 任何东西
+- anywhere — 任何地方
+- other — 其他
+- no — 没有
+- any — 任何
+- none — 没有
+- some — 一些
+- every — 每
+- either — 两者中的任何一个
+- several — 几个
+- whose — 谁的
+- which — 哪个
+
+
+## B1 Level / B1 级别
+
+### Family and Relationships (家庭与关系)
+
+- relation — 亲戚
+- relationship — 关系
+- friendship — 友谊
+- motherhood — 母性
+- fatherhood — 父亲身份
+- relative — 亲戚
+- marriage — 婚姻
+- unmarried — 未婚
+- engaged — 已订婚的
+- separated — 分居的
+- bride — 新娘
+- groom — 新郎
+- spouse — 配偶
+- single parent — 单亲
+- only child — 独生子女
+- family tree — 家谱
+- mother-in-law — 岳母
+- father-in-law — 岳父/公公
+- sister-in-law — 嫂子
+- brother-in-law — 姐夫
+- daughter-in-law — 儿媳
+- son-in-law — 女婿
+- parents-in-law — 岳父母/公婆
+- generation — 一代
+- to abandon — 抛弃
+- to bring up — 抚养
+- to cheat — 欺骗
+- to leave — 抛弃
+- to separate — 分开
+- close — 亲密的，紧密的
+- related — 相关的
+- love at first sight
+
+### The Animal Kingdom (动物王国)
+
+- alligator — 鳄鱼
+- ant — 蚂蚁
+- bat — 蝙蝠
+- rat — 老鼠
+- wolf — 狼
+- turtle — 乌龟
+- goldfish — 金鱼
+- bull — 公牛
+- chimpanzee — 黑猩猩
+- donkey — 驴
+- giraffe — 长颈鹿
+- gorilla — 大猩猩
+- rooster — 公鸡
+- kangaroo — 袋鼠
+- snail — 蜗牛
+- lizard — 蜥蜴
+- guinea pig — 豚鼠
+- octopus — 章鱼
+- salmon — 鲑鱼
+- lobster — 龙虾
+- swan — 天鹅
+- cobra — 眼镜蛇
+- raccoon — 浣熊
+- zebra — 斑马
+- seal — 海豹
+- porcupine — 豪猪
+- turkey — 火鸡
+- goose — 鹅
+- crow — 乌鸦
+- pigeon — 鸽子
+- cricket — 蟋蟀
+- creature — 生物
+- to bite — 咬
+- trap — 陷阱
+- bull shark — 牛鲨
+- shellfish — 贝类
+
+### Houses and Buildings (房屋与建筑)
+
+- palace — 宫殿
+- cabin — 小屋
+- studio — 工作室
+- guest house — 客房
+- apartment building — 公寓楼
+- country house — 乡村别墅
+- floor — 楼层
+- step — 台阶
+- fireplace — 壁炉
+- chimney — 烟囱
+- driveway — 车道
+- corridor — 走廊
+- drain — 排水管
+- walkway — 走道
+- back door — 后门
+- front door — 前门
+- family room — 家庭房
+- guest room — 客房
+- storeroom — 储藏室
+- swimming pool — 游泳池
+- study — 书房
+- shelf — 架子
+- porch — 门廊
+- resident — 居民
+- accommodations — 住宿
+- rent — 租金
+- to rent — 出租
+
+### Business and Workplace (商业与工作场所)
+
+- to export — 出口
+- to import — 进口
+- to promote — 晋升
+- to invest — 投资
+- to trade — 交易
+- office — 办公室
+- deal — 交易
+- offer — 提议
+- profession — 职业
+- career — 职业
+- occupation — 职业
+- agreement — 协议
+- contract — 合同
+- business plan — 商业计划
+- to interview — 面试
+- interview — 面试
+- competition — 竞争
+- opportunity — 机会
+- professional — 专业的
+- commercial — 商业的
+- unemployment — 失业
+- financial — 财务的
+- supply — 物资
+- demand — 需求
+- service — 服务
+- mine — 矿
+- plant — 工厂
+- workshop — 车间
+- garage — 车库
+- headquarters — 总部
+- unemployed — 失业的
+- consumer — 消费者
+- partner — 合伙人
+- qualified — 合格的
+- crew — 团队
+- to manage — 管理
+- resource — 资源
+- firm — 公司
+- marketing — 营销
+- working — 工作的
+- skilled — 熟练的
+
+### Occupations (职业)
+
+- barber — 理发师
+- butcher — 屠夫
+- builder — 建筑商
+- firefighter — 消防员
+- mailman — 邮递员
+- gardener — 园丁
+- guard — 警卫
+- tailor — 裁缝
+- sailor — 水手
+- photographer — 摄影师
+- babysitter — 保姆
+- bodyguard — 保镖
+- astronaut — 宇航员
+- agent — 代理人
+- reporter — 记者
+- servant — 仆人
+- housewife — 家庭主妇
+- freelancer — 自由职业者
+- judge — 法官
+- president — 总裁
+- adviser — 顾问
+- director — 主管
+- translator — 翻译
+- sportsman — 运动员
+- editor — 编辑
+- tutor — 家教
+- trader — 商人
+- technician — 技术员
+- programmer — 程序员
+- flight attendant — 空乘人员
+- veterinarian — 兽医
+- secretary — 秘书
+- chemist — 化学家
+
+### Music
+
+- keyboard — 键盘
+- trumpet — 小号
+- accordion — 手风琴
+- cello — 大提琴
+- clarinet — 单簧管
+- flute — 长笛
+- saxophone — 萨克斯管
+- band — 乐队
+- choir — 合唱团
+- conductor — 指挥
+- performer — 表演者
+- pianist — 钢琴家
+- violinist — 小提琴手
+- drummer — 鼓手
+- album — 专辑
+- tape — 磁带
+- to tour — 巡回演出
+- to publish — 发布
+- chorus — 副歌
+- beat — 节拍
+- lyric — 歌词
+- MP3 player — MP3播放器
+- headphones — 耳机
+- microphone — 麦克风
+- karaoke — 卡拉OK
+- disc jockey — 唱片骑师
+- songwriter — 歌曲作者
+- tape — 磁带
+
+### Meat and Dairy (肉类和乳制品)
+
+- bacon — 培根
+- red meat — 红肉
+- white meat — 白肉
+- wing — 翅膀
+- veal — 小牛肉
+- turkey — 火鸡
+- rib — 肋骨
+- rabbit — 兔子
+- meatball — 肉丸
+- seafood — 海鲜
+- shellfish — 贝类
+- lobster — 龙虾
+- hamburger — 汉堡
+- crab — 蟹肉
+- oyster — 牡蛎
+- joint — 关节
+- ham — 火腿
+- flesh — 肉
+- duck — 鸭子
+- cut — 块
+- breast — 胸肉
+- goose — 鹅
+- Swiss cheese — 瑞士奶酪
+- blue cheese — 蓝纹奶酪
+- Cheddar — 切达干酪
+- cream cheese — 奶油奶酪
+- Gouda — 高达
+- yolk — 蛋黄
+- white — 蛋白
+
+### Fruits and Nuts (水果和坚果)
+
+- coconut — 椰子
+- pumpkin — 南瓜
+- olive — 橄榄
+- date — 枣
+- fig — 无花果
+- apricot — 杏子
+- plum — 李子
+- nectarine — 油桃
+- lime — 青柠
+- tangerine — 橘子
+- tangelo — 橘柚
+- mandarin — 橘子
+- cherry — 樱桃
+- berry — 浆果
+- cranberry — 蔓越莓
+- blackberry — 黑莓
+- cantaloupe — 哈密瓜
+- melon — 甜瓜
+- papaya — 木瓜
+- pomegranate — 石榴
+- citrus — 柑橘类水果
+- chestnut — 栗子
+- macadamia nut — 夏威夷果
+- pistachio — 开心果
+- cashew — 腰果
+
+### Drinks (饮品)
+
+- beverage — 饮料
+- soft drink — 软饮料
+- nonalcoholic — 无酒精的
+- soda — 苏打
+- Coca-Cola — 可口可乐
+- mineral water — 矿泉水
+- milkshake — 奶昔
+- smoothie — 冰沙
+- lemonade — 柠檬水
+- espresso — 浓缩咖啡
+- latte — 拿铁
+- cocoa — 可可
+- energy drink — 能量饮料
+- alcoholic — 含酒精的
+- alcohol — 酒精
+- drink — 酒精饮料
+- to drink — 喝
+- beer — 啤酒
+- Champagne — 香槟
+- wine — 葡萄酒
+- whiskey — 威士忌
+- vodka — 伏特加
+- tequila — 龙舌兰酒
+- brandy — 白兰地
+- still — 无气泡的
+- sparkling — 气泡的
+- Tonic — 汤力水
+- cocktail — 鸡尾酒
+
+### Human Characteristics (人类特征)
+
+- curious — 好奇的
+- brave — 勇敢的
+- silly — 愚蠢的
+- proud — 骄傲的
+- experienced — 有经验的
+- positive — 积极的
+- negative — 消极的
+- selfish — 自私的
+- miserable — 痛苦的
+- talented — 有才华的
+- patient — 耐心的
+- keen — 敏锐的
+- honest — 诚实的
+- cruel — 残酷的
+- annoying — 烦人的
+- needy — 依赖的
+- stubborn — 固执的
+- cool — 酷
+- independent — 独立的
+- ambitious — 有雄心的
+- warm — 温暖的
+- welcoming — 热情的
+- sociable — 善于交际的
+- generous — 慷慨的，大方的
+- gentle — 温柔的
+- understanding — 善解人意的
+- skillful — 熟练的
+- peaceful — 和平的
+- doubtful — 怀疑的
+- bully — 霸凌者
+
+### Adverbs and Prepositions (副词和介词)
+
+- according to — 根据
+- as — 像
+- like — 像
+- within — 在...之内
+- below — 下面
+- underneath — 在...下面
+- downward — 向下
+- nearby — 附近
+- upward — 向上
+- high — 高
+- along — 沿着
+- anywhere — 任何地方
+- everywhere — 到处
+- nowhere — 无处
+- somewhere — 某处
+- away — 远离
+- behind — 后面
+- by — 旁边
+- directly — 直接
+- down — 向下
+- up — 向上
+- underground — 地下
+- among — 在...之中，被...环绕
+- into — 进
+- onto — 到...上
+- off — 离开
+- close — 靠近，紧挨
+- including — 包括
+- per — 每
+- plus — 加上
+- till — 直到
+- toward — 向
+- unlike — 与...不同
+- via — 通过
+- badly — 严重地
+- without — 没有
+- backward — 向后
+- but — 除了
+
+### Education
+
+- education — 教育
+- to educate — 教育
+- educational — 教育的
+- educated — 受过教育的
+- academic — 学术的
+- assignment — 作业
+- classwork — 课堂作业
+- campus — 校园
+- diploma — 文凭
+- adult education — 成人教育
+- higher education — 高等教育
+- private — 私人的
+- private school — 私立学校
+- kindergarten — 幼儿园
+- grad — 毕业生
+- to graduate — 毕业
+- undergraduate — 本科生
+- graduation — 毕业
+- degree — 学位
+- lecturer — 讲师
+- pupil — 学生
+- period — 课时
+- to review — 复习
+- to attend — 参加
+- to drop out — 退学
+- to examine — 考试
+- exercise — 练习
+- examination — 考试
+- quiz — 测验
+- tuition — 学费
+- to [hit] the books — 认真用功读书
+- genius — 天才
+
+### Money and Shopping (金钱与购物)
+
+- to afford — 负担得起
+- change — 找零
+- to charge — 收费
+- coin — 硬币
+- currency — 货币
+- discount — 折扣
+- inexpensive — 实惠的
+- mall — 购物中心
+- stall — 摊位
+- to return — 退回
+- buyer — 买家
+- seller — 卖家
+- shopper — 购物者
+- product — 产品
+- goods — 商品
+- checkout — 收银台
+- account — 账户
+- to owe — 欠
+- credit — 信用
+- debt — 债务
+- to donate — 捐赠
+- balance — 余额
+- expense — 花费
+- value — 价值
+- sum — 总额
+- total — 总数
+- bargain — 便宜货
+- tax — 税
+- possession — 财产
+- to belong — 属于
+- saving — 节省
+- production — 生产
+- worth — 价值
+- cut — 削减
+- luxury — 奢华
+- overpriced — 定价过高
+- penny — 便士
+- check — 支票
+- sale — 销售
+
+### Fashion
+
+- costume — 服装
+- top — 上衣
+- underpants — 内裤
+- panties — 内裤
+- bathing suit — 泳衣
+- hoodie — 连帽衫
+- sweatshirt — 运动衫
+- overcoat — 大衣
+- baggy — 宽松的
+- collar — 衣领
+- sleeve — 袖子
+- to dress — 穿衣服
+- to fasten — 扣紧
+- to button — 扣上纽扣
+- wool — 羊毛
+- in — 流行
+- fashionable — 时尚的
+- trendy — 时髦的
+- pattern — 图案
+- cloth — 布料
+- stripe — 条纹
+- denim — 牛仔布
+- cotton — 棉
+- leather — 皮革
+- fur — 毛皮
+- backpack — 背包
+- to suit — 适合
+- bra — 胸罩
+- linen — 亚麻布
+- design — 设计
+
+### Sports and Players (体育与运动员)
+
+- boxing — 拳击
+- squash — 壁球
+- horseback riding — 骑马
+- pool — 台球
+- horse racing — 赛马
+- goalkeeper — 守门员
+- cyclist — 骑自行车的人
+- golfer — 高尔夫球手
+- soccer player — 足球运动员
+- diver — 潜水员
+- captain — 队长
+- athletic — 健壮的
+- stadium — 体育场
+- course — 球场
+- court — 球场
+- tournament — 锦标赛
+- league — 联赛
+- olympic — 奥林匹克的
+- competitive — 竞争的
+- champion — 冠军
+- final — 决赛
+- half-time — 中场休息
+- to pass — 传球
+- racket — 球拍
+- basket — 篮筐
+- save — 救球
+- opponent — 对手
+- referee — 裁判
+- match — 比赛
+- contest — 比赛
+- result — 结果
+- catch — 接球
+- to disqualify — 取消资格
+- away game — 客场比赛
+- home game — 主场比赛
+- Super Bowl — 超级碗
+
+### Transportation
+
+- transportation — 交通
+- vehicle — 车辆
+- yacht — 游艇
+- aircraft — 航空器
+- plane — 飞机
+- jet — 喷气式飞机
+- track — 轨道
+- tunnel — 隧道
+- destination — 目的地
+- harbor — 港口
+- port — 港口
+- airfare — 机票价格
+- seat belt — 安全带
+- to board — 登上
+- to access — 访问
+- to get in — 到达
+- to set out — 出发
+- to set off — 出发
+- to land — 着陆
+- on board — 在船上/火车上/飞机上
+- first class — 头等舱
+- business class — 商务舱
+- economy class — 经济舱
+- connection — 连接
+- domestic — 国内的
+- public — 公共的
+- window seat — 靠窗座位
+- to commute — 通勤
+- nonstop — 直达
+- to transport — 运输
+- turn — 转弯
+- to bike — 骑自行车
+
+### The Weather (天气)
+
+- sunrise — 日出
+- sunset — 日落
+- sunshine — 阳光
+- shade — 阴凉处
+- thunder — 雷声
+- lightning — 闪电
+- rainfall — 降雨
+- snowfall — 降雪
+- shower — 阵雨
+- rainstorm — 暴雨
+- snowstorm — 暴风雪
+- rainwater — 雨水
+- raindrop — 雨滴
+- snowflake — 雪花
+- to pour — 倾泻，下倾盆大雨
+- to flood — 泛滥
+- humid — 潮湿的
+- damp — 潮湿的
+- frozen — 冻结的
+- heat wave — 热浪
+- fine — 好的
+- calm — 平静的
+- hailstorm — 冰雹暴
+- icy — 冰冷的
+- forecast — 预报
+- to set — 落下
+- to rise — 升起
+- to freeze — 冻结
+- to melt — 融化
+- to shine — 照耀
+- acid rain — 酸雨
+- sandstorm — 沙尘暴
+- windstorm — 风暴
+- bright — 明亮的
+
+### Appearance
+
+- figure — 身材
+- beauty — 美丽
+- attractiveness — 吸引力
+- stunning — 惊人的
+- gorgeous — 华丽的
+- ugliness — 丑陋
+- unattractive — 不吸引人的
+- chubby — 胖乎乎的
+- overweight — 超重
+- obese — 肥胖
+- underweight — 体重不足
+- hairstyle — 发型
+- thick — 浓密的
+- to comb — 梳
+- haircut — 发型
+- to shave — 刮
+- hairy — 多毛的
+- gray-haired — 灰发的
+- fair — 浅
+- ginger — 姜黄色
+- red — 红
+- shiny — 闪亮的
+- expression — 表情
+- pale — 苍白的
+- frown — 皱眉
+- grin — 咧嘴笑
+- spot — 痘痘
+- freckle — 雀斑
+- well-dressed — 穿着考究的
+- race — 种族
+- little — 小的
+
+### Time
+
+- period — 时期
+- term — 期限
+- while — 一会儿
+- daytime — 白天
+- nighttime — 夜晚
+- daylight — 日光
+- midday — 中午
+- at times — 有时
+- continuous — 连续的
+- continuously — 连续地
+- ahead of time
+- late — 迟到的
+- to last — 持续
+- to take — 需要
+- punctual — 准时的
+- throughout — 自始至终
+- sudden — 突然的
+- regularly — 定期地
+- regular — 定期的
+- immediate — 立即的
+- eventually — 最终
+- afterward — 之后
+- ago — 以前
+- all the time — 一直
+- far — 远
+- hourly — 每小时
+- instantly — 立即
+- present — 当前的
+- past — 过去的
+- future — 未来的
+- already — 已经
+- currently — 目前
+- ever — 曾经
+- forever — 永远
+- just — 刚刚
+- meanwhile — 与此同时
+- previously — 以前
+- away — 远
+- near — 近的
+- irregular — 不规则的
+
+### The Human Body (人体)
+
+- armpit — 腋窝
+- hip — 臀部
+- temple — 太阳穴
+- thumb — 拇指
+- toenail — 脚趾甲
+- fingernail — 指甲
+- joint — 关节
+- rib — 肋骨
+- sole — 脚底
+- eyeball — 眼球
+- to breathe — 呼吸
+- circulation — 循环
+- sense — 感觉
+- sight — 视力
+- hearing — 听力
+- touch — 触觉
+- smell — 嗅觉
+- waist — 腰
+- taste — 味觉
+- hormone — 激素
+- tissue — 组织
+- nerve — 神经
+- gesture — 手势
+- tear — 眼泪
+- blood sugar — 血糖
+- kidney — 肾脏
+- lung — 肺
+
+### Games and Toys (游戏和玩具)
+
+- dice — 骰子
+- tie — 平局
+- to tie — 打平
+- to cheat — 作弊
+- to go — 走
+- turn — 轮次
+- play — 游戏
+- chess — 国际象棋
+- crossword — 填字游戏
+- dollhouse — 娃娃屋
+- winning — 获胜的
+- puzzle — 谜题
+- trick — 戏法
+- move — 移动
+- to deal — 发牌
+- computer game — 电脑游戏
+- rule — 规则
+- bowling — 保龄球
+- guessing game — 猜谜游戏
+- Ping-Pong — 乒乓球
+- balloon — 气球
+- fun — 有趣的
+- amusing — 有趣的
+- playtime — 游戏时间
+- kite — 风筝
+- darts — 飞镖
+- card — 牌
+- hide-and-seek — 捉迷藏
+- checkmate — 将死
+- video game console — 视频游戏机
+
+### Computer
+
+- to access — 访问
+- error — 错误
+- key — 键
+- to log off — 注销
+- program — 程序
+- software — 软件
+- operating system — 操作系统
+- to install — 安装
+- hardware — 硬件
+- Wi-Fi — Wi-Fi
+- to quit — 退出
+- system — 系统
+- click — 点击
+- button — 按钮
+- to type — 打字
+- window — 窗口
+- wireless — 无线的
+- to connect — 连接
+- connection — 连接
+- data — 数据
+- folder — 文件夹
+- to delete — 删除
+- to drag — 拖动
+- to scroll — 滚动
+- to back up — 备份
+- desktop — 桌面
+- version — 版本
+- application — 应用程序
+- virus — 病毒
+
+### Health and Sickness (健康与疾病)
+
+- healthcare — 医疗保健
+- welfare — 福祉
+- medicine — 药
+- medical — 医疗的
+- positive — 阳性
+- negative — 阴性
+- drug — 药物
+- aspirin — 阿司匹林
+- antibiotic — 抗生素
+- capsule — 胶囊
+- first-aid kit — 急救箱
+- bandage — 绷带
+- Band-Aid — 创可贴
+- shot — 注射
+- to bleed — 流血
+- to suffer — 受苦
+- painful — 痛苦的
+- examination — 检查
+- test — 医疗检查
+- operation — 手术
+- to operate — 动手术
+- to treat — 治疗
+- treatment — 治疗
+- to cure — 治愈
+- to heal — 愈合
+- mental — 心理的
+- to spread — 传播
+- symptom — 症状
+- to recover — 恢复
+- recovery — 恢复
+- prescription — 处方
+- care — 照顾、关注
+- to care for — 照顾
+- first aid — 急救
+- checkup — 体检
+- to weigh — 称重
+- poison — 毒药
+- to [catch] (a|) cold
+
+### Nature and Regions (自然与地区)
+
+- region — 地区
+- land — 土地
+- highland — 高地
+- woodland — 林地
+- jungle — 丛林
+- meadow — 草地
+- mountain range — 山脉
+- cave — 洞穴
+- cliff — 悬崖
+- mountainous — 多山的
+- rocky — 多岩石的
+- canyon — 峡谷
+- waterfall — 瀑布
+- bank — 岸
+- coastline — 海岸线
+- sand — 沙子
+- canal — 运河
+- channel — 海峡
+- sea level — 海平面
+- mud — 泥
+- national park — 国家公园
+- Antarctic — 南极的
+- Arctic — 北极的
+- volcano — 火山
+- location — 位置
+
+### City and the Countryside (城市与乡村)
+
+- cafe — 咖啡馆
+- gallery — 画廊
+- nightclub — 夜总会
+- fire station — 消防站
+- gym — 健身房
+- playground — 游乐场
+- barbershop — 理发店
+- urban — 城市的
+- suburb — 郊区
+- outskirts — 郊区
+- uptown — 住宅区
+- inner city — 内城区
+- community — 社区
+- commuter — 通勤者
+- population — 人口
+- housing — 住房
+- parking lot — 停车场
+- road sign — 路标
+- pedestrian — 行人
+- street light — 路灯
+- lane — 小路
+- overpass — 天桥
+- crossroad — 十字路口
+- farmland — 农田
+- grassland — 草原
+- county — 县
+- orchard — 果园
+- well — 井
+- pizzeria — 披萨店
+- dam — 水坝
+- sidewalk — 人行道
+- homeland — 祖国
+- square — 广场
+
+### Religion and Festivals (宗教与节日)
+
+- Christmas — 圣诞节
+- santa claus — 圣诞老人
+- Christmas carol — 圣诞颂歌
+- eggnog — 蛋酒
+- christmas stocking — 圣诞袜
+- christmas tree — 圣诞树
+- christmas eve — 平安夜
+- mistletoe — 槲寄生
+- God — 神
+- angel — 天使
+- elf — 精灵
+- Hanukkah — 光明节
+- miracle — 奇迹
+- eve — 前夕
+- Easter — 复活节
+- Thanksgiving — 感恩节
+- to celebrate — 庆祝
+- celebration — 庆祝
+- charity — 慈善
+- religion — 宗教
+- prayer — 祈祷
+- to pray — 祈祷
+- abbey — 修道院
+- cathedral — 大教堂
+- ceremony — 仪式
+- custom — 习俗
+- tradition — 传统
+- faith — 信仰
+- religious — 宗教的
+- believer — 信徒
+- to bless — 祝福
+- holy — 神圣的
+- priest — 牧师
+- decoration — 装饰
+
+### Special Occasions (特殊场合)
+
+- birth — 出生
+- graduation — 毕业典礼
+- engagement — 订婚
+- Father's Day — 父亲节
+- New Year's Day — 元旦
+- Mother's Day — 母亲节
+- Valentine's Day
+- Halloween — 万圣节前夕
+- event — 活动
+- occasion — 场合
+- gathering — 会议
+- to throw — 举办
+- celebration — 庆祝
+- to entertain — 娱乐
+- banner — 横幅
+- to blow out — 吹灭
+- candle — 蜡烛
+- present — 礼物
+- to wrap — 包裹
+- to gather — 聚集
+- to participate — 参加
+- to [take] part
+- to host — 主办
+
+### War and Peace (战争与和平)
+
+- war — 战争
+- peace — 和平
+- army — 军队
+- military — 军队
+- force — 力量
+- to obey — 服从
+- to order — 命令
+- order — 命令
+- commander — 指挥官
+- officer — 军官
+- conflict — 冲突
+- battle — 战斗
+- to defeat — 击败
+- defeat — 失败
+- attack — 攻击
+- to attack — 攻击
+- to defend — 保卫
+- defense — 防御
+- victory — 胜利
+- to guard — 守卫
+- weapon — 武器
+- gun — 枪
+- bullet — 子弹
+- bomb — 炸弹
+- to fire — 射击
+- to explode — 爆炸
+- to shoot — 射击
+- explosion — 爆炸
+- enemy — 敌人
+- to damage — 损坏
+- damage — 损坏
+- to bomb — 轰炸
+- peaceful — 和平的
+- bloody — 血腥的
+- dogfighter — 战斗机飞行员
+- to target — 瞄准
+- destruction — 破坏
+- combat — 战斗
+- missile — 导弹
+- shotgun — 霰弹枪
+- gunshot — 枪声
+- gunfire — 枪火
+- to question — 询问
+
+### Quantities and Containers (数量和容器)
+
+- Fahrenheit — 华氏
+- Celsius — 摄氏
+- centigrade — 摄氏
+- dozen — 打
+- ounce — 盎司
+- gallon — 加仑
+- inch — 英寸
+- scale — 规模
+- piece — 块
+- slice — 片
+- loaf — 一条面包
+- bar — 一块
+- roll — 卷
+- number — 数量
+- bunch — 束
+- pile — 堆
+- row — 排
+- edge — 边缘
+- container — 容器
+- carton — 纸盒
+- case — 箱子
+- pack — 包
+- packet — 包
+- package — 包裹
+- mug — 杯子
+- jug — 壶
+- jar — 罐子
+- tube — 管子
+- tray — 托盘
+- can — 罐
+- basket — 篮子
+- bucket — 桶
+- extra — 额外的
+- maximum — 最大
+- minimum — 最小
+- limited — 有限的
+- double — 双倍
+- enough — 足够的
+- packet — 包
+- bit — 一点
+- pitcher — 水罐
+- pitcher — 水罐
+
+### Languages and Nationalities (语言和国籍)
+
+- Pashto — 普什图语
+- Urdu — 乌尔都语
+- Hebrew — 希伯来语
+- Bulgarian — 保加利亚语
+- Czech — 捷克语
+- Slovak — 斯洛伐克语
+- Welsh — 威尔士语
+- Polish — 波兰语
+- Finnish — 芬兰语
+- Persian — 波斯人
+- Norwegian — 挪威语
+- Danish — 丹麦语
+- Thai — 泰语
+- Mandarin — 普通话
+- Irish — 爱尔兰语
+- Scot — 苏格兰人
+- Cantonese — 粤语
+- Iranian — 伊朗人
+
+### Romance
+
+- to admire — 钦佩
+- to desire — 渴望
+- to embrace — 拥抱
+- to flirt — 调情
+- to want — 渴望
+- to kiss — 亲吻
+- kiss — 吻
+- lover — 情人
+- date — 约会
+- love letter — 情书
+- love life — 爱情生活
+- hug — 拥抱
+- passion — 激情
+- crush — 暗恋
+- baby — 宝贝
+- darling — 亲爱的
+- honey — 亲爱的
+- sweetheart — 亲爱的
+- blind date — 盲约
+- double date — 双重约会
+- fond — 喜爱的
+- soulmate — 灵魂伴侣
+- Valentine — 情人节情人
+- romance — 浪漫
+- romantic — 浪漫的
+- to [be|feel] attracted to {sb}
+- attraction — 吸引
+
+### Feelings and Emotions (感受与情感)
+
+- amazed — 惊讶的
+- to anger — 激怒
+- anxious — 焦虑的
+- anxiety — 焦虑
+- approval — 批准
+- ashamed — 羞愧的
+- boredom — 无聊
+- cheerful — 快乐的
+- depressed — 沮丧的
+- desire — 欲望
+- eager — 渴望的
+- embarrassed — 尴尬的
+- excitement — 兴奋
+- frightened — 害怕的
+- glad — 高兴
+- grateful — 感激的
+- hate — 恨
+- guilty — 有罪的
+- interest — 兴趣
+- interested — 感兴趣的
+- jealousy — 嫉妒
+- lonely — 孤独的
+- mad — 生气
+- pleasure — 快乐
+- to bully — 欺负
+- to sadden — 使悲伤
+- satisfaction — 满足
+- to scare — 吓唬
+- to satisfy — 满足
+- stressed — 有压力的
+- to calm — 使平静
+- to shock — 震惊
+- to frighten — 吓唬
+- hunger — 饥饿
+- self-respect — 自尊
+- horror — 恐怖
+- exhausted — 筋疲力尽的
+
+### People and Stages of Life (人与人生阶段)
+
+- adulthood — 成年期
+- adolescence — 青春期
+- adolescent — 青少年
+- infant — 婴儿
+- infancy — 婴儿期
+- childhood — 童年
+- boyhood — 童年
+- girlhood — 少女时期
+- old age — 老年
+- retirement — 退休
+- to age — 变老
+- elderly — 年长的
+- parental — 父母的
+- born — 出生的
+- middle age — 中年
+- midlife — 中年
+- maturity — 成熟
+- newborn — 新生儿
+- toddler — 幼儿
+- teen — 青少年
+- preteen — 青春期前的孩子
+- youth — 青春
+- senior — 老年人
+- junior — 青少年，面向年轻人的
+- grownup — 成年人
+- senior — 年长的
+
+### Hobbies (爱好)
+
+- pastime — 消遣
+- leisure — 闲暇
+- backpacking — 背包旅行
+- birdwatching — 观鸟
+- blogging — 写博客
+- cheerleading — 啦啦队
+- clubbing — 泡夜店
+- collecting — 收集
+- to doodle — 涂鸦
+- gambling — 赌博
+- hunting — 狩猎
+- journaling — 写日记
+- karting — 卡丁车
+- knitting — 编织
+- meditation — 冥想
+- mountain biking — 山地自行车运动
+- origami — 折纸
+- pottery — 陶艺
+- scuba diving — 水肺潜水
+- sketching — 素描
+- skydiving — 跳伞
+- traveling — 旅行
+- window shopping — 逛橱窗
+- windsurfing — 风帆冲浪
+
+### The Environment and Energy (环境与能源)
+
+- planet — 行星
+- atmosphere — 大气
+- habitat — 栖息地
+- resource — 资源
+- power — 能源
+- fuel — 燃料
+- fossil fuel — 化石燃料
+- coal — 煤
+- oil — 石油
+- energy — 能量
+- atomic energy — 原子能
+- carbon footprint — 碳足迹
+- carbon dioxide — 二氧化碳
+- clean — 干净的
+- cleanup — 清理
+- eco-friendly — 环保的
+- green — 绿色的，环保的
+- to pollute — 污染
+- to consume — 消耗
+- climate crisis — 气候危机
+- natural disaster — 自然灾害
+- volcanic eruption — 火山喷发
+- garbage — 垃圾
+- waste — 废物
+- greenhouse gas — 温室气体
+- greenhouse effect — 温室效应
+- toxic — 有毒的
+- poisonous — 有毒的
+- air pollution — 空气污染
+- smoke — 烟
+- power plant — 发电厂
+- to recycle — 回收
+- recycling — 回收
+- renewable — 可再生的
+- emergency — 紧急情况
+- to rot — 腐烂
+- filth — 污秽
+- to rot — 腐烂
+
+### Law and Politics (法律与政治)
+
+- politics — 政治
+- candidate — 候选人
+- border — 边界
+- Congress — 国会
+- council — 议会
+- county — 县
+- court — 法庭
+- diplomacy — 外交
+- election — 选举
+- to elect — 选举
+- embassy — 大使馆
+- government — 政府
+- local government — 地方政府
+- governor — 州长
+- law — 法律
+- mayor — 市长
+- parliament — 议会
+- party — 党
+- political — 政治的
+- president — 总统
+- public — 公众
+- punishment — 惩罚
+- right — 权利
+- to arrest — 逮捕
+- to ban — 禁止
+- state — 州
+- to commit — 犯
+- to escape — 逃跑
+- to investigate — 调查
+- to murder — 谋杀
+- to punish — 惩罚
+- to rule — 统治
+- thief — 小偷
+- to vote — 投票
+- conference — 会议
+- statement — 声明
+- flag — 旗帜
+- blood money — 血钱
+- to free — 释放
+- death penalty — 死刑
+- criminal — 犯罪的
+- criminal — 罪犯
+
+### Farming
+
+- agriculture — 农业
+- barn — 谷仓
+- cattle — 牲畜
+- crop — 作物
+- farmhouse — 农舍
+- fish farm — 养鱼场
+- grain — 谷物
+- greenhouse — 温室
+- to harvest — 收割
+- land — 土地
+- to milk — 挤奶
+- organic — 有机的
+- pest — 害虫
+- plow — 犁
+- ranch — 牧场
+- scarecrow — 稻草人
+- seed — 种子
+- shepherd — 牧羊人
+- to sow — 播种
+- stable — 马厩
+- tractor — 拖拉机
+- vineyard — 葡萄园
+- windmill — 风车
+
+### Home Appliances and Furniture (家用电器和家具)
+
+- bed sheet — 床单
+- mattress — 床垫
+- radiator — 散热器
+- freezer — 冷冻柜
+- kitchen hood — 抽油烟机
+- garbage disposal — 垃圾处理器
+- pressure cooker — 压力锅
+- food processor — 食物处理器
+- juicer — 榨汁机
+- flatware — 餐具
+- chopstick — 筷子
+- ladle — 长柄勺
+- spatula — 铲子
+- mower — 割草机
+- faucet — 水龙头
+- vase — 花瓶
+- blind — 百叶窗
+- couch — 沙发
+- sofa bed — 沙发床
+- hair straighteners — 直发器
+- thermostat — 恒温器
+- pillow — 垫子
+- brush — 刷子
+- microwave — 微波炉
+- rug — 地毯
+
+### Media and Journalism (媒体与新闻业)
+
+- media — 媒体
+- advice column — 建议专栏
+- break — 广告时间
+- to broadcast — 广播
+- broadcast — 广播
+- channel — 频道
+- commercial — 广告
+- edition — 版
+- to publish — 出版
+- to edit — 编辑
+- episode — 集
+- front page — 头版
+- to cover — 报道
+- headline — 标题
+- host — 主持人
+- to interview — 采访
+- interview — 采访
+- to introduce — 介绍
+- item — 项目
+- journal — 杂志
+- listener — 听众
+- live — 直播
+- network — 网络
+- station — 频道
+- piece — 文章
+- podcast — 播客
+- press — 新闻界
+- reader — 读者
+- to report — 报道
+- show — 节目
+- soap opera — 肥皂剧
+- studio — 工作室
+- to view — 观看
+- viewer — 观众
+- audience — 观众
+- to subscribe — 订阅
+- to advertise — 广告
+
+### Social Issues (社会问题)
+
+- social — 社会的
+- racial — 种族的
+- right — 正确的
+- wrong — 错误的
+- addiction — 成瘾
+- abuse — 滥用
+- awareness — 意识
+- bullying — 欺凌
+- corruption — 腐败
+- crisis — 危机
+- equality — 平等
+- freedom — 自由
+- gender gap — 性别差距
+- homelessness — 无家可归
+- immigration — 移民
+- issue — 问题
+- malnutrition — 营养不良
+- obesity — 肥胖
+- overpopulation — 人口过剩
+- peer pressure — 同辈压力
+- poverty — 贫困
+- racism — 种族主义
+- security — 安全
+- sexism — 性别歧视
+- shortage — 短缺
+- modern slavery — 现代奴隶制
+- social inequality — 社会不平等
+- stability — 稳定
+- social service — 社会服务
+- welfare — 社会福利
+- to protest — 抗议
+- war — 战争
+- drug — 毒品
+- damage — 损害
+- brain drain — 人才外流
+- ignorant — 无知的
+
+### Success and Failure (成功与失败)
+
+- try — 尝试
+- to attempt — 尝试
+- to cost — 导致
+- difficulty — 困难
+- advantage — 优势
+- disadvantage — 不利
+- disappointing — 令人失望的
+- expectation — 期望
+- enemy — 敌人
+- to fail — 失败
+- failure — 失败
+- trouble — 麻烦
+- hard — 艰难地
+- lost — 丢失的
+- to miss — 错过
+- to overcome — 克服
+- purpose — 目的
+- to achieve — 实现
+- unsuccessful — 不成功的
+- to work — 工作
+- obstacle — 困难
+- to go on — 继续
+- to give up — 放弃
+- to abandon — 放弃
+- to fight — 奋斗
+- to accomplish — 完成
+- success — 成功
+- to succeed — 成功
+- well-paid — 高薪的
+- to trouble — 制造麻烦
+- mistake — 错误
+
+### Art
+
+- artwork — 艺术品
+- art form — 艺术形式
+- architecture — 建筑学
+- sculpture — 雕塑
+- graphic arts — 平面艺术
+- the performing arts — 表演艺术
+- to decorate — 装饰
+- to design — 设计
+- to sketch — 素描
+- sketch — 草图
+- exhibition — 展览
+- fake — 假的
+- finger-painting — 手指画
+- frame — 框架
+- graffiti — 涂鸦
+- to illustrate — 说明
+- illustration — 插图
+- to paint — 画
+- portrait — 肖像
+- statue — 雕像
+- studio — 工作室
+- symbol — 象征
+- master — 大师
+- style — 风格
+- collage — 拼贴
+- the visual arts — 视觉艺术
+
+### Literature
+
+- author — 作者
+- bestseller — 畅销书
+- biography — 传记
+- fairy tale — 童话
+- fiction — 小说
+- non-fiction — 非虚构
+- introduction — 介绍
+- metaphor — 隐喻
+- mystery — 谜
+- myth — 神话
+- plot — 情节
+- poem — 诗
+- poetry — 诗歌
+- quotation — 引用
+- to quote — 引用
+- to review — 评论
+- setting — 背景
+- short story — 短篇小说
+- storyline — 情节
+- storyteller — 讲故事的人
+- tale — 故事
+- title — 标题
+- verse — 诗句
+- writing — 著作
+- Gothic — 哥特式的
+- literary — 文学的
+- poetic — 诗意的
+- young adult — 年轻的成人
+- play — 戏剧
+
+### Internet and Websites (互联网与网站)
+
+- account — 账户
+- address bar — 地址栏
+- to attach — 附加
+- blog — 博客
+- blogger — 博主
+- blog post — 博客文章
+- bookmark — 书签
+- browser — 浏览器
+- to chat — 聊天
+- chat room — 聊天室
+- DM — 私信
+- Facebook — 脸书
+- to follow — 关注
+- to forward — 转发
+- Google — Google
+- inbox — 收件箱
+- to like — 喜欢
+- to log in — 登录
+- offline — 离线
+- outbox — 发件箱
+- page — 页面
+- server — 服务器
+- spam — 垃圾邮件
+- to surf — 浏览
+- to tweet — 发推
+- tweet — 推文
+- URL — URL
+- to visit — 访问
+- YouTube — YouTube
+
+### Fields of Study (研究领域)
+
+- accounting — 会计
+- art history — 艺术史
+- communication — 传播学
+- computer science — 计算机科学
+- cultural studies — 文化研究
+- dentistry — 牙科学
+- economics — 经济学
+- engineering — 工程学
+- finance — 金融
+- geology — 地质学
+- information technology — 信息技术
+- law — 法律
+- linguistics — 语言学
+- logic — 逻辑
+- management — 管理
+- medicine — 医学
+- nutrition — 营养
+- philosophy — 哲学
+- physiology — 生理学
+- political science — 政治学
+- psychiatry — 精神病学
+- psychology — 心理学
+- robotics — 机器人学
+- sociology — 社会学
+- statistics — 统计
+
+### Ambition and Achievement (雄心与成就)
+
+- to wish — 希望
+- achievement — 成就
+- aim — 目标
+- to aim — 旨在
+- ambition — 野心
+- bright — 光明的
+- effective — 有效的
+- effort — 努力
+- wish — 愿望
+- to manage — 设法
+- practical — 实用的
+- positive — 积极的
+- negative — 负面的
+- to promote — 促进
+- respect — 尊重
+- to respect — 尊重
+- secret — 秘诀
+- to support — 支持
+- to work on — 致力于
+- to dream — 梦想
+- hopeful — 充满希望的
+- progress — 进步
+- to intend — 打算
+- to go — 去
+- fight — 战斗
+- fortunately — 幸运地
+- unfortunately — 不幸的是
+- successfully — 成功地
+- to result — 导致
+- to secure — 获得
+
+### Movie and Theater (电影和剧院)
+
+- action movie — 动作片
+- animation — 动画
+- audition — 试镜
+- box office — 售票处
+- cast — 演员阵容
+- classic — 经典
+- clown — 小丑
+- critic — 评论家
+- criticism — 批评
+- to direct — 导演
+- dramatic — 戏剧的
+- to edit — 剪辑
+- editor — 编辑
+- entertaining — 娱乐的
+- film festival — 电影节
+- genre — 类型
+- part — 角色
+- to produce — 制作
+- melodrama — 情节剧
+- movie maker — 电影制作人
+- musical — 音乐剧
+- script — 剧本
+- scriptwriter — 编剧
+- silent movie — 无声电影
+- special effects — 特效
+- stage — 舞台
+- star — 明星
+- superhero — 超级英雄
+- superstar — 超级明星
+- demigod — 半神
+- thriller — 惊悚片
+- tragedy — 悲剧
+- trailer — 预告片
+- villain — 反派
+- Western — 西部片
+
+### Personal Characteristics (个人特征)
+
+- nature — 本性
+- individual — 个人
+- horrible — 可恶的
+- dependent — 依赖的
+- organized — 有条理的
+- outgoing — 外向的
+- to pretend — 假装
+- quality — 品质
+- characteristic — 特征
+- personal — 个人的
+- relaxed — 放松的
+- easy — 放松的
+- reliable — 可靠的
+- wise — 明智的
+- slow — 慢
+- to trick — 欺骗
+- weak — 弱的
+- mean — 刻薄的
+- childish — 幼稚的
+- loyal — 忠诚的
+- open — 开放的
+- evil — 邪恶的
+- responsible — 负责的
+- mysterious — 神秘的
+- determined — 坚定的
+- concern — 担忧
+- to appreciate — 感激
+
+### Common Adverbs (常见副词)
+
+- about — 大约，差不多
+- ago — 以前
+- all — 全部
+- anymore — 不再
+- anyway — 无论如何
+- apart — 分开
+- certainly — 当然
+- clearly — 清楚地
+- commonly — 通常，一般
+- correctly — 正确地
+- definitely — 肯定
+- double — 双倍地
+- each — 每
+- effectively — 有效地
+- enough — 足够
+- equally — 同样地
+- even — 甚至
+- first — 首先
+- frequently — 频繁地
+- fully — 完全地
+- hardly — 几乎不
+- heavily — 严重地
+- however — 然而
+- incredibly — 难以置信地
+- indeed — 确实
+- least — 最少
+- mainly — 主要地
+- mostly — 主要地
+- naturally — 自然地
+- absolutely — 绝对！
+
+### Essential Adverbs (基本副词)
+
+- (most|very) likely — 最有可能
+- nearly — 几乎
+- necessarily — 必然地
+- next — 接下来
+- normally — 通常
+- obviously — 显然
+- originally — 独创地
+- particularly — 特别
+- perfectly — 完美地
+- perhaps — 也许
+- personally — 个人而言
+- possibly — 可能
+- properly — 正确地
+- quickly — 快速地
+- quietly — 安静地
+- rapidly — 迅速地
+- similarly — 类似地，以类似的方式
+- simply — 仅仅
+- slightly — 稍微
+- specifically — 特别地，专门地
+- strongly — 强烈地
+- surely — 肯定
+- therefore — 因此
+- though — 不过
+- typically — 通常
+- today — 今天
+
+### Travel and Vacation (旅行与假期)
+
+- to backpack — 背包旅行
+- bed and breakfast
+- holiday — 假期
+- booking — 预订
+- brochure — 小册子
+- affordable — 负担得起的
+- to camp — 露营
+- campfire — 篝火
+- outdoors — 户外
+- keycard — 钥匙卡
+- check-in — 登记
+- reception desk — 接待处
+- desk clerk — 前台接待员
+- day trip — 一日游
+- doorman — 门卫
+- double — 双人间
+- family room — 家庭房
+- exchange — 交换
+- to explore — 探索
+- front desk — 前台
+- tour guide — 导游
+- hostel — 青年旅社
+- minibar — 迷你吧
+- luggage — 行李
+- visitor — 访客
+- to sunbathe — 晒太阳
+- stay — 停留
+- seaside — 海滨
+- safari — 野生动物观察之旅
+- single — 单人房
+- sight — 景点
+- to tour — 游览
+- cottage — 小屋
+
+### Essential Verbs (基本动词)
+
+- to admit — 承认
+- to advise — 建议
+- to aim — 瞄准
+- to announce — 宣布
+- to apologize — 道歉
+- to assist — 帮助
+- to attach — 附着
+- to award — 授予
+- to bake — 烤
+- to bend — 弯曲
+- to benefit — 受益
+- to block — 阻塞
+- to bother — 费心
+- to bury — 埋葬
+- to center — 集中
+- to claim — 声称
+- to clear — 清理
+- to combine — 混合
+- to compliment — 称赞
+- to concentrate — 集中
+- to conclude — 得出结论
+- to confirm — 确认
+- to confuse — 混淆
+- to consist — 由...组成
+- to contact — 联系
+- to contrast — 对比
+- to convince — 说服
+- to define — 定义
+- to deliver — 递送
+- to determine — 确定
+- to divide — 分开
+- to doubt — 怀疑
+- to encourage — 鼓励
+- to belong — 属于
+- to expand — 扩大
+
+### Necessary Verbs (必要的动词)
+
+- to experience — 体验
+- to face — 面对
+- to fold — 折叠
+- to force — 强迫
+- to hand — 递
+- to hang — 挂
+- to head — 前往
+- to hold on — 等待
+- to hug — 拥抱
+- to ignore — 忽略
+- to impact — 影响
+- to indicate — 表明
+- to influence — 影响
+- to iron — 熨烫
+- to label — 贴标签
+- to lack — 缺乏
+- to lay — 放置
+- to limit — 限制
+- to mess — 弄脏
+- to mix — 混合
+- to note — 注意
+- to occur — 发生
+- to persuade — 说服
+- to place — 放置
+- to poison — 下毒
+- to pour — 倒
+- to press — 按
+- to program — 编程
+- to prove — 证明
+- to qualify — 取得资格
+- to reflect — 反射
+- to relate — 关联
+- to release — 释放
+- to remain — 留下
+- to remind — 提醒
+- to represent — 代表
+- to freeze — 冻结
+
+### Common Verbs (常见动词)
+
+- to request — 请求
+- to require — 需要
+- to revise — 修订
+- to risk — 冒险
+- to roll — 滚动
+- to roll — 滚动
+- to scan — 浏览
+- to separate — 分开
+- to set — 放
+- to signal — 发信号
+- to sink — 沉没
+- to sort — 分类
+- to snore — 打鼾
+- to sniff — 嗅，吸鼻子
+- to stick — 粘贴
+- to store — 储存
+- to summarize — 总结
+- to supply — 供应
+- to survive — 幸存
+- to switch — 切换
+- to tend — 倾向于
+- to translate — 翻译
+- to upset — 使心烦
+- to view — 看
+- to yawn — 打哈欠
+- to warm — 温暖
+- to warn — 警告
+- to waste — 浪费，挥霍
+- to wave — 挥手
+- to wonder — 想知道
+- to pause — 暂停
+- to raise — 增加
+- to return — 归还
+- to respond — 回应
+
+### Essential Adjectives (基本形容词)
+
+- annoyed — 恼火的
+- automatic — 自动的
+- aware — 意识到的
+- human — 人类的
+- basic — 基本的
+- central — 中央的
+- complex — 复杂的
+- confused — 困惑的
+- convenient — 方便的
+- cultural — 文化的
+- current — 当前的
+- disappointed — 失望的
+- drunk — 喝醉的
+- eastern — 东方的
+- embarrassing — 尴尬的
+- equal — 相等的
+- huge — 巨大的
+- essential — 必要的
+- familiar — 熟悉的
+- fixed — 固定的
+- global — 全球的
+- historical — 历史的
+- imaginary — 想象的
+- indoor — 室内的
+- injured — 受伤的
+- innocent — 无辜的
+- legal — 合法的
+- magic — 魔法的
+- native — 原生的
+- northern — 北方的
+- traditional — 传统的
+- ancient — 古代的
+- secret — 秘密的
+- big — 重要的
+- hidden — 隐藏的
+
+### Necessary Adjectives (必要的形容词)
+
+- obvious — 明显的
+- odd — 奇怪的
+- official — 官方的
+- old-fashioned — 过时的
+- outdoor — 户外的
+- powerful — 强大的
+- previous — 以前的
+- primary — 初级的
+- rare — 罕见的
+- relative — 相对的
+- rough — 粗糙的
+- scientific — 科学的
+- secondary — 次要的
+- sexual — 性的
+- sharp — 锋利的
+- silent — 寂静的
+- smooth — 光滑的
+- southern — 南方的
+- spoken — 口头的
+- standard — 标准
+- still — 静止的
+- suitable — 合适的
+- super — 超级
+- total — 全部的
+- unlikely — 不太可能
+- upset — 心烦的
+- used — 用过的
+- valuable — 贵重的
+- western — 西方的
+- written — 书面的
+- specific — 特定的
+- firm — 坚固的
+- middle — 中间的
+- thoughtful — 体贴的
+
+### Food and Diet (食物与饮食)
+
+- black pepper — 黑胡椒
+- bread roll — 面包卷
+- cheeseburger — 芝士汉堡
+- curry — 咖喱
+- fruit salad — 水果沙拉
+- garlic — 大蒜
+- green bean — 四季豆
+- lettuce — 生菜
+- loaf — 一条面包
+- mint — 薄荷
+- pancake — 薄煎饼
+- peanut butter — 花生酱
+- plant-based — 植物基
+- popcorn — 爆米花
+- pickle — 泡菜
+- raw — 生的
+- ripe — 成熟的
+- take-away — 外卖
+- sugar-free — 无糖
+- mashed potato — 土豆泥
+- croissant — 牛角面包
+- wrap — 卷饼
+- cupcake — 纸杯蛋糕
+- cheesecake — 芝士蛋糕
+- donut — 甜甜圈
+- low-fat diet — 低脂饮食
+- low-carb diet — 低碳水化合物饮食
+- gluten-free diet — 无麸质饮食
+- calorie — 卡路里
+- nutrition — 营养
+- chocolate — 巧克力
+- pepper — 甜椒
+- Jell-O — 果冻
+
+### Abstract Concepts (抽象概念)
+
+- content — 内容
+- situation — 情况
+- attitude — 态度
+- impression — 印象
+- point — 点
+- theory — 理论
+- thinking — 思考
+- choice — 选择
+- option — 选项
+- ignorance — 无知
+- doubt — 怀疑
+- possibility — 选项
+- concept — 概念
+- prediction — 预测
+- truth — 真相
+- need — 需求
+- permission — 许可
+- help — 帮助
+- to [make] sure
+- no way — 绝不可能
+- evidence — 证据
+- gap — 差距
+- in favor — 赞成
+- sorry — 抱歉
+- unless — 除非
+- to point out — 指出
+- comparison — 比较
+- concern — 关注
+- growth — 增长
+- dream — 梦
+- nightmare — 噩梦
+- offer — 提议
+- sort of {~noun} — 有点
+- difference — 区别
+- series — 系列
+- possession — 拥有
+- defense — 防御
+- middle — 中间
+- boundary — 边界
+- feeling — 感觉
+- plus — 另外
+- promise — 承诺
+
+
+## B2 Level / B2 级别
+
+### Electronic Devices (电子设备)
+
+- gadget — 小工具
+- device — 设备
+- mechanical — 机械的
+- electronic — 电子的
+- ingenious — 巧妙的
+- intuitive — 直观的
+- latest — 最新的
+- obsolete — 过时的
+- outdated — 过时的
+- novel — 新的
+- to power — 供电
+- to charge — 充电
+- to recharge — 充电
+- to drain — 耗尽
+- to boot — 启动
+- to start up — 启动
+- to shut down — 关闭
+- to update — 更新
+- battery — 电池
+- capacity — 容量
+- signal — 信号
+- generation — 代
+- process — 进程
+- charger — 充电器
+- cable — 电缆
+- memory — 内存
+- screen — 屏幕
+- controller — 控制器
+- control panel — 控制面板
+- microscope — 显微镜
+- magnifying glass — 放大镜
+- compass — 指南针
+- drone — 无人机
+- cutting-edge — 尖端的
+- off — 关闭
+- touchscreen — 触摸屏
+
+### Animals (动物)
+
+- breed — 品种
+- to breed — 繁殖
+- cage — 笼子
+- species — 物种
+- territory — 领地
+- polar bear — 北极熊
+- owl — 猫头鹰
+- ape — 猿
+- cheetah — 猎豹
+- leopard — 豹
+- puppy — 小狗
+- reindeer — 驯鹿
+- squirrel — 松鼠
+- tortoise — 乌龟
+- feather — 羽毛
+- paw — 爪子
+- venom — 毒液
+- to bark — 吠
+- to chain — 用链条锁住
+- to lay — 产卵
+- to mate — 交配
+- pack — 群
+- domestic — 驯养的
+- extinct — 灭绝的
+- mammal — 哺乳动物
+- reptile — 爬行动物
+- to trap — 诱捕
+- wildlife — 野生动物
+
+### Clothes and Fashion (服装与时尚)
+
+- apron — 围裙
+- badge — 徽章
+- bathrobe — 浴袍
+- bikini — 比基尼
+- cardigan — 开襟毛衣
+- helmet — 头盔
+- mask — 面具
+- masquerade — 化装舞会
+- miniskirt — 迷你裙
+- jersey — 毛衣
+- sandal — 凉鞋
+- vest — 背心
+- fabric — 织物
+- denim — 牛仔布
+- lace — 蕾丝
+- lining — 衬里
+- silk — 丝绸
+- hood — 兜帽
+- zipper — 拉链
+- collection — 系列
+- costume — 服装
+- designer — 设计师
+- modeling — 模特
+- outfit — 服装
+- wardrobe — 衣柜
+- to dress up — 盛装打扮
+- to match — 匹配
+- casual — 休闲的，非正式的
+- glamorous — 迷人的
+- matching — 相配的
+- plain — 简单
+- sporty — 运动的
+- striped — 条纹的
+- stylish — 时尚的
+- undressed — 脱了衣服的
+- wooly — 羊毛的
+
+### Family and Relationships (家庭与关系)
+
+- affair — 婚外情
+- bond — 纽带
+- household — 家庭
+- divorce — 离婚
+- to divorce — 离婚
+- lineage — 血统
+- ancestor — 祖先
+- ex — 前任
+- extended family — 大家庭
+- folks — 父母
+- foster parent — 养父母
+- identical twin — 同卵双胞胎
+- in-law — 岳父母
+- sibling — 兄弟姐妹
+- stepbrother — 继兄弟
+- stepchild — 继子女
+- stepdaughter — 继女
+- stepfather — 继父
+- stepmother — 继母
+- stepsister — 继姐妹
+- stepson — 继子
+- separation — 分居
+- adoption — 收养
+- brotherly — 兄弟般的
+- close-knit — 紧密的
+- to adopt — 收养
+- to cheat on — 出轨
+- to inherit — 继承
+- to stand by — 忠于
+- to take after — 像
+- to [sing] {sb} to sleep
+- closely related
+
+### Art
+
+- artwork — 插图
+- background — 背景
+- foreground — 前景
+- collector — 收藏家
+- graphic artist — 平面艺术家
+- masterpiece — 杰作
+- exhibit — 展览
+- image — 雕像
+- landscape — 风景
+- self-portrait — 自画像
+- subject matter — 主题
+- shade — 色调
+- ink — 墨水
+- oil paint — 油画颜料
+- watercolor — 水彩画
+- abstract — 抽象的
+- artistic — 艺术的
+- original — 原创的，真正的
+- realistic — 现实的
+- classic — 经典的
+- modern — 现代
+- contemporary — 当代的
+- visual — 视觉的
+- vivid — 鲜艳的
+- to depict — 描绘
+- to display — 展示
+- to exhibit — 展出
+- to frame — 装框
+- to inspire — 启发
+- to model — 建模
+- to restore — 修复
+
+### The Human Body (人体)
+
+- anatomy — 解剖学
+- organ — 器官
+- Adam's apple — 喉结
+- artery — 动脉
+- blood vessel — 血管
+- cell — 细胞
+- heartbeat — 心跳
+- scalp — 头皮
+- collarbone — 锁骨
+- breast — 胸部
+- abdomen — 腹部
+- digestive system — 消化系统
+- immune system — 免疫系统
+- belly — 肚子
+- belly button — 肚脐
+- intestine — 肠
+- gallbladder — 胆囊
+- bladder — 膀胱
+- buttock — 臀部
+- spine — 脊柱
+- calf — 小腿
+- shin — 胫骨
+- big toe — 大脚趾
+- pinky — 小指
+- eyelid — 眼皮
+- jaw — 颌
+- vein — 静脉
+- nostril — 鼻孔
+- eyebrow — 眉毛
+- kidney stone — 肾结石
+
+### Business and Office (商业与办公室)
+
+- agency — 机构
+- corporation — 公司
+- board — 董事会
+- chairman — 主席
+- entrepreneur — 企业家
+- clerk — 职员
+- draft — 汇票
+- income — 收入
+- insurance — 保险
+- market research — 市场调研
+- to contract — 签订合同
+- to establish — 建立
+- to found — 建立
+- to fund — 资助
+- to manufacture — 制造
+- to launch — 启动
+- to ship — 运送
+- to sponsor — 赞助
+- strategy — 策略
+- partnership — 伙伴关系
+- profit margin — 利润率
+- stockholder — 股东
+- union — 工会
+- tax evasion — 逃税
+- shipment — 发货
+- fortune — 财富
+- savings — 储蓄
+- wealthy — 富有的
+- to come down — 下降
+- to live on — 靠...生活
+- to pay off — 还清
+- to set aside — 留出
+- discount — 折扣
+- fee — 费用
+- lending — 借贷
+- senior — 高级的
+- junior — 初级的
+- to speak — 说
+- chief executive officer — 首席执行官
+
+### Crime and Violence (犯罪与暴力)
+
+- to capture — 捕捉
+- to expose — 揭露
+- to get away with — 逃脱惩罚
+- to monitor — 监控
+- to pursue — 追赶
+- to resist — 抵抗
+- to sentence — 判处
+- to traffic — 非法交易
+- to witness — 目睹
+- arrest — 逮捕
+- bulletproof vest — 防弹背心
+- community service — 社区服务
+- cell — 牢房
+- jail — 监狱
+- life sentence — 无期徒刑
+- crime — 犯罪
+- eyewitness — 目击者
+- offender — 罪犯
+- drug dealer — 毒贩
+- fraud — 骗子
+- gang — 帮派
+- pickpocket — 扒手
+- bombing — 轰炸
+- burglary — 入室盗窃
+- drunk driving — 酒后驾驶
+- identity theft — 身份盗窃
+- robbery — 抢劫
+- shooting — 枪击
+- shoplifting — 商店行窃
+- terrorism — 恐怖主义
+- vandalism — 故意破坏
+- violence — 暴力
+- to break out — 逃脱
+- to hang — 绞死
+- break — 逃脱
+- grass — 草
+- narc — 缉毒警
+- stoned — 嗨了
+- to trip — 迷幻之旅
+- breathalyzer — 酒精测试仪
+- to disobey — 不服从
+- to lock away — 关押
+- dead to rights — 让人无从抵赖地
+- scam — 诈骗
+- forensics — 法医学
+- to scam — 诈骗
+
+### Law
+
+- to account — 视为
+- to accuse — 指责
+- to challenge — 质疑
+- to suspect — 怀疑
+- case — 案件
+- family court — 家庭法院
+- jury — 陪审团
+- trial — 审判
+- justice — 正义
+- injustice — 不公正
+- strict — 严格的
+- legal — 法律的
+- legally — 合法地
+- valid — 有效
+- regulation — 规定
+- to judge — 审判
+- authority — 权威
+- inspector — 督察
+- clause — 条款
+- claim — 索赔
+- bill — 法案
+- action — 诉讼
+- to appeal — 上诉
+- bail — 保释金
+- brief — 简报
+- charge — 指控
+- to charge — 指控
+- to defend — 辩护
+- to file — 提交
+- to issue — 签发
+- to prohibit — 禁止
+- prohibition — 禁止
+- to try — 审判
+- to break — 违反
+- to chair — 主持
+- to get away — 逃脱
+- to require — 需要
+- to disqualify — 取消资格
+- judgment — 判决
+- criminal record — 犯罪记录
+
+### Nature
+
+- biodiversity — 生物多样性
+- environmentalist — 环保主义者
+- conservation — 保护
+- deforestation — 森林砍伐
+- eclipse — 日食
+- solar — 太阳的
+- lunar — 月亮的
+- moonlight — 月光
+- northern lights — 北极光
+- to float — 漂浮
+- tide — 潮汐
+- steam — 蒸汽
+- sunlight — 阳光
+- dawn — 黎明
+- eruption — 喷发
+- volcanic — 火山的
+- lava — 熔岩
+- landslide — 山体滑坡
+- ecology — 生态学
+- ecosystem — 生态系统
+- nonrenewable — 不可再生的
+- hydroelectric — 水力发电的
+- turbine — 涡轮机
+- alternative energy — 替代能源
+- fume — 烟雾
+- to preserve — 保存
+- slope — 斜坡
+- pitch-black — 漆黑的
+- sub-zero — 零下
+
+### Politics
+
+- domestic — 国内的
+- federal — 联邦的
+- independent — 独立的
+- official — 官方的
+- presidential — 总统的
+- revolution — 革命
+- revolutionary — 革命的
+- congress — 国会
+- conservative — 保守派
+- Conservative Party — 保守党
+- Republican Party — 共和党
+- democrat — 民主党人
+- Democratic Party — 民主党
+- labor party — 工党
+- to back — 支持
+- to debate — 辩论
+- to govern — 统治
+- government — 政府
+- democracy — 民主
+- dictatorship — 独裁
+- kingdom — 王国
+- monarchy — 君主制
+- independence — 独立
+- human right — 人权
+- nation — 国家
+- to plot — 密谋
+- state — 国家
+- majority — 多数
+- minister — 部长
+- secretary — 部长
+- spokesperson — 发言人
+- negotiation — 谈判
+- opposition — 反对党
+- policy — 政策
+- presidency — 总统职位
+- to run for — 竞选
+- seat — 席位
+- voting — 投票
+- territory — 领土
+- to negotiate — 谈判
+- conspiracy — 阴谋
+- crackdown — 镇压
+- repression — 镇压
+- prime minister — 总理
+- Department of Homeland Security
+- to [lead] astray
+- Senate — 参议院
+
+### Money
+
+- to credit — 存入
+- economy — 经济
+- economic — 经济的
+- accounting — 会计
+- asset — 资产
+- budget — 预算
+- capital — 资本
+- debit — 借方
+- finance — 财务
+- investment — 投资
+- financing — 融资
+- borrowing — 借贷
+- debt — 债务
+- grant — 补助金
+- loan — 贷款
+- to possess — 拥有
+- distribution — 分销
+- inflation — 通货膨胀
+- welfare — 福利
+- profit — 利润
+- standard of living
+- balance — 余额
+- bank statement — 银行对账单
+- collapse — 崩溃
+- to collapse — 崩溃
+- decrease — 减少
+- loss — 损失
+- analyst — 分析师
+- banker — 银行家
+- to price — 定价
+- to purchase — 购买
+- rate — 利率
+- to rip off — 诈骗
+- rip-off — 宰客
+- bull — 多头
+- bear — 熊
+- to run out — 用完
+- automated teller machine — 自动取款机
+- refund — 退款
+
+### Cooking
+
+- recipe — 食谱
+- ingredient — 配料
+- to beat — 打
+- to chop — 切
+- to garnish — 装饰
+- to grill — 烤
+- to heat — 加热
+- to marinate — 腌制
+- to peel — 剥
+- to poach — 水煮
+- to roast — 烤
+- to slice — 切片，切
+- to stir — 搅拌
+- to toast — 烤
+- counter — 餐具柜
+- utensil — 器具
+- barbecue — 烧烤架
+- blender — 搅拌机
+- frying pan — 煎锅
+- wok — 炒锅
+- mixer — 搅拌器
+- lid — 盖子
+- mixing bowl — 搅拌碗
+- wooden spoon — 木勺
+- scale — 秤
+- pinch — 一撮
+- cupful — 杯
+- spoonful — 一勺
+
+### School and Education (学校与教育)
+
+- institution — 机构
+- grade school — 小学
+- graduate school — 研究生院
+- junior high school — 初中
+- senior high school — 高中
+- summer school — 暑期学校
+- prom — 毕业舞会
+- to enroll — 注册
+- to register — 注册
+- locker — 储物柜
+- roommate — 室友
+- discipline — 纪律
+- major — 主修学生
+- certificate — 证书
+- master — 硕士
+- to master — 掌握
+- Doctor of Philosophy
+- postgraduate — 研究生
+- sponsor — 赞助者
+- trainee — 实习生
+- to tutor — 辅导
+- thesis — 论文
+- scholarship — 奖学金
+- seminar — 研讨会
+- curriculum — 课程
+- optional — 可选的
+- to grade — 评分
+- coursework — 课程作业
+- textbook — 教科书
+- workbook — 练习册
+- multiple-choice — 多项选择的
+- tutorial — 教程
+- dormitory — 宿舍
+- buttery — 小吃店
+
+### Buildings and Structures (建筑与结构)
+
+- mortgage — 抵押贷款
+- property — 财产
+- skyscraper — 摩天大楼
+- mansion — 豪宅
+- condominium — 公寓
+- penthouse — 顶层公寓
+- duplex — 复式公寓
+- complex — 综合体
+- housing development — 住宅开发
+- row house — 联排别墅
+- houseboat — 船屋
+- attic — 阁楼
+- basement — 地下室
+- cellar — 地窖
+- nursery — 婴儿房
+- patio — 露台
+- rooftop — 屋顶
+- doorbell — 门铃
+- doorstep — 门阶
+- doorway — 门口
+- air conditioning — 空调
+- central heating — 中央供暖
+- smoke alarm — 烟雾报警器
+- bureau — 五斗柜
+- drawer — 抽屉
+- garbage can — 垃圾桶
+- chore — 家务
+- to mop — 拖地
+- to scrub — 擦洗
+- to sweep — 扫
+- to vacuum — 用吸尘器清洁
+- to wipe — 擦
+- to furnish — 配备家具
+- to coat — 涂
+- blueprint — 详细计划
+
+### Personality
+
+- arrogant — 傲慢的
+- bold — 大胆的
+- caring — 关心
+- decent — 体面的
+- dishonest — 不诚实的
+- easy-going — 随和的
+- energetic — 精力充沛的
+- enthusiastic — 热情的
+- dynamic — 充满活力的
+- forgetful — 健忘的
+- greedy — 贪婪的
+- icy — 冰冷的
+- impatient — 不耐烦的
+- lively — 活泼的
+- logical — 逻辑的
+- modest — 谦虚的
+- moody — 喜怒无常
+- moral — 道德的
+- nosy — 好管闲事的
+- optimistic — 乐观的
+- pessimistic — 悲观的
+- passionate — 热情的
+- practical — 实用的
+- reasonable — 合理的
+- respectable — 受人尊敬的
+- self-confident — 自信的
+- sensitive — 敏感的
+- sincere — 真诚的
+- strong-willed — 意志坚强的
+- sympathetic — 同情的
+- unreliable — 不可靠的
+- unstable — 不稳定的
+- unsure — 不确定的
+- strict — 严格的
+- violent — 暴力的
+- lenient — 宽容的
+- tough — 严厉的
+- tight-fisted — 吝啬的
+
+### Love and Romance (爱与浪漫)
+
+- adorable — 可爱的
+- beloved — 深受喜爱的
+- committed — 忠诚的
+- enchanted — 着迷的
+- hot — 辣
+- loved — 被爱的
+- loving — 充满爱意的
+- lovesick — 相思病的
+- admirer — 仰慕者
+- (other|better) half — 另一半
+- lovebirds — 恩爱夫妻
+- significant other — 人生伴侣
+- anniversary — 周年纪念
+- bridegroom — 新郎
+- to propose — 求婚
+- proposal — 求婚
+- broken heart — 心碎
+- date — 约会
+- eye candy — 养眼的东西
+- Prince Charming — 白马王子
+- love affair — 风流韵事
+- passion — 热情
+- puppy love — 少男少女的爱恋
+- Valentine — 一封情书
+- to adore — 崇拜
+- to ask out — 约出去
+- to [fall] in love
+- to go out — 约会
+- to woo — 追求
+- to hook up — 勾搭
+- to [have] a crush on {sb}
+- hickey — 吻痕
+
+### Music
+
+- acoustic guitar — 原声吉他
+- bass guitar — 低音吉他
+- drumstick — 鼓棒
+- grand piano — 三角钢琴
+- organ — 管风琴
+- trombone — 长号
+- blues — 蓝调
+- country music — 乡村音乐
+- folk — 民间音乐
+- heavy metal — 重金属
+- hip-hop — 嘻哈
+- rap — 说唱
+- rhythm and blues — 节奏布鲁斯
+- rock and roll
+- chorus — 合唱团
+- composer — 作曲家
+- chart — 排行榜
+- gig — 演出
+- track — 音轨
+- opera house — 歌剧院
+- orchestra — 管弦乐队
+- note — 音符
+- rhythm — 节奏
+- tone — 音调
+- volume — 音量
+- record player — 唱片机
+- sound system — 音响系统
+- speaker — 扬声器
+- stereo — 立体声
+- to compose — 作曲
+- to conduct — 指挥
+- to release — 发布
+- deafening — 震耳欲聋的
+- punk rock — 朋克摇滚
+
+### Jobs and Occupations (工作与职业)
+
+- attorney — 律师
+- bartender — 调酒师
+- cab driver — 出租车司机
+- carpenter — 木匠
+- cashier — 收银员
+- caterer — 餐饮服务商
+- comedian — 喜剧演员
+- economist — 经济学家
+- electrician — 电工
+- fisherman — 渔夫
+- florist — 花商
+- health professional — 健康专业人士
+- interpreter — 口译员
+- investigator — 调查员
+- librarian — 图书管理员
+- plumber — 水管工
+- psychologist — 心理学家
+- security guard — 保安
+- sheriff — 警长
+- shopkeeper — 店主
+- spy — 间谍
+- stylist — 造型师
+- real estate agent — 房地产经纪人
+- travel agent — 旅行代理人
+- freelance — 自由职业的
+- permanent — 永久的
+- self-employed — 自雇的
+- temporary — 临时的
+- voluntary — 自愿的
+- out of work
+- wage — 工资
+- golden years — 退休岁月
+
+### Time
+
+- age — 时代
+- calendar — 日历
+- to schedule — 安排
+- era — 时代
+- fortnight — 两周
+- millennium — 千年
+- time zone — 时区
+- (about|high) time — 早该如此了
+- local time — 当地时间
+- chronometer — 精密计时器
+- hourglass — 沙漏
+- pendulum clock — 摆钟
+- stopwatch — 秒表
+- sundial — 日晷
+- twilight — 黄昏
+- lateness — 迟到
+- chronological — 按时间顺序的
+- instant — 即时的
+- for the moment — 目前
+- lately — 最近
+- day-to-day — 日常的
+- annual — 每年的
+- annually — 每年
+- monthly — 每月的
+- weekly — 每周的
+- momentarily — 短暂地
+- now and again
+- (every|) now and then
+- overtime — 加班
+- later on — 稍后
+
+### Health and Sickness (健康与疾病)
+
+- acupuncture — 针灸
+- clinic — 诊所
+- ward — 病房
+- emergency room — 急诊室
+- ENT — 耳鼻喉科
+- pharmacy — 药店
+- inpatient — 住院病人
+- outpatient — 门诊病人
+- mental health — 心理健康
+- phobia — 恐惧症
+- specialist — 专家
+- orthodontist — 正牙医生
+- paramedic — 护理人员
+- pediatrician — 儿科医生
+- surgeon — 外科医生
+- plastic surgeon — 整形外科医生
+- therapist — 治疗师
+- procedure — 程序
+- protection — 保护
+- transplant — 移植
+- surgery — 手术
+- dose — 剂量
+- painkiller — 止痛药
+- therapy — 治疗
+- X-ray — X光片
+- breathing apparatus — 呼吸装置
+- clinical — 临床的
+- to come down with — 染上
+- to heal — 治愈
+- to [hit] the hay — 上床睡觉
+- to implant — 植入
+- to inject — 注射
+- to pass out — 昏倒
+- to relieve — 缓解
+- to scan — 扫描
+- to shower — 淋浴
+
+### Foods (食品)
+
+- cuisine — 烹饪
+- carbohydrate — 碳水化合物
+- bagel — 贝果
+- baguette — 法棍面包
+- cereal — 谷物
+- pastry — 糕点
+- herb — 草药
+- beet — 甜菜
+- green pepper — 青椒
+- red pepper — 红辣椒
+- goat cheese — 山羊奶酪
+- margarine — 人造黄油
+- sour cream — 酸奶油
+- raspberry — 树莓
+- spice — 香料
+- sweet potato — 红薯
+- zucchini — 西葫芦
+- wheat — 小麦
+- beefsteak — 牛排
+- kebab — 烤肉串
+- meatloaf — 肉饼
+- mayonnaise — 蛋黄酱
+- mustard — 芥末
+- soy sauce — 酱油
+- ketchup — 番茄酱
+- vinegar — 醋
+- white sauce — 白酱
+- chewing gum — 口香糖
+- hard candy — 硬糖
+- lollipop — 棒棒糖
+- popsicle — 冰棒
+- pudding — 布丁
+- portion — 一份
+- supper — 清淡的晚餐
+- takeout — 外卖
+- roll — 小面包
+- tomato paste — 番茄酱
+
+### Driving
+
+- driving school — 驾驶学校
+- license number — 车牌号
+- motor vehicle — 机动车辆
+- bumper — 保险杠
+- emergency brake — 手刹
+- hood — 引擎盖
+- plate — 车牌
+- safety belt — 安全带
+- tailpipe — 排气管
+- tank — 油箱
+- tire — 轮胎
+- trunk — 后备箱
+- turn signal — 转向灯
+- windshield — 挡风玻璃
+- windshield wiper — 挡风玻璃雨刷
+- crash — 撞车
+- bend — 弯道
+- crossing — 十字路口
+- intersection — 交叉点
+- U-turn — 掉头
+- global positioning system
+- rush hour — 高峰时间
+- speeding — 超速
+- to brake — 刹车
+- to exit — 离开
+- to pull up — 停下
+- to navigate — 导航
+- to rush — 匆忙
+- to slow — 减慢
+- to fuel — 加燃料
+- progress — 进步
+- steering wheel — 方向盘
+- handlebar — 把手
+- zebra crossing — 斑马线
+- gearshift — 换挡杆
+- stoplight — 刹车灯
+- road rage — 路怒症
+
+### Drinks (饮品)
+
+- to sip — 啜饮
+- to sober up — 清醒过来
+- thirst — 口渴
+- ice cube — 冰块
+- straw — 吸管
+- liquor store — 酒类商店
+- booze — 酒
+- Bloody Mary — 血腥玛丽
+- Bourbon — 波本威士忌
+- cider — 苹果酒
+- gin — 杜松子酒
+- ginger ale — 姜汁汽水
+- ice tea — 冰茶
+- liquor — 烈酒
+- margarita — 玛格丽塔
+- martini — 马提尼
+- mojito — 莫吉托
+- refill — 续杯
+- punch — 宾治
+- cappuccino — 卡布奇诺
+- herbal tea — 花草茶
+- skim milk — 脱脂牛奶
+
+### Grammar
+
+- abbreviation — 缩写
+- article — 冠词
+- auxiliary verb — 助动词
+- conjunction — 连词
+- preposition — 介词
+- proper noun — 专有名词
+- pronoun — 代词
+- prefix — 前缀
+- suffix — 后缀
+- active — 主动的
+- passive — 被动的
+- comparative — 比较级
+- superlative — 最高级
+- plural — 复数
+- singular — 单数
+- grammatical — 语法的
+- irregular — 不规则的
+- modal — 情态动词
+- conditional — 条件的
+- perfect — 完成的
+- past participle — 过去分词
+- continuous — 连续的
+- progressive — 进行式的
+- collocation — 搭配
+- possessive — 所有格的
+- pronunciation — 发音
+- consonant — 辅音
+- vowel — 元音
+- stress — 重音
+- tag question — 附加疑问句
+- punctuation — 标点符号
+- exclamation point — 感叹号
+- question mark — 问号
+- comma — 逗号
+- to spell — 拼写
+
+### Monarchy
+
+- to border — 该地区与沙漠接壤，影响了其气候和农业。
+- to honor — 尊敬
+- aristocracy — 贵族
+- dynasty — 朝代
+- empire — 帝国
+- Renaissance — 文艺复兴
+- the Middle Ages — 中世纪
+- castle — 城堡
+- fortress — 堡垒
+- armor — 盔甲
+- coat of arms — 纹章
+- crown — 王冠
+- arrow — 箭
+- sword — 剑
+- emblem — 徽章
+- royal — 皇家的
+- royalty — 王室
+- noble — 高贵的
+- nobility — 贵族
+- count — 伯爵
+- countess — 伯爵夫人
+- knight — 骑士
+- duchess — 公爵夫人
+- king — 国王
+- queen — 女王
+- kingdom — 王国
+- lady — 女士
+- majesty — 陛下
+- lord — 领主
+- monarch — 君主
+- prince — 王子
+- princess — 公主
+- Duke — 公爵
+- slavery — 奴隶制
+
+### Computers and Networks (计算机与网络)
+
+- animation — 动画
+- artificial intelligence — 人工智能
+- virtual — 虚拟
+- virtual reality — 虚拟现实
+- programming — 编程
+- bug — 错误
+- to code — 编码
+- command — 命令
+- instruction — 指令
+- database — 数据库
+- file name — 文件名
+- firewall — 防火墙
+- icon — 图标
+- input — 输入
+- output — 输出
+- to crash — 崩溃
+- to hack — 黑客攻击
+- to import — 导入
+- to export — 导出
+- to network — 联网
+- to process — 处理
+- to select — 选择
+- CD-ROM — CD-ROM
+- disk — 磁盘
+- mouse pad — 鼠标垫
+- processor — 处理器
+- scanner — 扫描仪
+- touchscreen — 触摸屏
+- webcam — 网络摄像头
+- geek — 极客
+- metaverse — 元宇宙
+
+### Outer Space
+
+- alien — 外星人
+- space — 太空
+- outer space — 外太空
+- universe — 宇宙
+- asteroid — 小行星
+- black hole — 黑洞
+- galaxy — 星系
+- solar system — 太阳系
+- Mercury — 水星
+- Venus — 金星
+- Mars — 火星
+- Jupiter — 木星是太阳系的第五大行星，也是最大的行星，位于火星和土星之间。
+- Saturn — 土星
+- Uranus — 天王星
+- Neptune — 海王星
+- astronomy — 天文学
+- astronomer — 天文学家
+- landing — 着陆
+- outer — 外部的
+- orbit — 轨道
+- to orbit — 绕轨道运行
+- rocket — 火箭
+- satellite — 卫星
+- to launch — 发射
+- takeoff — 起飞
+- spacecraft — 航天器
+- spaceman — 宇航员
+- spaceship — 宇宙飞船
+- space station — 空间站
+- spacesuit — 宇航服
+- spacewalk — 太空行走
+- telescope — 望远镜
+- voyage — 航行
+
+### Wedding Ceremony
+
+- bachelor party — 单身派对
+- bachelorette party — 单身女郎派对
+- best man — 伴郎
+- bridesmaid — 伴娘
+- fiance — 未婚夫
+- fiancee — 未婚妻
+- flower girl — 花童
+- maid of honor
+- bouquet — 花束
+- reception — 招待会
+- speech — 演讲
+- toast — 敬酒
+- engagement ring — 订婚戒指
+- wedding ring — 结婚戒指
+- wedding gown — 婚纱
+- veil — 面纱
+- tuxedo — 燕尾服
+- aisle — 过道
+- confetti — 五彩纸屑
+- to elope — 私奔
+- to exchange — 交换
+- vow — 誓言
+- bell — 钟
+- dance floor — 舞池
+- honeymoon — 蜜月
+- newlywed — 新婚夫妇
+- pregnant — 怀孕的
+
+### Plants (植物)
+
+- branch — 树枝
+- root — 根
+- trunk — 树干
+- twig — 小树枝
+- bush — 灌木
+- ash — 白蜡树
+- bamboo — 竹子
+- eucalyptus — 桉树
+- evergreen — 常绿植物
+- fir — 冷杉
+- ivy — 常春藤
+- oak — 橡树
+- palm — 棕榈树
+- pine — 松树
+- vine — 葡萄藤
+- willow — 柳树
+- weeping willow — 垂柳
+- to bloom — 开花
+- to blossom — 开花
+- bud — 芽
+- leaf — 叶子
+- stem — 茎
+- thorn — 刺
+- daffodil — 水仙花
+- daisy — 雏菊
+- lotus — 莲花
+- tulip — 郁金香
+- violet — 紫罗兰
+- lavender — 薰衣草
+- weed — 杂草
+
+### Working Out (锻炼)
+
+- aerobics — 有氧运动
+- athletic — 运动的
+- locker room — 更衣室
+- barbell — 杠铃
+- dumbbell — 哑铃
+- cross trainer — 交叉训练机
+- horizontal bar — 单杠
+- jump rope — 跳绳
+- mat — 垫子
+- multigym — 多功能健身器
+- pommel horse — 鞍马
+- rowing machine — 划船机
+- punching bag — 沙袋
+- trampoline — 蹦床
+- treadmill — 跑步机
+- to bounce — 弹跳
+- to hop — 单脚跳
+- to stretch — 伸展
+- to strengthen — 加强
+- to squat — 蹲下
+- to sweat — 出汗
+- chin-up — 引体向上
+- push-up — 俯卧撑
+- sit-up — 仰卧起坐
+- jumping jack — 开合跳
+- to massage — 按摩
+- muscle memory — 肌肉记忆
+- six-pack — 六块腹肌
+- martial arts — 武术
+- to weight-lift — 举重
+- to work out — 锻炼
+- pace — 步伐
+- to burn off — 燃烧
+- dressing room — 更衣室
+- pound for pound
+
+### Regulations and Requirements (法规与要求)
+
+- to acknowledge — 承认
+- to aid — 帮助
+- age limit — 年龄限制
+- ban — 禁令
+- to bar — 阻止
+- condition — 条件
+- to demand — 要求
+- to enable — 使能够
+- exception — 例外
+- guideline — 指南
+- necessity — 必要性
+- permit — 许可证
+- to permit — 允许
+- regulation — 规定
+- obligation — 义务
+- requirement — 要求
+- to restrict — 限制
+- restriction — 限制
+- rule book — 规则书
+- to forbid — 禁止
+- forbidden — 禁止的
+- acceptable — 可接受的
+- to grant — 授予
+- illegal — 非法的
+- mandatory — 强制的
+- to impose — 强加
+- to insist — 坚持
+- strictness — 严格
+- sanction — 制裁
+- provided that — 只要
+- to beg — 乞讨
+- to [get] rid of {sb/sth}
+- objection — 反对
+
+### Fairy Tales (童话故事)
+
+- to bewitch — 施魔法
+- to charm — 迷住
+- to curse — 诅咒
+- to enchant — 施魔法
+- to haunt — 闹鬼
+- demon — 恶魔
+- dragon — 龙
+- dwarf — 矮人
+- fairy — 仙女
+- genie — 精灵
+- ghost — 鬼
+- giant — 巨人
+- ghoul — 食尸鬼
+- goblin — 哥布林
+- golem — 魔像
+- goddess — 女神
+- leprechaun — 小妖精
+- mermaid — 美人鱼
+- monster — 怪物
+- nymph — 仙女
+- ogre — 食人魔
+- phoenix — 凤凰
+- siren — 塞壬
+- sorcerer — 巫师
+- sorceress — 女巫
+- spirit — 灵魂
+- tooth fairy — 牙仙子
+- troll — 巨魔
+- unicorn — 独角兽
+- voodoo doll — 巫毒娃娃
+- werewolf — 狼人
+- zombie — 僵尸
+- demigod — 半神
+- fabled — 传说的
+
+### Certainty and Doubt (确定与怀疑)
+
+- to assure — 保证
+- to bet — 打赌
+- to ensure — 确保
+- to forecast — 预测
+- to guarantee — 保证
+- to hesitate — 犹豫
+- ought to — 应该
+- to recall — 回忆
+- should — 应该
+- to suspect — 怀疑
+- would — 会
+- bound — 很可能发生
+- sure — 确定的
+- convinced — 确信的
+- expected — 预期的
+- inevitable — 不可避免的
+- rash — 轻率的
+- positive — 肯定的
+- probable — 可能的
+- uncertain — 不确定的
+- unclear — 不清楚
+- no doubt — 毫无疑问
+- certainty — 确定性
+- confidence — 信任
+- confusion — 混乱
+- probability — 概率
+- to deceive — 欺骗
+- somehow — 不知怎么地
+- scheme — 阴谋
+- not necessarily
+- you bet — 当然
+- to check out — 检查
+- to [go] back on a (promise|deal|pledge)
+- odds — 几率
+- in stone — 不可更改
+- to palm off — 骗卖
+- plastic — 人造的
+- to [go] back on {one's} word
+- to question — 质疑
+
+### Scientific Research (科学研究)
+
+- analytical — 分析的
+- comparative — 比较的
+- descriptive — 描述性的，详细的
+- to cite — 引用
+- to classify — 分类
+- to compile — 汇编
+- to conduct — 指导
+- to demonstrate — 证明
+- to derive — 推导
+- to detect — 检测
+- to document — 记录
+- to estimate — 估计
+- to evaluate — 评估
+- to imply — 暗示
+- to interpret — 解释
+- to observe — 观察
+- to outline — 概述
+- to survey — 调查
+- case study — 案例研究
+- chart — 图表
+- diagram — 图表
+- document — 文件
+- evaluation — 评估
+- hypothesis — 假设
+- experiment — 实验
+- sample — 样本
+- variable — 变量
+- instrument — 仪器
+- questionnaire — 问卷
+- reference — 参考
+- trial — 试验
+- trial and error
+- finding — 发现
+- law — 定律
+- model — 模型
+- principle — 原则
+- procedure — 程序
+- proof — 证据
+
+### News and Journalism (新闻与新闻业)
+
+- to affirm — 确认
+- to air — 播放
+- to break — 发布
+- to comment — 评论
+- to contribute — 投稿
+- to deny — 否认
+- to detail — 详细说明
+- to distribute — 分发
+- to inform — 通知
+- to involve — 涉及
+- journalism — 新闻业
+- news agency — 通讯社
+- cable television — 有线电视
+- coverage — 报道
+- fake news — 假新闻
+- announcer — 播音员
+- broadcaster — 广播员
+- news desk — 新闻台
+- panel — 小组
+- talk show — 脱口秀
+- news conference — 新闻发布会
+- cartoon — 幽默画
+- column — 专栏
+- columnist — 专栏作家
+- source — 来源
+- editorial — 社论
+- feature — 专题文章
+- report — 报告
+- reporting — 报道
+- trend — 趋势
+- relevant — 相关的
+- confirmation — 确认
+- in the dark
+
+### Threats and Danger (威胁与危险)
+
+- adventurous — 爱冒险的
+- to alarm — 使惊慌
+- alarmed — 惊慌的
+- daring — 大胆的
+- at-risk — 处于危险中
+- risk — 风险
+- critical — 危急的
+- deadly — 致命的
+- desperate — 绝望的
+- offensive — 冒犯的
+- harmless — 无害的
+- high-risk — 高风险的
+- low-risk — 低风险
+- secure — 安全的
+- harmful — 有害的
+- insecure — 不安全的
+- sound — 稳健的
+- nasty — 严重的
+- risky — 有风险的
+- to encounter — 遇到
+- to endanger — 危及
+- to harm — 伤害
+- to pose — 构成
+- to threaten — 威胁
+- happening — 事件
+- to rescue — 救援
+- rescuer — 救援者
+- threat — 威胁
+- out of harm's way — 远离危险
+- to disturb — 打扰
+- to offend — 冒犯
+- off the hook — 摆脱麻烦
+- to scream — 尖叫
+- neutral — 中立的
+- to alert — 警告
+- disrespectful — 不尊重的
+- on a razor's edge — 处在刀尖上
+- fearsome — 可怕的
+
+### Communication
+
+- address book — 地址簿
+- answering machine — 答录机
+- phone booth — 电话亭
+- handset — 听筒
+- hotline — 热线
+- landline — 固定电话
+- to dial — 拨号
+- to call around — 四处打电话
+- to call back — 回电
+- to call up — 打电话
+- caller — 来电者
+- operator — 操作员
+- caller ID — 来电显示
+- to cut off — 切断
+- to [give] {sb} a call
+- to hang on — 稍等
+- to hang up — 挂断
+- to hold — 稍等
+- to put through — 转接
+- available — 可用的
+- busy — 忙
+- Internet cafe — 网吧
+- social media — 社交媒体
+- home page — 主页
+- HTTP — HTTP
+- follower — 粉丝
+- to friend — 加为朋友
+- friend request — 好友请求
+- attachment — 附件
+- hate mail — 仇恨邮件
+- Skype — Skype
+- web chat — 网络聊天
+- instant messaging — 即时通讯
+- net surfer — 网络冲浪者
+
+### People and Society (人与社会)
+
+- aid — 援助
+- to beg — 乞讨
+- bias — 偏见
+- biased — 有偏见的
+- consequence — 后果
+- to contribute — 贡献
+- hunger — 饥饿
+- relationship — 关系
+- to dismiss — 解雇
+- donation — 捐赠
+- equal — 平等的
+- majority — 多数
+- minority — 少数群体
+- noncitizen — 非公民
+- protester — 抗议者
+- racist — 种族主义者
+- sexist — 性别歧视者
+- minimum wage — 最低工资
+- quality of life
+- social class — 社会阶级
+- slum — 贫民窟
+- shelter — 庇护所
+- to blame — 责备
+- to march — 行进
+- to starve — 饿死
+- to strike — 罢工
+- honor — 荣誉
+- to get together — 聚会
+- disrespect — 不尊重
+- beggar — 乞丐
+- homeless — 无家可归者
+- child labor — 童工
+- alcohol abuse — 酗酒
+- Alcoholics Anonymous — 匿名戒酒会
+- alcoholic — 酗酒者
+- prostitution — 卖淫
+
+### Determination and Struggles (决心与奋斗)
+
+- deed — 行为
+- attempted — 未遂
+- big — 重要的
+- desperate — 绝望的
+- failed — 失败的
+- fatal — 致命的
+- problematic — 有问题的
+- unambitious — 没有野心的
+- badly — 糟糕地
+- hopeless — 绝望的
+- loser — 失败者
+- to address — 处理
+- to battle — 战斗
+- to bear — 忍受
+- to comfort — 安慰
+- to confront — 面对
+- loss — 损失
+- to fulfill — 实现
+- to gain — 获得
+- to handle — 处理
+- to obtain — 获得
+- to overcome — 战胜
+- to ruin — 毁坏
+- optimism — 乐观
+- optimist — 乐观主义者
+- pessimism — 悲观主义
+- pessimist — 悲观主义者
+- to reach — 达到
+- to resolve — 解决
+- struggle — 斗争
+- to struggle — 奋斗
+- to let down — 使失望
+- to [go|get] nowhere — 毫无进展
+- presentation — 颁发
+- chance — 机会
+- fault — 过错
+- duty — 责任
+- target — 目标
+- determination — 决心
+- to disappoint — 使失望
+- to give up on — 放弃
+- rewarding — 有回报的
+- weakness — 弱点
+
+### Self-care Products (自我护理产品)
+
+- electric razor — 电动剃须刀
+- shaver — 电动剃须刀
+- sunscreen — 防晒霜
+- shampoo — 洗发水
+- conditioner — 护发素
+- balm — 香膏
+- lotion — 乳液
+- cosmetics — 化妆品
+- gel — 凝胶
+- hairspray — 发胶
+- eyeliner — 眼线笔
+- eyeshadow — 眼影
+- blush — 腮红
+- concealer — 遮瑕膏
+- face powder — 散粉
+- foundation — 粉底
+- lip gloss — 唇彩
+- lipstick — 口红
+- mascara — 睫毛膏
+- nail polish — 指甲油
+- face mask — 面膜
+- dye — 染料
+- tweezers — 镊子
+- cologne — 古龙水
+- deodorant — 除臭剂
+- mouthwash — 漱口水
+- dental floss — 牙线
+- nail file — 指甲锉
+- cotton swab — 棉签
+- makeup — 化妆
+- nail clippers — 指甲剪
+- tampon — 卫生棉条
+
+### Bodily Actions (身体行动)
+
+- to beat — 打
+- to clap — 鼓掌
+- to drag — 拖
+- to grab — 抓住
+- to punch — 打
+- to shake — 握手
+- to bend — 弯腰
+- to bow — 鞠躬
+- to lean — 倚靠
+- to slouch — 懒散地坐着
+- to kneel — 跪
+- to leap — 跳跃
+- to tiptoe — 踮着脚走
+- to crawl — 爬行
+- to lie down — 躺下
+- to blink — 眨眼
+- to gaze — 凝视
+- to squint — 眯眼
+- to stare — 凝视
+- to wink — 眨眼
+- to chuckle — 轻声笑
+- to giggle — 咯咯笑
+- to smirk — 得意地笑
+- to march — 行进
+- to nod — 点头
+- to pace — 踱步
+- to trip — 绊倒
+- to [give] {sb} bunny ears — 在别人头后比兔耳朵
+- to crouch — 蹲下
+- to wake — 醒来
+
+### Tools (工具)
+
+- hammer — 锤子
+- mallet — 木槌
+- saw — 锯子
+- chainsaw — 链锯
+- drill — 钻头
+- wrench — 扳手
+- screw — 螺丝
+- screwdriver — 螺丝刀
+- nail — 钉子
+- glue — 胶水
+- file — 锉刀
+- chisel — 凿子
+- bolt — 螺栓
+- nut — 螺母
+- washer — 垫圈
+- fork — 叉子
+- shovel — 铲子
+- wheelbarrow — 手推车
+- toolbox — 工具箱
+- pliers — 钳子
+- wire cutter — 钢丝钳
+- duct tape — 胶带
+- plunger — 皮搋子
+- crowbar — 撬棍
+- staple gun — 订书枪
+- box cutter — 美工刀
+- to function — 运行
+- adjustable wrench — 活动扳手
+- tape measure — 卷尺
+- sledgehammer — 大锤
+- ax — 斧头
+
+### Evaluation and Opinion (评估与意见)
+
+- account — 描述
+- to approve — 批准
+- approval — 批准
+- to assess — 评估
+- assessment — 评估
+- to associate — 联想
+- to assume — 假设
+- case — 案例
+- common sense — 常识
+- conflict — 冲突
+- estimate — 估计
+- controversy — 争议
+- controversial — 有争议的
+- consistent — 一致的
+- furthermore — 此外
+- forum — 论坛
+- counterargument — 反驳论点
+- disagreement — 分歧
+- incident — 事件
+- to criticize — 批评
+- debate — 辩论
+- to defend — 捍卫
+- to differ — 不同
+- to divide — 分裂
+- to emphasize — 强调
+- to fall out — 闹翻
+- to fit — 适合
+- to hold — 持有
+- to infer — 推断
+- to appreciate — 欣赏
+- to [take] {sb/sth} for granted — 不懂珍惜
+- inference — 推论
+- superficial — 肤浅的
+- (as|so) far as {sb} [is] concerned
+- to [have] a problem with {sb/sth}
+- in a nutshell — 简而言之
+- if you ask me
+
+### Assessment and Discourse (评估与话语)
+
+- to figure — 估计
+- to justify — 证明...有理
+- in the first place — 首先
+- to object — 反对
+- objective — 客观的
+- subjective — 主观的
+- to maintain — 坚持
+- may — 可能
+- to name — 命名
+- to oppose — 反对
+- opposed — 反对的
+- to praise — 表扬
+- to reckon — 认为
+- to regard — 视为
+- to remark — 评论
+- to speculate — 推测
+- speculation — 推测
+- stance — 立场
+- to stand — 站
+- to sum up — 总结
+- misunderstanding — 误解
+- perception — 感知
+- position — 观点
+- proof — 证明
+- public opinion — 舆论
+- reason — 理性
+- remark — 评论
+- reputation — 声誉
+- right — 对
+- side — 方
+- while — 而
+- to sign — 使用手语
+- in opposition to {sb/sth} — 反对某人或某事
+- likewise — 同样地 !
+- judgment — 判断
+
+### Religion
+
+- altar — 祭坛
+- cross — 十字架
+- atheism — 无神论
+- Buddhism — 佛教
+- Christian — 基督徒
+- Christianity — 基督教
+- Hindu — 印度教徒
+- Jew — 犹太人
+- Jewish — 犹太的
+- Muslim — 穆斯林
+- pagan — 异教徒
+- the Lord — 主
+- Bible — 圣经
+- Gospel — 福音书
+- heaven — 天堂
+- hell — 地狱
+- sin — 罪
+- vice — 恶习
+- grace — 恩典
+- pride — 骄傲
+- greed — 贪婪
+- lust — 色欲
+- envy — 嫉妒
+- laziness — 懒惰
+- to confess — 忏悔
+- to convert — 皈依
+- to forgive — 原谅
+- to trust — 信任
+- devil — 魔鬼
+- prophet — 先知
+- minister — 部长
+- service — 礼拜
+- soul — 灵魂
+- spiritual — 精神的
+- grave — 坟墓
+- godchild — 教子
+- devout — 虔诚的
+- godfather — 教父
+- godmother — 教母
+- karma — 业
+
+### Shapes and Colors (形状和颜色)
+
+- angle — 角度
+- curve — 曲线
+- form — 形状
+- curved — 弯曲的
+- horizontal — 水平的
+- vertical — 垂直的
+- parallel — 平行的
+- shaped — 成形的
+- cube — 立方体
+- pentagon — 五边形
+- oval — 椭圆形
+- pyramid — 金字塔
+- rectangle — 矩形
+- sphere — 球体
+- triangle — 三角形
+- hollow — 空心的
+- pointed — 尖的
+- level — 水平的
+- steep — 陡峭的
+- paleness — 苍白
+- to dye — 染
+- light-colored — 浅色的
+- deep — 深的
+- blood-red — 血红色的
+- chocolate — 巧克力
+- coffee — 咖啡
+- lemon — 柠檬黄
+- navy blue — 海军蓝
+- maroon — 栗色
+- violet — 紫色的
+- rose — 粉红色的
+
+### Traveling
+
+- budget — 经济的
+- resort — 度假村
+- lodging — 住宿
+- lounge — 休息室
+- checkout — 退房
+- resident — 住客
+- room service — 客房服务
+- travel agency — 旅行社
+- E-ticket — 电子票
+- vacationer — 度假者
+- excursion — 短途旅行
+- package tour — 包价旅游
+- to get away — 离开
+- to trek — 徒步旅行
+- aisle — 过道
+- cabin — 机舱
+- cabin crew — 机组人员
+- baggage claim — 行李领取处
+- jet lag — 时差反应
+- terminal — 终点站
+- main line — 主线
+- to cruise — 巡航
+- to delay — 延迟
+- to navigate — 航行
+- caravan — 大篷车
+- railroad crossing — 铁路道口
+- compartment — 隔间
+- rest stop — 休息区
+- gift shop — 礼品店
+- hot-air balloon — 热气球
+- April Fools' Day — 愚人节
+- Independence Day — 独立日
+- New Year's Eve
+- St. Patrick's Day — 圣帕特里克节
+- Black Friday — 黑色星期五
+- Mardi Gras — 油腻星期二
+- transportation — 运输
+
+### The Cinema (电影院)
+
+- act — 幕
+- to adapt — 改编
+- ballet — 芭蕾舞
+- blockbuster — 大片
+- box office — 票房
+- to appear — 出现
+- to cast — 选择
+- to project — 投影
+- to screen — 放映
+- rerun — 重播
+- screening — 放映
+- to shoot — 拍摄
+- to stage — 上演
+- cinephile — 电影爱好者
+- animated — 动画的
+- clip — 片段
+- cue — 提示
+- double — 替身
+- stunt — 特技
+- lighting engineer — 灯光工程师
+- manager — 经理
+- screenwriter — 编剧
+- opening — 首映
+- preview — 预览
+- production — 制作
+- rehearsal — 排练
+- to rehearse — 排练
+- show business — 演艺界
+- scenario — 剧本
+- subtitle — 字幕
+- sound effect — 音效
+- wind machine — 风机器
+
+### Change
+
+- to account for — 解释
+- to alter — 改变
+- to arise — 出现
+- to boost — 增加
+- to build up — 积累
+- to climb — 增加
+- to contribute — 贡献
+- contribution — 贡献
+- to decline — 下降
+- to enhance — 增强
+- to extend — 延长
+- to straighten — 拉直
+- to gain — 增长
+- to jump — 跳跃
+- to lower — 降低
+- to modify — 修改
+- to mount — 上升
+- to multiply — 乘
+- to recover — 恢复
+- to trigger — 触发
+- expansion — 扩张
+- implication — 含义
+- means — 手段
+- outcome — 结果
+- product — 产品
+- reduction — 减少
+- root — 根源
+- responsible — 负责的
+- consequently — 因此，所以
+- increasingly — 越来越
+- life-changing — 改变生活的
+- significant — 重要的
+- significantly — 显著地
+- following — 之后
+- hence — 因此
+- thus — 因此
+- to inspire — 激励
+- ground zero — 零点
+
+### The Weather (天气)
+
+- to flash — 闪烁
+- humidity — 湿度
+- airless — 不通风的
+- seasonal — 季节性的
+- falling — 下降的
+- rising — 上升的
+- changeable — 多变的
+- cloudless — 无云的
+- heavy — 沉重的
+- regional — 区域的
+- stable — 稳定的
+- steady — 稳定的
+- tropical — 热带的
+- windless — 无风的
+- chill — 寒冷
+- warmth — 温暖
+- frostbite — 冻伤
+- frosty — 霜冻的
+- heatstroke — 中暑
+- dry season — 旱季
+- dust storm — 沙尘暴
+- flooding — 洪水
+- frost — 霜
+- mist — 薄雾
+- rainbow — 彩虹
+- tsunami — 海啸
+- typhoon — 台风
+- to [rain] cats and dogs — 下倾盆大雨
+- shadow — 影子
+- overcast — 阴天
+- thunderbolt — 雷电
+
+### Farming
+
+- cornfield — 玉米田
+- plantation — 种植园
+- cowboy — 牛仔
+- crop — 收成
+- groundwater — 地下水
+- erosion — 侵蚀
+- pesticide — 农药
+- agricultural — 农业的
+- edible — 可食用的
+- fertile — 肥沃的
+- produce — 农产品
+- barley — 一粒大麦
+- legume — 豆类
+- hay — 干草
+- soy — 大豆
+- sugar cane — 甘蔗
+- to dig — 挖
+- to harness — 套
+- to harvest — 收获
+- to keep — 养
+- to load — 装载
+- to package — 打包
+- to pile — 堆积
+- to uproot — 连根拔起
+- livestock — 牲畜
+- boar — 公猪
+- calf — 小牛
+- hog — 猪
+- mule — 骡子
+- pony — 小马
+- honeycomb — 蜂窝
+- poultry — 家禽
+- ostrich — 鸵鸟
+
+### Preference
+
+- to appeal — 吸引
+- to consult — 咨询
+- to contest — 质疑
+- to disgust — 使厌恶
+- to favor — 偏爱
+- favorite — 最爱
+- to go for — 选择
+- to shy away from — 回避
+- to [make] up {one's} mind — 拿定主意
+- to pick out — 挑选
+- to put up with — 忍受
+- to think over — 仔细考虑
+- to [take] account of {sth}
+- to turn to — 向...求助
+- would rather
+- decision maker — 决策者
+- dislike — 不喜欢
+- preference — 偏好
+- resolution — 决心
+- taste — 品味
+- criteria — 标准
+- liking — 喜欢
+- tendency — 趋势
+- alternatively — 或者
+- to please — 取悦
+- instead — 代替
+- to disrespect — 不尊重
+- to die — 渴望
+
+### Phrasal Verbs (短语动词)
+
+- to ask for — 要求与...谈话
+- to back down — 退让
+- to believe in — 相信
+- to bring on — 引起
+- to bring up — 提到
+- to call off — 取消
+- to catch up — 赶上
+- to cheer up — 高兴起来
+- to clean up — 清理
+- to come across — 偶然发现
+- to come up — 被提到
+- to drop by — 顺道拜访
+- to eat out — 外出就餐
+- to end up — 最终处于
+- to fall apart — 崩溃
+- to figure out — 理解
+- to fill in — 代替
+- to get along — 相处融洽
+- to give away — 赠送
+- to go over — 仔细检查
+- to hang on — 等一下
+- to hang out — 闲逛
+- to leave out — 省略
+- to make out — 理解
+- to pass away — 去世
+- to put off — 推迟
+- to rule out — 排除
+- to see to — 负责
+- to show up — 出现
+- to sort out — 整理
+- to throw away — 扔掉
+- to turn down — 拒绝
+- to put in — 插嘴
+- to wipe out — 彻底清除
+- to pile up — 堆积
+- to put out — 熄灭
+- to break away — 逃脱
+- to root for — 支持
+- to come away — 离开时带着
+- to fly into — 陷入
+- to stash away — 藏起来
+- to capitalize on — 利用
+- to pick up — 取
+
+### Feelings or States of Being (情感或存在状态)
+
+- aggressive — 侵略性的
+- astonished — 惊讶的
+- awkward — 尴尬
+- bitter — 苦涩的
+- breathtaking — 令人惊叹的
+- cheerless — 阴郁的
+- delighted — 高兴的
+- depressing — 令人沮丧的
+- disgusting — 恶心的
+- down — 低落
+- dreadful — 可怕的
+- dull — 无聊的
+- emotional — 情感的
+- empty — 空虚的
+- fascinated — 着迷的
+- fearful — 害怕的
+- fed up — 受够了
+- furious — 愤怒的
+- homesick — 想家的
+- irritated — 恼怒的
+- satisfied — 满意
+- terrifying — 可怕的
+- uncomfortable — 不舒服
+- to amaze — 使惊奇
+- to regret — 后悔
+- embarrassment — 尴尬
+- enthusiasm — 热情
+- panic — 恐慌
+- pity — 怜悯
+- relief — 解脱
+- shock — 震惊
+- stress — 压力
+- terror — 恐惧
+- thrill — 刺激
+- conflict — 冲突
+- wonder — 惊奇
+- worry — 担心，忧虑
+- sheepish — 不好意思的
+- depression — 抑郁
+- rage — 愤怒
+
+### Games (游戏)
+
+- entertainment — 娱乐
+- recreation — 娱乐
+- charades — 猜字游戏
+- jigsaw puzzle — 拼图
+- playmate — 玩伴
+- playing card — 扑克牌
+- club — 梅花
+- diamond — 方块
+- heart — 红心
+- spade — 黑桃
+- ace — 王牌
+- hand — 手牌
+- tic-tac-toe — 井字棋
+- handball — 手球
+- Barbie doll — 芭比娃娃
+- domino — 多米诺骨牌
+- rag doll — 布娃娃
+- piece — 棋子
+- Monopoly — 大富翁
+- Scrabble — 拼字游戏
+- scoreboard — 记分牌
+- avatar — 头像
+- joystick — 操纵杆
+
+### War and Peace (战争与和平)
+
+- action — 行动
+- advance — 前进
+- camp — 营地
+- military — 军事的
+- air force — 空军
+- navy — 海军
+- strategy — 战略
+- arms — 武器
+- grenade — 手榴弹
+- handgun — 手枪
+- mine — 地雷
+- campaign — 战役
+- to command — 指挥
+- to desert — 开小差
+- to dominate — 支配
+- to invade — 入侵
+- to recruit — 招募
+- to strike — 打
+- gunfight — 枪战
+- armed — 武装的
+- civil — 民用的
+- occupied — 被占领的
+- parade — 游行
+- prisoner of war
+- rank — 军衔
+- refugee — 难民
+- volunteer — 志愿者
+- service — 服务
+- tank — 坦克
+- warship — 军舰
+- war crime — 战争罪
+- nuclear submarine — 核潜艇
+- target — 目标
+- to wreck — 破坏
+- spoil — 战利品
+- to wound — 伤害
+- ground-to-air missile — 地对空导弹
+- air-to-ground missile — 空对地导弹
+- brass knuckles — 指节铜套
+- dogfight — 空战
+- marine — 海军陆战队员
+- to gun down — 枪杀
+- United States Marine Corps
+- sidearm — 随身武器
+- bulletproof — 防弹
+
+### City Structures (城市结构)
+
+- abandoned — 废弃的
+- classical — 古典的
+- external — 外部的
+- industrial — 工业的
+- open-plan — 开放式
+- spacious — 宽敞的
+- to construct — 建造
+- brick — 砖
+- column — 柱子
+- concrete — 混凝土
+- development — 开发
+- digger — 挖掘机
+- passage — 走廊
+- exit — 出口
+- hut — 小屋
+- to level — 夷平
+- to rebuild — 重建
+- ruin — 废墟
+- curb — 路缘
+- landfill — 垃圾填埋场
+- sewer — 下水道
+- landmark — 地标
+- monument — 纪念碑
+- facility
+- casino — 赌场
+- courthouse — 法院
+- disco — 迪斯科舞厅
+- nursing home — 养老院
+- schoolhouse — 校舍
+- structure — 结构
+- town hall — 市政厅
+- funeral home — 殡仪馆
+- graveyard — 墓地
+- tomb — 坟墓
+
+### World of Science (科学世界)
+
+- biochemistry — 生物化学
+- biological — 生物的
+- artificial — 人工的
+- bacteria — 细菌
+- being — 生物
+- cycle — 周期
+- DNA — DNA
+- genetics — 遗传学
+- to evolve — 进化
+- compound — 化合物
+- element — 元素
+- matter — 物质
+- mineral — 矿物
+- molecule — 分子
+- solution — 溶液
+- boiling point — 沸点
+- freezing point — 冰点
+- radiation — 辐射
+- to advance — 推进
+- to absorb — 吸收
+- to activate — 激活
+- to generate — 产生
+- industry — 工业
+- civil engineering — 土木工程
+- sensor — 传感器
+- circuit — 电路
+- field — 场
+- wire — 电线
+- live wire — 带电电线
+- motion — 运动
+- to monitor — 监控，监测
+- motor — 马达
+- rate — 率
+- weathering — 风化
+- impervious — 不透的
+
+### Measurement
+
+- arc — 弧
+- area — 面积
+- point — 点
+- set — 集合
+- space — 空间
+- volume — 体积
+- addition — 加法
+- deduction — 扣除
+- division — 除法
+- multiplication — 乘法
+- times — 乘以
+- fraction — 分数
+- percentage — 百分比
+- probability — 概率
+- equal sign — 等号
+- to amount to — 总计
+- digit — 数字
+- minus — 减号
+- plus — 加号
+- graph — 图表
+- bar chart — 条形图
+- pie chart — 饼图
+- line graph — 折线图
+- mathematician — 数学家
+- measure — 度量
+- acre — 英亩
+- degree — 度
+- statistic — 统计
+- to rank — 排名
+- to rate — 评分
+- massive — 巨大的
+- multiple — 多个的
+- numerous — 众多的
+- vast — 广阔的
+- section — 部分
+
+### Common Verbs (常见动词)
+
+- to accompany — 陪伴
+- to acquire — 获得
+- to approach — 接近
+- to concern — 使担心
+- to deserve — 值得
+- to emerge — 出现
+- to engage — 参与
+- to excuse — 原谅
+- to impress — 给...留下深刻印象
+- to interrupt — 打断
+- to range — 范围包括
+- to rely — 依赖
+- to retain — 保留
+- to reveal — 揭示
+- to seek — 寻找
+- to sense — 感觉
+- to shape — 塑造
+- to shift — 移动
+- to split — 分开
+- to spot — 发现
+- to subject — 使遭受
+- to surround — 包围
+- to swear — 发誓
+- to tear — 撕
+- to track — 追踪
+- to transfer — 转移
+- to transform — 转变
+- to urge — 敦促
+- to vary — 变化
+- to whisper — 耳语
+- to soil — 弄脏
+- to go — 变
+- to sound — 听起来
+- to concern — 涉及
+- to oversleep — 睡过头
+- to preserve — 保护
+- to resurface — 重新出现
+
+### General Adverbs (一般副词)
+
+- aside — 旁边
+- apparently — 显然
+- approximately — 大约
+- basically — 基本上
+- consistently — 一贯地，始终如一地
+- constantly — 不断地，持续地
+- critically — 批判地
+- daringly — 大胆地
+- deeply — 深深地
+- deliberately — 故意地
+- disappointingly — 令人失望地
+- elsewhere — 别处
+- entirely — 完全
+- gradually — 逐渐地
+- harmlessly — 无害地
+- hopelessly — 绝望地
+- initially — 最初
+- inevitably — 不可避免地
+- largely — 大部分
+- literally — 字面上
+- nevertheless — 然而
+- occasionally — 偶尔
+- otherwise — 否则
+- overall — 总体上
+- partly — 部分地
+- precisely — 精确地
+- relatively — 相对地
+- strictly — 严格地
+- somewhat — 有点
+- subsequently — 随后
+- truly — 真诚地
+- ultimately — 最终
+- unsuccessfully — 未成功
+- way — 非常
+- a tad — 有点
+- widely — 广泛地
+- gently — 温柔地
+- alongside — 旁边
+- accordingly — 相应地，因此
+- beyond — 更远
+
+### Useful Adjectives (有用的形容词)
+
+- absolute — 绝对的
+- accurate — 准确的，精确的
+- actual — 实际的
+- additional — 额外的
+- advance — 提前的
+- apparent — 明显的
+- appropriate — 适当的
+- blind — 盲的
+- brief — 短暂的
+- broad — 宽的
+- capable — 有能力的
+- characteristic — 特征的
+- chief — 主要的
+- complicated — 复杂的
+- concerned — 担心的
+- confusing — 令人困惑的
+- conscious — 有意识的
+- constant — 持续的
+- corporate — 企业的
+- crucial — 关键的
+- deliberate — 故意的
+- detailed — 详细的
+- downward — 向下的
+- efficient — 高效的
+- entire — 整个
+- ethical — 道德的
+- even — 均匀的
+- executive — 执行的
+- extraordinary — 非凡的
+- flexible — 灵活的
+- folding — 可折叠的
+- former — 前者
+- so-called — 所谓的
+- neat — 整洁的
+- bizarre — 奇怪的
+- superficial — 表面的
+- out of sight — 看不见的
+
+### General Adjectives (一般形容词)
+
+- forward — 前面的
+- fundamental — 基本的
+- grand — 宏伟的
+- hilarious — 滑稽的
+- honorable — 可敬的
+- humorous — 幽默的
+- impressed — 印象深刻的
+- initial — 初始的
+- inner — 内部的
+- intended — 预期的
+- intense — 强烈的
+- internal — 内部的
+- literal — 字面的
+- mass — 大规模的
+- material — 物质的
+- minor — 次要的
+- mixed — 混合的
+- overall — 整体的
+- potential — 潜在的
+- prime — 主要的
+- principal — 主要的
+- pure — 纯净的
+- rapid — 快速的
+- representative — 代表性的
+- resident — 居民
+- routine — 常规的
+- shocked — 震惊的
+- slight — 轻微的
+- sticky — 粘的
+- stiff — 硬的
+- unconscious — 无意识的
+- upper — 上面的
+- very — 正是
+- vital — 至关重要的
+- willing — 愿意
+
