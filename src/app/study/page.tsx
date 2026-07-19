@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -34,34 +34,38 @@ interface QueueItem {
 }
 
 export default function StudyPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [helpVisible, setHelpVisible] = useState(false);
   const [direction, setDirection] = useState<"left" | "right" | null>(null);
   const [loading, setLoading] = useState(true);
+  const initialized = useRef(false);
 
   // 认证检查
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
 
-  // 加载队列
-  const fetchQueue = useCallback(async () => {
-    setLoading(true);
-    const res = await fetch("/api/study");
-    if (res.ok) {
-      const data = await res.json();
-      setQueue(data.queue || []);
-      setCurrentIndex(0);
-    }
-    setLoading(false);
-  }, []);
-
+  // 加载队列（仅在首次认证通过时）
   useEffect(() => {
-    if (status === "authenticated") fetchQueue();
-  }, [status, fetchQueue]);
+    if (status === "authenticated" && !initialized.current) {
+      initialized.current = true;
+      (async () => {
+        setLoading(true);
+        try {
+          const res = await fetch("/api/study");
+          if (res.ok) {
+            const data = await res.json();
+            setQueue(data.queue || []);
+          }
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }
+  }, [status]);
 
   if (status === "loading" || loading) {
     return (
@@ -74,9 +78,8 @@ export default function StudyPage() {
   if (status === "unauthenticated") return null;
 
   const current = queue[currentIndex];
-  const isLast = currentIndex >= queue.length - 1;
 
-  // 提交滑动结果到后端
+  // 重新加载
   const submitReview = async (gesture: "left" | "right") => {
     if (!current) return;
     await fetch("/api/study", {
@@ -124,7 +127,11 @@ export default function StudyPage() {
           今天没有更多单词了，明天再来复习吧
         </p>
         <button
-          onClick={fetchQueue}
+          onClick={() => {
+            initialized.current = false;
+            setQueue([]);
+            setCurrentIndex(0);
+          }}
           className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700"
         >
           刷新单词

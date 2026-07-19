@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
+import Image from "next/image";
 
 interface WordFull {
   term: string;
@@ -103,11 +104,12 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
 
           {/* 图片 */}
           {word.imageUrl && (
-            <div className="mb-4 overflow-hidden rounded-xl">
-              <img
+            <div className="relative mb-4 h-40 overflow-hidden rounded-xl">
+              <Image
                 src={word.imageUrl}
                 alt={word.term}
-                className="w-full h-40 object-cover"
+                fill
+                className="object-cover"
               />
             </div>
           )}

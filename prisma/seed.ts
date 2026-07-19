@@ -12,7 +12,6 @@ import { PrismaClient } from "../src/generated/prisma";
 const prisma = new PrismaClient();
 
 const WORD_LIST_PATH = new URL("../word list.md", import.meta.url).pathname;
-const FILE = Bun ? Bun.file(WORD_LIST_PATH) : null;
 
 async function main() {
   // 读文件（Node.js 兼容）
