@@ -1,25 +1,64 @@
-// Prisma schema
-// Learn more: https://pris.ly/d/prisma-schema
+// Prisma schema — 严格按照 PLAN.md 第四章 4.4 节
 
 generator client {
-  provider = "prisma-client-js"
-  // Generate into src so it resolves with bundler module resolution.
-  // Import as: import { PrismaClient } from "@/generated/prisma"
-  output = "../src/generated/prisma"
+  provider   = "prisma-client-js"
+  output     = "../src/generated/prisma"
   engineType = "library"
 }
 
 datasource db {
-  // NOTE: Prisma 7 no longer supports `url` here.
-  // The connection string is provided via prisma.config.ts -> datasource.url
   provider = "postgresql"
 }
 
-// Example model — adjust to your domain.
+// ── 用户（邮箱+密码登录） ──
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  reviews      Review[]
+}
+
+// ── 单词（来自 word list.md + ECDICT） ──
+model Word {
+  id         String   @id @default(cuid())
+  term       String   @unique // 英文
+  phonetic   String?          // 音标
+  pos        String?          // 词性
+  definition String           // 中文释义
+  level      Level            // A1 / A2 / B1
+  category   String?          // 主题（Family / Colors ...）
+  examples   Json?            // 例句数组 [{"en":"...","zh":"..."}]
+  synonyms   String[]         // 近义词
+  antonyms   String[]         // 反义词
+  imageUrl   String?          // 助记图
+  reviews    Review[]
+
+  @@index([level])
+  @@index([category])
+}
+
+// ── 学习记录（每用户每词一份 SM-2 状态） ──
+model Review {
+  id             String   @id @default(cuid())
+  userId         String
+  wordId         String
+  easeFactor     Float    @default(2.5)
+  interval       Int      @default(0)
+  repetitions    Int      @default(0)
+  nextReviewDate DateTime
+  lastReviewedAt DateTime?
+  totalReviews   Int      @default(0)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word           Word     @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, wordId])
+  @@index([userId, nextReviewDate])
+}
+
+enum Level {
+  A1
+  A2
+  B1
 }
