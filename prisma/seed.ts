@@ -144,8 +144,10 @@ async function main() {
 
   console.log(`Done: ${inserted} inserted, ${skipped} skipped (already exist)`);
 
-  // 暂停：先不批量创建学生账号（seedStudents 函数保留，需要时取消注释下行）
-  // await seedStudents();
+  // 学生账号默认不创建；需要时在 .env 设 SEED_STUDENTS=1 重新跑 seed 即可。
+  if (process.env.SEED_STUDENTS === "1") {
+    await seedStudents();
+  }
   await seedTestAccount();
 
   await prisma.$disconnect();
