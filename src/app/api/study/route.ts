@@ -4,6 +4,57 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { updateSM2, gestureToQuality, createInitialState } from "@/lib/sm2";
 
+type WordRow = {
+  id: string;
+  term: string;
+  phonetic?: string | null;
+  pos?: string | null;
+  definition: string;
+  level: string;
+  category?: string | null;
+  // Postgres: Json/String[] 原生类型；SQLite 预览版: JSON 字符串
+  examples?: unknown;
+  synonyms?: unknown;
+  antonyms?: unknown;
+  imageUrl?: string | null;
+};
+
+/**
+ * 兼容 SQLite 预览：把 JSON 字符串字段解析回数组/对象。
+ * Postgres 原生数组/Json 不会被字符串包装，解析时原样返回。
+ */
+function normalizeWord<T extends WordRow>(w: T) {
+  const parseArr = (v: unknown): string[] => {
+    if (Array.isArray(v)) return v as string[];
+    if (typeof v === "string") {
+      try {
+        const p = JSON.parse(v);
+        return Array.isArray(p) ? p : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+  const parseJson = (v: unknown) => {
+    if (v == null) return null;
+    if (typeof v === "string") {
+      try {
+        return JSON.parse(v);
+      } catch {
+        return null;
+      }
+    }
+    return v;
+  };
+  return {
+    ...w,
+    examples: parseJson(w.examples),
+    synonyms: parseArr(w.synonyms),
+    antonyms: parseArr(w.antonyms),
+  };
+}
+
 /** GET /api/study — 获取待学习的单词列表 */
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -52,7 +103,7 @@ export async function GET() {
   const queue = [
     ...dueReviews.map((r) => ({
       reviewId: r.id,
-      word: r.word,
+      word: normalizeWord(r.word as WordRow),
       state: {
         easeFactor: r.easeFactor,
         interval: r.interval,
@@ -63,7 +114,7 @@ export async function GET() {
     })),
     ...newReviews.map((r) => ({
       reviewId: null,
-      word: r.word,
+      word: normalizeWord(r.word as WordRow),
       state: {
         easeFactor: r.easeFactor,
         interval: r.interval,

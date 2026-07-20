@@ -8,11 +8,19 @@
  *   - english — 中文释义
  */
 import bcrypt from "bcryptjs";
+import { fileURLToPath } from "node:url";
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaBetterSqlite3({
+    url: process.env.DATABASE_URL ?? "file:./prisma/dev.db",
+  }),
+});
 
-const WORD_LIST_PATH = new URL("../word list.md", import.meta.url).pathname;
+const WORD_LIST_PATH = fileURLToPath(
+  new URL("../word list.md", import.meta.url),
+);
 
 // ── 学生账号预生成 ──
 // 账号由老师统一发放给学生，不做自助注册。
@@ -42,6 +50,28 @@ async function seedStudents() {
   );
 }
 
+// ── 测试 / 管理员种子账号 ──
+// 账号名随机生成、难以被猜中，专供内部测试功能使用；未来需要时可升级为管理员。
+// 生产环境可通过环境变量 TEST_ACCOUNT_PASSWORD 覆盖密码，避免密码进入版本库。
+const TEST_ACCOUNT = "qa-4347e0aa14";
+const TEST_ACCOUNT_PASSWORD =
+  process.env.TEST_ACCOUNT_PASSWORD ?? "e8yJ4F+bZso&aKxnC3pjzBVp";
+
+async function seedTestAccount() {
+  const hash = await bcrypt.hash(TEST_ACCOUNT_PASSWORD, 12);
+  const existing = await prisma.user.findUnique({
+    where: { email: TEST_ACCOUNT },
+  });
+  if (existing) {
+    console.log(`Test account already exists: ${TEST_ACCOUNT}`);
+    return;
+  }
+  await prisma.user.create({
+    data: { email: TEST_ACCOUNT, passwordHash: hash, name: "测试账号" },
+  });
+  console.log(`Test account created: ${TEST_ACCOUNT}`);
+}
+
 async function main() {
   // 读文件（Node.js 兼容）
   const fs = await import("fs");
@@ -51,7 +81,8 @@ async function main() {
   let currentCategory = "";
   const words: { term: string; definition: string; level: string; category: string }[] = [];
 
-  for (const line of text.split("\n")) {
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine;
     // 级别标题
     const levelMatch = line.match(/^##\s+(A\d)\s+Level/i);
     if (levelMatch) {
@@ -101,10 +132,11 @@ async function main() {
       data: {
         term: w.term,
         definition: w.definition,
-        level: w.level as "A1" | "A2" | "B1",
+        level: w.level,
         category: w.category || null,
-        synonyms: [],
-        antonyms: [],
+        // SQLite 预览版用 String 存 JSON；生产 Postgres 版改回 [] 空数组
+        synonyms: "[]",
+        antonyms: "[]",
       },
     });
     inserted++;
@@ -112,7 +144,9 @@ async function main() {
 
   console.log(`Done: ${inserted} inserted, ${skipped} skipped (already exist)`);
 
-  await seedStudents();
+  // 暂停：先不批量创建学生账号（seedStudents 函数保留，需要时取消注释下行）
+  // await seedStudents();
+  await seedTestAccount();
 
   await prisma.$disconnect();
 }
