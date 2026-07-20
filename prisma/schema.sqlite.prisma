@@ -1,5 +1,5 @@
-// Prisma schema — 本地 SQLite 预览版（生产 Postgres 版备份在 prisma/schema.postgres.prisma）
-// 差异：String[] / Json / enum 在 SQLite 下改用 String 存储（JSON 字符串），业务层读写时转换。
+// SQLite schema — 仅用于本地预览（不进生产、不动 prisma/schema.prisma）
+// 差异：String[] / Json 在 SQLite 下改用 String 存储（JSON 字符串），由业务层读写时转换。
 
 generator client {
   provider   = "prisma-client-js"
@@ -9,9 +9,9 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
-// ── 用户（账号+密码登录） ──
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -21,18 +21,17 @@ model User {
   reviews      Review[]
 }
 
-// ── 单词（来自 word list.md + ECDICT） ──
 model Word {
   id         String   @id @default(cuid())
   term       String   @unique
   phonetic   String?
   pos        String?
   definition String
-  level      String   // A1 / A2 / B1（SQLite 无 enum）
+  level      String // A1 / A2 / B1（SQLite 无 enum）
   category   String?
-  examples   String?  // JSON 字符串
-  synonyms   String?  // JSON 字符串数组
-  antonyms   String?  // JSON 字符串数组
+  examples   String? // JSON 字符串
+  synonyms   String? // JSON 字符串数组
+  antonyms   String? // JSON 字符串数组
   imageUrl   String?
   reviews    Review[]
 
@@ -40,7 +39,6 @@ model Word {
   @@index([category])
 }
 
-// ── 学习记录（每用户每词一份 SM-2 状态） ──
 model Review {
   id             String   @id @default(cuid())
   userId         String
