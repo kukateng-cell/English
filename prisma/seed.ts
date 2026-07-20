@@ -7,11 +7,40 @@
  *   ### Category Name (中文名)
  *   - english — 中文释义
  */
+import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma";
 
 const prisma = new PrismaClient();
 
 const WORD_LIST_PATH = new URL("../word list.md", import.meta.url).pathname;
+
+// ── 学生账号预生成 ──
+// 账号由老师统一发放给学生，不做自助注册。
+// 格式：student01..studentNN，统一默认密码（后续可由业务层支持修改）。
+const STUDENT_COUNT = 40;
+const DEFAULT_PASSWORD = "english123";
+
+async function seedStudents() {
+  const hash = await bcrypt.hash(DEFAULT_PASSWORD, 12);
+  let created = 0;
+  let existed = 0;
+  for (let i = 1; i <= STUDENT_COUNT; i++) {
+    const account = `student${String(i).padStart(2, "0")}`; // student01, student02, ...
+    const existing = await prisma.user.findUnique({ where: { email: account } });
+    if (existing) {
+      existed++;
+      continue;
+    }
+    await prisma.user.create({
+      data: { email: account, passwordHash: hash, name: `学生 ${i}` },
+    });
+    created++;
+  }
+  const last = `student${String(STUDENT_COUNT).padStart(2, "0")}`;
+  console.log(
+    `Students: ${created} created, ${existed} already exist | account: student01..${last}, password: ${DEFAULT_PASSWORD}`,
+  );
+}
 
 async function main() {
   // 读文件（Node.js 兼容）
@@ -82,6 +111,9 @@ async function main() {
   }
 
   console.log(`Done: ${inserted} inserted, ${skipped} skipped (already exist)`);
+
+  await seedStudents();
+
   await prisma.$disconnect();
 }
 

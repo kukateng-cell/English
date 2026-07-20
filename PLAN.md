@@ -67,7 +67,7 @@
 
 | # | 功能 | 说明 |
 |---|---|---|
-| 1 | **Gmail 一键登录** | Auth.js + Google OAuth，同设备登录一次后长期免登 |
+| 1 | **统一发放学生账号** | 老师预先生成一批账号（如 student01），学生用账号+密码登录，免自助注册；JWT cookie 长期免登 |
 | 2 | **滑动卡片学习** | 左滑"不会" / 右滑"会"，触摸优先 |
 | 3 | **SM-2 间隔重复调度** | 每词维护 ease factor / interval / repetitions / next review date |
 | 4 | **多模态助记面板** | 左滑后展示音标、释义、例句、图片、近反义词 |
@@ -165,7 +165,7 @@ function updateSM2(state: ReviewState, quality: number): ReviewState {
 | 滑动交互 | `framer-motion` 或 `@use-gesture/react` | 触摸滑动卡片 |
 | 数据库 | **PostgreSQL (Neon serverless)** | 已配置 |
 | ORM | **Prisma 7 + `@prisma/adapter-pg`** | 已配置 |
-| 认证 | **Auth.js (NextAuth) + Google Provider** | Gmail 登录，JWT cookie 长期持久 |
+| 认证 | **Auth.js (NextAuth) + Credentials Provider** | 账号+密码登录，账号由老师统一预生成（seed），JWT cookie 长期持久 |
 | 部署 | **Vercel** | Next.js 官方平台，免费额度够用 |
 
 ### 4.3 系统架构
@@ -179,7 +179,7 @@ flowchart LR
     subgraph Server[Next.js on Vercel]
         RSC[React Server Components]
         API[Route Handlers<br/>SM-2 调度]
-        Auth[Auth.js<br/>Google OAuth]
+        Auth[Auth.js<br/>Credentials 登录]
     end
 
     subgraph Data[数据层]
@@ -201,17 +201,14 @@ flowchart LR
 ### 4.4 数据模型（Prisma）
 
 ```prisma
-// 用户：Auth.js 标准 model
+// 用户：账号由老师统一预生成（不做自助注册）
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  image         String?
-  emailVerified DateTime?
-  createdAt     DateTime  @default(now())
-  reviews       Review[]
-  accounts      Account[]
-  sessions      Session[]
+  id           String   @id @default(cuid())
+  email        String   @unique          // 登录账号（如 student01）
+  passwordHash String                    // bcrypt 哈希
+  name         String?
+  createdAt    DateTime @default(now())
+  reviews      Review[]
 }
 
 // 单词：来自 ECDICT + word list.md
@@ -281,7 +278,7 @@ enum Level {
    左滑触发"教"而非"罚"——系统主动提供例句/图片/近反义词帮助认读，区别于传统"答错就重背"的负反馈循环，更贴合**认读**这一具体目标。
 
 3. **移动优先 + 零摩擦续学**
-   单次学习无最小时长限制，任意点退出都自动保存进度；Gmail 登录一次，同设备长期免登。**把"坚持"的门槛降到最低**。
+   单次学习无最小时长限制，任意点退出都自动保存进度；登录一次，同设备长期免登。**把"坚持"的门槛降到最低**。
 
 4. **学术依据扎实**
    每个核心设计决策都可追溯到认知心理学/EDM 经典文献（见第八节参考文献），满足科创项目对**严谨性**的要求。
@@ -306,7 +303,7 @@ enum Level {
 |---|---|---|---|
 | **P0 资料整理** | 从 ECDICT 导出 A1–B1 词表；整理 `word list.md` 主题分类 | seed 脚本 + 词表 CSV | 1 周 |
 | **P1 数据层** | Prisma schema 定稿、迁移、seed 入库 | 可查询的 Word 表 | 3 天 |
-| **P2 认证** | Auth.js + Google Provider，JWT 长期持久 | 可登录网站 | 2 天 |
+| **P2 认证** | Auth.js + Credentials Provider，seed 预生成学生账号，JWT 长期持久 | 可登录网站 | 2 天 |
 | **P3 学习核心** | 滑动卡片 UI + SM-2 调度 + 助记面板 | MVP 可用 | 1 周 |
 | **P4 续学** | 进度持久化、"下次继续"逻辑 | 中断恢复 | 2 天 |
 | **P5 统计** | 今日新学/复习、连续打卡、掌握度仪表盘 | 学习数据页 | 3 天 |
