@@ -6,31 +6,25 @@ import { prisma } from "@/lib/prisma";
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
-      name: "email",
+      name: "account",
       credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+        // ‘email’ 字段实际存放账号名（如 student01），保留键名以兼容 NextAuth 表单
+        email: { label: "账号", type: "text" },
+        password: { label: "密码", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const email = (credentials.email as string).toLowerCase().trim();
+        // 账号由老师统一预先生成（seed），不做自助注册
+        const account = (credentials.email as string).toLowerCase().trim();
         const password = credentials.password as string;
 
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findUnique({ where: { email: account } });
+        if (!user) return null;
 
-        if (user) {
-          const valid = await bcrypt.compare(password, user.passwordHash);
-          if (!valid) return null;
-          return { id: user.id, email: user.email, name: user.name };
-        }
-
-        // 新用户自动注册
-        const hash = await bcrypt.hash(password, 12);
-        const newUser = await prisma.user.create({
-          data: { email, passwordHash: hash },
-        });
-        return { id: newUser.id, email: newUser.email, name: newUser.name };
+        const valid = await bcrypt.compare(password, user.passwordHash);
+        if (!valid) return null;
+        return { id: user.id, email: user.email, name: user.name };
       },
     }),
   ],
