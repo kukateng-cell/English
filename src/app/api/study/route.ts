@@ -167,9 +167,11 @@ export async function POST(req: Request) {
 
   const quality = gestureToQuality(gesture);
 
-  const existing = reviewId
-    ? await prisma.review.findUnique({ where: { id: reviewId } })
-    : null;
+  // 用 (userId, wordId) 这个【业务唯一约束】来查是否已存在，
+  // 而不是依赖客户端传的 reviewId（前端状态可能丢失/重复提交，会导致 create 撞唯一约束 500）。
+  const existing = await prisma.review.findUnique({
+    where: { userId_wordId: { userId, wordId } },
+  });
 
   const prevState = existing
     ? {
@@ -183,24 +185,20 @@ export async function POST(req: Request) {
 
   const nextState = updateSM2(prevState, quality);
 
-  if (existing) {
-    await prisma.review.update({
-      where: { id: reviewId! },
-      data: {
-        ...nextState,
-        totalReviews: { increment: 1 },
-      },
-    });
-  } else {
-    await prisma.review.create({
-      data: {
-        userId,
-        wordId,
-        ...nextState,
-        totalReviews: 1,
-      },
-    });
-  }
+  // upsert 原子地处理「已存在则更新 / 不存在则创建」，彻底避免并发重复提交的约束冲突。
+  await prisma.review.upsert({
+    where: { userId_wordId: { userId, wordId } },
+    create: {
+      userId,
+      wordId,
+      ...nextState,
+      totalReviews: 1,
+    },
+    update: {
+      ...nextState,
+      totalReviews: { increment: 1 },
+    },
+  });
 
   return NextResponse.json({ ok: true, nextState });
 }
