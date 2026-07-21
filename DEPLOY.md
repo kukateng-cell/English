@@ -8,10 +8,10 @@
 
 ## 整体架构
 
-```
-GitHub repo ──push──> Vercel（Next.js 应用）
-                          │
-                          └──> Supabase（Postgres 数据库）
+```mermaid
+flowchart TD
+    GitHub[GitHub repo] -- push --> Vercel[Vercel <br/>Next.js 应用]
+    Vercel --> Supabase[(Supabase <br/>Postgres 数据库)]
 ```
 
 | 在哪里 | 做什么 |
@@ -35,7 +35,7 @@ Prisma 在两种场景用不同的连接方式，所以需要**两个环境变�
 
 ## 第 1 步：创建 Supabase 项目并拿到连接串
 
-1. 打开 https://supabase.com 注册并登录（可用 GitHub 登录）
+1. 打开 <https://supabase.com> 注册并登录（可用 GitHub 登录）
 2. 点击 **New project**
    - **Name**：`english`（随意）
    - **Database Password**：设一个强密码，**立刻记下来**（后面要用，Supabase 不会再显示）
@@ -45,14 +45,18 @@ Prisma 在两种场景用不同的连接方式，所以需要**两个环境变�
 4. 进入项目 → 左下角 **⚙ Project Settings** → **Database**
 5. 找到 **Connection string** 区域，有多个标签页：
    - 切到 **Transaction pooler** → 格式类似：
-     ```
+
+     ```text
      postgresql://postgres.[REF]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres
      ```
+
      把 `[YOUR-PASSWORD]` 换成第 2 步设的密码 → 这就是 **`DATABASE_URL`**
    - 切到 **Direct connection**（或 Session pooler 旁边的 direct）→ 格式类似：
-     ```
+
+     ```text
      postgresql://postgres:[YOUR-PASSWORD]@db.[REF].supabase.co:5432/postgres
      ```
+
      同样替换密码 → 这就是 **`DIRECT_URL`**
 
 > 💡 `[REF]` 是项目的短 ID（如 `abcdwxyz...`），在 Settings → General → Reference ID 能看到。
@@ -108,6 +112,7 @@ npm run seed
 ```
 
 因为设了 `SEED_STUDENTS=1`，会创建：
+
 - `word list.md` 里的所有单词
 - `student01` ~ `student40`（密码统一 `english123`）
 - 测试账号 `qa-4347e0aa14`（密码是你设的 `TEST_ACCOUNT_PASSWORD`）
@@ -118,7 +123,7 @@ npm run seed
 npm run dev
 ```
 
-打开 http://localhost:3000/login，用 `student01` / `english123` 登录，确认能正常学习。
+打开 <http://localhost:3000/login，用> `student01` / `english123` 登录，确认能正常学习。
 **本地能跑通，说明 Supabase 连接 OK，可以进下一步。**
 
 ---
@@ -137,7 +142,7 @@ git push
 
 ## 第 4 步：在 Vercel 部署
 
-1. 打开 https://vercel.com 用 GitHub 登录
+1. 打开 <https://vercel.com> 用 GitHub 登录
 2. 点 **Add New... → Project**
 3. Import 你的仓库（`english`）
 4. **Framework Preset** 应自动识别为 **Next.js**
@@ -161,6 +166,7 @@ git push
 ### 4.1 修正 NEXTAUTH_URL（重要）
 
 部署完成后，Vercel 会给你一个域名（如 `https://english-xxx.vercel.app`）：
+
 1. 回到 Vercel → 项目 → **Settings → Environment Variables**
 2. 把 `NEXTAUTH_URL` 改成这个真实域名
 3. **Redeploy**（Deployments → 最新那条 → 右侧菜单 → Redeploy）
@@ -174,6 +180,7 @@ git push
 3. 确认能加载单词、滑动学习、记录进度
 
 如果报错，看 Vercel → **Logs**（或 Functions 标签），最常见的是：
+
 - `DATABASE_URL` 密码没替换对 → 检查连接串
 - `NEXTAUTH_URL` 没改成真实域名 → 第 4.1 步
 - 表没建 / 没 seed → 回第 2.3 / 2.4 步确认 Supabase 有数据
@@ -183,16 +190,21 @@ git push
 ## 常见问题
 
 ### Q: 为什么要两个连接串（DATABASE_URL + DIRECT_URL）？
+
 Vercel 是 serverless，每个请求可能新建数据库连接。直接连接（5432）连接数有限（Supabase 免费层约 60 个），高并发会耗尽。**Pooler（6543）** 复用连接，适合 serverless 运行时。但 Prisma 的 `db push` / migrate 不支持 pooler，必须直连。所以分开。
 
 ### Q: 以后改了 schema 怎么同步到 Supabase？
+
 本地改 `prisma/schema.prisma` → `npx prisma db push`（用 `DIRECT_URL`）。Vercel 上 `postinstall` 只生成 Client，不同步 schema。
 
 ### Q: 以后要重新导入单词？
+
 改 `word list.md` → `npm run seed`（幂等，已存在的词会跳过）。
 
 ### Q: 本地还能用 SQLite 吗？
+
 不能了。代码已统一切到 Postgres。旧的 SQLite schema 备份在 `prisma/schema.sqlite.prisma`，本地数据库 `prisma/dev.db` 仍在但不再使用。
 
 ### Q: 部署后数据库是空的怎么办？
+
 说明第 2.3（`db push`）或 2.4（`seed`）没在本地对 Supabase 跑过。回第 2 步重做即可——数据是存在 Supabase 里的，Vercel 只是访问它。
