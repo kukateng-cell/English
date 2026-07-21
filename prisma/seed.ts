@@ -7,14 +7,19 @@
  *   ### Category Name (中文名)
  *   - english — 中文释义
  */
+import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import { fileURLToPath } from "node:url";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "../src/generated/prisma";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient, type Level } from "../src/generated/prisma";
 
+// seed 是独立脚本（tsx 运行），不会自动读环境变量，手动加载 .env.local。
+dotenv.config({ path: ".env.local" });
+
+// Seed 用 Session pooler（MIGRATE_URL，5432，支持长事务）；运行时才用 6543 的 DATABASE_URL。
 const prisma = new PrismaClient({
-  adapter: new PrismaBetterSqlite3({
-    url: process.env.DATABASE_URL ?? "file:./prisma/dev.db",
+  adapter: new PrismaPg({
+    connectionString: process.env.MIGRATE_URL ?? process.env.DATABASE_URL,
   }),
 });
 
@@ -77,16 +82,16 @@ async function main() {
   const fs = await import("fs");
   const text = fs.readFileSync(WORD_LIST_PATH, "utf-8");
 
-  let currentLevel = "A1";
+  let currentLevel: Level = "A1";
   let currentCategory = "";
-  const words: { term: string; definition: string; level: string; category: string }[] = [];
+  const words: { term: string; definition: string; level: Level; category: string }[] = [];
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine;
     // 级别标题
     const levelMatch = line.match(/^##\s+(A\d)\s+Level/i);
     if (levelMatch) {
-      currentLevel = levelMatch[1].toUpperCase();
+      currentLevel = levelMatch[1].toUpperCase() as Level;
       continue;
     }
 
@@ -134,9 +139,9 @@ async function main() {
         definition: w.definition,
         level: w.level,
         category: w.category || null,
-        // SQLite 预览版用 String 存 JSON；生产 Postgres 版改回 [] 空数组
-        synonyms: "[]",
-        antonyms: "[]",
+        // Postgres 原生 String[]：用空数组
+        synonyms: [],
+        antonyms: [],
       },
     });
     inserted++;
