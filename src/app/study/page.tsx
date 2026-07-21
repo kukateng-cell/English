@@ -109,9 +109,6 @@ export default function StudyPage() {
   const [quizIndex, setQuizIndex] = useState(0);
   const [quizTotal, setQuizTotal] = useState(0); // 题目总数（含重做，用于进度）
   const [quizAnswered, setQuizAnswered] = useState(0); // 已答次数
-  const [currentQuestion, setCurrentQuestion] = useState<QuizQuestion | null>(
-    null
-  );
   const [quizStats, setQuizStats] = useState({
     correct: 0,
     wrong: 0,
@@ -155,36 +152,30 @@ export default function StudyPage() {
     }
   }, [status]);
 
-  // 评估阶段结束 → 进入测试阶段
-  useEffect(() => {
-    if (
-      phase === "assessment" &&
-      queue.length > 0 &&
-      currentIndex >= queue.length
-    ) {
-      const qq = [...knownWords, ...unknownWords];
-      if (qq.length === 0) {
-        setPhase("done");
-      } else {
-        setQuizQueue(qq);
-        setQuizTotal(qq.length);
-        setQuizIndex(0);
-        setQuizAnswered(0);
-        setPhase("quiz");
-      }
-    }
-  }, [phase, currentIndex, queue.length, knownWords, unknownWords]);
-
-  // 测试阶段：为当前词生成题目，或判定完成
-  useEffect(() => {
-    if (phase !== "quiz") return;
-    if (quizIndex >= quizQueue.length) {
-      setPhase("done");
-      return;
-    }
-    const word = quizQueue[quizIndex];
-    setCurrentQuestion(buildQuestion(word, distractorSource));
+  // 测试阶段的当前题目（由 quizIndex 派生，不再用 effect 驱动）
+  const currentQuestion = useMemo(() => {
+    if (phase !== "quiz") return null;
+    if (quizIndex >= quizQueue.length) return null;
+    return buildQuestion(quizQueue[quizIndex], distractorSource);
   }, [phase, quizIndex, quizQueue, distractorSource]);
+
+  // 评估阶段全部滑完 → 进入测试或完成阶段
+  // （在事件回调里触发，避免在 effect 内 setState，符合 react-hooks 规则）
+  const transitionFromAssessment = (
+    known: WordFull[],
+    unknown: WordFull[]
+  ) => {
+    const qq = [...known, ...unknown];
+    if (qq.length === 0) {
+      setPhase("done");
+    } else {
+      setQuizQueue(qq);
+      setQuizTotal(qq.length);
+      setQuizIndex(0);
+      setQuizAnswered(0);
+      setPhase("quiz");
+    }
+  };
 
   // 测试作答（必须在所有 early return 之前调用，遵守 Rules of Hooks）
   const handleQuizAnswer = useCallback(
@@ -194,6 +185,8 @@ export default function StudyPage() {
         correct: s.correct + (correct ? 1 : 0),
         wrong: s.wrong + (correct ? 0 : 1),
       }));
+
+      const nextIndex = quizIndex + 1;
 
       if (!correct) {
         // 答错：把这个词插到 2~3 题之后重新考，趁记忆新鲜立刻复习，
@@ -210,10 +203,17 @@ export default function StudyPage() {
           return next;
         });
         setQuizTotal((n) => n + 1);
+        setQuizIndex(nextIndex);
+      } else {
+        // 答对：若是最后一题则进入完成阶段，否则进入下一题
+        if (nextIndex >= quizQueue.length) {
+          setPhase("done");
+        } else {
+          setQuizIndex(nextIndex);
+        }
       }
-      setQuizIndex((i) => i + 1);
     },
-    [quizIndex]
+    [quizIndex, quizQueue.length]
   );
 
   if (status === "loading" || loading) {
@@ -245,11 +245,18 @@ export default function StudyPage() {
   // 右滑：认识
   const handleSwipeRight = async () => {
     if (!current) return;
-    setKnownWords((prev) => [...prev, current.word]);
+    // 记下本次加入后的「认识」列表（供本回调内判断阶段转换使用）
+    const newKnown = [...knownWords, current.word];
+    setKnownWords(newKnown);
     setDirection("right");
     await submitReview("right");
     setTimeout(() => {
-      setCurrentIndex((i) => i + 1);
+      // 若是评估阶段最后一张，则进入测试 / 完成；否则进入下一张
+      if (currentIndex + 1 >= queue.length) {
+        transitionFromAssessment(newKnown, unknownWords);
+      } else {
+        setCurrentIndex((i) => i + 1);
+      }
       setDirection(null);
     }, 350);
   };
@@ -267,7 +274,14 @@ export default function StudyPage() {
   const handleHelpDismiss = () => {
     setHelpVisible(false);
     setDirection(null);
-    setTimeout(() => setCurrentIndex((i) => i + 1), 200);
+    setTimeout(() => {
+      // 若是评估阶段最后一张，则进入测试 / 完成；否则进入下一张
+      if (currentIndex + 1 >= queue.length) {
+        transitionFromAssessment(knownWords, unknownWords);
+      } else {
+        setCurrentIndex((i) => i + 1);
+      }
+    }, 200);
   };
 
   // 重新开始（清空状态重新拉取）
@@ -283,7 +297,6 @@ export default function StudyPage() {
     setQuizIndex(0);
     setQuizTotal(0);
     setQuizAnswered(0);
-    setCurrentQuestion(null);
     setQuizStats({ correct: 0, wrong: 0 });
   };
 
