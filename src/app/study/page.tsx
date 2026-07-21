@@ -55,8 +55,32 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-/** 为一个词构造一道配对题（中→英 / 英→中 随机） */
-function buildQuestion(word: WordFull, source: PoolWord[]): QuizQuestion {
+/** 是否包含中日韩字符（用来判定「中文释义」是否真的是中文） */
+function hasCJK(s: string): boolean {
+  return /[\u4e00-\u9fff]/.test(s);
+}
+
+/**
+ * 判断一个词能否生成有意义的配对题。
+ * 像 `DVD — DVD` / `Wi-Fi — Wi-Fi` 这类「英文 ↔ 英文」的词条，
+ * 无论哪个方向都会出现「英文配英文」，必须从配对题里剔除。
+ */
+function isQuizzable(word: { term: string; definition: string }): boolean {
+  return (
+    hasCJK(word.definition) && // 释义必须是中文
+    word.definition.trim().length > 0 &&
+    word.term.trim().length > 0 &&
+    word.term.trim() !== word.definition.trim() // 排除 term === definition
+  );
+}
+
+/** 为一个词构造一道配对题（中→英 / 英→中 随机）；无法出题时返回 null */
+function buildQuestion(
+  word: WordFull,
+  source: PoolWord[]
+): QuizQuestion | null {
+  if (!isQuizzable(word)) return null;
+
   const direction: "en-zh" | "zh-en" =
     Math.random() < 0.5 ? "en-zh" : "zh-en";
   const isEnZh = direction === "en-zh";
@@ -67,22 +91,47 @@ function buildQuestion(word: WordFull, source: PoolWord[]): QuizQuestion {
     text: answerText,
   };
 
-  // 干扰项：排除答案词本身与同义文本
+  // 干扰项筛选规则：
+  //  1. 排除词条自身；
+  //  2. 排除与正确答案文字相同的项（去重）；
+  //  3. 保证干扰项与正确答案处于同一语言：
+  //     - en-zh（给英文选中文）：干扰项释义必须也是中文；
+  //     - zh-en（给中文选英文）：干扰项 term 必须非中文；
+  //  4. 排除「同义替代答案」：在 zh-en 方向，若某词的中文释义与题目相同
+  //     （如「严重的」同时对应 severe / serious / nasty），把它当干扰项会
+  //     让用户「选了正确翻译却被判错」，必须剔除。en-zh 方向同理剔除
+  //     term 与题目 term 相同的重复词条。
   const candidates = source.filter((w) => {
     if (w.id === word.id) return false;
     const text = isEnZh ? w.definition : w.term;
-    return text !== answerText;
+    if (text.trim() === answerText.trim()) return false;
+    if (isEnZh) {
+      // 干扰项必须是中文释义
+      if (!hasCJK(text)) return false;
+      // 排除 term 与题目 term 相同的重复词条（避免同英文多释义造成混淆）
+      if (w.term.trim() === word.term.trim()) return false;
+    } else {
+      // 干扰项 term 不应是中文
+      if (hasCJK(text)) return false;
+      // 排除「释义与题目相同」的同义词 —— 它们是替代正确答案
+      if (w.definition.trim() === word.definition.trim()) return false;
+    }
+    return true;
   });
 
   const distractors: QuizOption[] = [];
-  const seen = new Set<string>([answerText]);
+  const seen = new Set<string>([answerText.trim().toLowerCase()]);
   for (const w of shuffle(candidates)) {
     const text = isEnZh ? w.definition : w.term;
-    if (seen.has(text)) continue;
-    seen.add(text);
+    const key = text.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
     distractors.push({ id: w.id, text });
     if (distractors.length >= 3) break;
   }
+
+  // 若有效干扰项不足 3 个，这道题质量不够，直接跳过
+  if (distractors.length < 3) return null;
 
   const options = shuffle([correctOption, ...distractors]);
   return { word, direction, options, correctId: word.id };
@@ -98,6 +147,8 @@ export default function StudyPage() {
   const [direction, setDirection] = useState<"left" | "right" | null>(null);
   const [loading, setLoading] = useState(true);
   const initialized = useRef(false);
+  // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
+  const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
 
   // 阶段流转：认字评估 → 测试 → 完成
   const [phase, setPhase] = useState<Phase>("assessment");
@@ -159,6 +210,17 @@ export default function StudyPage() {
     return buildQuestion(quizQueue[quizIndex], distractorSource);
   }, [phase, quizIndex, quizQueue, distractorSource]);
 
+  // 若当前词无法生成有效配对题（如 DVD↔DVD 这类纯英文词条，或干扰项不足），
+  // 自动判对并跳到下一题，避免界面卡住。
+  useEffect(() => {
+    if (phase !== "quiz") return;
+    if (quizIndex >= quizQueue.length) return;
+    if (currentQuestion !== null) return;
+    // 用 setTimeout(0) 推迟到下一帧，避免在渲染期间 setState
+    const t = setTimeout(() => handleQuizAnswerRef.current(true), 0);
+    return () => clearTimeout(t);
+  }, [phase, quizIndex, currentQuestion]);
+
   // 评估阶段全部滑完 → 进入测试或完成阶段
   // （在事件回调里触发，避免在 effect 内 setState，符合 react-hooks 规则）
   const transitionFromAssessment = (
@@ -215,6 +277,9 @@ export default function StudyPage() {
     },
     [quizIndex, quizQueue.length]
   );
+
+  // 让 ref 始终持有最新的 handleQuizAnswer
+  handleQuizAnswerRef.current = handleQuizAnswer;
 
   if (status === "loading" || loading) {
     return (
