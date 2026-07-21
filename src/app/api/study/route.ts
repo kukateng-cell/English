@@ -159,16 +159,15 @@ export async function POST(req: Request) {
   const userId = (session.user as { id: string }).id;
 
   const body = await req.json();
-  const { wordId, gesture, reviewId } = body as {
+  const { wordId, gesture } = body as {
     wordId: string;
     gesture: "left" | "right";
-    reviewId: string | null;
   };
 
   const quality = gestureToQuality(gesture);
 
   // 用 (userId, wordId) 这个【业务唯一约束】来查是否已存在，
-  // 而不是依赖客户端传的 reviewId（前端状态可能丢失/重复提交，会导致 create 撞唯一约束 500）。
+  // 不依赖客户端传的 id（前端状态可能丢失/重复提交，会导致 create 撞唯一约束 500）。
   const existing = await prisma.review.findUnique({
     where: { userId_wordId: { userId, wordId } },
   });
