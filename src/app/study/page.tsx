@@ -178,6 +178,34 @@ export default function StudyPage() {
     [pool, queue]
   );
 
+  // 阶段流转：认字评估 → 测试 → 完成
+  const [phase, setPhase] = useState<Phase>("assessment");
+  const [knownWords, setKnownWords] = useState<WordFull[]>([]);
+  const [unknownWords, setUnknownWords] = useState<WordFull[]>([]);
+
+  // 测试阶段状态
+  const [quizQueue, setQuizQueue] = useState<WordFull[]>([]);
+  const [quizIndex, setQuizIndex] = useState(0);
+  const [quizTotal, setQuizTotal] = useState(0); // 题目总数（含重做，用于进度）
+  const [quizAnswered, setQuizAnswered] = useState(0); // 已答次数
+  const [quizStats, setQuizStats] = useState({
+    correct: 0,
+    wrong: 0,
+  });
+
+  // 干扰项来源池：外部词 + 本次评估队列词
+  const distractorSource: PoolWord[] = useMemo(
+    () => [
+      ...pool,
+      ...queue.map((q) => ({
+        id: q.word.id,
+        term: q.word.term,
+        definition: q.word.definition,
+      })),
+    ],
+    [pool, queue]
+  );
+
   // 认证检查
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
