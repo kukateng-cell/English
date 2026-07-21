@@ -178,34 +178,6 @@ export default function StudyPage() {
     [pool, queue]
   );
 
-  // 阶段流转：认字评估 → 测试 → 完成
-  const [phase, setPhase] = useState<Phase>("assessment");
-  const [knownWords, setKnownWords] = useState<WordFull[]>([]);
-  const [unknownWords, setUnknownWords] = useState<WordFull[]>([]);
-
-  // 测试阶段状态
-  const [quizQueue, setQuizQueue] = useState<WordFull[]>([]);
-  const [quizIndex, setQuizIndex] = useState(0);
-  const [quizTotal, setQuizTotal] = useState(0); // 题目总数（含重做，用于进度）
-  const [quizAnswered, setQuizAnswered] = useState(0); // 已答次数
-  const [quizStats, setQuizStats] = useState({
-    correct: 0,
-    wrong: 0,
-  });
-
-  // 干扰项来源池：外部词 + 本次评估队列词
-  const distractorSource: PoolWord[] = useMemo(
-    () => [
-      ...pool,
-      ...queue.map((q) => ({
-        id: q.word.id,
-        term: q.word.term,
-        definition: q.word.definition,
-      })),
-    ],
-    [pool, queue]
-  );
-
   // 认证检查
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -247,7 +219,7 @@ export default function StudyPage() {
     // 用 setTimeout(0) 推迟到下一帧，避免在渲染期间 setState
     const t = setTimeout(() => handleQuizAnswerRef.current(true), 0);
     return () => clearTimeout(t);
-  }, [phase, quizIndex, currentQuestion]);
+  }, [phase, quizIndex, quizQueue.length, currentQuestion]);
 
   // 评估阶段全部滑完 → 进入测试或完成阶段
   // （在事件回调里触发，避免在 effect 内 setState，符合 react-hooks 规则）
@@ -306,8 +278,10 @@ export default function StudyPage() {
     [quizIndex, quizQueue.length]
   );
 
-  // 让 ref 始终持有最新的 handleQuizAnswer
-  handleQuizAnswerRef.current = handleQuizAnswer;
+  // 让 ref 始终持有最新的 handleQuizAnswer（在 effect 中同步，避免渲染期写 ref）
+  useEffect(() => {
+    handleQuizAnswerRef.current = handleQuizAnswer;
+  }, [handleQuizAnswer]);
 
   if (status === "loading" || loading) {
     return (
