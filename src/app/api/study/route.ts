@@ -125,7 +125,29 @@ export async function GET() {
     })),
   ];
 
-  return NextResponse.json({ queue });
+  // 取干扰词池（用于「测试」阶段的选择题选项）
+  // 从词库中随机窗口取 40 个，客户端每次从中随机抽 3 个作干扰项
+  const queueWordIds = queue.map((q) => q.word.id);
+  let pool: { id: string; term: string; definition: string }[] = [];
+  try {
+    const totalWords = await prisma.word.count();
+    const poolSize = Math.min(40, totalWords);
+    const skip =
+      totalWords > poolSize
+        ? Math.floor(Math.random() * (totalWords - poolSize))
+        : 0;
+    pool = await prisma.word.findMany({
+      where: { id: { notIn: queueWordIds } },
+      skip,
+      take: poolSize,
+      select: { id: true, term: true, definition: true },
+      orderBy: { term: "asc" },
+    });
+  } catch {
+    pool = [];
+  }
+
+  return NextResponse.json({ queue, pool });
 }
 
 /** POST /api/study — 提交一次滑动结果 */
