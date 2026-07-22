@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import WordCard from "@/components/WordCard";
 import HelpPanel from "@/components/HelpPanel";
@@ -146,7 +147,8 @@ export default function StudyPage() {
   const [helpVisible, setHelpVisible] = useState(false);
   const [direction, setDirection] = useState<"left" | "right" | null>(null);
   const [loading, setLoading] = useState(true);
-  const initialized = useRef(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [unitCategory, setUnitCategory] = useState<string | null>(null);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
 
@@ -183,25 +185,29 @@ export default function StudyPage() {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
 
-  // 加载队列（仅在首次认证通过时）
-  useEffect(() => {
-    if (status === "authenticated" && !initialized.current) {
-      initialized.current = true;
-      (async () => {
-        setLoading(true);
-        try {
-          const res = await fetch("/api/study");
-          if (res.ok) {
-            const data = await res.json();
-            setQueue(data.queue || []);
-            setPool(data.pool || []);
-          }
-        } finally {
-          setLoading(false);
-        }
-      })();
+  // 加载队列（认证通过后，以及每次 restart 增大 reloadKey 时触发）。
+  // 通过 URL query 决定是「全局今日队列」还是「指定单元练习」。
+  const loadQueue = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams(
+        typeof window !== "undefined" ? window.location.search : ""
+      );
+      const res = await fetch(`/api/study?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setQueue(data.queue || []);
+        setPool(data.pool || []);
+        setUnitCategory(data.unitMode ? data.category : null);
+      }
+    } finally {
+      setLoading(false);
     }
-  }, [status]);
+  }, []);
+
+  useEffect(() => {
+    if (status === "authenticated") loadQueue();
+  }, [status, reloadKey, loadQueue]);
 
   // 测试阶段的当前题目（由 quizIndex 派生，不再用 effect 驱动）
   const currentQuestion = useMemo(() => {
@@ -351,9 +357,8 @@ export default function StudyPage() {
     }, 200);
   };
 
-  // 重新开始（清空状态重新拉取）
+  // 重新开始：清空状态并触发重新拉取（修复原先必须手动刷新页面的 bug）
   const restart = () => {
-    initialized.current = false;
     setQueue([]);
     setPool([]);
     setCurrentIndex(0);
@@ -365,6 +370,7 @@ export default function StudyPage() {
     setQuizTotal(0);
     setQuizAnswered(0);
     setQuizStats({ correct: 0, wrong: 0 });
+    setReloadKey((k) => k + 1);
   };
 
   // ───────── 测试阶段渲染 ─────────
@@ -374,6 +380,17 @@ export default function StudyPage() {
 
     return (
       <div className="flex min-h-full flex-col items-center justify-center pb-20">
+        {/* 单元上下文（仅单元练习模式显示） */}
+        {unitCategory && (
+          <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600">
+            <Link href="/units" className="hover:underline">
+              ← 单元列表
+            </Link>
+            <span className="text-blue-300">·</span>
+            <span>{unitCategory}</span>
+          </div>
+        )}
+
         {/* 顶部进度 */}
         <div className="mb-6 w-full max-w-md px-4">
           <div className="flex items-center justify-between text-sm text-zinc-400 mb-2">
@@ -434,12 +451,28 @@ export default function StudyPage() {
             今天没有更多单词了，明天再来复习吧
           </p>
         )}
-        <button
-          onClick={restart}
-          className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          刷新单词
-        </button>
+        <div className="flex flex-col items-center gap-3">
+          <button
+            onClick={restart}
+            className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {unitCategory ? "再练一轮" : "刷新单词"}
+          </button>
+          <div className="flex items-center gap-4 text-sm">
+            <Link
+              href="/units"
+              className="font-medium text-blue-600 hover:text-blue-700"
+            >
+              ← 返回单元列表
+            </Link>
+            <Link
+              href="/"
+              className="text-zinc-400 hover:text-zinc-600"
+            >
+              返回首页
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
@@ -449,6 +482,17 @@ export default function StudyPage() {
   // ───────── 认字评估阶段渲染 ─────────
   return (
     <div className="flex min-h-full flex-col items-center justify-center pb-20">
+      {/* 单元上下文（仅单元练习模式显示） */}
+      {unitCategory && (
+        <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600">
+          <Link href="/units" className="hover:underline">
+            ← 单元列表
+          </Link>
+          <span className="text-blue-300">·</span>
+          <span>{unitCategory}</span>
+        </div>
+      )}
+
       {/* 顶部进度 */}
       <div className="mb-6 w-full max-w-md px-4">
         <div className="flex items-center justify-between text-sm text-zinc-400 mb-2">

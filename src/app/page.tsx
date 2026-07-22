@@ -21,6 +21,12 @@ export default function Home() {
           开始学习
         </Link>
         <Link
+          href="/units"
+          className="mb-4 flex h-12 items-center justify-center rounded-2xl bg-white text-sm font-medium text-blue-600 ring-1 ring-blue-200 transition hover:bg-blue-50 active:scale-[0.98]"
+        >
+          单元闯关 · 按主题学习
+        </Link>
+        <Link
           href="/login"
           className="flex h-10 items-center justify-center text-sm text-zinc-400 transition hover:text-zinc-600"
         >
