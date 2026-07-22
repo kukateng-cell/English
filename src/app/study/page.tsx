@@ -149,6 +149,7 @@ export default function StudyPage() {
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [unitCategory, setUnitCategory] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
 
@@ -196,7 +197,17 @@ export default function StudyPage() {
       try {
         const params = new URLSearchParams(window.location.search);
         const res = await fetch(`/api/study?${params.toString()}`);
-        if (cancelled || !res.ok) return;
+        if (cancelled) return;
+        if (res.status === 403) {
+          // 被锁单元：直接访问 URL 才会走到这里（/units 列表已禁用入口）
+          setLocked(true);
+          setQueue([]);
+          setPool([]);
+          setUnitCategory(null);
+          return;
+        }
+        if (!res.ok) return;
+        setLocked(false);
         const data = await res.json();
         setQueue(data.queue || []);
         setPool(data.pool || []);
@@ -362,6 +373,7 @@ export default function StudyPage() {
   const restart = () => {
     setQueue([]);
     setPool([]);
+    setLocked(false);
     setCurrentIndex(0);
     setPhase("assessment");
     setKnownWords([]);
@@ -373,6 +385,31 @@ export default function StudyPage() {
     setQuizStats({ correct: 0, wrong: 0 });
     setReloadKey((k) => k + 1);
   };
+
+  // ───────── 被锁单元渲染（仅手动改 URL 访问锁住单元时出现） ─────────
+  if (locked) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center px-4 text-center">
+        <p className="text-4xl mb-4">🔒</p>
+        <h2 className="text-xl font-bold text-zinc-900 mb-2">单元尚未解锁</h2>
+        <p className="text-sm text-zinc-500 mb-6">
+          请先回到单元列表，按顺序把前面的单元认字率练到 80% 以上，
+          即可解锁这个单元。
+        </p>
+        <div className="flex items-center gap-4 text-sm">
+          <Link
+            href="/units"
+            className="font-medium text-blue-600 hover:text-blue-700"
+          >
+            ← 返回单元列表
+          </Link>
+          <Link href="/" className="text-zinc-400 hover:text-zinc-600">
+            返回首页
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   // ───────── 测试阶段渲染 ─────────
   if (phase === "quiz") {

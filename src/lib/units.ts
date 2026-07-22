@@ -70,3 +70,204 @@ export function sortUnits(level: string, names: string[]): string[] {
     return a.localeCompare(b);
   });
 }
+
+// ────────────────────────────────────────────────────────────────
+// 闯关解锁（Progressive Unlock）
+//
+// 规则：
+//   1. 一个单元「已完成」= 认字数（mastered）达到该单元总词数的 80% 或以上。
+//   2. 同一级别内，单元按 UNIT_ORDER 顺序解锁：第 1 个单元默认开放；
+//      后续单元只有在前一个单元「已完成」后才解锁。
+//   3. 级别之间同样按顺序解锁：A1 默认开放；A2 只有在 A1 的全部单元都「已完成」
+//      后才解锁；B1 依此类推。
+// ────────────────────────────────────────────────────────────────
+
+/** 「掌握」判定：连续答对至少 1 次（SM-2 repetitions >= 1）。 */
+export const MASTERED_REPETITIONS = 1;
+
+/** 一个单元「已完成」所需的认字比例（mastered / total）。 */
+export const UNIT_COMPLETION_RATIO = 0.8;
+
+/** 级别顺序（用于解锁判定与排序）。未列出的级别排在已知级别之后。 */
+export const LEVEL_ORDER: string[] = ["A1", "A2", "B1", "B2"];
+
+/** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
+export function isUnitCompleted(total: number, mastered: number): boolean {
+  return total > 0 && mastered / total >= UNIT_COMPLETION_RATIO;
+}
+
+/** 级别排序比较器：按 LEVEL_ORDER，未列出者排后并按字母序。 */
+export function levelCompare(a: string, b: string): number {
+  const ia = LEVEL_ORDER.indexOf(a);
+  const ib = LEVEL_ORDER.indexOf(b);
+  const ra = ia === -1 ? LEVEL_ORDER.length : ia;
+  const rb = ib === -1 ? LEVEL_ORDER.length : ib;
+  if (ra !== rb) return ra - rb;
+  return a.localeCompare(b);
+}
+
+/** 单个单元在聚合后的进度统计（不含解锁标记）。 */
+export interface UnitStat {
+  total: number;
+  learned: number;
+  mastered: number;
+  due: number;
+}
+
+/** 给前端展示用的、带解锁/完成标记的单元。 */
+export interface AggregatedUnit extends UnitStat {
+  name: string;
+  progress: number; // mastered / total * 100，已四舍五入
+  completed: boolean;
+  unlocked: boolean;
+}
+
+/** 一个级别的聚合结果。 */
+export interface LevelAggregation {
+  level: string;
+  unlocked: boolean; // 该级别整体是否解锁
+  completed: boolean; // 该级别全部单元是否都已完成
+  progress: number; // 整级别 mastered / total * 100
+  units: AggregatedUnit[];
+}
+
+/** computeUnlocks 所需的、按级别分组的有序单元统计。 */
+interface LeveledUnitStats {
+  [level: string]: { name: string; stat: UnitStat }[];
+}
+
+/**
+ * 根据每个级别内【有序】单元的认字统计，推算各单元与各级别的解锁状态。
+ *
+ * - 第一级别恒解锁；其后级别需前一级别「全部单元已完成」。
+ * - 每级别第一个单元在该级别解锁时即开放；其后单元需前一单元「已完成」。
+ *
+ * 返回：
+ *   - levelUnlock: { [level]: boolean }
+ *   - unitUnlock:  { [`${level}::${name}`]: boolean }
+ */
+export function computeUnlocks(stats: LeveledUnitStats): {
+  levelUnlock: Record<string, boolean>;
+  unitUnlock: Record<string, boolean>;
+} {
+  const sortedLevels = Object.keys(stats).sort(levelCompare);
+  const levelUnlock: Record<string, boolean> = {};
+  const unitUnlock: Record<string, boolean> = {};
+
+  let prevLevelFullyCompleted = true; // 第一个级别恒解锁
+  for (const lvl of sortedLevels) {
+    const units = stats[lvl] ?? [];
+    const levelUnlocked = prevLevelFullyCompleted;
+    levelUnlock[lvl] = levelUnlocked;
+
+    if (!levelUnlocked) {
+      // 级别未解锁 → 其内所有单元都锁住
+      for (const u of units) {
+        unitUnlock[`${lvl}::${u.name}`] = false;
+      }
+    } else {
+      let prevUnitCompleted = true; // 该级别第一个单元直接开放
+      for (const u of units) {
+        unitUnlock[`${lvl}::${u.name}`] = prevUnitCompleted;
+        prevUnitCompleted = isUnitCompleted(u.stat.total, u.stat.mastered);
+      }
+    }
+
+    // 本级别是否「全部单元已完成」（用于解锁下一级别）。
+    // 注意：必须基于真实数据，而非解锁标记，确保解锁判定稳健。
+    prevLevelFullyCompleted =
+      units.length > 0 &&
+      units.every((u) => isUnitCompleted(u.stat.total, u.stat.mastered));
+  }
+
+  return { levelUnlock, unitUnlock };
+}
+
+/**
+ * 一次性聚合【所有级别】的单元进度，并计算解锁状态。
+ *
+ * 入参为「裸」的数据库行（routes 负责 Prisma 查询），本函数与 Prisma 解耦，
+ * 因此 /api/units 与 /api/study 可共用同一套聚合 + 解锁逻辑。
+ *
+ * @param levels        需要聚合的级别列表（一般 = 数据库中存在单词的级别）
+ * @param words         全部单词（仅需 id / level / category）
+ * @param reviews       当前用户的全部 Review 记录
+ * @param now           「现在」时间（用于判定 due）
+ */
+export function aggregateAllLevels(
+  levels: string[],
+  words: { id: string; level: string; category: string | null }[],
+  reviews: { wordId: string; repetitions: number; nextReviewDate: Date }[],
+  now: Date,
+): LevelAggregation[] {
+  const reviewByWord = new Map(reviews.map((r) => [r.wordId, r]));
+
+  // 按 (level, category) 聚合
+  const agg = new Map<
+    string,
+    Map<string, UnitStat>
+  >();
+  for (const w of words) {
+    const lvl = w.level;
+    const cat = w.category ?? "未分类";
+    if (!agg.has(lvl)) agg.set(lvl, new Map());
+    const lvlMap = agg.get(lvl)!;
+    if (!lvlMap.has(cat)) {
+      lvlMap.set(cat, { total: 0, learned: 0, mastered: 0, due: 0 });
+    }
+    const u = lvlMap.get(cat)!;
+    u.total += 1;
+    const r = reviewByWord.get(w.id);
+    if (r) {
+      u.learned += 1;
+      if (r.repetitions >= MASTERED_REPETITIONS) u.mastered += 1;
+      if (new Date(r.nextReviewDate) <= now) u.due += 1;
+    }
+  }
+
+  // 给 computeUnlocks 准备有序统计结构
+  const stats: LeveledUnitStats = {};
+  for (const lvl of levels) {
+    const lvlMap = agg.get(lvl);
+    const names = lvlMap ? [...lvlMap.keys()] : [];
+    const ordered = sortUnits(lvl, names);
+    stats[lvl] = ordered.map((name) => ({
+      name,
+      stat: lvlMap!.get(name)!,
+    }));
+  }
+
+  const { levelUnlock, unitUnlock } = computeUnlocks(stats);
+
+  // 组装最终结构
+  return levels.map((level) => {
+    const lvlMap = agg.get(level);
+    const names = lvlMap ? [...lvlMap.keys()] : [];
+    const ordered = sortUnits(level, names);
+
+    const units: AggregatedUnit[] = ordered.map((name) => {
+      const s = lvlMap!.get(name)!;
+      return {
+        name,
+        total: s.total,
+        learned: s.learned,
+        mastered: s.mastered,
+        due: s.due,
+        progress: s.total > 0 ? Math.round((s.mastered / s.total) * 100) : 0,
+        completed: isUnitCompleted(s.total, s.mastered),
+        unlocked: !!unitUnlock[`${level}::${name}`],
+      };
+    });
+
+    const grandTotal = units.reduce((a, u) => a + u.total, 0);
+    const grandMastered = units.reduce((a, u) => a + u.mastered, 0);
+
+    return {
+      level,
+      unlocked: !!levelUnlock[level],
+      completed: units.length > 0 && units.every((u) => u.completed),
+      progress: grandTotal > 0 ? Math.round((grandMastered / grandTotal) * 100) : 0,
+      units,
+    };
+  });
+}
