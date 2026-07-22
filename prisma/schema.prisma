@@ -1,5 +1,5 @@
-// Prisma schema — 本地 SQLite 预览版（生产 Postgres 版备份在 prisma/schema.postgres.prisma）
-// 差异：String[] / Json / enum 在 SQLite 下改用 String 存储（JSON 字符串），业务层读写时转换。
+// Prisma schema — PostgreSQL（Supabase / Vercel 生产部署）
+// 本地开发也连 Postgres（Supabase）。旧的 SQLite 预览版备份在 prisma/schema.sqlite.prisma。
 
 generator client {
   provider   = "prisma-client-js"
@@ -8,7 +8,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 // ── 用户（账号+密码登录） ──
@@ -28,12 +28,12 @@ model Word {
   phonetic   String?
   pos        String?
   definition String
-  level      String   // A1 / A2 / B1（SQLite 无 enum）
-  category   String?
-  examples   String?  // JSON 字符串
-  synonyms   String?  // JSON 字符串数组
-  antonyms   String?  // JSON 字符串数组
-  imageUrl   String?
+  level      Level            // A1 / A2 / B1
+  category   String?          // 主题（Family / Colors ...）
+  examples   Json?            // 例句数组 [{"en":"...","zh":"..."}]
+  synonyms   String[]         // 近义词
+  antonyms   String[]         // 反义词
+  imageUrl   String?          // 助记图
   reviews    Review[]
 
   @@index([level])
@@ -56,4 +56,10 @@ model Review {
 
   @@unique([userId, wordId])
   @@index([userId, nextReviewDate])
+}
+
+enum Level {
+  A1
+  A2
+  B1
 }
