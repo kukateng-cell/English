@@ -185,29 +185,30 @@ export default function StudyPage() {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
 
-  // 加载队列（认证通过后，以及每次 restart 增大 reloadKey 时触发）。
+  // 加载队列：认证通过后，以及每次 restart（reloadKey 变化）触发。
   // 通过 URL query 决定是「全局今日队列」还是「指定单元练习」。
-  const loadQueue = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams(
-        typeof window !== "undefined" ? window.location.search : ""
-      );
-      const res = await fetch(`/api/study?${params.toString()}`);
-      if (res.ok) {
+  // 用内联 async IIFE 触发请求，符合 react-hooks/set-state-in-effect 规则。
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const res = await fetch(`/api/study?${params.toString()}`);
+        if (cancelled || !res.ok) return;
         const data = await res.json();
         setQueue(data.queue || []);
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category : null);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (status === "authenticated") loadQueue();
-  }, [status, reloadKey, loadQueue]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, reloadKey]);
 
   // 测试阶段的当前题目（由 quizIndex 派生，不再用 effect 驱动）
   const currentQuestion = useMemo(() => {

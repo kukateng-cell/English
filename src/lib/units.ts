@@ -5,9 +5,12 @@
  *
  * category 名必须与 seed.ts 解析出的 Word.category 完全一致
  * （seed 用 `### Title (中文)` 中的英文标题，去掉括号）。
+ *
+ * 注意：这里【不】定义 Level 类型——Prisma 在 Postgres schema 下把
+ * Word.level 定义为 `enum Level { A1 A2 B1 }`（见 prisma/schema.prisma），
+ * 而在 SQLite 预览 schema 下是 `String`。为避免类型冲突，本文件只用
+ * 原生 string 作为级别键，API 层查询时再把 string 转成 Prisma 的 Level。
  */
-
-export type Level = "A1" | "A2" | "B1" | "B2";
 
 /** A1 级别全部单元（按词表顺序） */
 export const A1_UNITS: string[] = [

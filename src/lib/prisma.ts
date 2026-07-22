@@ -1,6 +1,10 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "@/generated/prisma";
+import { PrismaClient, Prisma } from "@/generated/prisma";
+
+// 重新导出 Prisma 命名空间（含 WordWhereInput 等查询输入类型），
+// 供 API 层在两种 schema（Postgres enum / SQLite string）下统一引用类型。
+export { Prisma };
 
 // Prisma 7 移除了 Rust engine：必须用 driver adapter。
 // 根据 DATABASE_URL 的协议自动选择适配器：

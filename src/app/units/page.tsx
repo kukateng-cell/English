@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -22,29 +22,33 @@ export default function UnitsPage() {
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchUnits = useCallback(async (lvl: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/units?level=${encodeURIComponent(lvl)}`);
-      if (res.ok) {
+  useEffect(() => {
+    if (status === "unauthenticated") router.push("/login");
+  }, [status, router]);
+
+  // 拉取指定级别的单元进度。用内联 async IIFE 触发，
+  // 符合 react-hooks/set-state-in-effect 规则。
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/units?level=${encodeURIComponent(level)}`);
+        if (cancelled || !res.ok) return;
         const data = await res.json();
         setUnits(data.units ?? []);
         if (Array.isArray(data.levels) && data.levels.length > 0) {
           setLevels(data.levels);
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
-  }, [status, router]);
-
-  useEffect(() => {
-    if (status === "authenticated") fetchUnits(level);
-  }, [status, level, fetchUnits]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, level]);
 
   if (status === "loading" || loading) {
     return (

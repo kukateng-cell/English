@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, Prisma } from "@/lib/prisma";
 import { updateSM2, gestureToQuality, createInitialState } from "@/lib/sm2";
+
+/**
+ * 构造「按级别过滤」的查询条件，兼容两种 schema：
+ *   - Postgres (prisma/schema.prisma): Word.level 是 enum Level { A1 A2 B1 }
+ *   - SQLite  (prisma/schema.sqlite.prisma): Word.level 是 String
+ * 用 Prisma.WordWhereInput["level"] 让 TS 自动适配当前生成的 client，
+ * 避免在两种 schema 之间出现类型冲突。非法值回退为 A1。
+ */
+function levelWhere(s: string): Prisma.WordWhereInput["level"] {
+  const v = s.toUpperCase();
+  return (v === "A2" || v === "B1" ? v : "A1") as Prisma.WordWhereInput["level"];
+}
 
 type WordRow = {
   id: string;
@@ -89,7 +101,7 @@ export async function GET(req: Request) {
   if (unitMode) {
     // ── 单元练习模式：取出该单元全部单词 ──
     const unitWords = await prisma.word.findMany({
-      where: { level, category },
+      where: { level: levelWhere(level), category },
       orderBy: { term: "asc" },
     });
     const unitWordIds = unitWords.map((w) => w.id);
