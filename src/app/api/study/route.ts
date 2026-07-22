@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma, Prisma } from "@/lib/prisma";
 import { updateSM2, gestureToQuality, createInitialState } from "@/lib/sm2";
+import { aggregateAllLevels, levelCompare } from "@/lib/units";
 
 /**
  * 构造「按级别过滤」的查询条件，兼容两种 schema：
@@ -14,6 +15,12 @@ import { updateSM2, gestureToQuality, createInitialState } from "@/lib/sm2";
 function levelWhere(s: string): Prisma.WordWhereInput["level"] {
   const v = s.toUpperCase();
   return (v === "A2" || v === "B1" ? v : "A1") as Prisma.WordWhereInput["level"];
+}
+
+/** 把级别字符串规范化为大写；非法值回退为 A1。仅用于拼解锁 key。 */
+function normalizeLevel(s: string | null): string {
+  const v = (s ?? "A1").toUpperCase();
+  return v === "A2" || v === "B1" || v === "B2" ? v : "A1";
 }
 
 type WordRow = {
@@ -68,6 +75,53 @@ function normalizeWord<T extends WordRow>(w: T) {
 }
 
 /**
+ * 计算当前用户的「闯关解锁」状态。
+ *
+ * - unitUnlock: { [`${level}::${category}`]: unlocked } —— 仅含真实存在的单元，
+ *   供单元模式精确区分「存在但锁住」(→ 403) 与「不存在」(→ 走原逻辑返回空队列)。
+ * - unlockedKeys: Set<`${level}::${category}`> —— 全局模式新词过滤用，
+ *   只允许从已解锁单元引入新词，避免绕过闯关直接学习后续单元。
+ *
+ * category 为 null 的单词统一按 "未分类" 记键，与 aggregateAllLevels 一致。
+ */
+async function computeUnlockInfo(userId: string): Promise<{
+  unitUnlock: Record<string, boolean>;
+  unlockedKeys: Set<string>;
+}> {
+  const levelRows = await prisma.word.findMany({
+    distinct: ["level"],
+    select: { level: true },
+  });
+  const levels = (levelRows.map((r) => r.level) as string[]).sort(levelCompare);
+
+  const words = await prisma.word.findMany({
+    select: { id: true, level: true, category: true },
+  });
+  const reviews = await prisma.review.findMany({
+    where: { userId },
+    select: { wordId: true, repetitions: true, nextReviewDate: true },
+  });
+
+  const aggregations = aggregateAllLevels(
+    levels,
+    words as { id: string; level: string; category: string | null }[],
+    reviews,
+    new Date(),
+  );
+
+  const unitUnlock: Record<string, boolean> = {};
+  const unlockedKeys = new Set<string>();
+  for (const lvl of aggregations) {
+    for (const u of lvl.units) {
+      const key = `${lvl.level}::${u.name}`;
+      unitUnlock[key] = u.unlocked;
+      if (u.unlocked) unlockedKeys.add(key);
+    }
+  }
+  return { unitUnlock, unlockedKeys };
+}
+
+/**
  * GET /api/study
  * - 无参数：全局「今日待复习 + 新词」队列（默认学习模式）。
  * - ?level=A1&category=Hello and Goodbye：单元练习模式，
@@ -85,6 +139,21 @@ export async function GET(req: Request) {
   const category = url.searchParams.get("category");
   const level = url.searchParams.get("level");
   const unitMode = !!(category && level);
+
+  // 计算解锁状态：单元模式用于拦截被锁单元；全局模式用于过滤新词来源。
+  const { unitUnlock, unlockedKeys } = await computeUnlockInfo(userId);
+
+  if (unitMode) {
+    // 守卫：通过 URL 直接访问被锁单元时拦截。
+    // 单元「存在但未解锁」→ 403；单元「不存在」→ 放行（走原逻辑返回空队列）。
+    const key = `${normalizeLevel(level)}::${category}`;
+    if (key in unitUnlock && unitUnlock[key] === false) {
+      return NextResponse.json(
+        { error: "locked", message: "请先完成前面的单元，解锁后再来挑战吧！" },
+        { status: 403 },
+      );
+    }
+  }
 
   let queue: {
     reviewId: string | null;
@@ -157,13 +226,20 @@ export async function GET(req: Request) {
       })
     ).map((r) => r.wordId);
 
-    const newWords = await prisma.word.findMany({
+    const newWordsRaw = await prisma.word.findMany({
       where: {
         id: { notIn: reviewedWordIds },
       },
-      take: 5,
       orderBy: { term: "asc" },
     });
+
+    // 新词只从已解锁单元中引入，避免绕过闯关解锁直接学习后续单元。
+    // category 为 null 的单词按 "未分类" 记键，与 computeUnlockInfo 一致。
+    const newWords = newWordsRaw
+      .filter((w) =>
+        unlockedKeys.has(`${w.level}::${w.category ?? "未分类"}`),
+      )
+      .slice(0, 5);
 
     queue = [
       ...dueReviews.map((r) => ({

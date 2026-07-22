@@ -1,36 +1,38 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma, Prisma } from "@/lib/prisma";
-import { sortUnits } from "@/lib/units";
+import { prisma } from "@/lib/prisma";
+import { aggregateAllLevels, levelCompare } from "@/lib/units";
 
 /**
- * 构造「按级别过滤」的查询条件，兼容两种 schema：
- *   - Postgres (prisma/schema.prisma): Word.level 是 enum Level { A1 A2 B1 }
- *   - SQLite  (prisma/schema.sqlite.prisma): Word.level 是 String
- * 用 Prisma.WordWhereInput["level"] 让 TS 自动适配当前生成的 client，
- * 避免在两种 schema 之间出现类型冲突。非法值回退为 A1。
+ * 把前端传入的级别字符串规范化为大写，非法值回退为 A1。
+ * 注意：查询时不再用 levelWhere() 包一层——aggregateAllLevels 直接基于
+ * 全量单词做聚合，省去与两种 schema 的枚举/字符串类型纠缠。
  */
-function levelWhere(s: string): Prisma.WordWhereInput["level"] {
-  const v = s.toUpperCase();
-  return (v === "A2" || v === "B1" ? v : "A1") as Prisma.WordWhereInput["level"];
+function normalizeLevel(s: string | null): string {
+  const v = (s ?? "A1").toUpperCase();
+  return v === "A2" || v === "B1" || v === "B2" ? v : "A1";
 }
-
-/** 「掌握」判定：连续答对至少 1 次（SM-2 repetitions >= 1）。 */
-const MASTERED_REPETITIONS = 1;
 
 /**
  * GET /api/units?level=A1
- * 返回该级别下所有单元（即 word list 中的 `### Category`）及当前用户的完成进度。
+ * 返回该级别下所有单元（即 word list 中的 `### Category`）及当前用户的完成进度，
+ * 并附带「闯关解锁」状态：
  *
  * 返回结构：
  * {
  *   level: "A1",
- *   levels: ["A1","A2","B1"],            // 数据库中实际存在单词的级别
+ *   levelUnlocked: true,                 // 当前级别是否已解锁
+ *   levels: ["A1","A2","B1"],            // 数据库中实际存在单词的级别（向后兼容）
+ *   levelStatus: [                       // 各级别解锁/完成状态（级别切换 tab 用）
+ *     { level, unlocked, completed, progress }
+ *   ],
  *   units: [
- *     { name, total, learned, mastered, due, progress }
+ *     { name, total, learned, mastered, due, progress, completed, unlocked }
  *   ]
  * }
+ *
+ * 解锁规则见 src/lib/units.ts。
  */
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -40,67 +42,64 @@ export async function GET(req: Request) {
   const userId = (session.user as { id: string }).id;
 
   const url = new URL(req.url);
-  // 字符串形式：用于排序 / 返回给前端；查询时用 levelWhere() 包一层以适配两种 schema。
-  const level = (url.searchParams.get("level") ?? "A1").toUpperCase();
+  const requestedLevel = normalizeLevel(url.searchParams.get("level"));
 
   // 数据库中实际有单词的级别（用于前端级别切换 tab）
   const levelRows = await prisma.word.findMany({
     distinct: ["level"],
     select: { level: true },
   });
-  const availableLevels = levelRows
-    .map((r) => r.level)
-    .sort() as string[];
+  const availableLevels = (levelRows.map((r) => r.level) as string[]).sort(
+    levelCompare,
+  );
 
-  // 该级别全部单词（仅取必要字段）
+  // 取出【全部】单词的 id / level / category，用于跨级别聚合与解锁判定。
+  // 词表通常只有几百到几千条，一次性读取可接受。
   const words = await prisma.word.findMany({
-    where: { level: levelWhere(level) },
-    select: { id: true, category: true },
+    select: { id: true, level: true, category: true },
   });
 
-  // 当前用户在该级别单词上的 Review 记录
+  // 当前用户全部 Review 记录（仅需这几个字段）
   const reviews = await prisma.review.findMany({
-    where: { userId, word: { level: levelWhere(level) } },
+    where: { userId },
     select: { wordId: true, repetitions: true, nextReviewDate: true },
   });
-  const reviewByWord = new Map(reviews.map((r) => [r.wordId, r]));
 
   const now = new Date();
 
-  // 按 category 聚合
-  const agg = new Map<
-    string,
-    { total: number; learned: number; mastered: number; due: number }
-  >();
-  for (const w of words) {
-    const cat = w.category ?? "未分类";
-    if (!agg.has(cat)) {
-      agg.set(cat, { total: 0, learned: 0, mastered: 0, due: 0 });
-    }
-    const u = agg.get(cat)!;
-    u.total += 1;
-    const r = reviewByWord.get(w.id);
-    if (r) {
-      u.learned += 1;
-      if (r.repetitions >= MASTERED_REPETITIONS) u.mastered += 1;
-      if (new Date(r.nextReviewDate) <= now) u.due += 1;
-    }
+  // 一次性聚合所有级别，并计算解锁状态
+  const aggregations = aggregateAllLevels(
+    availableLevels,
+    words as { id: string; level: string; category: string | null }[],
+    reviews,
+    now,
+  );
+
+  // 找到当前请求的级别（若不存在则回退到第一个可用级别）
+  let current =
+    aggregations.find((a) => a.level === requestedLevel) ?? aggregations[0];
+
+  // 若请求的级别根本不存在（无数据），构造一个空的占位结果
+  if (!current) {
+    current = {
+      level: requestedLevel,
+      unlocked: false,
+      completed: false,
+      progress: 0,
+      units: [],
+    };
   }
 
-  // 按词表顺序排序
-  const orderedNames = sortUnits(level, [...agg.keys()]);
-
-  const units = orderedNames.map((name) => {
-    const s = agg.get(name)!;
-    return {
-      name,
-      total: s.total,
-      learned: s.learned,
-      mastered: s.mastered,
-      due: s.due,
-      progress: s.total > 0 ? Math.round((s.mastered / s.total) * 100) : 0,
-    };
+  return NextResponse.json({
+    level: current.level,
+    levelUnlocked: current.unlocked,
+    levels: availableLevels,
+    levelStatus: aggregations.map((a) => ({
+      level: a.level,
+      unlocked: a.unlocked,
+      completed: a.completed,
+      progress: a.progress,
+    })),
+    units: current.units,
   });
-
-  return NextResponse.json({ level, levels: availableLevels, units });
 }

@@ -12,6 +12,15 @@ interface Unit {
   mastered: number;
   due: number;
   progress: number;
+  completed: boolean;
+  unlocked: boolean;
+}
+
+interface LevelStatus {
+  level: string;
+  unlocked: boolean;
+  completed: boolean;
+  progress: number;
 }
 
 export default function UnitsPage() {
@@ -19,6 +28,8 @@ export default function UnitsPage() {
   const router = useRouter();
   const [level, setLevel] = useState<string>("A1");
   const [levels, setLevels] = useState<string[]>(["A1", "A2", "B1"]);
+  const [levelStatus, setLevelStatus] = useState<LevelStatus[]>([]);
+  const [levelUnlocked, setLevelUnlocked] = useState(true);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -38,6 +49,10 @@ export default function UnitsPage() {
         if (cancelled || !res.ok) return;
         const data = await res.json();
         setUnits(data.units ?? []);
+        setLevelUnlocked(data.levelUnlocked !== false);
+        if (Array.isArray(data.levelStatus) && data.levelStatus.length > 0) {
+          setLevelStatus(data.levelStatus);
+        }
         if (Array.isArray(data.levels) && data.levels.length > 0) {
           setLevels(data.levels);
         }
@@ -93,21 +108,49 @@ export default function UnitsPage() {
       </p>
 
       {/* 级别切换 */}
-      <div className="mb-6 flex gap-2">
-        {levels.map((lvl) => (
-          <button
-            key={lvl}
-            onClick={() => setLevel(lvl)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-              level === lvl
-                ? "bg-blue-600 text-white shadow-sm"
-                : "bg-white text-zinc-500 ring-1 ring-zinc-200 hover:bg-zinc-50"
-            }`}
-          >
-            {lvl}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {levels.map((lvl) => {
+          const st = levelStatus.find((s) => s.level === lvl);
+          const unlocked = st ? st.unlocked : true;
+          const isActive = level === lvl;
+          return (
+            <button
+              key={lvl}
+              disabled={!unlocked}
+              onClick={() => unlocked && setLevel(lvl)}
+              title={
+                unlocked
+                  ? st?.completed
+                    ? `${lvl} 已全部完成`
+                    : `${lvl} 进度 ${st?.progress ?? 0}%`
+                    : "请先完成上一个级别"
+              }
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                isActive
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : unlocked
+                    ? "bg-white text-zinc-500 ring-1 ring-zinc-200 hover:bg-zinc-50"
+                    : "cursor-not-allowed bg-zinc-50 text-zinc-300 ring-1 ring-zinc-100"
+              }`}
+            >
+              {!unlocked && <span className="mr-1">🔒</span>}
+              {lvl}
+              {unlocked && st?.completed && <span className="ml-1">✓</span>}
+            </button>
+          );
+        })}
       </div>
+
+      {/* 当前级别被锁提示 */}
+      {!levelUnlocked && (
+        <div className="mb-6 rounded-2xl bg-amber-50 p-5 text-sm text-amber-700 ring-1 ring-amber-200">
+          <p className="font-semibold">🔒 {level} 级别尚未解锁</p>
+          <p className="mt-1 text-amber-600">
+            请先回到上一个级别，把所有单元的认字率都练到 80% 以上，即可解锁{" "}
+            {level} 级别。
+          </p>
+        </div>
+      )}
 
       {/* 级别总览卡片 */}
       <div className="mb-8 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-white shadow-lg shadow-blue-200">
@@ -162,10 +205,12 @@ function UnitCard({
   level: string;
 }) {
   const router = useRouter();
-  const completed = unit.total > 0 && unit.mastered >= unit.total;
+  const completed = unit.completed;
   const started = unit.learned > 0;
+  const locked = !unit.unlocked;
 
   const go = () => {
+    if (locked) return;
     const params = new URLSearchParams({ level, category: unit.name });
     router.push(`/study?${params.toString()}`);
   };
@@ -173,20 +218,42 @@ function UnitCard({
   return (
     <button
       onClick={go}
-      className="group relative flex flex-col rounded-2xl bg-white p-4 text-left ring-1 ring-zinc-200 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-blue-300"
+      disabled={locked}
+      aria-disabled={locked}
+      className={`group relative flex flex-col rounded-2xl bg-white p-4 text-left ring-1 transition ${
+        locked
+          ? "cursor-not-allowed opacity-60 ring-zinc-200"
+          : "ring-zinc-200 hover:-translate-y-0.5 hover:shadow-md hover:ring-blue-300"
+      }`}
     >
-      {/* 完成徽章 */}
-      {completed && (
+      {/* 完成徽章 / 锁定徽章 */}
+      {completed ? (
         <span className="absolute right-3 top-3 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-600">
           ✓ 已完成
         </span>
-      )}
+      ) : locked ? (
+        <span className="absolute right-3 top-3 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-400">
+          🔒 未解锁
+        </span>
+      ) : null}
 
       <div className="mb-2 flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-xs font-semibold text-zinc-500 group-hover:bg-blue-100 group-hover:text-blue-600">
+        <span
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+            locked
+              ? "bg-zinc-100 text-zinc-300"
+              : "bg-zinc-100 text-zinc-500 group-hover:bg-blue-100 group-hover:text-blue-600"
+          }`}
+        >
           {index}
         </span>
-        <h3 className="line-clamp-1 text-sm font-semibold text-zinc-800 group-hover:text-blue-700">
+        <h3
+          className={`line-clamp-1 text-sm font-semibold ${
+            locked
+              ? "text-zinc-400"
+              : "text-zinc-800 group-hover:text-blue-700"
+          }`}
+        >
           {unit.name}
         </h3>
       </div>
@@ -208,16 +275,21 @@ function UnitCard({
       <div className="flex items-center justify-between text-xs text-zinc-400">
         <span>
           {unit.mastered}/{unit.total} 词
+          <span className="ml-1 text-zinc-300">
+            （需 {Math.ceil(unit.total * 0.8)} 词解锁下一单元）
+          </span>
         </span>
         <span>
-          {completed
-            ? "巩固复习"
-            : started
-              ? unit.due > 0
-                ? `${unit.due} 词待复习`
-                : "继续练习"
-              : "开始学习"}
-          {" →"}
+          {locked
+            ? "完成上一单元解锁"
+            : completed
+              ? "巩固复习"
+              : started
+                ? unit.due > 0
+                  ? `${unit.due} 词待复习`
+                  : "继续练习"
+                : "开始学习"}
+          {!locked && " →"}
         </span>
       </div>
     </button>
