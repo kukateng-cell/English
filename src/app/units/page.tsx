@@ -68,7 +68,7 @@ export default function UnitsPage() {
   if (status === "loading" || loading) {
     return (
       <div className="flex min-h-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent dark:border-blue-400" />
       </div>
     );
   }
@@ -83,27 +83,27 @@ export default function UnitsPage() {
     grandTotal > 0 ? Math.round((grandMastered / grandTotal) * 100) : 0;
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-8">
+    <div className="mx-auto w-full max-w-3xl px-4 pt-8 pb-24">
       {/* 顶部导航 */}
       <div className="mb-6 flex items-center justify-between">
         <Link
           href="/"
-          className="text-sm text-zinc-400 transition hover:text-zinc-600"
+          className="text-sm text-zinc-400 transition hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
         >
           ← 首页
         </Link>
         <Link
           href="/study"
-          className="text-sm font-medium text-blue-600 transition hover:text-blue-700"
+          className="text-sm font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
         >
           今日学习 →
         </Link>
       </div>
 
-      <h1 className="mb-1 text-2xl font-bold tracking-tight text-zinc-900">
+      <h1 className="mb-1 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
         单元闯关
       </h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
         按主题单元逐个攻克，认字后通过测试才算掌握并记录到 SM-2 复习计划。
       </p>
 
@@ -127,10 +127,10 @@ export default function UnitsPage() {
               }
               className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
                 isActive
-                  ? "bg-blue-600 text-white shadow-sm"
+                  ? "bg-blue-600 text-white shadow-sm dark:bg-blue-500"
                   : unlocked
-                    ? "bg-white text-zinc-500 ring-1 ring-zinc-200 hover:bg-zinc-50"
-                    : "cursor-not-allowed bg-zinc-50 text-zinc-300 ring-1 ring-zinc-100"
+                    ? "bg-white text-zinc-500 ring-1 ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800"
+                    : "cursor-not-allowed bg-zinc-50 text-zinc-300 ring-1 ring-zinc-100 dark:bg-zinc-900 dark:text-zinc-600 dark:ring-zinc-800"
               }`}
             >
               {!unlocked && <span className="mr-1">🔒</span>}
@@ -143,9 +143,9 @@ export default function UnitsPage() {
 
       {/* 当前级别被锁提示 */}
       {!levelUnlocked && (
-        <div className="mb-6 rounded-2xl bg-amber-50 p-5 text-sm text-amber-700 ring-1 ring-amber-200">
+        <div className="mb-6 rounded-2xl bg-amber-50 p-5 text-sm text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
           <p className="font-semibold">🔒 {level} 级别尚未解锁</p>
-          <p className="mt-1 text-amber-600">
+          <p className="mt-1 text-amber-600 dark:text-amber-400">
             请先回到上一个级别，把所有单元的认字率都练到 80% 以上，即可解锁{" "}
             {level} 级别。
           </p>
@@ -153,7 +153,7 @@ export default function UnitsPage() {
       )}
 
       {/* 级别总览卡片 */}
-      <div className="mb-8 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-white shadow-lg shadow-blue-200">
+      <div className="mb-8 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-white shadow-lg shadow-blue-200 dark:shadow-blue-950/50">
         <div className="mb-3 flex items-end justify-between">
           <div>
             <p className="text-sm/none opacity-80">{level} 级别总进度</p>
@@ -176,7 +176,7 @@ export default function UnitsPage() {
 
       {/* 单元列表 */}
       {units.length === 0 ? (
-        <div className="rounded-2xl bg-white p-10 text-center text-sm text-zinc-400 ring-1 ring-zinc-100">
+        <div className="rounded-2xl bg-white p-10 text-center text-sm text-zinc-400 ring-1 ring-zinc-100 dark:bg-zinc-900 dark:text-zinc-500 dark:ring-zinc-800">
           该级别暂无单词数据
         </div>
       ) : (
@@ -222,17 +222,17 @@ function UnitCard({
       aria-disabled={locked}
       className={`group relative flex flex-col rounded-2xl bg-white p-4 text-left ring-1 transition ${
         locked
-          ? "cursor-not-allowed opacity-60 ring-zinc-200"
-          : "ring-zinc-200 hover:-translate-y-0.5 hover:shadow-md hover:ring-blue-300"
+          ? "cursor-not-allowed opacity-60 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800"
+          : "ring-zinc-200 hover:-translate-y-0.5 hover:shadow-md hover:ring-blue-300 dark:bg-zinc-900 dark:ring-zinc-800 dark:hover:shadow-black/30 dark:hover:ring-blue-700"
       }`}
     >
       {/* 完成徽章 / 锁定徽章 */}
       {completed ? (
-        <span className="absolute right-3 top-3 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-600">
+        <span className="absolute right-3 top-3 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-600 dark:bg-green-950 dark:text-green-400">
           ✓ 已完成
         </span>
       ) : locked ? (
-        <span className="absolute right-3 top-3 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-400">
+        <span className="absolute right-3 top-3 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500">
           🔒 未解锁
         </span>
       ) : null}
@@ -241,8 +241,8 @@ function UnitCard({
         <span
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
             locked
-              ? "bg-zinc-100 text-zinc-300"
-              : "bg-zinc-100 text-zinc-500 group-hover:bg-blue-100 group-hover:text-blue-600"
+              ? "bg-zinc-100 text-zinc-300 dark:bg-zinc-800 dark:text-zinc-600"
+              : "bg-zinc-100 text-zinc-500 group-hover:bg-blue-100 group-hover:text-blue-600 dark:bg-zinc-800 dark:text-zinc-300 dark:group-hover:bg-blue-950 dark:group-hover:text-blue-400"
           }`}
         >
           {index}
@@ -250,8 +250,8 @@ function UnitCard({
         <h3
           className={`line-clamp-1 text-sm font-semibold ${
             locked
-              ? "text-zinc-400"
-              : "text-zinc-800 group-hover:text-blue-700"
+              ? "text-zinc-400 dark:text-zinc-500"
+              : "text-zinc-800 group-hover:text-blue-700 dark:text-zinc-100 dark:group-hover:text-blue-400"
           }`}
         >
           {unit.name}
@@ -259,23 +259,23 @@ function UnitCard({
       </div>
 
       {/* 进度条 */}
-      <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-zinc-100">
+      <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
         <div
           className={`h-full rounded-full transition-all duration-500 ${
             completed
               ? "bg-green-500"
               : started
                 ? "bg-blue-500"
-                : "bg-zinc-300"
+                : "bg-zinc-300 dark:bg-zinc-600"
           }`}
           style={{ width: `${unit.progress}%` }}
         />
       </div>
 
-      <div className="flex items-center justify-between text-xs text-zinc-400">
+      <div className="flex items-center justify-between text-xs text-zinc-400 dark:text-zinc-500">
         <span>
           {unit.mastered}/{unit.total} 词
-          <span className="ml-1 text-zinc-300">
+          <span className="ml-1 text-zinc-300 dark:text-zinc-600">
             （需 {Math.ceil(unit.total * 0.8)} 词解锁下一单元）
           </span>
         </span>

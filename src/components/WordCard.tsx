@@ -60,14 +60,14 @@ export default function WordCard({
         onDragEnd={handleDragEnd}
         style={{ x, rotate }}
         whileTap={{ scale: disabled ? 1 : 1.02 }}
-        className="relative z-10 mx-auto flex h-72 w-full flex-col items-center justify-center rounded-3xl border border-zinc-200/60 bg-white shadow-lg shadow-zinc-200/50"
+        className="relative z-10 mx-auto flex h-72 w-full flex-col items-center justify-center rounded-3xl border border-zinc-200/60 bg-white shadow-lg shadow-zinc-200/50 dark:border-zinc-700/60 dark:bg-zinc-900 dark:shadow-black/30"
       >
         {/* 单词 */}
-        <h2 className="mb-2 text-5xl font-bold tracking-tight text-zinc-900">
+        <h2 className="mb-2 text-5xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
           {word.term}
         </h2>
         {word.phonetic && (
-          <p className="text-sm text-zinc-400">{word.phonetic}</p>
+          <p className="text-sm text-zinc-400 dark:text-zinc-500">{word.phonetic}</p>
         )}
         {!word.phonetic && (
           <button
@@ -75,14 +75,14 @@ export default function WordCard({
               e.stopPropagation();
               speakEnglish(word.term);
             }}
-            className="mt-2 text-xs text-blue-500 hover:text-blue-600"
+            className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
           >
             🔊 发音
           </button>
         )}
 
         {/* 滑动提示 */}
-        <p className="absolute bottom-4 text-xs text-zinc-300">
+        <p className="absolute bottom-4 text-xs text-zinc-300 dark:text-zinc-600">
           ← 不认识 · 认识 →
         </p>
       </motion.div>
