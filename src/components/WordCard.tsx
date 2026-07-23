@@ -2,6 +2,7 @@
 
 import { motion, useMotionValue, useTransform } from "framer-motion";
 import type { ReactNode } from "react";
+import { speakEnglish } from "@/lib/speech";
 
 interface WordCardProps {
   word: { term: string; phonetic?: string | null };
@@ -72,10 +73,7 @@ export default function WordCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              const u = new SpeechSynthesisUtterance(word.term);
-              u.lang = "en-US";
-              u.rate = 0.8;
-              speechSynthesis.speak(u);
+              speakEnglish(word.term);
             }}
             className="mt-2 text-xs text-blue-500 hover:text-blue-600"
           >

@@ -11,6 +11,7 @@ import QuizCard, {
   type QuizQuestion,
   type QuizOption,
 } from "@/components/QuizCard";
+import { warmUpSpeech } from "@/lib/speech";
 
 interface WordFull {
   id: string;
@@ -185,6 +186,12 @@ export default function StudyPage() {
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
+
+  // 预热语音引擎：让浏览器提前加载英文 voice，
+  // 避免首次点击「发音」时出现吞音 / 卡顿。
+  useEffect(() => {
+    warmUpSpeech();
+  }, []);
 
   // 加载队列：认证通过后，以及每次 restart（reloadKey 变化）触发。
   // 通过 URL query 决定是「全局今日队列」还是「指定单元练习」。

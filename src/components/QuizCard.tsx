@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { speakEnglish } from "@/lib/speech";
 
 export interface QuizOption {
   id: string;
@@ -30,12 +31,7 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
   const answered = selectedId !== null;
   const isEnZh = question.direction === "en-zh";
 
-  const speak = () => {
-    const u = new SpeechSynthesisUtterance(question.word.term);
-    u.lang = "en-US";
-    u.rate = 0.85;
-    speechSynthesis.speak(u);
-  };
+  const speak = () => speakEnglish(question.word.term);
 
   const handlePick = (optId: string) => {
     if (answered) return;
