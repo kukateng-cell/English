@@ -105,7 +105,6 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
           const st = optionState(opt.id);
           const isCorrect = st === "correct";
           const isWrong = st === "wrong";
-          const isDim = st === "dim";
 
           const label = String.fromCharCode(65 + i);
 
