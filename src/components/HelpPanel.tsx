@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
+import { speakEnglish } from "@/lib/speech";
 
 interface WordFull {
   term: string;
@@ -21,12 +22,7 @@ interface HelpPanelProps {
 }
 
 export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) {
-  const speak = () => {
-    const u = new SpeechSynthesisUtterance(word.term);
-    u.lang = "en-US";
-    u.rate = 0.8;
-    speechSynthesis.speak(u);
-  };
+  const speak = () => speakEnglish(word.term);
 
   const examples = Array.isArray(word.examples) ? word.examples : [];
 
