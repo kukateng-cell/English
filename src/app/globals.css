@@ -4,23 +4,125 @@
    所有 dark: 变体才会生效（而非跟随系统）。 */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* =====================================================
+   设计变量 · Design Tokens
+   面向中学生的英语单词认读学习平台
+   清爽 · 可信赖 · 温和 · 现代
+   ===================================================== */
+
 @theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #171717;
+  --color-background: #f7f9ff;
+  --color-foreground: #17213c;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-body {
-  color: #171717;
-  background: #fafafa;
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-  -webkit-tap-highlight-color: transparent;
-  overscroll-behavior: none;
+:root {
+  /* 品牌色 */
+  --app-bg: #f7f9ff;
+  --surface: #ffffff;
+  --text: #17213c;
+  --muted: #7c89a5;
+  --primary: #2563eb;
+  --primary-2: #5b6fef;
+  --border: #e7edf8;
+  --border-soft: #eef2f9;
+  --success: #22c55e;
+  --success-bg: #ecfdf5;
+  --danger: #ef6b6b;
+  --danger-bg: #fef2f2;
+  --warning: #f59e0b;
+  --warning-bg: #fffbeb;
+
+  /* 阴影 */
+  --shadow-soft: 0 12px 30px rgba(38, 65, 140, 0.08);
+  --shadow-card: 0 4px 20px rgba(38, 65, 140, 0.06);
+  --shadow-sm: 0 2px 8px rgba(38, 65, 140, 0.04);
+  --shadow-blue: 0 12px 30px rgba(37, 99, 235, 0.12);
+
+  /* 圆角 */
+  --radius-sm: 12px;
+  --radius: 16px;
+  --radius-card: 24px;
+  --radius-lg: 28px;
+  --radius-full: 9999px;
+
+  /* 字体 */
+  --font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-/* 深色模式：背景转深、文字转浅。由 <html class="dark"> 触发。 */
-.dark body {
-  color: #fafafa;
-  background: #09090b; /* zinc-950 */
+/* 全局基础 */
+html {
+  font-family: var(--font-geist-sans), var(--font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+body {
+  color: var(--text);
+  background: var(--app-bg);
+  font-family: var(--font-geist-sans), var(--font-family);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  line-height: 1.6;
+}
+
+/* 深色模式 —— 由 <html class="dark"> 触发 */
+.dark {
+  --app-bg: #0b1120;
+  --surface: #111827;
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --border: #1e293b;
+  --border-soft: #1a2332;
+  --success-bg: #052e16;
+  --danger-bg: #2d0b0b;
+  --warning-bg: #291800;
+  --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.25);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-blue: 0 12px 30px rgba(37, 99, 235, 0.08);
+}
+
+.dark body {
+  color: var(--text);
+  background: var(--app-bg);
+}
+
+/* 通用组件样式 */
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #374151;
+}
+
+/* 动画工具类 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
