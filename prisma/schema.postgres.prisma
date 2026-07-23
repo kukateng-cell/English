@@ -18,6 +18,7 @@ model User {
   email        String   @unique
   passwordHash String
   name         String?
+  role         Role     @default(STUDENT)
   createdAt    DateTime @default(now())
   reviews      Review[]
 }
@@ -63,4 +64,10 @@ enum Level {
   A1
   A2
   B1
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
 }
