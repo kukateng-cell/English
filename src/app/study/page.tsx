@@ -180,7 +180,7 @@ function ResumeToast({ visible }: { visible: boolean }) {
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -12 }}
-          className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-zinc-900/90 px-4 py-2 text-xs font-medium text-white shadow-lg backdrop-blur dark:bg-zinc-100/90 dark:text-zinc-900"
+          className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-[#17213C]/90 px-5 py-2.5 text-[13px] font-medium text-white shadow-lg backdrop-blur dark:bg-white/90 dark:text-[#17213C]"
         >
           💾 已恢复上次进度，继续答题吧
         </motion.div>
@@ -490,7 +490,10 @@ export default function StudyPage() {
   if (status === "loading" || loading) {
     return (
       <div className="flex min-h-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent dark:border-blue-400" />
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+          <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">加载中...</span>
+        </div>
       </div>
     );
   }
@@ -561,21 +564,25 @@ export default function StudyPage() {
   // ───────── 被锁单元渲染（仅手动改 URL 访问锁住单元时出现） ─────────
   if (locked) {
     return (
-      <div className="flex min-h-full flex-col items-center justify-center px-4 text-center">
-        <p className="text-4xl mb-4">🔒</p>
-        <h2 className="text-xl font-bold text-zinc-900 mb-2 dark:text-zinc-50">单元尚未解锁</h2>
-        <p className="text-sm text-zinc-500 mb-6 dark:text-zinc-400">
-          请先回到单元列表，按顺序把前面的单元认字率练到 80% 以上，
-          即可解锁这个单元。
+      <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#FEF3C7] dark:bg-[#291800]">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+        </div>
+        <h2 className="mb-2 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">单元尚未解锁</h2>
+        <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
+          请先回到单元列表，按顺序把前面的单元认字率练到 80% 以上，即可解锁这个单元。
         </p>
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-6 text-[14px]">
           <Link
             href="/units"
-            className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+            className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
           >
             ← 返回单元列表
           </Link>
-          <Link href="/" className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300">
+          <Link href="/" className="text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]">
             返回首页
           </Link>
         </div>
@@ -589,55 +596,75 @@ export default function StudyPage() {
     const progressPct = quizTotal > 0 ? (quizAnswered / quizTotal) * 100 : 0;
 
     return (
-      <div className="flex min-h-full flex-col items-center justify-center pb-20">
+      <div className="flex min-h-full flex-col pb-24">
         <ResumeToast visible={showResumedBanner} />
         <SpeechRateControl />
-        {/* 单元上下文（仅单元练习模式显示） */}
+
+        {/* 顶部导航栏 */}
+        <div className="mx-auto flex w-full max-w-md items-center justify-between px-5 pt-5 pb-3">
+          <Link
+            href="/units"
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+          </Link>
+          <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+            {quizAnswered} / {quizTotal}
+          </span>
+          <div className="w-9" />
+        </div>
+
+        {/* 单元上下文 */}
         {unitCategory && (
-          <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-300">
-            <Link href="/units" className="hover:underline">
-              ← 单元列表
-            </Link>
-            <span className="text-blue-300 dark:text-blue-700">·</span>
-            <span>{unitCategory}</span>
+          <div className="mx-auto mb-4 flex w-full max-w-md px-5">
+            <div className="flex items-center gap-2 rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+              <span>{unitCategory}</span>
+            </div>
           </div>
         )}
 
-        {/* 顶部进度 */}
-        <div className="mb-6 w-full max-w-md px-4">
-          <div className="flex items-center justify-between text-sm text-zinc-400 mb-2 dark:text-zinc-500">
-            <span className="font-medium text-blue-600 dark:text-blue-400">📝 测试</span>
-            <span>
-              剩余 {remaining} 题 · 答对 {quizStats.correct} · 答错{" "}
-              {quizStats.wrong}
+        {/* 进度条 */}
+        <div className="mx-auto mb-5 w-full max-w-md px-5">
+          <div className="mb-2 flex items-center justify-between text-[13px]">
+            <span className="font-medium text-[#2563EB] dark:text-[#60A5FA]">📝 测试中</span>
+            <span className="text-[#7C89A5] dark:text-[#64748B]">
+              剩余 {remaining} 题 · 答对 {quizStats.correct} · 答错 {quizStats.wrong}
             </span>
           </div>
-          <div className="h-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-            <div
-              className="h-full rounded-full bg-blue-500 transition-all duration-300"
+          <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
               style={{ width: `${progressPct}%` }}
+              initial={{ width: 0 }}
+              animate={{ width: `${progressPct}%` }}
+              transition={{ duration: 0.3 }}
             />
           </div>
         </div>
 
-        <AnimatePresence mode="wait">
-          {currentQuestion && (
-            <motion.div
-              key={
-                currentQuestion.word.id + quizIndex + currentQuestion.direction
-              }
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.25 }}
-            >
-              <QuizCard
-                question={currentQuestion}
-                onAnswer={handleQuizAnswer}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* 题目卡片 */}
+        <div className="flex-1">
+          <AnimatePresence mode="wait">
+            {currentQuestion && (
+              <motion.div
+                key={
+                  currentQuestion.word.id + quizIndex + currentQuestion.direction
+                }
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.25 }}
+              >
+                <QuizCard
+                  question={currentQuestion}
+                  onAnswer={handleQuizAnswer}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     );
   }
@@ -646,40 +673,45 @@ export default function StudyPage() {
   if (phase === "done" || (queue.length === 0 && !loading)) {
     const hasQuiz = quizStats.correct + quizStats.wrong > 0;
     return (
-      <div className="flex min-h-full flex-col items-center justify-center px-4 text-center">
-        <p className="text-4xl mb-4">🎉</p>
-        <h2 className="text-xl font-bold text-zinc-900 mb-2 dark:text-zinc-50">
+      <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#ECFDF5] dark:bg-[#052E16]">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M8 12l3 3 5-5" />
+          </svg>
+        </div>
+        <h2 className="mb-2 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">
           {hasQuiz ? "测试完成！" : "全部完成！"}
         </h2>
         {hasQuiz ? (
-          <p className="text-sm text-zinc-500 mb-6 dark:text-zinc-400">
+          <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
             本次共 {knownWords.length + unknownWords.length} 词，你认识{" "}
             {knownWords.length} 个、不认识 {unknownWords.length} 个。
             <br />
             测试答对 {quizStats.correct} 题、答错 {quizStats.wrong} 题，全部攻克！
           </p>
         ) : (
-          <p className="text-sm text-zinc-500 mb-6 dark:text-zinc-400">
+          <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
             今天没有更多单词了，明天再来复习吧
           </p>
         )}
         <div className="flex flex-col items-center gap-3">
           <button
             onClick={restart}
-            className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+            className="flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
           >
             {unitCategory ? "再练一轮" : "刷新单词"}
           </button>
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-6 text-[14px]">
             <Link
               href="/units"
-              className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
             >
               ← 返回单元列表
             </Link>
             <Link
               href="/"
-              className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              className="text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
             >
               返回首页
             </Link>
@@ -693,84 +725,110 @@ export default function StudyPage() {
 
   // ───────── 认字评估阶段渲染 ─────────
   return (
-    <div className="flex min-h-full flex-col items-center justify-center pb-20">
+    <div className="flex min-h-full flex-col pb-24">
       <ResumeToast visible={showResumedBanner} />
       <SpeechRateControl />
-      {/* 单元上下文（仅单元练习模式显示） */}
+
+      {/* 顶部导航栏 */}
+      <div className="mx-auto flex w-full max-w-md items-center justify-between px-5 pt-5 pb-3">
+        <Link
+          href="/units"
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+        </Link>
+
+        <div className="text-center">
+          <span className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+            今日学习 · 认识这个单词吗？
+          </span>
+        </div>
+
+        <div className="w-9" />
+      </div>
+
+      {/* 单元上下文 */}
       {unitCategory && (
-        <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-300">
-          <Link href="/units" className="hover:underline">
-            ← 单元列表
-          </Link>
-          <span className="text-blue-300 dark:text-blue-700">·</span>
-          <span>{unitCategory}</span>
+        <div className="mx-auto mb-4 flex w-full max-w-md px-5">
+          <div className="flex items-center gap-2 rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+            <Link href="/units" className="hover:underline">
+              ← 单元列表
+            </Link>
+            <span className="opacity-40">·</span>
+            <span>{unitCategory}</span>
+          </div>
         </div>
       )}
 
-      {/* 顶部进度 */}
-      <div className="mb-6 w-full max-w-md px-4">
-        <div className="flex items-center justify-between text-sm text-zinc-400 mb-2 dark:text-zinc-500">
-          <span>
-            <span className="font-medium text-zinc-600 dark:text-zinc-300">👀 认字</span>{" "}
-            <span className="ml-2">
-              {currentIndex + 1} / {queue.length}
+      {/* 进度信息 */}
+      <div className="mx-auto mb-6 w-full max-w-md px-5">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-[24px] font-bold tabular-nums text-[#17213C] dark:text-[#E2E8F0]">
+              {currentIndex + 1}
             </span>
-          </span>
-          <span>
-            <span className="text-green-500 dark:text-green-400">认识 {knownWords.length}</span>
-            {" · "}
-            <span className="text-red-400 dark:text-red-400">
-              不认识 {unknownWords.length}
+            <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">
+              / {queue.length}
             </span>
-          </span>
+          </div>
+          <div className="flex items-center gap-3 text-[13px]">
+            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">认识 {knownWords.length}</span>
+            <span className="text-[#E7EDF8] dark:text-[#1E293B]">·</span>
+            <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">不认识 {unknownWords.length}</span>
+          </div>
         </div>
-        <div className="h-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-          <div
-            className="h-full rounded-full bg-blue-500 transition-all duration-300"
-            style={{
-              width: `${((currentIndex + 1) / queue.length) * 100}%`,
-            }}
+        <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
+          <motion.div
+            className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
+            style={{ width: `${((currentIndex + 1) / queue.length) * 100}%` }}
+            initial={{ width: 0 }}
+            animate={{ width: `${((currentIndex + 1) / queue.length) * 100}%` }}
+            transition={{ duration: 0.3 }}
           />
         </div>
       </div>
 
-      {/* 卡片 */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={current.word.id + currentIndex}
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{
-            opacity: 0,
-            x: direction === "right" ? 300 : direction === "left" ? -300 : 0,
-            transition: { duration: 0.3 },
-          }}
-        >
-          <WordCard
-            word={current.word}
-            onSwipeLeft={handleSwipeLeft}
-            onSwipeRight={handleSwipeRight}
-            disabled={helpVisible}
-          />
-        </motion.div>
-      </AnimatePresence>
+      {/* 卡片区域 */}
+      <div className="flex-1 flex flex-col items-center justify-center">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={current.word.id + currentIndex}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{
+              opacity: 0,
+              x: direction === "right" ? 300 : direction === "left" ? -300 : 0,
+              transition: { duration: 0.3 },
+            }}
+          >
+            <WordCard
+              word={current.word}
+              onSwipeLeft={handleSwipeLeft}
+              onSwipeRight={handleSwipeRight}
+              disabled={helpVisible}
+            />
+          </motion.div>
+        </AnimatePresence>
 
-      {/* 底部按钮（桌面端备选） */}
-      <div className="mt-8 flex gap-6">
-        <button
-          onClick={handleSwipeLeft}
-          className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-red-200 text-red-400 transition hover:bg-red-50 active:scale-95 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
-          aria-label="不认识"
-        >
-          ✕
-        </button>
-        <button
-          onClick={handleSwipeRight}
-          className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-green-200 text-green-500 transition hover:bg-green-50 active:scale-95 dark:border-green-900 dark:text-green-400 dark:hover:bg-green-950"
-          aria-label="认识"
-        >
-          ✓
-        </button>
+        {/* 底部按钮（桌面端备选） */}
+        <div className="mt-6 flex gap-8">
+          <button
+            onClick={handleSwipeLeft}
+            className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#FECACA] text-[#EF6B6B] transition hover:bg-[#FEF2F2] active:scale-95 dark:border-[#7F1D1D] dark:hover:bg-[#2D0B0B]"
+            aria-label="不认识"
+          >
+            ✕
+          </button>
+          <button
+            onClick={handleSwipeRight}
+            className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#BBF7D0] text-[#22C55E] transition hover:bg-[#ECFDF5] active:scale-95 dark:border-[#14532D] dark:hover:bg-[#052E16]"
+            aria-label="认识"
+          >
+            ✓
+          </button>
+        </div>
       </div>
 
       {/* 助记面板 */}

@@ -28,7 +28,7 @@ export default function ThemeToggle() {
       onClick={toggleTheme}
       aria-label={isDark ? "切换到浅色模式" : "切换到深色模式"}
       title={isDark ? "切换到浅色模式" : "切换到深色模式"}
-      className="fixed bottom-4 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white/90 text-zinc-600 shadow-md backdrop-blur transition hover:bg-white hover:text-zinc-900 active:scale-95 dark:border-zinc-700 dark:bg-zinc-800/90 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+      className="fixed bottom-5 right-5 z-40 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#E7EDF8] bg-white/90 text-[#7C89A5] shadow-[0_4px_16px_rgba(38,65,140,0.06)] backdrop-blur transition hover:bg-white hover:text-[#17213C] active:scale-95 dark:border-[#1E293B] dark:bg-[#111827]/90 dark:text-[#64748B] dark:hover:bg-[#111827] dark:hover:text-[#E2E8F0]"
     >
       {isDark ? (
         // 深色模式下显示「太阳」，提示可切换到浅色

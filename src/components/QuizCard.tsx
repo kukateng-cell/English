@@ -16,7 +16,7 @@ export interface QuizQuestion {
     phonetic?: string | null;
     definition: string;
   };
-  direction: "en-zh" | "zh-en"; // en-zh: 给英文选中文；zh-en: 给中文选英文
+  direction: "en-zh" | "zh-en";
   options: QuizOption[];
   correctId: string;
 }
@@ -25,6 +25,13 @@ interface QuizCardProps {
   question: QuizQuestion;
   onAnswer: (correct: boolean) => void;
 }
+
+const cardMotion = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, x: 90, rotate: 6 },
+  transition: { type: "spring" as const, stiffness: 320, damping: 26 },
+};
 
 export default function QuizCard({ question, onAnswer }: QuizCardProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -37,7 +44,6 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
     if (answered) return;
     setSelectedId(optId);
     const correct = optId === question.correctId;
-    // 答对快速过；答错多停一会让人看清正确答案
     setTimeout(() => onAnswer(correct), correct ? 700 : 1400);
   };
 
@@ -48,69 +54,120 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
     return "dim";
   };
 
-  const stateClasses: Record<string, string> = {
-    correct:
-      "border-green-500 bg-green-50 text-green-700 dark:border-green-500 dark:bg-green-950 dark:text-green-300",
-    wrong: "border-red-500 bg-red-50 text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300",
-    dim: "border-zinc-200 bg-white text-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-600",
-    idle: "border-zinc-200 bg-white text-zinc-800 hover:border-blue-400 hover:bg-blue-50/40 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-blue-600 dark:hover:bg-blue-950/40",
-  };
-
   return (
-    <div className="mx-auto w-full max-w-md px-4">
-      {/* 题干 */}
-      <div className="mb-3 text-center">
-        <span className="inline-block rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-300">
-          {isEnZh ? "🔤 看英文，选中文" : "🀄 看中文，选英文"}
+    <div className="mx-auto w-full max-w-md px-5">
+      {/* 题干标签 */}
+      <div className="mb-4 text-center">
+        <span className="inline-block rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+          {isEnZh ? "看英文，选中文" : "看中文，选英文"}
         </span>
       </div>
 
+      {/* 题目卡片 */}
       <motion.div
         key={question.word.id + question.direction}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-5 flex min-h-40 flex-col items-center justify-center rounded-3xl border border-zinc-200/60 bg-white p-6 shadow-lg shadow-zinc-200/50 dark:border-zinc-700/60 dark:bg-zinc-900 dark:shadow-black/30"
+        {...cardMotion}
+        className="mb-6 flex min-h-[160px] flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white p-6 shadow-[0_12px_30px_rgba(38,65,140,0.08)] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
       >
         {isEnZh ? (
           <>
-            <h2 className="mb-2 text-center text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            <h2
+              className="mb-2 text-center text-[#17213C] dark:text-[#E2E8F0]"
+              style={{ fontSize: "42px", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15 }}
+            >
               {question.word.term}
             </h2>
             {question.word.phonetic && (
-              <p className="text-sm text-zinc-400 dark:text-zinc-500">{question.word.phonetic}</p>
+              <p className="mb-3 text-[15px] text-[#7C89A5] dark:text-[#64748B]">{question.word.phonetic}</p>
             )}
             <button
               onClick={speak}
-              className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-lg transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/30"
+              aria-label="发音"
             >
-              🔊 发音
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+              </svg>
             </button>
           </>
         ) : (
-          <p className="text-center text-2xl font-medium leading-relaxed text-zinc-900 dark:text-zinc-50">
+          <p className="text-center text-[26px] font-semibold leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">
             {question.word.definition}
           </p>
         )}
       </motion.div>
 
       {/* 选项 */}
-      <div className="grid grid-cols-1 gap-3">
+      <div className="flex flex-col gap-3">
         {question.options.map((opt, i) => {
           const st = optionState(opt.id);
+          const isCorrect = st === "correct";
+          const isWrong = st === "wrong";
+
+          const label = String.fromCharCode(65 + i);
+
+          // 动态样式
+          let containerClass =
+            "flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-[15px] leading-snug transition-all duration-200";
+
+          if (st === "idle") {
+            containerClass +=
+              " border-[#E7EDF8] bg-white text-[#17213C] hover:border-[#2563EB]/30 hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:hover:border-[#1E3A5F] dark:hover:bg-[#1A2332]";
+          } else if (isCorrect) {
+            containerClass +=
+              " border-[#22C55E] bg-[#ECFDF5] text-[#15803D] dark:border-[#22C55E] dark:bg-[#052E16] dark:text-[#4ADE80]";
+          } else if (isWrong) {
+            containerClass +=
+              " border-[#EF6B6B] bg-[#FEF2F2] text-[#DC2626] dark:border-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]";
+          } else {
+            containerClass +=
+              " border-[#E7EDF8] bg-white opacity-40 dark:border-[#1E293B] dark:bg-[#111827]";
+          }
+
           return (
             <motion.button
               key={opt.id + i}
               onClick={() => handlePick(opt.id)}
               disabled={answered}
               whileTap={{ scale: answered ? 1 : 0.97 }}
-              className={`flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-base transition ${stateClasses[st]}`}
+              className={containerClass}
             >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current text-xs font-bold">
-                {String.fromCharCode(65 + i)}
+              {/* 圆形编号 */}
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  isCorrect
+                    ? "bg-[#22C55E] text-white"
+                    : isWrong
+                      ? "bg-[#EF6B6B] text-white"
+                      : "border border-[#D1D5DB] text-[#7C89A5] dark:border-[#475569] dark:text-[#64748B]"
+                }`}
+              >
+                {label}
               </span>
+
               <span className="flex-1">{opt.text}</span>
-              {answered && st === "correct" && <span>✓</span>}
-              {answered && st === "wrong" && <span>✕</span>}
+
+              {/* 反馈图标 */}
+              {answered && isCorrect && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="text-lg text-[#22C55E] dark:text-[#4ADE80]"
+                >
+                  ✓
+                </motion.span>
+              )}
+              {answered && isWrong && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="text-lg text-[#EF6B6B] dark:text-[#F87171]"
+                >
+                  ✕
+                </motion.span>
+              )}
             </motion.button>
           );
         })}
@@ -119,15 +176,15 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
       {/* 反馈提示 */}
       {answered && (
         <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mt-4 text-center text-sm"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-5 text-center text-[14px]"
         >
           {selectedId === question.correctId ? (
-            <span className="text-green-600 dark:text-green-400">答对了！</span>
+            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">✓ 答对了！</span>
           ) : (
-            <span className="text-red-500 dark:text-red-400">
-              答错了，这个词稍后会再考你一次 ↻
+            <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">
+              ✕ 答错了，这个词稍后会再考你一次
             </span>
           )}
         </motion.p>

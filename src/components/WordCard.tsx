@@ -22,8 +22,7 @@ export default function WordCard({
   disabled,
 }: WordCardProps) {
   const x = useMotionValue(0);
-
-  const rotate = useTransform(x, [-200, 0, 200], [-15, 0, 15]);
+  const rotate = useTransform(x, [-250, 0, 250], [-8, 0, 8]);
   const opacityLeft = useTransform(x, [-200, -SWIPE_THRESHOLD, 0], [1, 1, 0]);
   const opacityRight = useTransform(x, [0, SWIPE_THRESHOLD, 200], [0, 1, 1]);
 
@@ -35,19 +34,25 @@ export default function WordCard({
     }
   };
 
+  const handleSpeak = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    speakEnglish(word.term);
+  };
+
   return (
-    <div className="relative mx-auto w-full max-w-md select-none px-4">
+    <div className="relative mx-auto w-full max-w-md select-none px-5">
       {/* 背景提示文字 */}
-      <div className="absolute inset-0 flex items-center justify-between px-8 text-sm font-bold pointer-events-none">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-10">
         <motion.span
           style={{ opacity: opacityLeft }}
-          className="text-red-400"
+          className="text-[15px] font-semibold text-[#EF6B6B]"
         >
-          不认识
+          ← 不认识
         </motion.span>
         <motion.span
           style={{ opacity: opacityRight }}
-          className="text-green-500"
+          className="text-[15px] font-semibold text-[#22C55E]"
         >
           认识 ✓
         </motion.span>
@@ -60,31 +65,55 @@ export default function WordCard({
         onDragEnd={handleDragEnd}
         style={{ x, rotate }}
         whileTap={{ scale: disabled ? 1 : 1.02 }}
-        className="relative z-10 mx-auto flex h-72 w-full flex-col items-center justify-center rounded-3xl border border-zinc-200/60 bg-white shadow-lg shadow-zinc-200/50 dark:border-zinc-700/60 dark:bg-zinc-900 dark:shadow-black/30"
+        className="relative z-10 mx-auto flex h-[260px] w-full flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
       >
         {/* 单词 */}
-        <h2 className="mb-2 text-5xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h2
+          className="mb-2 text-[#17213C] dark:text-[#E2E8F0]"
+          style={{ fontSize: "42px", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15 }}
+        >
           {word.term}
         </h2>
+
+        {/* 音标 */}
         {word.phonetic && (
-          <p className="text-sm text-zinc-400 dark:text-zinc-500">{word.phonetic}</p>
+          <p className="mb-3 text-[15px] text-[#7C89A5] dark:text-[#64748B]">{word.phonetic}</p>
         )}
-        {!word.phonetic && (
+
+        {/* 发音按钮 */}
+        <button
+          onClick={handleSpeak}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-lg transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/30"
+          aria-label="发音"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+          </svg>
+        </button>
+
+        {/* 底部按钮区域 */}
+        <div className="absolute bottom-5 flex w-full items-center justify-between px-6">
           <button
             onClick={(e) => {
               e.stopPropagation();
-              speakEnglish(word.term);
+              onSwipeLeft();
             }}
-            className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+            className="flex h-9 items-center gap-1 rounded-full bg-[#FEF2F2] px-4 text-[13px] font-medium text-[#EF6B6B] transition active:scale-[0.96] dark:bg-[#2D0B0B]"
           >
-            🔊 发音
+            ← 不认识
           </button>
-        )}
-
-        {/* 滑动提示 */}
-        <p className="absolute bottom-4 text-xs text-zinc-300 dark:text-zinc-600">
-          ← 不认识 · 认识 →
-        </p>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSwipeRight();
+            }}
+            className="flex h-9 items-center gap-1 rounded-full bg-[#ECFDF5] px-4 text-[13px] font-medium text-[#22C55E] transition active:scale-[0.96] dark:bg-[#052E16]"
+          >
+            认识 ✓
+          </button>
+        </div>
       </motion.div>
 
       {children}
