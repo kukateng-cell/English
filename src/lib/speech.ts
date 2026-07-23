@@ -100,7 +100,7 @@ export function speakEnglish(text: string, opts?: { rate?: number }) {
 
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "en-US";
-  u.rate = opts?.rate ?? 0.85; // 稍慢，更清晰
+  u.rate = opts?.rate ?? getSpeechRate(); // 默认使用用户设置的语速
   u.pitch = 1;
   u.volume = 1;
   if (cachedVoice) u.voice = cachedVoice;
@@ -111,4 +111,46 @@ export function speakEnglish(text: string, opts?: { rate?: number }) {
 export function stopSpeech() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
+}
+
+/* ───────── 语速设置（持久化 + 全局默认） ───────── */
+
+const SPEECH_RATE_KEY = "english.speechRate";
+export const SPEECH_RATE_EVENT = "english:speechRateChange";
+const DEFAULT_SPEECH_RATE = 0.85;
+const MIN_RATE = 0.5;
+const MAX_RATE = 1.5;
+
+/** 语速取值范围（0.5× ~ 1.5×），供 UI 控件使用 */
+export const SPEECH_RATE_BOUNDS = { min: MIN_RATE, max: MAX_RATE };
+
+function clampRate(rate: number): number {
+  if (!Number.isFinite(rate)) return DEFAULT_SPEECH_RATE;
+  return Math.min(MAX_RATE, Math.max(MIN_RATE, Math.round(rate * 100) / 100));
+}
+
+/** 读取用户设置（持久化于 localStorage）的朗读语速 */
+export function getSpeechRate(): number {
+  if (typeof window === "undefined") return DEFAULT_SPEECH_RATE;
+  try {
+    const raw = window.localStorage.getItem(SPEECH_RATE_KEY);
+    const v = raw != null ? parseFloat(raw) : NaN;
+    return clampRate(v);
+  } catch {
+    return DEFAULT_SPEECH_RATE;
+  }
+}
+
+/** 设置并持久化朗读语速，同时派发自定义事件供 React 组件订阅 */
+export function setSpeechRate(rate: number): void {
+  if (typeof window === "undefined") return;
+  const clamped = clampRate(rate);
+  try {
+    window.localStorage.setItem(SPEECH_RATE_KEY, String(clamped));
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(
+    new CustomEvent(SPEECH_RATE_EVENT, { detail: clamped }),
+  );
 }
