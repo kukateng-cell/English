@@ -35,10 +35,10 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
-        <h1 className="mb-2 text-center text-2xl font-bold text-zinc-900">
+        <h1 className="mb-2 text-center text-2xl font-bold text-zinc-900 dark:text-zinc-50">
           英语单词认读
         </h1>
-        <p className="mb-8 text-center text-sm text-zinc-500">
+        <p className="mb-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
           登录以继续学习
         </p>
 
@@ -50,7 +50,7 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="username"
             required
-            className="h-12 rounded-xl border border-zinc-200 px-4 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="h-12 rounded-xl border border-zinc-200 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:border-blue-400 dark:focus:ring-blue-950"
           />
           <input
             type="password"
@@ -59,7 +59,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
-            className="h-12 rounded-xl border border-zinc-200 px-4 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="h-12 rounded-xl border border-zinc-200 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:border-blue-400 dark:focus:ring-blue-950"
           />
           <button
             type="submit"
@@ -71,10 +71,12 @@ export default function LoginPage() {
         </form>
 
         {error && (
-          <p className="mt-4 text-center text-sm text-red-500">{error}</p>
+          <p className="mt-4 text-center text-sm text-red-500 dark:text-red-400">
+            {error}
+          </p>
         )}
 
-        <p className="mt-8 text-center text-xs text-zinc-400">
+        <p className="mt-8 text-center text-xs text-zinc-400 dark:text-zinc-500">
           账号由老师统一发放，如忘记请联系老师
         </p>
       </div>

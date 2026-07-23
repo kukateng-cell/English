@@ -49,17 +49,18 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
   };
 
   const stateClasses: Record<string, string> = {
-    correct: "border-green-500 bg-green-50 text-green-700",
-    wrong: "border-red-500 bg-red-50 text-red-700",
-    dim: "border-zinc-200 bg-white text-zinc-300",
-    idle: "border-zinc-200 bg-white text-zinc-800 hover:border-blue-400 hover:bg-blue-50/40 active:scale-[0.98]",
+    correct:
+      "border-green-500 bg-green-50 text-green-700 dark:border-green-500 dark:bg-green-950 dark:text-green-300",
+    wrong: "border-red-500 bg-red-50 text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300",
+    dim: "border-zinc-200 bg-white text-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-600",
+    idle: "border-zinc-200 bg-white text-zinc-800 hover:border-blue-400 hover:bg-blue-50/40 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-blue-600 dark:hover:bg-blue-950/40",
   };
 
   return (
     <div className="mx-auto w-full max-w-md px-4">
       {/* 题干 */}
       <div className="mb-3 text-center">
-        <span className="inline-block rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600">
+        <span className="inline-block rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-300">
           {isEnZh ? "🔤 看英文，选中文" : "🀄 看中文，选英文"}
         </span>
       </div>
@@ -68,25 +69,25 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
         key={question.word.id + question.direction}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-5 flex min-h-40 flex-col items-center justify-center rounded-3xl border border-zinc-200/60 bg-white p-6 shadow-lg shadow-zinc-200/50"
+        className="mb-5 flex min-h-40 flex-col items-center justify-center rounded-3xl border border-zinc-200/60 bg-white p-6 shadow-lg shadow-zinc-200/50 dark:border-zinc-700/60 dark:bg-zinc-900 dark:shadow-black/30"
       >
         {isEnZh ? (
           <>
-            <h2 className="mb-2 text-center text-4xl font-bold tracking-tight text-zinc-900">
+            <h2 className="mb-2 text-center text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
               {question.word.term}
             </h2>
             {question.word.phonetic && (
-              <p className="text-sm text-zinc-400">{question.word.phonetic}</p>
+              <p className="text-sm text-zinc-400 dark:text-zinc-500">{question.word.phonetic}</p>
             )}
             <button
               onClick={speak}
-              className="mt-2 text-xs text-blue-500 hover:text-blue-600"
+              className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
             >
               🔊 发音
             </button>
           </>
         ) : (
-          <p className="text-center text-2xl font-medium leading-relaxed text-zinc-900">
+          <p className="text-center text-2xl font-medium leading-relaxed text-zinc-900 dark:text-zinc-50">
             {question.word.definition}
           </p>
         )}
@@ -123,9 +124,9 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
           className="mt-4 text-center text-sm"
         >
           {selectedId === question.correctId ? (
-            <span className="text-green-600">答对了！</span>
+            <span className="text-green-600 dark:text-green-400">答对了！</span>
           ) : (
-            <span className="text-red-500">
+            <span className="text-red-500 dark:text-red-400">
               答错了，这个词稍后会再考你一次 ↻
             </span>
           )}

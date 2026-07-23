@@ -34,19 +34,19 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
           animate={{ y: 0 }}
           exit={{ y: "100%" }}
           transition={{ type: "spring", damping: 25, stiffness: 200 }}
-          className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-3xl bg-white px-6 pb-10 pt-6 shadow-2xl"
+          className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-3xl bg-white px-6 pb-10 pt-6 shadow-2xl dark:bg-zinc-900 dark:shadow-black/50"
         >
           {/* Handle bar */}
-          <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-200" />
+          <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-200 dark:bg-zinc-700" />
 
           <div className="flex items-center gap-3 mb-4">
-            <h3 className="text-2xl font-bold text-zinc-900">{word.term}</h3>
+            <h3 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{word.term}</h3>
             {word.phonetic && (
-              <span className="text-sm text-zinc-400">{word.phonetic}</span>
+              <span className="text-sm text-zinc-400 dark:text-zinc-500">{word.phonetic}</span>
             )}
             <button
               onClick={speak}
-              className="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-lg transition hover:bg-blue-100"
+              className="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-lg transition hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
             >
               🔊
             </button>
@@ -54,10 +54,10 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
 
           {/* 释义 */}
           <div className="mb-4">
-            <p className="text-sm font-medium text-zinc-500 mb-1">释义</p>
-            <p className="text-lg text-zinc-900">{word.definition}</p>
+            <p className="text-sm font-medium text-zinc-500 mb-1 dark:text-zinc-400">释义</p>
+            <p className="text-lg text-zinc-900 dark:text-zinc-100">{word.definition}</p>
             {word.pos && (
-              <span className="inline-block mt-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">
+              <span className="inline-block mt-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
                 {word.pos}
               </span>
             )}
@@ -66,11 +66,11 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
           {/* 例句 */}
           {examples.length > 0 && (
             <div className="mb-4">
-              <p className="text-sm font-medium text-zinc-500 mb-2">例句</p>
+              <p className="text-sm font-medium text-zinc-500 mb-2 dark:text-zinc-400">例句</p>
               {examples.slice(0, 2).map((ex, i) => (
-                <div key={i} className="mb-2 rounded-xl bg-zinc-50 p-3">
-                  <p className="text-sm text-zinc-800">{ex.en}</p>
-                  <p className="mt-1 text-xs text-zinc-400">{ex.zh}</p>
+                <div key={i} className="mb-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800">
+                  <p className="text-sm text-zinc-800 dark:text-zinc-200">{ex.en}</p>
+                  <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">{ex.zh}</p>
                 </div>
               ))}
             </div>
@@ -81,16 +81,16 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
             <div className="mb-4 flex gap-6">
               {word.synonyms && word.synonyms.length > 0 && (
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-zinc-500 mb-1">近义词</p>
-                  <p className="text-sm text-green-600">
+                  <p className="text-sm font-medium text-zinc-500 mb-1 dark:text-zinc-400">近义词</p>
+                  <p className="text-sm text-green-600 dark:text-green-400">
                     {word.synonyms.join(" · ")}
                   </p>
                 </div>
               )}
               {word.antonyms && word.antonyms.length > 0 && (
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-zinc-500 mb-1">反义词</p>
-                  <p className="text-sm text-red-500">
+                  <p className="text-sm font-medium text-zinc-500 mb-1 dark:text-zinc-400">反义词</p>
+                  <p className="text-sm text-red-500 dark:text-red-400">
                     {word.antonyms.join(" · ")}
                   </p>
                 </div>
@@ -113,7 +113,7 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
           {/* 学完了按钮 */}
           <button
             onClick={onDismiss}
-            className="mt-2 w-full rounded-xl bg-blue-600 py-3 font-medium text-white transition hover:bg-blue-700 active:scale-[0.98]"
+            className="mt-2 w-full rounded-xl bg-blue-600 py-3 font-medium text-white transition hover:bg-blue-700 active:scale-[0.98] dark:bg-blue-500 dark:hover:bg-blue-600"
           >
             我学会了，下一个 →
           </button>
