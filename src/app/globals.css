@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* 启用基于 class 的深色模式：当 <html> 上带有 .dark 时，
+   所有 dark: 变体才会生效（而非跟随系统）。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --color-background: #ffffff;
   --color-foreground: #171717;
@@ -13,4 +17,10 @@ body {
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+}
+
+/* 深色模式：背景转深、文字转浅。由 <html class="dark"> 触发。 */
+.dark body {
+  color: #fafafa;
+  background: #09090b; /* zinc-950 */
 }
