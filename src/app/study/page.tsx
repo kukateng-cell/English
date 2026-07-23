@@ -7,6 +7,7 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import WordCard from "@/components/WordCard";
 import HelpPanel from "@/components/HelpPanel";
+import SpeechRateControl from "@/components/SpeechRateControl";
 import QuizCard, {
   type QuizQuestion,
   type QuizOption,
@@ -590,6 +591,7 @@ export default function StudyPage() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center pb-20">
         <ResumeToast visible={showResumedBanner} />
+        <SpeechRateControl />
         {/* 单元上下文（仅单元练习模式显示） */}
         {unitCategory && (
           <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-300">
@@ -693,6 +695,7 @@ export default function StudyPage() {
   return (
     <div className="flex min-h-full flex-col items-center justify-center pb-20">
       <ResumeToast visible={showResumedBanner} />
+      <SpeechRateControl />
       {/* 单元上下文（仅单元练习模式显示） */}
       {unitCategory && (
         <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-300">
