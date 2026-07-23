@@ -104,7 +104,7 @@ export default function UnitsPage() {
         单元闯关
       </h1>
       <p className="mb-6 text-sm text-zinc-500">
-        按主题单元逐个攻克，每练完一个单词即记录到 SM-2 复习计划。
+        按主题单元逐个攻克，认字后通过测试才算掌握并记录到 SM-2 复习计划。
       </p>
 
       {/* 级别切换 */}

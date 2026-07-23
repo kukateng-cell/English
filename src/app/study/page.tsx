@@ -12,6 +12,11 @@ import QuizCard, {
   type QuizOption,
 } from "@/components/QuizCard";
 import { warmUpSpeech } from "@/lib/speech";
+import {
+  loadCheckpoint,
+  saveCheckpoint,
+  clearCheckpoint,
+} from "@/lib/checkpoint";
 
 interface WordFull {
   id: string;
@@ -139,6 +144,50 @@ function buildQuestion(
   return { word, direction, options, correctId: word.id };
 }
 
+/**
+ * 提交测试结果（更新 SM-2）。
+ * 只有测试阶段「答对」的词才会调用，确保单词的掌握记录来自真实的测试表现，
+ * 而非认字阶段的自我评估手势。
+ */
+function submitQuizReview(wordId: string, quality: number) {
+  void fetch("/api/study", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ wordId, quality }),
+  });
+}
+
+/**
+ * 当前答题上下文的存档点 key：
+ * - 单元练习模式：`${level}::${category}`
+ * - 全局今日队列：`'global'`
+ * 仅在浏览器端调用（均在 effect / 事件回调中读取 window）。 */
+function getUnitKey(): string {
+  if (typeof window === "undefined") return "global";
+  const params = new URLSearchParams(window.location.search);
+  const level = params.get("level");
+  const category = params.get("category");
+  return level && category ? `${level}::${category}` : "global";
+}
+
+/** 顶部「已恢复上次进度」轻提示。 */
+function ResumeToast({ visible }: { visible: boolean }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -12 }}
+          className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-zinc-900/90 px-4 py-2 text-xs font-medium text-white shadow-lg backdrop-blur"
+        >
+          💾 已恢复上次进度，继续答题吧
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function StudyPage() {
   const { status } = useSession();
   const router = useRouter();
@@ -153,6 +202,28 @@ export default function StudyPage() {
   const [locked, setLocked] = useState(false);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
+  // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
+  const quizWrongCounts = useRef<Record<string, number>>({});
+
+  // 「已恢复上次进度」轻提示
+  const [showResumedBanner, setShowResumedBanner] = useState(false);
+  const resumedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashResumed = useCallback(() => {
+    setShowResumedBanner(true);
+    if (resumedTimerRef.current) clearTimeout(resumedTimerRef.current);
+    resumedTimerRef.current = setTimeout(
+      () => setShowResumedBanner(false),
+      2600,
+    );
+  }, []);
+
+  // 组件卸载时清理提示计时器
+  useEffect(
+    () => () => {
+      if (resumedTimerRef.current) clearTimeout(resumedTimerRef.current);
+    },
+    [],
+  );
 
   // 阶段流转：认字评估 → 测试 → 完成
   const [phase, setPhase] = useState<Phase>("assessment");
@@ -193,6 +264,56 @@ export default function StudyPage() {
     warmUpSpeech();
   }, []);
 
+  /**
+   * 尝试用本地存档点恢复进度。返回是否成功恢复。
+   * 仅在刚从服务端拉取到队列后调用一次：用队列重建 WordFull，
+   * 若存档与当前队列指纹不一致或引用了不存在的词，则视为过期并丢弃。
+   */
+  const restoreProgress = useCallback(
+    (loadedQueue: QueueItem[]): boolean => {
+      const unitKey = getUnitKey();
+      const cp = loadCheckpoint(unitKey);
+      if (!cp) return false;
+
+      // 用「词的集合」比对而非顺序：单元练习的服务端队列会按 SM-2 状态
+      // （未学/到期/已排期）重排，同一单元两次访问顺序可能不同，但词集合稳定。
+      // 全局模式下若换天导致队列变化，集合不一致 → 视为过期、从头开始。
+      const loadedIds = new Set(loadedQueue.map((q) => q.word.id));
+      const cpSet = new Set(cp.queueSignature);
+      const sigMatch =
+        loadedIds.size === cpSet.size &&
+        [...loadedIds].every((id) => cpSet.has(id));
+      if (!sigMatch) return false;
+
+      const wordMap = new Map(loadedQueue.map((q) => [q.word.id, q.word]));
+      const needIds = [
+        ...cp.knownWordIds,
+        ...cp.unknownWordIds,
+        ...cp.quizQueueIds,
+      ];
+      if (needIds.some((id) => !wordMap.has(id))) return false;
+
+      setKnownWords(cp.knownWordIds.map((id) => wordMap.get(id)!));
+      setUnknownWords(cp.unknownWordIds.map((id) => wordMap.get(id)!));
+      quizWrongCounts.current = cp.quizWrongCounts ?? {};
+
+      if (cp.phase === "quiz") {
+        setQuizQueue(cp.quizQueueIds.map((id) => wordMap.get(id)!));
+        setQuizTotal(cp.quizTotal);
+        setQuizIndex(cp.quizIndex);
+        setQuizAnswered(cp.quizAnswered);
+        setQuizStats(cp.quizStats);
+        setPhase("quiz");
+      } else {
+        // assessment（done 不恢复，已完成无需续做）
+        setCurrentIndex(cp.currentIndex);
+        setPhase("assessment");
+      }
+      return true;
+    },
+    [],
+  );
+
   // 加载队列：认证通过后，以及每次 restart（reloadKey 变化）触发。
   // 通过 URL query 决定是「全局今日队列」还是「指定单元练习」。
   // 用内联 async IIFE 触发请求，符合 react-hooks/set-state-in-effect 规则。
@@ -219,6 +340,10 @@ export default function StudyPage() {
         setQueue(data.queue || []);
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category : null);
+        // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
+        if (!cancelled && restoreProgress(data.queue || [])) {
+          flashResumed();
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -226,7 +351,7 @@ export default function StudyPage() {
     return () => {
       cancelled = true;
     };
-  }, [status, reloadKey]);
+  }, [status, reloadKey, restoreProgress, flashResumed]);
 
   // 测试阶段的当前题目（由 quizIndex 派生，不再用 effect 驱动）
   const currentQuestion = useMemo(() => {
@@ -256,6 +381,7 @@ export default function StudyPage() {
     if (qq.length === 0) {
       setPhase("done");
     } else {
+      quizWrongCounts.current = {};
       setQuizQueue(qq);
       setQuizTotal(qq.length);
       setQuizIndex(0);
@@ -267,6 +393,7 @@ export default function StudyPage() {
   // 测试作答（必须在所有 early return 之前调用，遵守 Rules of Hooks）
   const handleQuizAnswer = useCallback(
     (correct: boolean) => {
+      const word = quizQueue[quizIndex];
       setQuizAnswered((n) => n + 1);
       setQuizStats((s) => ({
         correct: s.correct + (correct ? 1 : 0),
@@ -276,6 +403,11 @@ export default function StudyPage() {
       const nextIndex = quizIndex + 1;
 
       if (!correct) {
+        // 记录该词答错次数，影响最终掌握评级（quality）。
+        if (word) {
+          quizWrongCounts.current[word.id] =
+            (quizWrongCounts.current[word.id] ?? 0) + 1;
+        }
         // 答错：把这个词插到 2~3 题之后重新考，趁记忆新鲜立刻复习，
         // 反复出题直到答对一次为止（不再算作"已掌握"）。
         setQuizQueue((prev) => {
@@ -292,7 +424,14 @@ export default function StudyPage() {
         setQuizTotal((n) => n + 1);
         setQuizIndex(nextIndex);
       } else {
-        // 答对：若是最后一题则进入完成阶段，否则进入下一题
+        // 答对：依据答错次数计算 quality 并写入 SM-2。
+        // 认字阶段不再记录，单词的掌握程度完全由测试表现决定。
+        if (word) {
+          const wrongs = quizWrongCounts.current[word.id] ?? 0;
+          const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
+          submitQuizReview(word.id, quality);
+        }
+        // 若是最后一题则进入完成阶段，否则进入下一题
         if (nextIndex >= quizQueue.length) {
           setPhase("done");
         } else {
@@ -300,13 +439,52 @@ export default function StudyPage() {
         }
       }
     },
-    [quizIndex, quizQueue.length]
+    [quizIndex, quizQueue]
   );
 
   // 让 ref 始终持有最新的 handleQuizAnswer（在 effect 中同步，避免渲染期写 ref）
   useEffect(() => {
     handleQuizAnswerRef.current = handleQuizAnswer;
   }, [handleQuizAnswer]);
+
+  // 存档点：每答完一题（认字 / 测试）都会写入本地存档，方便用户中途离开后续做。
+  // 完成阶段自动清除存档；加载中或队列为空时不写。recycle。
+  useEffect(() => {
+    if (loading || status !== "authenticated") return;
+    const unitKey = getUnitKey();
+    if (phase === "done") {
+      clearCheckpoint(unitKey);
+      return;
+    }
+    if (queue.length === 0) return;
+    saveCheckpoint(unitKey, {
+      phase,
+      unitKey,
+      queueSignature: queue.map((q) => q.word.id),
+      currentIndex,
+      knownWordIds: knownWords.map((w) => w.id),
+      unknownWordIds: unknownWords.map((w) => w.id),
+      quizQueueIds: quizQueue.map((w) => w.id),
+      quizIndex,
+      quizTotal,
+      quizAnswered,
+      quizStats,
+      quizWrongCounts: quizWrongCounts.current,
+    });
+  }, [
+    loading,
+    status,
+    phase,
+    queue,
+    currentIndex,
+    knownWords,
+    unknownWords,
+    quizQueue,
+    quizIndex,
+    quizTotal,
+    quizAnswered,
+    quizStats,
+  ]);
 
   if (status === "loading" || loading) {
     return (
@@ -320,28 +498,13 @@ export default function StudyPage() {
 
   const current = queue[currentIndex];
 
-  // 提交滑动结果（更新 SM-2）
-  const submitReview = async (gesture: "left" | "right") => {
-    if (!current) return;
-    await fetch("/api/study", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        wordId: current.word.id,
-        gesture,
-        reviewId: current.reviewId,
-      }),
-    });
-  };
-
-  // 右滑：认识
-  const handleSwipeRight = async () => {
+  // 右滑：认识（仅本地分类，不写记录；掌握与否交给后续测试判定）
+  const handleSwipeRight = () => {
     if (!current) return;
     // 记下本次加入后的「认识」列表（供本回调内判断阶段转换使用）
     const newKnown = [...knownWords, current.word];
     setKnownWords(newKnown);
     setDirection("right");
-    await submitReview("right");
     setTimeout(() => {
       // 若是评估阶段最后一张，则进入测试 / 完成；否则进入下一张
       if (currentIndex + 1 >= queue.length) {
@@ -353,11 +516,10 @@ export default function StudyPage() {
     }, 350);
   };
 
-  // 左滑：不认识 → 展示助记面板
-  const handleSwipeLeft = async () => {
+  // 左滑：不认识 → 展示助记面板（仅本地分类，不写记录）
+  const handleSwipeLeft = () => {
     if (!current) return;
     setUnknownWords((prev) => [...prev, current.word]);
-    await submitReview("left");
     setDirection("left");
     setTimeout(() => setHelpVisible(true), 350);
   };
@@ -376,8 +538,9 @@ export default function StudyPage() {
     }, 200);
   };
 
-  // 重新开始：清空状态并触发重新拉取（修复原先必须手动刷新页面的 bug）
+  // 重新开始：清空状态并清除存档点，触发重新拉取
   const restart = () => {
+    clearCheckpoint(getUnitKey());
     setQueue([]);
     setPool([]);
     setLocked(false);
@@ -390,6 +553,7 @@ export default function StudyPage() {
     setQuizTotal(0);
     setQuizAnswered(0);
     setQuizStats({ correct: 0, wrong: 0 });
+    quizWrongCounts.current = {};
     setReloadKey((k) => k + 1);
   };
 
@@ -425,6 +589,7 @@ export default function StudyPage() {
 
     return (
       <div className="flex min-h-full flex-col items-center justify-center pb-20">
+        <ResumeToast visible={showResumedBanner} />
         {/* 单元上下文（仅单元练习模式显示） */}
         {unitCategory && (
           <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600">
@@ -527,6 +692,7 @@ export default function StudyPage() {
   // ───────── 认字评估阶段渲染 ─────────
   return (
     <div className="flex min-h-full flex-col items-center justify-center pb-20">
+      <ResumeToast visible={showResumedBanner} />
       {/* 单元上下文（仅单元练习模式显示） */}
       {unitCategory && (
         <div className="mb-4 flex items-center gap-2 rounded-full bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-600">

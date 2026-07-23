@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma, Prisma } from "@/lib/prisma";
-import { updateSM2, gestureToQuality, createInitialState } from "@/lib/sm2";
+import {
+  updateSM2,
+  gestureToQuality,
+  createInitialState,
+  type Quality,
+} from "@/lib/sm2";
 import { aggregateAllLevels, levelCompare } from "@/lib/units";
 
 /**
@@ -286,7 +291,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ queue, pool, unitMode, level, category });
 }
 
-/** POST /api/study — 提交一次滑动结果 */
+/** POST /api/study — 提交一次学习结果（认字评估手势 或 测试 quality） */
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -295,12 +300,25 @@ export async function POST(req: Request) {
   const userId = (session.user as { id: string }).id;
 
   const body = await req.json();
-  const { wordId, gesture } = body as {
+  const { wordId, gesture, quality: qualityInput } = body as {
     wordId: string;
-    gesture: "left" | "right";
+    gesture?: "left" | "right";
+    quality?: number;
   };
 
-  const quality = gestureToQuality(gesture);
+  // 优先使用测试阶段直接传入的 quality（0~5），精确反映掌握程度；
+  // 兼容旧的认字评估阶段（仅传 gesture）。
+  let quality: Quality;
+  if (
+    typeof qualityInput === "number" &&
+    Number.isInteger(qualityInput) &&
+    qualityInput >= 0 &&
+    qualityInput <= 5
+  ) {
+    quality = qualityInput as Quality;
+  } else {
+    quality = gestureToQuality(gesture ?? "left");
+  }
 
   // 用 (userId, wordId) 这个【业务唯一约束】来查是否已存在，
   // 不依赖客户端传的 id（前端状态可能丢失/重复提交，会导致 create 撞唯一约束 500）。
