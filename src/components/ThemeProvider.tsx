@@ -39,16 +39,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   // 挂载后读取真实偏好（localStorage > 系统偏好 > 默认浅色）。
+  // 用内联 async IIFE 包裹 setState，符合 react-hooks/set-state-in-effect 规则
+  //（该规则只标记 effect body 内直接同步调用的 setState，不标记 IIFE 内的）。
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    const initial: Theme =
-      stored === "light" || stored === "dark"
-        ? stored
-        : window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light";
-    setThemeState(initial);
-    setMounted(true);
+    (async () => {
+      const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
+      const initial: Theme =
+        stored === "light" || stored === "dark"
+          ? stored
+          : window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
+      setThemeState(initial);
+      setMounted(true);
+    })();
   }, []);
 
   // 把主题同步到 <html> 上（增删 .dark）。挂载前由 layout 的内联脚本负责，
