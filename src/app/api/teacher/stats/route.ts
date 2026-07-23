@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/session";
 
 export async function GET() {
+  const auth = await requireRole("TEACHER", "ADMIN");
+  if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+
   try {
     const students = await prisma.user.findMany({
       where: { role: "STUDENT" },

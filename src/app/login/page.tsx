@@ -28,7 +28,16 @@ export default function LoginPage() {
     if (result?.error) {
       setError("账号或密码错误，请重试");
     } else {
-      router.push("/study");
+      // 登录成功后，按角色跳转到对应入口
+      try {
+        const me = await fetch("/api/auth/session").then((r) => r.json());
+        const role = (me?.user?.role as string) ?? "STUDENT";
+        if (role === "ADMIN") router.push("/admin");
+        else if (role === "TEACHER") router.push("/teacher");
+        else router.push("/study");
+      } catch {
+        router.push("/study");
+      }
       router.refresh();
     }
   };
