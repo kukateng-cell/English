@@ -31,6 +31,11 @@ export const authOptions: NextAuthOptions = {
   ],
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
+  // 禁用错误页面的远程获取，避免 CLIENT_FETCH_ERROR
+  errorPages: {
+    signIn: '/login',
+    error: '/login',
+  },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
