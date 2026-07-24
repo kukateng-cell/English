@@ -1,9 +1,4 @@
-/**
- * Vercel 构建预置脚本：
- * 仅在 Vercel 部署环境执行 prisma migrate deploy，自动同步数据库 schema。
- * 本地开发和 GitHub Actions CI 不会执行数据库操作。
- */
-const { execSync } = require("child_process");
+import { execSync } from "node:child_process";
 
 if (process.env.VERCEL === "1") {
   console.log("🔄 Vercel 环境检测，执行 prisma migrate deploy...");
