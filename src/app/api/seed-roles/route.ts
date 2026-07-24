@@ -6,6 +6,15 @@ import bcrypt from "bcryptjs";
 // GET /api/seed-roles
 export async function GET() {
   try {
+    // Bootstrap 守卫：仅当系统尚无任何管理员时才允许创建，
+    // 避免该公开端点被反复滥用批量建管理员。首次部署后即被自动禁用。
+    const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+    if (adminCount > 0) {
+      return NextResponse.json(
+        { error: "已存在管理员，初始化接口已禁用。请联系现有管理员创建账号。" },
+        { status: 403 },
+      );
+    }
     const hash = await bcrypt.hash("admin123", 12);
 
     let admin = await prisma.user.findUnique({ where: { email: "admin" } });
