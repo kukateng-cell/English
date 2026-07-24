@@ -44,33 +44,45 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const requestedLevel = normalizeLevel(url.searchParams.get("level"));
 
-  // 数据库中实际有单词的级别（用于前端级别切换 tab）
-  const levelRows = await prisma.word.findMany({
-    distinct: ["level"],
-    select: { level: true },
+  // 一次 groupBy 同时拿到「存在的级别」与「每个 (level, category) 单元的总词数」，
+  // 替代原先「distinct level + findMany 全部 words」的全表扫描。
+  const unitTotalsRows = await prisma.word.groupBy({
+    by: ["level", "category"],
+    _count: { _all: true },
   });
-  const availableLevels = (levelRows.map((r) => r.level) as string[]).sort(
-    levelCompare,
-  );
+  const availableLevels = [
+    ...new Set(unitTotalsRows.map((r) => r.level as string)),
+  ].sort(levelCompare);
 
-  // 取出【全部】单词的 id / level / category，用于跨级别聚合与解锁判定。
-  // 词表通常只有几百到几千条，一次性读取可接受。
-  const words = await prisma.word.findMany({
-    select: { id: true, level: true, category: true },
-  });
+  const unitTotals = unitTotalsRows.map((r) => ({
+    level: r.level as string,
+    category: r.category,
+    total: r._count._all,
+  }));
 
-  // 当前用户全部 Review 记录（仅需这几个字段）
-  const reviews = await prisma.review.findMany({
+  // 当前用户全部 Review 记录（select 一并带上所属单词的 level / category，
+  // 以便按单元聚合 learned/mastered/due，无需再读全表 Word）。
+  const reviewRows = await prisma.review.findMany({
     where: { userId },
-    select: { wordId: true, repetitions: true, nextReviewDate: true },
+    select: {
+      repetitions: true,
+      nextReviewDate: true,
+      word: { select: { level: true, category: true } },
+    },
   });
+  const reviews = reviewRows.map((r) => ({
+    repetitions: r.repetitions,
+    nextReviewDate: r.nextReviewDate,
+    level: r.word.level as string,
+    category: r.word.category,
+  }));
 
   const now = new Date();
 
   // 一次性聚合所有级别，并计算解锁状态
   const aggregations = aggregateAllLevels(
     availableLevels,
-    words as { id: string; level: string; category: string | null }[],
+    unitTotals,
     reviews,
     now,
   );

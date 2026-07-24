@@ -93,26 +93,39 @@ async function computeUnlockInfo(userId: string): Promise<{
   unitUnlock: Record<string, boolean>;
   unlockedKeys: Set<string>;
 }> {
-  const levelRows = await prisma.word.findMany({
-    distinct: ["level"],
-    select: { level: true },
+  // 一次 groupBy 同时拿到「存在的级别」与「每个单元的总词数」，
+  // 替代原先「distinct level + findMany 全部 words」的全表扫描。
+  const unitTotalsRows = await prisma.word.groupBy({
+    by: ["level", "category"],
+    _count: { _all: true },
   });
-  const levels = (levelRows.map((r) => r.level) as string[]).sort(levelCompare);
+  const levels = [
+    ...new Set(unitTotalsRows.map((r) => r.level as string)),
+  ].sort(levelCompare);
 
-  const words = await prisma.word.findMany({
-    select: { id: true, level: true, category: true },
-  });
-  const reviews = await prisma.review.findMany({
+  const unitTotals = unitTotalsRows.map((r) => ({
+    level: r.level as string,
+    category: r.category,
+    total: r._count._all,
+  }));
+
+  // 当前用户 Review（select 一并带 word 的 level / category），按单元聚合。
+  const reviewRows = await prisma.review.findMany({
     where: { userId },
-    select: { wordId: true, repetitions: true, nextReviewDate: true },
+    select: {
+      repetitions: true,
+      nextReviewDate: true,
+      word: { select: { level: true, category: true } },
+    },
   });
+  const reviews = reviewRows.map((r) => ({
+    repetitions: r.repetitions,
+    nextReviewDate: r.nextReviewDate,
+    level: r.word.level as string,
+    category: r.word.category,
+  }));
 
-  const aggregations = aggregateAllLevels(
-    levels,
-    words as { id: string; level: string; category: string | null }[],
-    reviews,
-    new Date(),
-  );
+  const aggregations = aggregateAllLevels(levels, unitTotals, reviews, new Date());
 
   const unitUnlock: Record<string, boolean> = {};
   const unlockedKeys = new Set<string>();

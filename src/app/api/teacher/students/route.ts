@@ -7,18 +7,14 @@ export async function GET() {
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
+    // totalReviews：用 DB 侧的 _count 下推，避免把 Review 行读进内存。
     const students = await prisma.user.findMany({
       where: { role: "STUDENT" },
       select: {
         id: true,
         name: true,
         email: true,
-        reviews: {
-          select: {
-            interval: true,
-            word: { select: { level: true } },
-          },
-        },
+        _count: { select: { reviews: true } },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -28,31 +24,46 @@ export async function GET() {
     const levelWordCounts: Record<string, number> = {};
     for (const l of wordsByLevel) levelWordCounts[l.level] = l._count;
 
+    // 只取「已掌握」(interval > 21) 的 Review 行，where 下推到 DB；
+    // 这里只传输满足条件的子集（而非全部 Review），再在内存按 (学生, 级别) 聚合。
+    const masteredRows = await prisma.review.findMany({
+      where: { user: { role: "STUDENT" }, interval: { gt: 21 } },
+      select: {
+        userId: true,
+        word: { select: { level: true } },
+      },
+    });
+
+    // 按 (userId) 与 (userId, level) 聚合「已掌握」数量
+    const masteredByUser = new Map<string, number>();
+    const masteredByUserLevel = new Map<string, number>();
+    for (const r of masteredRows) {
+      masteredByUser.set(r.userId, (masteredByUser.get(r.userId) ?? 0) + 1);
+      const lvl = r.word.level as string;
+      const key = `${r.userId}::${lvl}`;
+      masteredByUserLevel.set(key, (masteredByUserLevel.get(key) ?? 0) + 1);
+    }
+
     return NextResponse.json(
       students.map((s) => {
-        const mastered = s.reviews.filter((r) => r.interval > 21).length;
+        const mastered = masteredByUser.get(s.id) ?? 0;
 
-        const byLevelRaw: Record<string, { mastered: number }> = {};
-        for (const r of s.reviews) {
-          const lvl = r.word.level;
-          if (!byLevelRaw[lvl]) byLevelRaw[lvl] = { mastered: 0 };
-          if (r.interval > 21) byLevelRaw[lvl].mastered++;
-        }
-
-        const byLevel = wordsByLevel.map((l) => ({
-          level: l.level,
-          mastered: byLevelRaw[l.level]?.mastered ?? 0,
-          total: l._count,
-          progress: l._count > 0
-            ? Math.round(((byLevelRaw[l.level]?.mastered ?? 0) / l._count) * 100)
-            : 0,
-        }));
+        const byLevel = wordsByLevel.map((l) => {
+          const lvlMastered =
+            masteredByUserLevel.get(`${s.id}::${l.level as string}`) ?? 0;
+          return {
+            level: l.level,
+            mastered: lvlMastered,
+            total: l._count,
+            progress: l._count > 0 ? Math.round((lvlMastered / l._count) * 100) : 0,
+          };
+        });
 
         return {
           id: s.id,
           name: s.name,
           email: s.email,
-          totalReviews: s.reviews.length,
+          totalReviews: s._count.reviews,
           masteredWords: mastered,
           totalWords,
           progress: totalWords > 0 ? Math.round((mastered / totalWords) * 100) : 0,

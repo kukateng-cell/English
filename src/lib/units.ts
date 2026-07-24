@@ -189,40 +189,48 @@ export function computeUnlocks(stats: LeveledUnitStats): {
  * 入参为「裸」的数据库行（routes 负责 Prisma 查询），本函数与 Prisma 解耦，
  * 因此 /api/units 与 /api/study 可共用同一套聚合 + 解锁逻辑。
  *
- * @param levels        需要聚合的级别列表（一般 = 数据库中存在单词的级别）
- * @param words         全部单词（仅需 id / level / category）
- * @param reviews       当前用户的全部 Review 记录
- * @param now           「现在」时间（用于判定 due）
+ * 为了把聚合尽量下推到数据库，本函数不再接受「全表 Word 列表」：
+ *   - 单元总词数（total）由 routes 用 `Word.groupBy({ by: ["level","category"] })`
+ *     算好后作为 unitTotals 传入；
+ *   - 学过/掌握/待复习（learned/mastered/due）由 routes 取当前用户 Review
+ *     （select 时一并带上所属单词的 level / category）后传入。
+ * 这样避免了「读全表 words + 全部 reviews 再在内存里 filter/group」的开销。
+ *
+ * @param levels      需要聚合的级别列表（一般 = 数据库中存在单词的级别）
+ * @param unitTotals  每个 (level, category) 单元的总词数（来自 Word.groupBy）
+ * @param reviews     当前用户的 Review 记录，每条已带上所属单词的 level / category
+ * @param now         「现在」时间（用于判定 due）
  */
 export function aggregateAllLevels(
   levels: string[],
-  words: { id: string; level: string; category: string | null }[],
-  reviews: { wordId: string; repetitions: number; nextReviewDate: Date }[],
+  unitTotals: { level: string; category: string | null; total: number }[],
+  reviews: {
+    repetitions: number;
+    nextReviewDate: Date;
+    level: string;
+    category: string | null;
+  }[],
   now: Date,
 ): LevelAggregation[] {
-  const reviewByWord = new Map(reviews.map((r) => [r.wordId, r]));
-
-  // 按 (level, category) 聚合
-  const agg = new Map<
-    string,
-    Map<string, UnitStat>
-  >();
-  for (const w of words) {
-    const lvl = w.level;
-    const cat = w.category ?? "未分类";
+  // 按 (level, category) 聚合：
+  //   - total 来自 unitTotals（DB groupBy 下推）；
+  //   - learned/mastered/due 来自 reviews（每用户，且已带 word 的 level/category）。
+  const agg = new Map<string, Map<string, UnitStat>>();
+  const ensureUnit = (lvl: string, cat: string) => {
     if (!agg.has(lvl)) agg.set(lvl, new Map());
     const lvlMap = agg.get(lvl)!;
-    if (!lvlMap.has(cat)) {
-      lvlMap.set(cat, { total: 0, learned: 0, mastered: 0, due: 0 });
-    }
-    const u = lvlMap.get(cat)!;
-    u.total += 1;
-    const r = reviewByWord.get(w.id);
-    if (r) {
-      u.learned += 1;
-      if (r.repetitions >= MASTERED_REPETITIONS) u.mastered += 1;
-      if (new Date(r.nextReviewDate) <= now) u.due += 1;
-    }
+    if (!lvlMap.has(cat)) lvlMap.set(cat, { total: 0, learned: 0, mastered: 0, due: 0 });
+    return lvlMap.get(cat)!;
+  };
+
+  for (const u of unitTotals) {
+    ensureUnit(u.level, u.category ?? "未分类").total += u.total;
+  }
+  for (const r of reviews) {
+    const s = ensureUnit(r.level, r.category ?? "未分类");
+    s.learned += 1;
+    if (r.repetitions >= MASTERED_REPETITIONS) s.mastered += 1;
+    if (new Date(r.nextReviewDate) <= now) s.due += 1;
   }
 
   // 给 computeUnlocks 准备有序统计结构
