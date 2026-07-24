@@ -30,7 +30,17 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   session: { strategy: "jwt" },
-  pages: { signIn: "/login" },
+  pages: {
+    signIn: "/login",
+    error: "/login",
+  },
+  // 禁用详细错误日志，避免 CLIENT_FETCH_ERROR
+  debug: false,
+  logger: {
+    error: () => {},
+    warn: () => {},
+    debug: () => {},
+  },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
