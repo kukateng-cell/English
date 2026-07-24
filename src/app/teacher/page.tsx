@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import ErrorBanner from "@/components/ErrorBanner";
+import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface TeacherStats {
   totalStudents: number;
@@ -16,23 +18,42 @@ interface TeacherStats {
 export default function TeacherDashboard() {
   const [stats, setStats] = useState<TeacherStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
         const res = await fetch("/api/teacher/stats");
-        if (res.ok) setStats(await res.json());
+        if (!res.ok) {
+          setError(await responseErrorMessage(res));
+          return;
+        }
+        setStats(await res.json());
+      } catch (e) {
+        setError(networkErrorMessage(e));
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [reloadKey]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorBanner
+        message={error}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
     );
   }
 

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import UserFormModal, { type UserFormData } from "@/components/admin/UserFormModal";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import ErrorBanner from "@/components/ErrorBanner";
+import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface UserItem {
   id: string;
@@ -30,6 +32,8 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [search, setSearch] = useState("");
 
   // 弹窗状态
@@ -42,21 +46,30 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
         const [usersRes, sessionRes] = await Promise.all([
           fetch("/api/admin/users"),
           fetch("/api/auth/session"),
         ]);
-        if (usersRes.ok) setUsers(await usersRes.json());
+        if (!usersRes.ok) {
+          setError(await responseErrorMessage(usersRes));
+          return;
+        }
+        setUsers(await usersRes.json());
+        // session 拉取失败不影响列表展示（仅丢失「你」徽标），静默跳过即可
         if (sessionRes.ok) {
           const me = await sessionRes.json();
           setCurrentUserId(me?.user?.id);
         }
+      } catch (e) {
+        setError(networkErrorMessage(e));
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [reloadKey]);
 
   const filtered = users.filter(
     (u) =>
@@ -136,6 +149,15 @@ export default function AdminUsersPage() {
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorBanner
+        message={error}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
     );
   }
 
