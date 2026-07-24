@@ -7,13 +7,17 @@ export async function GET() {
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
+    // 只在 DB 侧统计「已掌握」数量（interval > 21），用 _count + where 下推，
+    // 避免把每个学生的全部 Review 行读进内存再 filter。
     const students = await prisma.user.findMany({
       where: { role: "STUDENT" },
       select: {
         id: true,
         name: true,
         email: true,
-        reviews: { select: { interval: true } },
+        _count: {
+          select: { reviews: { where: { interval: { gt: 21 } } } },
+        },
       },
     });
 
@@ -23,9 +27,9 @@ export async function GET() {
     const levelWordCounts: Record<string, number> = {};
     for (const l of wordsByLevel) levelWordCounts[l.level] = l._count;
 
-    // 每个学生的掌握情况
+    // 每个学生的掌握情况（mastered 已由 DB 聚合得出，无需内存过滤）
     const studentStats = students.map((s) => {
-      const masteredCount = s.reviews.filter((r) => r.interval > 21).length;
+      const masteredCount = s._count.reviews;
       return {
         name: s.name,
         email: s.email,
