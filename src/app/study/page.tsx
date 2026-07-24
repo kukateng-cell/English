@@ -13,6 +13,8 @@ import QuizCard, {
   type QuizOption,
 } from "@/components/QuizCard";
 import { warmUpSpeech } from "@/lib/speech";
+import ErrorBanner from "@/components/ErrorBanner";
+import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import {
   loadCheckpoint,
   saveCheckpoint,
@@ -201,6 +203,7 @@ export default function StudyPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [unitCategory, setUnitCategory] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
@@ -323,6 +326,7 @@ export default function StudyPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setError(null);
       try {
         const params = new URLSearchParams(window.location.search);
         const res = await fetch(`/api/study?${params.toString()}`);
@@ -335,7 +339,10 @@ export default function StudyPage() {
           setUnitCategory(null);
           return;
         }
-        if (!res.ok) return;
+        if (!res.ok) {
+          setError(await responseErrorMessage(res));
+          return;
+        }
         setLocked(false);
         const data = await res.json();
         setQueue(data.queue || []);
@@ -345,6 +352,8 @@ export default function StudyPage() {
         if (!cancelled && restoreProgress(data.queue || [])) {
           flashResumed();
         }
+      } catch (e) {
+        if (!cancelled) setError(networkErrorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -665,6 +674,20 @@ export default function StudyPage() {
             )}
           </AnimatePresence>
         </div>
+      </div>
+    );
+  }
+
+  // ───────── 加载失败渲染 ─────────
+  // 必须放在「完成」分支之前：fetch 出错时 queue 为空、loading 为 false，
+  // 否则会被下面的 done 分支当成「今日无词」误报「全部完成」。
+  if (error) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <ErrorBanner
+          message={error}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
       </div>
     );
   }

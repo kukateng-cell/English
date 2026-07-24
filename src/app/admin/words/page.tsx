@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import WordFormModal, { type WordFormData } from "@/components/admin/WordFormModal";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import ErrorBanner from "@/components/ErrorBanner";
+import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface WordItem {
   id: string;
@@ -27,6 +29,8 @@ const levelColors: Record<string, string> = {
 export default function AdminWordsPage() {
   const [words, setWords] = useState<WordItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [search, setSearch] = useState("");
   const [levelFilter, setLevelFilter] = useState<string>("ALL");
 
@@ -40,14 +44,22 @@ export default function AdminWordsPage() {
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
         const res = await fetch("/api/admin/words");
-        if (res.ok) setWords(await res.json());
+        if (!res.ok) {
+          setError(await responseErrorMessage(res));
+          return;
+        }
+        setWords(await res.json());
+      } catch (e) {
+        setError(networkErrorMessage(e));
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [reloadKey]);
 
   const filtered = words.filter((w) => {
     const matchSearch =
@@ -146,6 +158,15 @@ export default function AdminWordsPage() {
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorBanner
+        message={error}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
     );
   }
 

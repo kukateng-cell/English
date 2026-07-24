@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import ErrorBanner from "@/components/ErrorBanner";
+import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface StudentItem {
   id: string;
@@ -17,24 +19,43 @@ interface StudentItem {
 export default function TeacherStudentsPage() {
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
         const res = await fetch("/api/teacher/students");
-        if (res.ok) setStudents(await res.json());
+        if (!res.ok) {
+          setError(await responseErrorMessage(res));
+          return;
+        }
+        setStudents(await res.json());
+      } catch (e) {
+        setError(networkErrorMessage(e));
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [reloadKey]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorBanner
+        message={error}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
     );
   }
 

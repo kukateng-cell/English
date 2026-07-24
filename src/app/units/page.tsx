@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import ErrorBanner from "@/components/ErrorBanner";
+import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface Unit {
   name: string;
@@ -33,6 +35,8 @@ export default function UnitsPage() {
   const [levelUnlocked, setLevelUnlocked] = useState(true);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -45,9 +49,14 @@ export default function UnitsPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setError(null);
       try {
         const res = await fetch(`/api/units?level=${encodeURIComponent(level)}`);
-        if (cancelled || !res.ok) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(await responseErrorMessage(res));
+          return;
+        }
         const data = await res.json();
         setUnits(data.units ?? []);
         setLevelUnlocked(data.levelUnlocked !== false);
@@ -57,6 +66,8 @@ export default function UnitsPage() {
         if (Array.isArray(data.levels) && data.levels.length > 0) {
           setLevels(data.levels);
         }
+      } catch (e) {
+        if (!cancelled) setError(networkErrorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -64,7 +75,7 @@ export default function UnitsPage() {
     return () => {
       cancelled = true;
     };
-  }, [status, level]);
+  }, [status, level, reloadKey]);
 
   if (status === "loading" || loading) {
     return (
@@ -78,6 +89,17 @@ export default function UnitsPage() {
   }
 
   if (status === "unauthenticated") return null;
+
+  if (error) {
+    return (
+      <div className="mx-auto w-full max-w-[420px] px-5 pt-6 pb-24">
+        <ErrorBanner
+          message={error}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+      </div>
+    );
+  }
 
   // 整个级别的汇总进度
   const grandTotal = units.reduce((s, u) => s + u.total, 0);
