@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import type { NextRequest, NextProxy } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
 
 /**
  * 路由级角色保护（纵深防御，与各 API 内的 requireRole 互为补充）。
+ *
+ * Next.js 16 起，`middleware.ts` 已废弃，改为 `proxy.ts`（函数名也由
+ * `middleware` 改为 `proxy`）。运行行为、matcher、NextRequest/NextResponse
+ * API 与旧版 middleware 完全一致，只是换了文件约定。
  *
  * 规则：
  *  - /admin/*           → 仅 ADMIN
@@ -15,7 +19,7 @@ import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
  *  - /api/study /units   → 任意已登录用户
  *  - 其余路径（/, /login, /api/auth/*, /api/seed-roles 等）→ 放行
  */
-export async function middleware(req: NextRequest) {
+const proxy: NextProxy = async (req: NextRequest) => {
   const { pathname } = req.nextUrl;
   const isApi = pathname.startsWith("/api/");
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -46,7 +50,9 @@ export async function middleware(req: NextRequest) {
   }
 
   return NextResponse.next();
-}
+};
+
+export default proxy;
 
 /** 根据角色返回「它该去」的首页，用于越权访问时的重定向目标。 */
 function homeOf(role: Role): string {
