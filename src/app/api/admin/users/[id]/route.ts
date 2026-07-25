@@ -30,6 +30,7 @@ export async function PATCH(
       name?: string | null;
       role?: Role;
       passwordHash?: string;
+      tokenVersion?: { increment: number };
     } = {};
 
     if (typeof body.name === "string") data.name = body.name.trim() || null;
@@ -38,6 +39,9 @@ export async function PATCH(
         return NextResponse.json({ error: "角色无效" }, { status: 400 });
       }
       data.role = body.role;
+      // 角色变更 → 令牌版本号 +1，使该用户下一次请求时 jwt 回调刷新缓存的角色。
+      // 这样管理员改完角色，对方无需重新登录即可被新角色拦截（实时生效）。
+      data.tokenVersion = { increment: 1 };
     }
     if (typeof body.password === "string" && body.password.length > 0) {
       if (body.password.length < 6) {

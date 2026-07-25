@@ -15,6 +15,7 @@ declare module "next-auth" {
 
   interface User {
     role?: Role;
+    tokenVersion?: number;
   }
 }
 
@@ -22,5 +23,8 @@ declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
     role?: Role;
+    // 登录时写入的“角色令牌版本快照”，用于和数据库里的最新版本对比，
+    // 不一致即说明角色已被管理员修改，需要刷新 token.role（实时生效机制）。
+    tokenVersion?: number;
   }
 }
