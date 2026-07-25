@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
+import { ROLES, DEFAULT_ROLE, isRole, type Role } from "@/lib/roles";
 
 /** 用户查询返回的结构（role / _count 在 Postgres schema 存在，SQLite 预览 schema 不存在）。 */
 type UserRow = {
@@ -24,7 +25,7 @@ const USER_SELECT = {
 } as unknown as Prisma.UserSelect;
 
 export async function GET() {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
@@ -48,11 +49,8 @@ export async function GET() {
   }
 }
 
-const VALID_ROLES = ["STUDENT", "TEACHER", "ADMIN"] as const;
-type RoleStr = (typeof VALID_ROLES)[number];
-
 export async function POST(req: Request) {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
@@ -62,10 +60,7 @@ export async function POST(req: Request) {
     const email = String(body.email ?? "").toLowerCase().trim();
     const password = String(body.password ?? "");
     const name = body.name ? String(body.name).trim() : null;
-    const role: RoleStr =
-      typeof body.role === "string" && (VALID_ROLES as readonly string[]).includes(body.role)
-        ? (body.role as RoleStr)
-        : "STUDENT";
+    const role: Role = isRole(body.role) ? body.role : DEFAULT_ROLE;
 
     if (!email) return NextResponse.json({ error: "账号不能为空" }, { status: 400 });
     if (password.length < 6)

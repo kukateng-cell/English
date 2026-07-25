@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
+import { ROLES } from "@/lib/roles";
 
 function normalizeLevel(s: unknown): "A1" | "A2" | "B1" | null {
   if (!s) return null;
@@ -34,7 +35,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
@@ -117,7 +118,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {

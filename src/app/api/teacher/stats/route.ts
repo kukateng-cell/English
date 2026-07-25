@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
+import { ROLES } from "@/lib/roles";
 
 export async function GET() {
-  const auth = await requireRole("TEACHER", "ADMIN");
+  const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
     // 只在 DB 侧统计「已掌握」数量（interval > 21），用 _count + where 下推，
     // 避免把每个学生的全部 Review 行读进内存再 filter。
     const students = await prisma.user.findMany({
-      where: { role: "STUDENT" },
+      where: { role: ROLES.STUDENT },
       select: {
         id: true,
         name: true,
@@ -43,7 +44,7 @@ export async function GET() {
     // 最近活跃（按复习记录排序）
     const recentReviews = await prisma.review.findMany({
       where: {
-        user: { role: "STUDENT" },
+        user: { role: ROLES.STUDENT },
         lastReviewedAt: { not: null },
       },
       select: {

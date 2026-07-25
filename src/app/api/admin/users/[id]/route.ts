@@ -2,15 +2,13 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
-
-const VALID_ROLES = ["STUDENT", "TEACHER", "ADMIN"] as const;
-type RoleStr = (typeof VALID_ROLES)[number];
+import { ROLES, isRole, type Role } from "@/lib/roles";
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
@@ -20,7 +18,7 @@ export async function PATCH(
 
     // 防止管理员把自己降级 / 锁死自己（避免失去唯一管理员）
     if (id === auth.userId) {
-      if (body.role && body.role !== "ADMIN") {
+      if (body.role && body.role !== ROLES.ADMIN) {
         return NextResponse.json(
           { error: "不能修改自己的管理员角色" },
           { status: 400 }
@@ -30,16 +28,16 @@ export async function PATCH(
 
     const data: {
       name?: string | null;
-      role?: RoleStr;
+      role?: Role;
       passwordHash?: string;
     } = {};
 
     if (typeof body.name === "string") data.name = body.name.trim() || null;
     if (body.role) {
-      if (!(VALID_ROLES as readonly string[]).includes(body.role)) {
+      if (!isRole(body.role)) {
         return NextResponse.json({ error: "角色无效" }, { status: 400 });
       }
-      data.role = body.role as RoleStr;
+      data.role = body.role;
     }
     if (typeof body.password === "string" && body.password.length > 0) {
       if (body.password.length < 6) {
@@ -89,7 +87,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {

@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import Modal from "./Modal";
+import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
 
 export interface UserFormData {
   email: string;
   name: string;
-  role: "STUDENT" | "TEACHER" | "ADMIN";
+  role: Role;
   password: string;
 }
 
@@ -25,10 +26,10 @@ interface UserFormModalProps {
   onSubmit: (data: UserFormData) => Promise<void>;
 }
 
-const ROLE_OPTIONS: { value: UserFormData["role"]; label: string }[] = [
-  { value: "STUDENT", label: "学生" },
-  { value: "TEACHER", label: "老师" },
-  { value: "ADMIN", label: "管理员" },
+const ROLE_OPTIONS: { value: Role; label: string }[] = [
+  { value: ROLES.STUDENT, label: "学生" },
+  { value: ROLES.TEACHER, label: "老师" },
+  { value: ROLES.ADMIN, label: "管理员" },
 ];
 
 /** 共用的输入框样式，与登录页风格保持一致。 */
@@ -47,8 +48,8 @@ export default function UserFormModal({
   // 从而避免在 effect 里 setState（react-hooks/set-state-in-effect）。
   const [email, setEmail] = useState(user?.email ?? "");
   const [name, setName] = useState(user?.name ?? "");
-  const [role, setRole] = useState<UserFormData["role"]>(
-    (user?.role as UserFormData["role"]) ?? "STUDENT"
+  const [role, setRole] = useState<Role>(
+    (user?.role as Role) ?? DEFAULT_ROLE
   );
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -134,7 +135,7 @@ export default function UserFormModal({
           </label>
           <div className="flex gap-2">
             {ROLE_OPTIONS.map((opt) => {
-              const disabled = isSelf && opt.value !== "ADMIN";
+              const disabled = isSelf && opt.value !== ROLES.ADMIN;
               return (
                 <button
                   key={opt.value}

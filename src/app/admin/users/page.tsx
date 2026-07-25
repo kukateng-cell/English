@@ -6,6 +6,7 @@ import UserFormModal, { type UserFormData } from "@/components/admin/UserFormMod
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import ErrorBanner from "@/components/ErrorBanner";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
+import { ROLES, isRole, type Role } from "@/lib/roles";
 
 interface UserItem {
   id: string;
@@ -16,17 +17,22 @@ interface UserItem {
   createdAt: string;
 }
 
-const roleLabels: Record<string, string> = {
-  STUDENT: "学生",
-  TEACHER: "老师",
-  ADMIN: "管理员",
+const roleLabels: Record<Role, string> = {
+  [ROLES.STUDENT]: "学生",
+  [ROLES.TEACHER]: "老师",
+  [ROLES.ADMIN]: "管理员",
 };
 
-const roleStyles: Record<string, string> = {
-  STUDENT: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]",
-  TEACHER: "bg-[#EEF0FF] text-[#4F46E5] dark:bg-[#1E1B4B] dark:text-[#A5B4FC]",
-  ADMIN: "bg-[#FEF3C7] text-[#B45309] dark:bg-[#291800] dark:text-[#FBBF24]",
+const roleStyles: Record<Role, string> = {
+  [ROLES.STUDENT]: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]",
+  [ROLES.TEACHER]: "bg-[#EEF0FF] text-[#4F46E5] dark:bg-[#1E1B4B] dark:text-[#A5B4FC]",
+  [ROLES.ADMIN]: "bg-[#FEF3C7] text-[#B45309] dark:bg-[#291800] dark:text-[#FBBF24]",
 };
+
+/** API 返回的 role 是 string；转成 Role 后再查表，非法值回退原值。 */
+function roleOf(user: UserItem): Role {
+  return isRole(user.role) ? user.role : ROLES.STUDENT;
+}
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -246,8 +252,8 @@ export default function AdminUsersPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${roleStyles[user.role] || ""}`}>
-                      {roleLabels[user.role] || user.role}
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${roleStyles[roleOf(user)]}`}>
+                      {roleLabels[roleOf(user)]}
                     </span>
                     {/* 操作按钮 */}
                     <div className="flex items-center gap-1">
