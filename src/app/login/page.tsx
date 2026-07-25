@@ -4,6 +4,7 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { ROLES, DEFAULT_ROLE } from "@/lib/roles";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -31,9 +32,9 @@ export default function LoginPage() {
       // 登录成功后，按角色跳转到对应入口
       try {
         const me = await fetch("/api/auth/session").then((r) => r.json());
-        const role = (me?.user?.role as string) ?? "STUDENT";
-        if (role === "ADMIN") router.push("/admin");
-        else if (role === "TEACHER") router.push("/teacher");
+        const role = (me?.user?.role as string) ?? DEFAULT_ROLE;
+        if (role === ROLES.ADMIN) router.push("/admin");
+        else if (role === ROLES.TEACHER) router.push("/teacher");
         else router.push("/study");
       } catch {
         router.push("/study");

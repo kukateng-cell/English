@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
+import { ROLES } from "@/lib/roles";
 
 export async function GET() {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
@@ -28,9 +29,9 @@ export async function GET() {
 
     return NextResponse.json({
       totalUsers,
-      totalStudents: roleMap["STUDENT"] ?? 0,
-      totalTeachers: roleMap["TEACHER"] ?? 0,
-      totalAdmins: roleMap["ADMIN"] ?? 0,
+      totalStudents: roleMap[ROLES.STUDENT] ?? 0,
+      totalTeachers: roleMap[ROLES.TEACHER] ?? 0,
+      totalAdmins: roleMap[ROLES.ADMIN] ?? 0,
       totalWords,
       totalReviews,
       reviewsToday,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
-import type { Role } from "@/generated/prisma";
+import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
 
 /**
  * 路由级角色保护（纵深防御，与各 API 内的 requireRole 互为补充）。
@@ -19,7 +19,7 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isApi = pathname.startsWith("/api/");
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  const role = (token?.role as Role | undefined) ?? "STUDENT";
+  const role = (token?.role as Role | undefined) ?? DEFAULT_ROLE;
 
   const isAdminArea = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
   const isTeacherArea =
@@ -36,12 +36,12 @@ export async function middleware(req: NextRequest) {
   }
 
   // admin 区：仅 ADMIN
-  if (isAdminArea && role !== "ADMIN") {
+  if (isAdminArea && role !== ROLES.ADMIN) {
     return deny(req, isApi, homeOf(role));
   }
 
   // teacher 区：TEACHER 或 ADMIN
-  if (isTeacherArea && role !== "TEACHER" && role !== "ADMIN") {
+  if (isTeacherArea && role !== ROLES.TEACHER && role !== ROLES.ADMIN) {
     return deny(req, isApi, homeOf(role));
   }
 
@@ -50,8 +50,8 @@ export async function middleware(req: NextRequest) {
 
 /** 根据角色返回「它该去」的首页，用于越权访问时的重定向目标。 */
 function homeOf(role: Role): string {
-  if (role === "ADMIN") return "/admin";
-  if (role === "TEACHER") return "/teacher";
+  if (role === ROLES.ADMIN) return "/admin";
+  if (role === ROLES.TEACHER) return "/teacher";
   return "/study";
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
+import { ROLES } from "@/lib/roles";
 
 /** 级别字符串规范化为 A1/A2/B1；非法回退 A1。不依赖 enum，兼容 SQLite/Postgres 两种 schema。 */
 function normalizeLevel(s: unknown): "A1" | "A2" | "B1" {
@@ -9,7 +10,7 @@ function normalizeLevel(s: unknown): "A1" | "A2" | "B1" {
 }
 
 export async function GET() {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
@@ -67,7 +68,7 @@ function toExamples(v: unknown): { en: string; zh: string }[] {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireRole("ADMIN");
+  const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
