@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,7 +11,24 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // 登录限流的锁定状态：lockUntil 为锁定到期时间戳（epoch ms），
+  // 非 null 时禁用登录按钮并显示倒计时，到 0 自动解除。
+  const [lockUntil, setLockUntil] = useState<number | null>(null);
+  const [remainingSec, setRemainingSec] = useState(0);
   const router = useRouter();
+
+  // 锁定倒计时：每秒刷新剩余秒数，到 0 自动清除锁定状态。
+  useEffect(() => {
+    if (lockUntil === null) return;
+    const tick = () => {
+      const remain = Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000));
+      setRemainingSec(remain);
+      if (remain <= 0) setLockUntil(null);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [lockUntil]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +44,20 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result?.error) {
+      // NextAuth v4 CredentialsProvider 不透传具体错误原因（密码错 / 被锁），
+      // 这里再查一次限流状态：被锁则显示倒计时并禁用按钮，避免用户无意义重试。
+      try {
+        const status = await fetch(
+          `/api/auth/login-status?account=${encodeURIComponent(email.trim().toLowerCase())}`,
+        ).then((r) => r.json());
+        if (status?.locked) {
+          setLockUntil(Date.now() + (status.retryAfterSec ?? 0) * 1000);
+          setError(status.message ?? "登录尝试过多，已临时锁定");
+          return;
+        }
+      } catch {
+        // 查询失败时回退到通用提示，不阻断主流程
+      }
       setError("账号或密码错误，请重试");
     } else {
       // 登录成功后，按角色跳转到对应入口
@@ -76,7 +107,12 @@ export default function LoginPage() {
               type="text"
               placeholder="账号 (如 student01)"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                // 换了账号：清掉旧账号的锁定提示与错误（账号维度锁只针对旧账号）。
+                setLockUntil(null);
+                setError("");
+              }}
               autoComplete="username"
               required
               className="h-[48px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[15px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA] dark:focus:ring-[#60A5FA]/10"
@@ -87,7 +123,10 @@ export default function LoginPage() {
               type="password"
               placeholder="密码"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError("");
+              }}
               required
               minLength={6}
               className="h-[48px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[15px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA] dark:focus:ring-[#60A5FA]/10"
@@ -96,7 +135,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || lockUntil !== null}
             className="mt-1 flex h-[48px] w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] disabled:opacity-50"
           >
             {loading ? (
@@ -113,6 +152,11 @@ export default function LoginPage() {
         {error && (
           <div className="mt-4 rounded-2xl bg-[#FEF2F2] px-4 py-3 text-center text-[14px] text-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]">
             {error}
+            {lockUntil !== null && remainingSec > 0 && (
+              <span className="ml-1 font-semibold">
+                （剩余 {Math.floor(remainingSec / 60)} 分 {remainingSec % 60} 秒）
+              </span>
+            )}
           </div>
         )}
 

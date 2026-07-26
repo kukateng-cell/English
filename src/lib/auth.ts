@@ -4,6 +4,12 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
 import type { Role } from "@/generated/prisma";
+import {
+  checkLimit,
+  recordFailure,
+  resetAccount,
+  getClientIp,
+} from "@/lib/login-limiter";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -14,18 +20,39 @@ export const authOptions: NextAuthOptions = {
         email: { label: "账号", type: "text" },
         password: { label: "密码", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
 
         // 账号由老师统一预先生成（seed），不做自助注册
         const account = (credentials.email as string).toLowerCase().trim();
         const password = credentials.password as string;
+        const ip = getClientIp(req?.headers);
+
+        // 登录限流：账号 / IP 任一维度被锁，直接拒绝（不计入新的失败次数）。
+        // 账号维度防暴力破解；IP 维度防密码喷洒（同 IP 扫一批账号）。
+        const limit = checkLimit(account, ip);
+        if (!limit.ok) {
+          console.warn(
+            `[login-limiter] 拒绝登录尝试 account=${account} ip=${ip} ` +
+              `dimension=${limit.dimension} retryAfter=${limit.retryAfterSec}s`,
+          );
+          return null;
+        }
 
         const user = await prisma.user.findUnique({ where: { email: account } });
-        if (!user) return null;
+        if (!user) {
+          recordFailure(account, ip);
+          return null;
+        }
 
         const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+          recordFailure(account, ip);
+          return null;
+        }
+
+        // 登录成功：清空该账号的失败计数（IP 维度的计数继续累积，照常衰减）。
+        resetAccount(account);
         return {
           id: user.id,
           email: user.email,
