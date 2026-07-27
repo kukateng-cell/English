@@ -9,8 +9,8 @@ import { getLimitStatus, getClientIp } from "@/lib/login-limiter";
  * 千篇一律的「账号或密码错误」反复重试（加重服务端负担）。
  *
  * 安全性：
- *  - 只读内存计数 Map，不查数据库 → 不泄露账号是否存在（无账号枚举风险）。
- *  - 端点本身极轻量（纯内存读），单机可承受很高 QPS。
+ *  - 只读 Redis 计数，不查数据库 → 不泄露账号是否存在（无账号枚举风险）。
+ *  - 端点本身轻量（一次 Redis 读），可承受较高 QPS。
  *
  * 响应：
  *  - { locked: false }                              未锁定
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
 
   // 没传账号无法查账号维度；退化为只看 IP 维度（传入空串不会命中任何账号桶）。
   const ip = getClientIp(req.headers);
-  const status = getLimitStatus(account, ip);
+  const status = await getLimitStatus(account, ip);
 
   if (!status.locked) {
     return NextResponse.json({ locked: false });
