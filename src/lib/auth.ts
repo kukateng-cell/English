@@ -6,7 +6,6 @@ import { ROLES } from "@/lib/roles";
 import type { Role } from "@/generated/prisma";
 import {
   checkLimit,
-  recordFailure,
   resetAccount,
   getClientIp,
 } from "@/lib/login-limiter";
@@ -28,9 +27,9 @@ export const authOptions: NextAuthOptions = {
         const password = credentials.password as string;
         const ip = getClientIp(req?.headers);
 
-        // 登录限流：账号 / IP 任一维度被锁，直接拒绝（不计入新的失败次数）。
+        // 登录限流：消费一个令牌；账号 / IP 任一维度耗尽即拒绝。
         // 账号维度防暴力破解；IP 维度防密码喷洒（同 IP 扫一批账号）。
-        const limit = checkLimit(account, ip);
+        const limit = await checkLimit(account, ip);
         if (!limit.ok) {
           console.warn(
             `[login-limiter] 拒绝登录尝试 account=${account} ip=${ip} ` +
@@ -41,18 +40,18 @@ export const authOptions: NextAuthOptions = {
 
         const user = await prisma.user.findUnique({ where: { email: account } });
         if (!user) {
-          recordFailure(account, ip);
+          // 失败已在 checkLimit 时计入滑动窗口，无需再记一笔。
           return null;
         }
 
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) {
-          recordFailure(account, ip);
+          // 失败已在 checkLimit 时计入滑动窗口，无需再记一笔。
           return null;
         }
 
-        // 登录成功：清空该账号的失败计数（IP 维度的计数继续累积，照常衰减）。
-        resetAccount(account);
+        // 登录成功：清空该账号维度的计数（IP 维度继续累积）。
+        await resetAccount(account);
         return {
           id: user.id,
           email: user.email,
