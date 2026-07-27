@@ -80,6 +80,9 @@ NEXTAUTH_URL="http://localhost:3000"
 
 SEED_STUDENTS=1
 TEST_ACCOUNT_PASSWORD="你的测试账号密码"
+
+# 管理员 / 教师账号初始密码（必填；seed 时创建 admin / teacher 这两个账号）
+INITIAL_ADMIN_PASSWORD="你的管理员初始密码"
 ```
 
 生成 `NEXTAUTH_SECRET`（在项目根目录运行）：
@@ -111,11 +114,14 @@ npx prisma db push
 npm run seed
 ```
 
-因为设了 `SEED_STUDENTS=1`，会创建：
+会创建：
 
 - `word list.md` 里的所有单词
-- `student01` ~ `student40`（密码统一 `english123`）
+- 管理员账号 `admin`、教师账号 `teacher`（密码 = 你设的 `INITIAL_ADMIN_PASSWORD`）
+- `student01` ~ `student40`（密码统一 `english123`，需在 `.env.local` 设 `SEED_STUDENTS=1`）
 - 测试账号 `qa-4347e0aa14`（密码是你设的 `TEST_ACCOUNT_PASSWORD`）
+
+> ⚠️ `INITIAL_ADMIN_PASSWORD` 必填；未设置时 seed 会直接抛错中止（安全审计要求：禁止硬编码密码）。
 
 ### 2.5 本地验证
 
