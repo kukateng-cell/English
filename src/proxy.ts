@@ -17,7 +17,7 @@ import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
  *  - /api/admin/*        → 仅 ADMIN（API 请求返回 403 JSON，而非跳转）
  *  - /api/teacher/*      → TEACHER 或 ADMIN
  *  - /api/study /units   → 任意已登录用户
- *  - 其余路径（/, /login, /api/auth/*, /api/seed-roles 等）→ 放行
+ *  - 其余路径（/, /login, /api/auth/* 等）→ 放行
  */
 const proxy: NextProxy = async (req: NextRequest) => {
   const { pathname } = req.nextUrl;

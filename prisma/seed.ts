@@ -12,6 +12,7 @@ import bcrypt from "bcryptjs";
 import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Level } from "../src/generated/prisma";
+import { ROLES } from "../src/lib/roles";
 
 // seed 是独立脚本（tsx 运行），不会自动读环境变量，手动加载 .env.local。
 dotenv.config({ path: ".env.local" });
@@ -77,7 +78,49 @@ async function seedTestAccount() {
   console.log(`Test account created: ${TEST_ACCOUNT}`);
 }
 
+// ── 管理员 / 教师种子账号 ──
+// 通过 CLI seed 创建，取代旧的公开 HTTP 端点 /api/seed-roles（避免无鉴权提权）。
+// 初始密码必须来自环境变量 INITIAL_ADMIN_PASSWORD，严禁硬编码（安全审计要求）。
+// 使用 upsert：账号已存在时仅校正角色，绝不覆盖密码——尊重管理员可能已自行修改的密码。
+async function seedRoles(password: string) {
+  const hash = await bcrypt.hash(password, 12);
+
+  const admin = await prisma.user.upsert({
+    where: { email: "admin" },
+    create: {
+      email: "admin",
+      passwordHash: hash,
+      name: "管理员",
+      role: ROLES.ADMIN,
+    },
+    update: { role: ROLES.ADMIN },
+  });
+
+  const teacher = await prisma.user.upsert({
+    where: { email: "teacher" },
+    create: {
+      email: "teacher",
+      passwordHash: hash,
+      name: "王老师",
+      role: ROLES.TEACHER,
+    },
+    update: { role: ROLES.TEACHER },
+  });
+
+  console.log(
+    `Roles seeded: admin (id=${admin.id}), teacher (id=${teacher.id})`,
+  );
+}
+
 async function main() {
+  // 初始密码必须由环境变量提供，严禁硬编码（安全审计要求）。
+  const initialPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  if (!initialPassword) {
+    throw new Error(
+      "INITIAL_ADMIN_PASSWORD 未设置：请在 .env.local 中配置初始密码后再运行 seed。",
+    );
+  }
+
   // 读文件（Node.js 兼容）
   const fs = await import("fs");
   const text = fs.readFileSync(WORD_LIST_PATH, "utf-8");
@@ -148,6 +191,9 @@ async function main() {
   }
 
   console.log(`Done: ${inserted} inserted, ${skipped} skipped (already exist)`);
+
+  // 管理员 / 教师账号（每次 seed 都会 upsert，幂等）。
+  await seedRoles(initialPassword);
 
   // 学生账号默认不创建；需要时在 .env 设 SEED_STUDENTS=1 重新跑 seed 即可。
   if (process.env.SEED_STUDENTS === "1") {
