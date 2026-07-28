@@ -24,6 +24,7 @@ const levelColors: Record<string, string> = {
   A1: "bg-[#ECFDF5] text-[#15803D] dark:bg-[#052E16] dark:text-[#4ADE80]",
   A2: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]",
   B1: "bg-[#EEF0FF] text-[#4F46E5] dark:bg-[#1E1B4B] dark:text-[#A5B4FC]",
+  B2: "bg-[#FDF4FF] text-[#9333EA] dark:bg-[#2A1245] dark:text-[#C084FC]",
 };
 
 export default function AdminWordsPage() {
@@ -151,7 +152,7 @@ export default function AdminWordsPage() {
     }
   };
 
-  const levels = ["ALL", "A1", "A2", "B1"];
+  const levels = ["ALL", "A1", "A2", "B1", "B2"];
 
   if (loading) {
     return (

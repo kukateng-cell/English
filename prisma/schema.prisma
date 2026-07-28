@@ -34,7 +34,7 @@ model Word {
   phonetic   String?
   pos        String?
   definition String
-  level      Level            // A1 / A2 / B1
+  level      Level            // A1 / A2 / B1 / B2
   category   String?          // 主题（Family / Colors ...）
   examples   Json?            // 例句数组 [{"en":"...","zh":"..."}]
   synonyms   String[]         // 近义词
@@ -68,6 +68,7 @@ enum Level {
   A1
   A2
   B1
+  B2
 }
 
 enum Role {

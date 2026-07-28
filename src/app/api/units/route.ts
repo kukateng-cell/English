@@ -23,7 +23,7 @@ function normalizeLevel(s: string | null): string {
  * {
  *   level: "A1",
  *   levelUnlocked: true,                 // 当前级别是否已解锁
- *   levels: ["A1","A2","B1"],            // 数据库中实际存在单词的级别（向后兼容）
+ *   levels: ["A1","A2","B1","B2"],       // 数据库中实际存在单词的级别（向后兼容）
  *   levelStatus: [                       // 各级别解锁/完成状态（级别切换 tab 用）
  *     { level, unlocked, completed, progress }
  *   ],
