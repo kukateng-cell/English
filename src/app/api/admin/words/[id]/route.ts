@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-
-function normalizeLevel(s: unknown): "A1" | "A2" | "B1" | "B2" | null {
-  if (!s) return null;
-  const v = String(s).toUpperCase();
-  return v === "A2" || v === "B1" || v === "B2" ? v : "A1";
-}
+import { normalizeLevelOrNull } from "@/lib/units";
 
 function toArray(v: unknown): string[] {
   if (Array.isArray(v)) {
