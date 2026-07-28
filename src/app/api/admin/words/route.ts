@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { normalizeLevel } from "@/lib/units";
+
+/** 级别字符串规范化为 A1/A2/B1/B2；非法回退 A1。不依赖 enum，兼容 SQLite/Postgres 两种 schema。 */
+function normalizeLevel(s: unknown): "A1" | "A2" | "B1" | "B2" {
+  const v = String(s ?? "A1").toUpperCase();
+  return v === "A2" || v === "B1" || v === "B2" ? v : "A1";
+}
 
 export async function GET() {
   const auth = await requireRole(ROLES.ADMIN);

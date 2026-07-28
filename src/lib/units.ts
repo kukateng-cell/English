@@ -6,11 +6,10 @@
  * category 名必须与 seed.ts 解析出的 Word.category 完全一致
  * （seed 用 `### Title (中文)` 中的英文标题，去掉括号）。
  *
- * 注意：这里【不】从 @/generated/prisma 导入 Level——Prisma 在 Postgres schema 下把
+ * 注意：这里【不】定义 Level 类型——Prisma 在 Postgres schema 下把
  * Word.level 定义为 `enum Level { A1 A2 B1 B2 }`（见 prisma/schema.prisma），
- * 而在 SQLite 预览 schema 下是 `String`（不导出 Level 枚举，直接 import 会破坏本地类型检查）。
- * 改用本文件自定义的 LevelCode 字面量联合（见下方 LEVELS），它既能赋给 Postgres 的
- * Level 枚举、也能赋给 SQLite 的 String，因此 API 层查询/写入时无需任何强转。
+ * 而在 SQLite 预览 schema 下是 `String`。为避免类型冲突，本文件只用
+ * 原生 string 作为级别键，API 层查询时再把 string 转成 Prisma 的 Level。
  */
 
 /** A1 级别全部单元（按词表顺序） */

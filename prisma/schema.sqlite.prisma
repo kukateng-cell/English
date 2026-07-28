@@ -20,6 +20,8 @@ model User {
   // 角色变更令牌版本号：管理员修改用户角色时 +1，
   // jwt 回调据此在下次请求时刷新缓存的角色（实时生效机制）。
   tokenVersion Int      @default(0)
+  // 首次登入強制改密碼：seed 的學生帳號預設 true，重設密碼後設 false。
+  mustChangePassword Boolean @default(true)
   createdAt    DateTime @default(now())
   reviews      Review[]
 }
