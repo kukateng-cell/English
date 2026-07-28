@@ -42,6 +42,18 @@ const WINDOW_MS = 60 * 1000;
 /** Redis 中限流键的统一前缀，便于在 Upstash 控制台辨识与清理。 */
 const KEY_PREFIX = "login";
 
+/**
+ * login-status 查询端点专属限流桶的前缀，与登录尝试桶隔离。
+ * 独立桶确保「查询锁定状态」不会消耗登录尝试配额。
+ */
+const STATUS_KEY_PREFIX = "login-status";
+
+/**
+ * login-status 端点每窗口允许的查询次数（IP 维度）。
+ * 查询是轻量只读操作，阈值比登录尝试（5 次）宽松，但仍足以拦截探针攻击。
+ */
+const STATUS_MAX = 20;
+
 type Dimension = "account" | "ip";
 
 interface LimitResult {
@@ -77,11 +89,12 @@ function createUpstashBackend(
   max: number,
   window: Duration,
   redis: Redis,
+  prefix: string = KEY_PREFIX,
 ): LimiterBackend {
   const ratelimit = new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(max, window),
-    prefix: KEY_PREFIX,
+    prefix,
   });
 
   return {
@@ -156,24 +169,46 @@ function createMemoryBackend(max: number, windowMs: number): {
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-let memoryResetAll: (() => void) | null = null;
+/** 内存回退模式下，所有桶的「清空」函数集合（仅供测试）。 */
+const memoryResets: Array<() => void> = [];
 
-/** 在模块加载时一次性选定后端：有 Upstash 凭证则分布式，否则内存回退。 */
-const backend: LimiterBackend = (() => {
-  if (UPSTASH_URL && UPSTASH_TOKEN) {
-    // 分布式：所有副本共享 Upstash 中的滑动窗口状态。
-    const redis = new Redis({ url: UPSTASH_URL, token: UPSTASH_TOKEN });
-    return createUpstashBackend(MAX_ATTEMPTS, WINDOW, redis);
-  }
-  // 本地开发回退：单实例内存计数（与分布式语义一致，但不跨实例共享）。
-  console.warn(
-    "[login-limiter] 未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
-      "降级为单实例内存限流（仅供本地开发；生产请务必配置 Upstash Redis）。",
-  );
-  const mem = createMemoryBackend(MAX_ATTEMPTS, WINDOW_MS);
-  memoryResetAll = mem.resetAllForTests;
-  return mem.backend;
-})();
+/** 是否使用分布式 Upstash 后端（否则单实例内存回退）。 */
+const useUpstash = Boolean(UPSTASH_URL && UPSTASH_TOKEN);
+
+/** 分布式模式下所有副本共享同一个 Redis 连接（不同限流桶用 prefix 区分）。 */
+const sharedRedis = useUpstash
+  ? new Redis({ url: UPSTASH_URL!, token: UPSTASH_TOKEN! })
+  : null;
+
+/**
+ * 登录尝试限流后端（prefix="login"）。
+ * 账号维度防暴力破解；IP 维度防密码喷洒。
+ */
+const backend: LimiterBackend = useUpstash
+  ? createUpstashBackend(MAX_ATTEMPTS, WINDOW, sharedRedis!, KEY_PREFIX)
+  : (() => {
+      // 本地开发回退：单实例内存计数（与分布式语义一致，但不跨实例共享）。
+      console.warn(
+        "[login-limiter] 未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
+          "降级为单实例内存限流（仅供本地开发；生产请务必配置 Upstash Redis）。",
+      );
+      const mem = createMemoryBackend(MAX_ATTEMPTS, WINDOW_MS);
+      memoryResets.push(mem.resetAllForTests);
+      return mem.backend;
+    })();
+
+/**
+ * login-status 查询端点专属限流后端（prefix="login-status"）。
+ * 独立桶，**不占用登录尝试配额**，仅用于防止攻击者高频探测锁定状态。
+ * 阈值较登录尝试宽松（status 查询是轻量只读操作）。
+ */
+const statusBackend: LimiterBackend = useUpstash
+  ? createUpstashBackend(STATUS_MAX, WINDOW, sharedRedis!, STATUS_KEY_PREFIX)
+  : (() => {
+      const mem = createMemoryBackend(STATUS_MAX, WINDOW_MS);
+      memoryResets.push(mem.resetAllForTests);
+      return mem.backend;
+    })();
 
 /* -------------------------------------------------------------------------- */
 /*  辅助函数                                                                   */
@@ -182,6 +217,32 @@ const backend: LimiterBackend = (() => {
 /** 把 epoch ms 的重置时间换算成「距下次可重试的秒数」，至少 1s。 */
 function toRetryAfterSec(resetMs: number): number {
   return Math.max(1, Math.ceil((resetMs - Date.now()) / 1000));
+}
+
+/**
+ * 模糊化「精确剩余秒数」的桶大小（向上取整到此值的倍数）。
+ *
+ * 登录滑动窗口最长 60s，取 30s 桶 → 对外回传值只会是 30 或 60，
+ * 攻击者无从据此推得精确解锁时刻，无法精准排程并发爆破。
+ */
+const FUZZ_BUCKET_SEC = 30;
+
+/**
+ * 把「精确剩余秒数」模糊化为粗粒度桶，供对外的 API 回应使用。
+ *
+ * 策略：向上取整到 FUZZ_BUCKET_SEC 的倍数，且不低于 FUZZ_BUCKET_SEC。
+ * 回传值必定 >= 精确值（只可能让使用者多等，不会让他提前重试又被锁），
+ * 因此客户端倒计时不会在使用者真正可登入前提前结束。
+ *
+ * 安全考量：攻击者看到 30 / 60 这种粗估值，与「窗口最长 60s」的公开资讯
+ * 相比并无额外信息增益，无法据此精确定时。（如需更强模糊，可叠加随机抖动，
+ * 但桶化本身已足以破坏精确排程，且保持确定性便于测试，故未加抖动。）
+ */
+export function fuzzRetryAfterSec(preciseSec: number): number {
+  return Math.max(
+    FUZZ_BUCKET_SEC,
+    Math.ceil(preciseSec / FUZZ_BUCKET_SEC) * FUZZ_BUCKET_SEC,
+  );
 }
 
 /** 规范化账号键：小写 + 去首尾空白，避免大小写差异导致计数分裂。 */
@@ -277,6 +338,31 @@ export async function getLimitStatus(
 }
 
 /**
+ * 对 login-status 查询端点本身限流（IP 维度），防止攻击者高频探测锁定状态。
+ *
+ * 使用独立的 statusBackend 桶（prefix="login-status"），**不消耗登录尝试配额**，
+ * 因此合法用户查询锁定状态不会影响其登录尝试次数。
+ *
+ * 故障时 fail-open 放行（与 checkLimit 一致），避免 Redis 抖动影响可用性。
+ */
+export async function checkStatusRate(ip: string): Promise<LimitResult> {
+  try {
+    const r = await statusBackend.limit(`ip:${ip}`);
+    if (!r.ok) {
+      return {
+        ok: false,
+        retryAfterSec: toRetryAfterSec(r.reset),
+        dimension: "ip",
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error("[login-limiter] checkStatusRate 后端错误，fail-open 放行：", err);
+    return { ok: true };
+  }
+}
+
+/**
  * 登录成功后调用：清空该账号维度的计数。
  *
  * 故意只清账号维度 —— IP 维度的计数继续累积，
@@ -320,5 +406,5 @@ export function getClientIp(headers: unknown): string {
 
 /** 仅供测试用：清空全部计数（仅内存回退模式有效）。 */
 export function __resetForTests(): void {
-  if (memoryResetAll) memoryResetAll();
+  memoryResets.forEach((f) => f());
 }
