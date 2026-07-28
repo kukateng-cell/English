@@ -370,16 +370,29 @@ export default function StudyPage() {
     return buildQuestion(quizQueue[quizIndex], distractorSource);
   }, [phase, quizIndex, quizQueue, distractorSource]);
 
+  // 是否还有当前词（未越界）。用稳定的布尔派生值替代在 effect 里直接引用
+  // quizQueue.length：既避免 react-hooks/exhaustive-deps 警告，也让 effect
+  // 的触发条件清晰——只有"有当前词 / 无当前词"这一状态翻转时才需要重跑。
+  const hasCurrentWord = phase === "quiz" && quizIndex < quizQueue.length;
+
   // 若当前词无法生成有效配对题（如 DVD↔DVD 这类纯英文词条，或干扰项不足），
   // 自动判对并跳到下一题，避免界面卡住。
+  // 依赖说明：
+  //   - hasCurrentWord：阶段切换或 quizIndex 越界翻转时重跑（等价于原先的
+  //     phase + 边界判断，但用一个稳定布尔值表达，语义更清晰）
+  //   - currentQuestion：题目生成结果变化时重跑。即使两次都为 null（null === null
+  //     不触发），hasCurrentWord 翻转或 quizIndex 推进也能触发重跑，
+  //     足以覆盖"连续多个词都无法出题"的链式自动跳过。
+  //   注意：不再依赖 quizQueue.length。答错重排是 splice 纯插入（length 总 +1），
+  //   但 length 作为 effect 依赖既冗余又脆弱（若未来改成移动而非复制，length 不变
+  //   会导致误判）。以"当前词本身"为准更稳健。
   useEffect(() => {
-    if (phase !== "quiz") return;
-    if (quizIndex >= quizQueue.length) return;
+    if (!hasCurrentWord) return;
     if (currentQuestion !== null) return;
     // 用 setTimeout(0) 推迟到下一帧，避免在渲染期间 setState
     const t = setTimeout(() => handleQuizAnswerRef.current(true), 0);
     return () => clearTimeout(t);
-  }, [phase, quizIndex, quizQueue.length, currentQuestion]);
+  }, [hasCurrentWord, currentQuestion]);
 
   // 评估阶段全部滑完 → 进入测试或完成阶段
   // （在事件回调里触发，避免在 effect 内 setState，符合 react-hooks 规则）
