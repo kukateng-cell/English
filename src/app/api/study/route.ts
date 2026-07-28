@@ -12,14 +12,14 @@ import { aggregateAllLevels, levelCompare } from "@/lib/units";
 
 /**
  * 构造「按级别过滤」的查询条件，兼容两种 schema：
- *   - Postgres (prisma/schema.prisma): Word.level 是 enum Level { A1 A2 B1 }
+ *   - Postgres (prisma/schema.prisma): Word.level 是 enum Level { A1 A2 B1 B2 }
  *   - SQLite  (prisma/schema.sqlite.prisma): Word.level 是 String
  * 用 Prisma.WordWhereInput["level"] 让 TS 自动适配当前生成的 client，
  * 避免在两种 schema 之间出现类型冲突。非法值回退为 A1。
  */
 function levelWhere(s: string): Prisma.WordWhereInput["level"] {
   const v = s.toUpperCase();
-  return (v === "A2" || v === "B1" ? v : "A1") as Prisma.WordWhereInput["level"];
+  return (v === "A2" || v === "B1" || v === "B2" ? v : "A1") as Prisma.WordWhereInput["level"];
 }
 
 /** 把级别字符串规范化为大写；非法值回退为 A1。仅用于拼解锁 key。 */
