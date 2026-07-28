@@ -36,7 +36,17 @@ const proxy: NextProxy = async (req: NextRequest) => {
 
   const needsAuth = isAdminArea || isTeacherArea || isStudentArea;
   if (!token && needsAuth) {
-    return deny(req, isApi, "/login");
+    if (isApi) {
+      // 未登入的 API 請求：回 401（語意比 403 準確；各 route 內仍會再驗一次）
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // 未登入的頁面請求：重導至登入頁，並帶上 callbackUrl 以便登入後返回原頁。
+    const loginUrl = req.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = `?callbackUrl=${encodeURIComponent(
+      pathname + (req.nextUrl.search || ""),
+    )}`;
+    return NextResponse.redirect(loginUrl);
   }
 
   // admin 区：仅 ADMIN

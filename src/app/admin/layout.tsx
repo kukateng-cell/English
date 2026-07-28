@@ -1,7 +1,31 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import { getCurrentUser } from "@/lib/session";
+import { ROLES, homePathFor } from "@/lib/roles";
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+/**
+ * 管理後台 Layout —— 服務端角色守衛（第二道防線）。
+ *
+ * 攔截順序（雙重防護，零頁面閃爍）：
+ *   1. src/proxy.ts        —— Edge 層先用 JWT 快取角色攔下大多數越權請求
+ *   2. 本 Layout（此處）    —— RSC 層用 getServerSession 查庫取「最新角色」，
+ *                             即便管理員剛改過角色也能即時生效
+ *
+ * 未登入 → /login?callbackUrl=/admin；角色非 ADMIN → 回到自己的首頁。
+ */
+export default async function AdminLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?callbackUrl=/admin");
+  }
+  if (user.role !== ROLES.ADMIN) {
+    redirect(homePathFor(user.role));
+  }
   return (
     <div className="flex min-h-full flex-col">
       {/* 顶部导航 */}
