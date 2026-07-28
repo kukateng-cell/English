@@ -8,7 +8,7 @@ export interface WordFormData {
   phonetic: string;
   pos: string;
   definition: string;
-  level: "A1" | "A2" | "B1";
+  level: "A1" | "A2" | "B1" | "B2";
   category: string;
   synonyms: string;
   antonyms: string;
@@ -36,6 +36,7 @@ const LEVEL_OPTIONS: { value: WordFormData["level"]; label: string }[] = [
   { value: "A1", label: "A1" },
   { value: "A2", label: "A2" },
   { value: "B1", label: "B1" },
+  { value: "B2", label: "B2" },
 ];
 
 const inputClass =

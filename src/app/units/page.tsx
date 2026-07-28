@@ -30,7 +30,7 @@ export default function UnitsPage() {
   const { status } = useSession();
   const router = useRouter();
   const [level, setLevel] = useState<string>("A1");
-  const [levels, setLevels] = useState<string[]>(["A1", "A2", "B1"]);
+  const [levels, setLevels] = useState<string[]>(["A1", "A2", "B1", "B2"]);
   const [levelStatus, setLevelStatus] = useState<LevelStatus[]>([]);
   const [levelUnlocked, setLevelUnlocked] = useState(true);
   const [units, setUnits] = useState<Unit[]>([]);
