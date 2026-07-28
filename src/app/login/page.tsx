@@ -73,7 +73,12 @@ export default function LoginPage() {
       try {
         const me = await fetch("/api/auth/session").then((r) => r.json());
         const role = (me?.user?.role as string) ?? DEFAULT_ROLE;
-        if (safeCallback) {
+        const mustChangePassword = me?.user?.mustChangePassword === true;
+        // 首次登入強制改密碼：优先引导到重设页（覆盖默认的角色跳转与 callbackUrl，
+        // 避免用户带着预设密码进入系统）。
+        if (mustChangePassword) {
+          router.push("/reset-password");
+        } else if (safeCallback) {
           router.push(safeCallback);
         } else if (role === ROLES.ADMIN) {
           router.push("/admin");

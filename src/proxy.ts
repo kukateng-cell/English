@@ -24,6 +24,8 @@ const proxy: NextProxy = async (req: NextRequest) => {
   const isApi = pathname.startsWith("/api/");
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   const role = (token?.role as Role | undefined) ?? DEFAULT_ROLE;
+  // 首次登入強制改密碼：seed 学生账号预设 true，重设密码后变 false。
+  const mustChangePassword = token?.mustChangePassword === true;
 
   const isAdminArea = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
   const isTeacherArea =
@@ -33,8 +35,11 @@ const proxy: NextProxy = async (req: NextRequest) => {
     pathname.startsWith("/units") ||
     pathname.startsWith("/api/study") ||
     pathname.startsWith("/api/units");
+  // 重设密码区：必须登入，但不受 mustChangePassword 闸门拦截（否则死循环）。
+  const isResetArea =
+    pathname === "/reset-password" || pathname.startsWith("/api/reset-password");
 
-  const needsAuth = isAdminArea || isTeacherArea || isStudentArea;
+  const needsAuth = isAdminArea || isTeacherArea || isStudentArea || isResetArea;
   if (!token && needsAuth) {
     if (isApi) {
       // 未登入的 API 請求：回 401（語意比 403 準確；各 route 內仍會再驗一次）
@@ -47,6 +52,24 @@ const proxy: NextProxy = async (req: NextRequest) => {
       pathname + (req.nextUrl.search || ""),
     )}`;
     return NextResponse.redirect(loginUrl);
+  }
+
+  // 首次登入強制改密碼闸门：mustChangePassword=true 时，只放行重设密码区。
+  // 其余页面 → 重导到 /reset-password；API → 422（前端可据此提示）。
+  // （/api/auth/* 已被 matcher 排除，登出等流程不受影响。）
+  if (token && mustChangePassword && !isResetArea) {
+    if (isApi) {
+      return NextResponse.json(
+        { error: "Password change required", mustChangePassword: true },
+        { status: 422 },
+      );
+    }
+    const resetUrl = req.nextUrl.clone();
+    resetUrl.pathname = "/reset-password";
+    resetUrl.search = `?callbackUrl=${encodeURIComponent(
+      pathname + (req.nextUrl.search || ""),
+    )}`;
+    return NextResponse.redirect(resetUrl);
   }
 
   // admin 区：仅 ADMIN
