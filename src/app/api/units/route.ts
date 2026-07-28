@@ -2,17 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { aggregateAllLevels, levelCompare } from "@/lib/units";
+import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
 
-/**
- * 把前端传入的级别字符串规范化为大写，非法值回退为 A1。
- * 注意：查询时不再用 levelWhere() 包一层——aggregateAllLevels 直接基于
- * 全量单词做聚合，省去与两种 schema 的枚举/字符串类型纠缠。
- */
-function normalizeLevel(s: string | null): string {
-  const v = (s ?? "A1").toUpperCase();
-  return v === "A2" || v === "B1" || v === "B2" ? v : "A1";
-}
+// normalizeLevel（级别规范化）已统一到 @/lib/units（见 LEVELS / LevelCode）。
 
 /**
  * GET /api/units?level=A1
@@ -23,7 +15,7 @@ function normalizeLevel(s: string | null): string {
  * {
  *   level: "A1",
  *   levelUnlocked: true,                 // 当前级别是否已解锁
- *   levels: ["A1","A2","B1"],            // 数据库中实际存在单词的级别（向后兼容）
+ *   levels: ["A1","A2","B1","B2"],            // 数据库中实际存在单词的级别
  *   levelStatus: [                       // 各级别解锁/完成状态（级别切换 tab 用）
  *     { level, unlocked, completed, progress }
  *   ],

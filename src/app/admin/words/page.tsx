@@ -151,7 +151,7 @@ export default function AdminWordsPage() {
     }
   };
 
-  const levels = ["ALL", "A1", "A2", "B1"];
+  const levels = ["ALL", "A1", "A2", "B1", "B2"];
 
   if (loading) {
     return (

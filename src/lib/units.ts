@@ -6,10 +6,11 @@
  * category 名必须与 seed.ts 解析出的 Word.category 完全一致
  * （seed 用 `### Title (中文)` 中的英文标题，去掉括号）。
  *
- * 注意：这里【不】定义 Level 类型——Prisma 在 Postgres schema 下把
- * Word.level 定义为 `enum Level { A1 A2 B1 }`（见 prisma/schema.prisma），
- * 而在 SQLite 预览 schema 下是 `String`。为避免类型冲突，本文件只用
- * 原生 string 作为级别键，API 层查询时再把 string 转成 Prisma 的 Level。
+ * 注意：这里【不】从 @/generated/prisma 导入 Level——Prisma 在 Postgres schema 下把
+ * Word.level 定义为 `enum Level { A1 A2 B1 B2 }`（见 prisma/schema.prisma），
+ * 而在 SQLite 预览 schema 下是 `String`（不导出 Level 枚举，直接 import 会破坏本地类型检查）。
+ * 改用本文件自定义的 LevelCode 字面量联合（见下方 LEVELS），它既能赋给 Postgres 的
+ * Level 枚举、也能赋给 SQLite 的 String，因此 API 层查询/写入时无需任何强转。
  */
 
 /** A1 级别全部单元（按词表顺序） */
@@ -90,6 +91,40 @@ export const UNIT_COMPLETION_RATIO = 0.8;
 
 /** 级别顺序（用于解锁判定与排序）。未列出的级别排在已知级别之后。 */
 export const LEVEL_ORDER: string[] = ["A1", "A2", "B1", "B2"];
+
+/**
+ * 所有合法的级别（与 prisma/schema.prisma 的 enum Level 保持一致）。
+ *
+ * 这里用本地 `as const` 字面量联合，【不】从 @/generated/prisma 导入 Level：
+ * 因为本地可能连 SQLite（schema.sqlite.prisma 下 Word.level 是 String，不导出
+ * Level 枚举），直接 import 会让本地类型检查报错。LevelCode 是「字面量联合」，
+ * 既能赋给 Postgres 的 Level 枚举、也能赋给 SQLite 的 String，因此可作为
+ * 跨 schema 的统一级别类型，无需任何强转。
+ */
+export const LEVELS = ["A1", "A2", "B1", "B2"] as const;
+export type LevelCode = (typeof LEVELS)[number];
+
+/**
+ * 把任意输入规范化为合法级别字面量；空值/非法值回退为 A1。
+ *
+ * 返回 LevelCode（字面量联合），可直接赋给 Prisma 的 where/create/update
+ * 的 level 字段（Postgres enum / SQLite string 均可），无需 `as Level`、
+ * `as unknown as Level` 或 `as Prisma.WordXxxInput["level"]` 这类强转。
+ */
+export function normalizeLevel(s: unknown): LevelCode {
+  const v = String(s ?? "A1").toUpperCase();
+  if (v === "A1" || v === "A2" || v === "B1" || v === "B2") return v;
+  return "A1";
+}
+
+/**
+ * 同 normalizeLevel，但当输入为空（null/undefined/空串）时返回 null，
+ * 用于 PATCH 语义：「未传 level」= 不更新该字段。
+ */
+export function normalizeLevelOrNull(s: unknown): LevelCode | null {
+  if (s == null || s === "") return null;
+  return normalizeLevel(s);
+}
 
 /** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
 export function isUnitCompleted(total: number, mastered: number): boolean {

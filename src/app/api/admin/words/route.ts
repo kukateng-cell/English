@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-
-/** 级别字符串规范化为 A1/A2/B1；非法回退 A1。不依赖 enum，兼容 SQLite/Postgres 两种 schema。 */
-function normalizeLevel(s: unknown): "A1" | "A2" | "B1" {
-  const v = String(s ?? "A1").toUpperCase();
-  return v === "A2" || v === "B1" ? v : "A1";
-}
+import { normalizeLevel } from "@/lib/units";
 
 export async function GET() {
   const auth = await requireRole(ROLES.ADMIN);
@@ -77,8 +72,8 @@ export async function POST(req: Request) {
 
     const term = String(body.term ?? "").trim();
     const definition = String(body.definition ?? "").trim();
-    // 用 Prisma.WordCreateInput["level"] 适配当前生成的 client（Postgres enum / SQLite string）
-    const level = normalizeLevel(body.level) as Prisma.WordCreateInput["level"];
+    // normalizeLevel 返回 LevelCode 字面量联合，直接兼容 Postgres enum / SQLite string，无需强转。
+    const level = normalizeLevel(body.level);
 
     if (!term) return NextResponse.json({ error: "单词不能为空" }, { status: 400 });
     if (!definition)
