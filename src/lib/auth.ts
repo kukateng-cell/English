@@ -58,6 +58,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           role: user.role,
           tokenVersion: user.tokenVersion,
+          mustChangePassword: user.mustChangePassword,
         };
       },
     }),
@@ -81,6 +82,7 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = user.role as Role;
         token.tokenVersion = user.tokenVersion as number;
+        token.mustChangePassword = user.mustChangePassword as boolean;
         return token;
       }
 
@@ -91,16 +93,22 @@ export const authOptions: NextAuthOptions = {
       if (userId) {
         const dbUser = await prisma.user.findUnique({
           where: { id: userId },
-          select: { role: true, tokenVersion: true },
+          select: { role: true, tokenVersion: true, mustChangePassword: true },
         });
         if (!dbUser) {
           // 用户已被删除：把角色降级为默认，使其被角色守卫拦下。
           token.role = ROLES.STUDENT;
           token.tokenVersion = undefined;
-        } else if (dbUser.tokenVersion !== token.tokenVersion) {
-          // 版本号变化 → 管理员改过角色，刷新快照。
-          token.role = dbUser.role;
-          token.tokenVersion = dbUser.tokenVersion;
+          token.mustChangePassword = undefined;
+        } else {
+          // mustChangePassword 可能被用户自己（重设密码）或管理员修改，
+          // 每次都从 DB 刷新，确保重设密码后立即生效。
+          token.mustChangePassword = dbUser.mustChangePassword;
+          if (dbUser.tokenVersion !== token.tokenVersion) {
+            // 版本号变化 → 管理员改过角色，刷新快照。
+            token.role = dbUser.role;
+            token.tokenVersion = dbUser.tokenVersion;
+          }
         }
       }
       return token;
@@ -109,6 +117,8 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as { id: string }).id = token.id as string;
         (session.user as { role: Role }).role = token.role as Role;
+        (session.user as { mustChangePassword: boolean }).mustChangePassword =
+          token.mustChangePassword as boolean;
       }
       return session;
     },

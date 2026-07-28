@@ -9,6 +9,7 @@
  */
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Level } from "../src/generated/prisma";
@@ -30,12 +31,33 @@ const WORD_LIST_PATH = fileURLToPath(
 
 // ── 学生账号预生成 ──
 // 账号由老师统一发放给学生，不做自助注册。
-// 格式：student01..studentNN，统一默认密码（后续可由业务层支持修改）。
+// 格式：student01..studentNN，统一默认密码（首次登入強制修改）。
 const STUDENT_COUNT = 40;
-const DEFAULT_PASSWORD = "english123";
+
+/**
+ * 解析学生预设密码：优先读环境变量 SEED_STUDENT_DEFAULT_PASSWORD，
+ * 未设置时自动产生一组强随机密码并打印到控制台（避免密码进入版本库）。
+ *
+ * 安全要求：绝不在代码里硬编码默认密码。返回 { password, fromEnv }。
+ */
+function resolveStudentPassword(): { password: string; fromEnv: boolean } {
+  const fromEnv = process.env.SEED_STUDENT_DEFAULT_PASSWORD;
+  if (fromEnv && fromEnv.trim().length >= 8) {
+    return { password: fromEnv.trim(), fromEnv: true };
+  }
+  // 未提供或强度不足：生成 24 字节 base64 随机密码（~192 bit 熵）。
+  const generated = randomBytes(24).toString("base64");
+  console.warn(
+    "⚠️  SEED_STUDENT_DEFAULT_PASSWORD 未设置或长度 < 8，已自动生成强随机密码。\n" +
+      "   请妥善记录下方密码并分发给学生；首次登入后会强制要求修改。\n" +
+      "   建议：在 .env.local 中设置 SEED_STUDENT_DEFAULT_PASSWORD 以便复用。",
+  );
+  return { password: generated, fromEnv: false };
+}
 
 async function seedStudents() {
-  const hash = await bcrypt.hash(DEFAULT_PASSWORD, 12);
+  const { password: studentPassword, fromEnv } = resolveStudentPassword();
+  const hash = await bcrypt.hash(studentPassword, 12);
   let created = 0;
   let existed = 0;
   for (let i = 1; i <= STUDENT_COUNT; i++) {
@@ -46,13 +68,21 @@ async function seedStudents() {
       continue;
     }
     await prisma.user.create({
-      data: { email: account, passwordHash: hash, name: `学生 ${i}` },
+      data: {
+        email: account,
+        passwordHash: hash,
+        name: `学生 ${i}`,
+        // 首次登入強制改密碼：学生用此预设密码登入后会被引导到 /reset-password。
+        mustChangePassword: true,
+      },
     });
     created++;
   }
   const last = `student${String(STUDENT_COUNT).padStart(2, "0")}`;
+  const source = fromEnv ? "(来自 SEED_STUDENT_DEFAULT_PASSWORD)" : "(自动生成)";
   console.log(
-    `Students: ${created} created, ${existed} already exist | account: student01..${last}, password: ${DEFAULT_PASSWORD}`,
+    `Students: ${created} created, ${existed} already exist | ` +
+      `account: student01..${last} | password ${source}: ${studentPassword}`,
   );
 }
 
@@ -73,7 +103,13 @@ async function seedTestAccount() {
     return;
   }
   await prisma.user.create({
-    data: { email: TEST_ACCOUNT, passwordHash: hash, name: "测试账号" },
+    data: {
+      email: TEST_ACCOUNT,
+      passwordHash: hash,
+      name: "测试账号",
+      // 特权测试账号不强制改密碼。
+      mustChangePassword: false,
+    },
   });
   console.log(`Test account created: ${TEST_ACCOUNT}`);
 }
@@ -92,6 +128,8 @@ async function seedRoles(password: string) {
       passwordHash: hash,
       name: "管理员",
       role: ROLES.ADMIN,
+      // 管理员账号不强制改密碼（密码来自 INITIAL_ADMIN_PASSWORD 环境变量）。
+      mustChangePassword: false,
     },
     update: { role: ROLES.ADMIN },
   });
@@ -103,6 +141,8 @@ async function seedRoles(password: string) {
       passwordHash: hash,
       name: "王老师",
       role: ROLES.TEACHER,
+      // 教师账号不强制改密碼。
+      mustChangePassword: false,
     },
     update: { role: ROLES.TEACHER },
   });
