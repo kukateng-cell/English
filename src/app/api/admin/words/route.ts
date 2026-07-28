@@ -77,8 +77,8 @@ export async function POST(req: Request) {
 
     const term = String(body.term ?? "").trim();
     const definition = String(body.definition ?? "").trim();
-    // 用 Prisma.WordCreateInput["level"] 适配当前生成的 client（Postgres enum / SQLite string）
-    const level = normalizeLevel(body.level) as Prisma.WordCreateInput["level"];
+    // normalizeLevel 返回 LevelCode 字面量联合，直接兼容 Postgres enum / SQLite string，无需强转。
+    const level = normalizeLevel(body.level);
 
     if (!term) return NextResponse.json({ error: "单词不能为空" }, { status: 400 });
     if (!definition)
