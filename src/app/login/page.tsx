@@ -60,15 +60,30 @@ export default function LoginPage() {
       }
       setError("账号或密码错误，请重试");
     } else {
-      // 登录成功后，按角色跳转到对应入口
+      // 登录成功后：优先回到來時的 callbackUrl（proxy 帶上的），
+      // 否則按角色跳轉到對應入口。
+      const callbackUrl = new URLSearchParams(window.location.search).get(
+        "callbackUrl",
+      );
+      // 安全檢查：只允許站內相對路徑，防止開放重導向（協議相對 URL //evil.com）
+      const safeCallback =
+        callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
+          ? callbackUrl
+          : null;
       try {
         const me = await fetch("/api/auth/session").then((r) => r.json());
         const role = (me?.user?.role as string) ?? DEFAULT_ROLE;
-        if (role === ROLES.ADMIN) router.push("/admin");
-        else if (role === ROLES.TEACHER) router.push("/teacher");
-        else router.push("/study");
+        if (safeCallback) {
+          router.push(safeCallback);
+        } else if (role === ROLES.ADMIN) {
+          router.push("/admin");
+        } else if (role === ROLES.TEACHER) {
+          router.push("/teacher");
+        } else {
+          router.push("/study");
+        }
       } catch {
-        router.push("/study");
+        router.push(safeCallback ?? "/study");
       }
       router.refresh();
     }
