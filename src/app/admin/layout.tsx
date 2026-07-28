@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getCurrentUser } from "@/lib/session";
 import { ROLES, homePathFor } from "@/lib/roles";
+import NavTabs from "@/components/NavTabs";
 
 /**
  * 管理後台 Layout —— 服務端角色守衛（第二道防線）。
@@ -48,26 +49,13 @@ export default async function AdminLayout({
       </header>
 
       {/* 标签栏 */}
-      <nav className="mx-auto mb-6 flex w-full max-w-[420px] gap-1 px-5">
-        <Link
-          href="/admin"
-          className="rounded-full px-4 py-2 text-[13px] font-medium text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
-        >
-          概览
-        </Link>
-        <Link
-          href="/admin/users"
-          className="rounded-full px-4 py-2 text-[13px] font-medium text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
-        >
-          用户管理
-        </Link>
-        <Link
-          href="/admin/words"
-          className="rounded-full px-4 py-2 text-[13px] font-medium text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
-        >
-          单词库
-        </Link>
-      </nav>
+      <NavTabs
+        tabs={[
+          { href: "/admin", label: "概览" },
+          { href: "/admin/users", label: "用户管理" },
+          { href: "/admin/words", label: "单词库" },
+        ]}
+      />
 
       {/* 内容区 */}
       <main className="mx-auto w-full max-w-[420px] flex-1 px-5 pb-16">
