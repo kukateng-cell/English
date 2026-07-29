@@ -35,7 +35,7 @@ export default function ConfirmDialog({
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <p className="mb-6 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
-        {tc(message)}
+        {message}
       </p>
       <div className="flex gap-2">
         <button
