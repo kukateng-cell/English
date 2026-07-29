@@ -1,6 +1,11 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { convertForServer } from "@/lib/i18n/convert";
 
-export default function Home() {
+export default async function Home() {
+  const cookieStore = await cookies();
+  const tc = (s: string) => convertForServer(s, cookieStore.toString());
+
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-5 py-8">
       <div className="w-full max-w-[420px] animate-fade-in-up">
@@ -39,16 +44,16 @@ export default function Home() {
           className="mb-4 text-center leading-[1.1] tracking-[-0.05em] text-[#17213C] dark:text-[#E2E8F0]"
           style={{ fontSize: "34px", fontWeight: 750, letterSpacing: "-0.06em" }}
         >
-          英语单词
+          {tc("英语单词")}
           <br />
-          认读
+          {tc("认读")}
         </h1>
 
         <p className="mb-1 text-center text-[15px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
-          科学记忆 · 随时进步
+          {tc("科学记忆 · 随时进步")}
         </p>
         <p className="mb-10 text-center text-[15px] text-[#7C89A5] dark:text-[#64748B]">
-          看到英文能认字
+          {tc("看到英文能认字")}
         </p>
 
         {/* 插画区域 —— 纯 CSS 抽象学习场景 */}
@@ -78,7 +83,7 @@ export default function Home() {
           href="/study"
           className="mb-3 flex h-[48px] w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-[16px] font-semibold text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_16px_36px_rgba(37,99,235,0.25)] active:scale-[0.98]"
         >
-          开始学习
+          {tc("开始学习")}
           <svg className="ml-1.5 h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
           </svg>
@@ -88,17 +93,17 @@ export default function Home() {
           href="/units"
           className="mb-4 flex h-[48px] w-full items-center justify-center rounded-2xl border border-[#E7EDF8] bg-white text-[16px] font-medium text-[#2563EB] shadow-sm transition-all hover:border-[#2563EB]/30 hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:border-[#1E3A5F] dark:hover:bg-[#1A2332]"
         >
-          单元闯关
+          {tc("单元闯关")}
         </Link>
 
         {/* 底部登录入口 */}
         <div className="text-center text-sm text-[#7C89A5] dark:text-[#64748B]">
-          已有账号？{" "}
+          {tc("已有账号？")}{" "}
           <Link
             href="/login"
             className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
           >
-            登录
+            {tc("登录")}
           </Link>
         </div>
       </div>

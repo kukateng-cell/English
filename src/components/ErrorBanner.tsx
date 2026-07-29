@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/components/LocaleProvider";
+
 interface ErrorBannerProps {
   message: string;
   /** 提供则显示「重试」按钮，点击后重新触发数据加载。 */
@@ -18,6 +20,7 @@ export default function ErrorBanner({
   onRetry,
   retryLabel = "重试",
 }: ErrorBannerProps) {
+  const { tc } = useLocale();
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-500 dark:bg-red-950/40 dark:text-red-400">
@@ -37,7 +40,7 @@ export default function ErrorBanner({
         </svg>
       </div>
       <p className="max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#94A3B8]">
-        {message}
+        {tc(message)}
       </p>
       {onRetry && (
         <button
@@ -57,7 +60,7 @@ export default function ErrorBanner({
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
-          {retryLabel}
+          {tc(retryLabel)}
         </button>
       )}
     </div>
