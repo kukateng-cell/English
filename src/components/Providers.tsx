@@ -7,17 +7,19 @@ import { LocaleProvider } from "@/components/LocaleProvider";
 import ThemeToggle from "@/components/ThemeToggle";
 import LanguageToggle from "@/components/LanguageToggle";
 
+import type { Locale } from "@/lib/i18n/config";
+
 export default function Providers({
   children,
-  /** SSR 传入的 cookie 字符串，供 LocaleProvider 决定首帧语言。 */
-  localeCookie,
+  /** SSR 传入的已规范化语言，供 LocaleProvider 决定首帧语言。 */
+  initialLocale,
 }: {
   children: ReactNode;
-  localeCookie?: string;
+  initialLocale?: Locale;
 }) {
   return (
     <NextAuthSessionProvider>
-      <LocaleProvider cookie={localeCookie}>
+      <LocaleProvider initialLocale={initialLocale}>
         <ThemeProvider>
           {children}
           <ThemeToggle />

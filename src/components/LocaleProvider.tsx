@@ -39,44 +39,23 @@ interface LocaleContextValue {
 
 const LocaleContext = createContext<LocaleContextValue | undefined>(undefined);
 
-/**
- * 读取初始语言偏好。
- *
- * 优先级：cookie > localStorage > DEFAULT_LOCALE。
- * - cookie 在 SSR 阶段也能读到，保证首帧 <html lang> 正确、无闪烁。
- * - localStorage 是主要持久化来源（刷新、再次登入都保留）；
- *   LocaleProvider 会在挂载时把 localStorage 的值同步回 cookie，确保两端一致。
- *
- * 此函数在服务端（无 localStorage/window）也安全：只读 cookie。
- */
-function readInitialLocale(cookieHeader?: string): Locale {
-  // cookie（SSR 可读）
-  if (cookieHeader) {
-    const match = cookieHeader.match(
-      new RegExp(`(?:^|; )${LOCALE_COOKIE_KEY}=([^;]*)`),
-    );
-    if (match) return normalizeLocale(decodeURIComponent(match[1]));
-  }
-  return DEFAULT_LOCALE;
-}
-
 interface LocaleProviderProps {
   children: ReactNode;
-  /** SSR 传入的 cookie 字符串，用于决定首帧语言（避免客户端再闪烁）。 */
-  cookie?: string;
+  /** SSR 传入的已规范化语言，用于决定首帧语言（避免客户端再闪烁）。 */
+  initialLocale?: Locale;
 }
 
 /**
  * 语言提供者：负责把使用者的「繁体 / 简体」偏好持久化到 localStorage + cookie，
  * 并把对应的 BCP-47 语言标签写到 <html lang>。
  *
- * SSR 阶段根据 cookie 决定首帧语言；客户端挂载后再读 localStorage 接管。
+ * SSR 阶段根据 initialLocale 决定首帧语言；客户端挂载后再读 localStorage 接管。
  * 挂载后语言变化会即时反映到 <html lang>，满足「lang 跟随选择更新」。
  */
-export function LocaleProvider({ children, cookie }: LocaleProviderProps) {
-  // 首帧语言（SSR 与 hydration 必须一致，避免 mismatch）：从 cookie 或预设值。
-  const [locale, setLocaleState] = useState<Locale>(() =>
-    readInitialLocale(cookie),
+export function LocaleProvider({ children, initialLocale }: LocaleProviderProps) {
+  // 首帧语言（SSR 与 hydration 必须一致，避免 mismatch）：从 initialLocale 或预设值。
+  const [locale, setLocaleState] = useState<Locale>(
+    () => initialLocale ?? DEFAULT_LOCALE,
   );
   const [mounted, setMounted] = useState(false);
 
@@ -137,12 +116,4 @@ export function useLocale(): LocaleContextValue {
     throw new Error("useLocale 必须在 <LocaleProvider> 内使用");
   }
   return ctx;
-}
-
-/**
- * 给服务端组件用的：从请求 cookie 解出初始语言（供 LocaleProvider 的 cookie prop）。
- * 在 layout 的 RSC 里调用，把结果传进 Providers。
- */
-export function pickLocaleFromCookies(cookieHeader: string | undefined): Locale {
-  return readInitialLocale(cookieHeader);
 }

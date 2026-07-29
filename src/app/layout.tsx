@@ -50,7 +50,6 @@ export default async function RootLayout({
   // 从请求 cookie 决定首帧语言（SSR 可读，避免客户端闪烁）。
   // 无 cookie 时回退预设值（繁体中文）。
   const cookieStore = await cookies();
-  const localeCookie = cookieStore.toString();
   const locale = normalizeLocale(cookieStore.get("locale")?.value);
 
   return (
@@ -61,7 +60,7 @@ export default async function RootLayout({
     >
       <body className="min-h-full font-sans bg-[#F7F9FF] dark:bg-[#0B1120] text-[#17213C] dark:text-[#E2E8F0]">
         <script dangerouslySetInnerHTML={{ __html: initScript }} />
-        <Providers localeCookie={localeCookie}>{children}</Providers>
+        <Providers initialLocale={locale}>{children}</Providers>
       </body>
     </html>
   );
