@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Modal from "./Modal";
+import { useLocale } from "@/components/LocaleProvider";
 
 export interface WordFormData {
   term: string;
@@ -81,6 +82,7 @@ export default function WordFormModal({
   );
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { tc } = useLocale();
 
   const set = (key: keyof WordFormData, value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -113,12 +115,12 @@ export default function WordFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? "编辑单词" : "添加单词"}
+      title={isEdit ? tc("编辑单词") : tc("添加单词")}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            单词 *
+            {tc("单词")} *
           </label>
           <input
             type="text"
@@ -132,7 +134,7 @@ export default function WordFormModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-              音标
+              {tc("音标")}
             </label>
             <input
               type="text"
@@ -144,7 +146,7 @@ export default function WordFormModal({
           </div>
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-              词性
+              {tc("词性")}
             </label>
             <input
               type="text"
@@ -158,12 +160,12 @@ export default function WordFormModal({
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            释义 *
+            {tc("释义")} *
           </label>
           <textarea
             value={form.definition}
             onChange={(e) => set("definition", e.target.value)}
-            placeholder="中文释义"
+            placeholder={tc("中文释义")}
             rows={2}
             className={textareaClass}
           />
@@ -171,7 +173,7 @@ export default function WordFormModal({
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            级别
+            {tc("级别")}
           </label>
           <div className="flex gap-2">
             {LEVEL_OPTIONS.map((opt) => (
@@ -193,7 +195,7 @@ export default function WordFormModal({
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            分类（主题）
+            {tc("分类（主题）")}
           </label>
           <input
             type="text"
@@ -207,25 +209,25 @@ export default function WordFormModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-              近义词
+              {tc("近义词")}
             </label>
             <input
               type="text"
               value={form.synonyms}
               onChange={(e) => set("synonyms", e.target.value)}
-              placeholder="逗号分隔"
+              placeholder={tc("逗号分隔")}
               className={inputClass}
             />
           </div>
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-              反义词
+              {tc("反义词")}
             </label>
             <input
               type="text"
               value={form.antonyms}
               onChange={(e) => set("antonyms", e.target.value)}
-              placeholder="逗号分隔"
+              placeholder={tc("逗号分隔")}
               className={inputClass}
             />
           </div>
@@ -233,7 +235,7 @@ export default function WordFormModal({
 
         {error && (
           <div className="rounded-2xl bg-red-50 px-4 py-2.5 text-[13px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
-            {error}
+            {tc(error)}
           </div>
         )}
 
@@ -242,7 +244,7 @@ export default function WordFormModal({
           disabled={loading}
           className="w-full rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:from-[#1D4ED8] hover:to-[#4F46E5] disabled:opacity-50"
         >
-          {loading ? "保存中..." : isEdit ? "保存修改" : "添加单词"}
+          {loading ? tc("保存中...") : isEdit ? tc("保存修改") : tc("添加单词")}
         </button>
       </form>
     </Modal>

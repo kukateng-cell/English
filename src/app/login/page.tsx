@@ -5,8 +5,10 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ROLES, DEFAULT_ROLE } from "@/lib/roles";
+import { useLocale } from "@/components/LocaleProvider";
 
 export default function LoginPage() {
+  const { tc } = useLocale();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -115,17 +117,17 @@ export default function LoginPage() {
         </div>
 
         <h1 className="mb-1 text-center text-[26px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-          英语单词认读
+          {tc("英语单词认读")}
         </h1>
         <p className="mb-8 text-center text-[15px] text-[#7C89A5] dark:text-[#64748B]">
-          登录以继续学习
+          {tc("登录以继续学习")}
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <input
               type="text"
-              placeholder="账号 (如 student01)"
+              placeholder={tc("账号 (如 student01)")}
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
@@ -141,7 +143,7 @@ export default function LoginPage() {
           <div>
             <input
               type="password"
-              placeholder="密码"
+              placeholder={tc("密码")}
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value);
@@ -161,27 +163,27 @@ export default function LoginPage() {
             {loading ? (
               <span className="flex items-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                登录中...
+                {tc("登录中...")}
               </span>
             ) : (
-              "登录"
+              tc("登录")
             )}
           </button>
         </form>
 
         {error && (
           <div className="mt-4 rounded-2xl bg-[#FEF2F2] px-4 py-3 text-center text-[14px] text-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]">
-            {error}
+            {tc(error)}
             {lockUntil !== null && remainingSec > 0 && (
               <span className="ml-1 font-semibold">
-                （剩余 {Math.floor(remainingSec / 60)} 分 {remainingSec % 60} 秒）
+                {tc(`（剩余 ${Math.floor(remainingSec / 60)} 分 ${remainingSec % 60} 秒）`)}
               </span>
             )}
           </div>
         )}
 
         <p className="mt-8 text-center text-[13px] text-[#BFCBE3] dark:text-[#475569]">
-          账号由老师统一发放，如忘记请联系老师
+          {tc("账号由老师统一发放，如忘记请联系老师")}
         </p>
 
         <div className="mt-6 text-center">
@@ -189,7 +191,7 @@ export default function LoginPage() {
             href="/"
             className="text-[14px] text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
           >
-            ← 返回首页
+            {tc("← 返回首页")}
           </Link>
         </div>
       </div>

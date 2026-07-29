@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 import { getCurrentUser } from "@/lib/session";
 import { ROLES, homePathFor } from "@/lib/roles";
+import { convertForServer } from "@/lib/i18n/convert";
 
 /**
  * 教师工作台 Layout —— 服務端角色守衛（第二道防線）。
@@ -26,6 +28,8 @@ export default async function TeacherLayout({
   if (user.role !== ROLES.TEACHER && user.role !== ROLES.ADMIN) {
     redirect(homePathFor(user.role));
   }
+  const cookieStore = await cookies();
+  const tc = (s: string) => convertForServer(s, cookieStore.toString());
   return (
     <div className="flex min-h-full flex-col">
       {/* 顶部导航 */}
@@ -34,13 +38,13 @@ export default async function TeacherLayout({
           href="/teacher"
           className="text-[16px] font-bold tracking-[-0.02em] text-[#17213C] dark:text-[#E2E8F0]"
         >
-          教师工作台
+          {tc("教师工作台")}
         </Link>
         <Link
           href="/"
           className="flex items-center gap-1 text-[13px] text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
         >
-          返回首页
+          {tc("返回首页")}
           <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
           </svg>
@@ -53,13 +57,13 @@ export default async function TeacherLayout({
           href="/teacher"
           className="rounded-full px-4 py-2 text-[13px] font-medium text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
         >
-          概览
+          {tc("概览")}
         </Link>
         <Link
           href="/teacher/students"
           className="rounded-full px-4 py-2 text-[13px] font-medium text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
         >
-          学生进度
+          {tc("学生进度")}
         </Link>
       </nav>
 

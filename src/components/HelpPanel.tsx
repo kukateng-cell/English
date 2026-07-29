@@ -3,6 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { speakEnglish } from "@/lib/speech";
+import { useLocale } from "@/components/LocaleProvider";
 
 interface WordFull {
   term: string;
@@ -22,6 +23,7 @@ interface HelpPanelProps {
 }
 
 export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) {
+  const { tc } = useLocale();
   const speak = () => speakEnglish(word.term);
   const examples = Array.isArray(word.examples) ? word.examples : [];
 
@@ -51,7 +53,7 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
             <button
               onClick={speak}
               className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#DBEAFE] text-lg transition hover:bg-[#BFDBFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/40"
-              aria-label="发音"
+              aria-label={tc("发音")}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
@@ -63,13 +65,13 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
 
           {/* 释义 */}
           <div className="mb-5 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
-            <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">释义</p>
+            <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("释义")}</p>
             <p className="text-[18px] font-medium leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">
-              {word.definition}
+              {tc(word.definition)}
             </p>
             {word.pos && (
               <span className="mt-2 inline-block rounded-full bg-[#EEF4FF] px-3 py-1 text-xs font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-                {word.pos}
+                {tc(word.pos)}
               </span>
             )}
           </div>
@@ -77,11 +79,11 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
           {/* 例句 */}
           {examples.length > 0 && (
             <div className="mb-5">
-              <p className="mb-3 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">例句</p>
+              <p className="mb-3 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("例句")}</p>
               {examples.slice(0, 2).map((ex, i) => (
                 <div key={i} className="mb-3 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
                   <p className="text-[15px] leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">{ex.en}</p>
-                  <p className="mt-2 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">{ex.zh}</p>
+                  <p className="mt-2 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">{tc(ex.zh)}</p>
                 </div>
               ))}
             </div>
@@ -92,17 +94,17 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
             <div className="mb-5 flex gap-6">
               {word.synonyms && word.synonyms.length > 0 && (
                 <div className="flex-1 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
-                  <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">近义词</p>
+                  <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("近义词")}</p>
                   <p className="text-[14px] font-medium text-[#22C55E] dark:text-[#4ADE80]">
-                    {word.synonyms.join(" · ")}
+                    {word.synonyms.map((s) => tc(s)).join(" · ")}
                   </p>
                 </div>
               )}
               {word.antonyms && word.antonyms.length > 0 && (
                 <div className="flex-1 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
-                  <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">反义词</p>
+                  <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("反义词")}</p>
                   <p className="text-[14px] font-medium text-[#EF6B6B] dark:text-[#F87171]">
-                    {word.antonyms.join(" · ")}
+                    {word.antonyms.map((s) => tc(s)).join(" · ")}
                   </p>
                 </div>
               )}
@@ -126,7 +128,7 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
             onClick={onDismiss}
             className="mt-1 flex h-[44px] w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] dark:shadow-[0_8px_24px_rgba(37,99,235,0.1)]"
           >
-            我学会了，下一个 →
+            {tc("我学会了，下一个 →")}
           </button>
         </motion.div>
       )}

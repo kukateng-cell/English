@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Modal from "./Modal";
 import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
+import { useLocale } from "@/components/LocaleProvider";
 
 export interface UserFormData {
   email: string;
@@ -54,6 +55,7 @@ export default function UserFormModal({
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { tc } = useLocale();
 
   const isSelf = user?.id === currentUserId;
 
@@ -94,12 +96,12 @@ export default function UserFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? "编辑用户" : "新建用户"}
+      title={isEdit ? tc("编辑用户") : tc("新建用户")}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            账号
+            {tc("账号")}
           </label>
           <input
             type="text"
@@ -111,27 +113,27 @@ export default function UserFormModal({
           />
           {isEdit && (
             <p className="mt-1 text-[11px] text-[#BFCBE3] dark:text-[#475569]">
-              账号名创建后不可修改
+              {tc("账号名创建后不可修改")}
             </p>
           )}
         </div>
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            姓名（可选）
+            {tc("姓名（可选）")}
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="显示名称"
+            placeholder={tc("显示名称")}
             className={inputClass}
           />
         </div>
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            角色
+            {tc("角色")}
           </label>
           <div className="flex gap-2">
             {ROLE_OPTIONS.map((opt) => {
@@ -148,34 +150,34 @@ export default function UserFormModal({
                       : "border border-[#E7EDF8] bg-white text-[#7C89A5] hover:border-[#2563EB]/30 dark:border-[#1E293B] dark:bg-[#0B1220] dark:text-[#64748B]"
                   }`}
                 >
-                  {opt.label}
+                  {tc(opt.label)}
                 </button>
               );
             })}
           </div>
           {isSelf && (
             <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-              不能修改自己的管理员角色
+              {tc("不能修改自己的管理员角色")}
             </p>
           )}
         </div>
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            {isEdit ? "新密码（留空则不修改）" : "密码"}
+            {isEdit ? tc("新密码（留空则不修改）") : tc("密码")}
           </label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={isEdit ? "••••••" : "至少 6 位"}
+            placeholder={isEdit ? "••••••" : tc("至少 6 位")}
             className={inputClass}
           />
         </div>
 
         {error && (
           <div className="rounded-2xl bg-red-50 px-4 py-2.5 text-[13px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
-            {error}
+            {tc(error)}
           </div>
         )}
 
@@ -184,7 +186,7 @@ export default function UserFormModal({
           disabled={loading}
           className="w-full rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:from-[#1D4ED8] hover:to-[#4F46E5] disabled:opacity-50"
         >
-          {loading ? "保存中..." : isEdit ? "保存修改" : "创建用户"}
+          {loading ? tc("保存中...") : isEdit ? tc("保存修改") : tc("创建用户")}
         </button>
       </form>
     </Modal>

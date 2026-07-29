@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
+import { useLocale } from "@/components/LocaleProvider";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface Stats {
@@ -22,6 +23,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const { tc } = useLocale();
 
   useEffect(() => {
     (async () => {
@@ -68,17 +70,17 @@ export default function AdminDashboard() {
       {/* 页面标题 */}
       <div>
         <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-          系统概览
+          {tc("系统概览")}
         </h1>
         <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
-          全局数据一览
+          {tc("全局数据一览")}
         </p>
       </div>
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 gap-3">
         <StatCard
-          label="总用户数"
+          label={tc("总用户数")}
           value={stats?.totalUsers ?? 0}
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>
@@ -86,7 +88,7 @@ export default function AdminDashboard() {
           color="blue"
         />
         <StatCard
-          label="总单词数"
+          label={tc("总单词数")}
           value={stats?.totalWords ?? 0}
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" /></svg>
@@ -94,7 +96,7 @@ export default function AdminDashboard() {
           color="indigo"
         />
         <StatCard
-          label="总复习次数"
+          label={tc("总复习次数")}
           value={stats?.totalReviews ?? 0}
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
@@ -102,9 +104,9 @@ export default function AdminDashboard() {
           color="green"
         />
         <StatCard
-          label="今日学习"
+          label={tc("今日学习")}
           value={stats?.reviewsToday ?? 0}
-          subtitle="次"
+          subtitle={tc("次")}
           icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
           }
@@ -115,12 +117,12 @@ export default function AdminDashboard() {
       {/* 用户角色分布 */}
       <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
         <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-          用户角色分布
+          {tc("用户角色分布")}
         </h3>
         <div className="space-y-3">
-          <RoleBar label="学生" count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#2563EB]" />
-          <RoleBar label="老师" count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#5B6FEF]" />
-          <RoleBar label="管理员" count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#4F46E5]" />
+          <RoleBar label={tc("学生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#2563EB]" />
+          <RoleBar label={tc("老师")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#5B6FEF]" />
+          <RoleBar label={tc("管理员")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#4F46E5]" />
         </div>
       </div>
 
@@ -128,7 +130,7 @@ export default function AdminDashboard() {
       {stats?.wordsByLevel && stats.wordsByLevel.length > 0 && (
         <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
           <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-            单词等级分布
+            {tc("单词等级分布")}
           </h3>
           <div className="flex gap-3">
             {stats.wordsByLevel.map((l) => (
@@ -147,13 +149,13 @@ export default function AdminDashboard() {
           href="/admin/users"
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[#E7EDF8] bg-white py-3.5 text-[14px] font-medium text-[#2563EB] transition hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1A2332]"
         >
-          👥 管理用户
+          👥 {tc("管理用户")}
         </Link>
         <Link
           href="/admin/words"
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[#E7EDF8] bg-white py-3.5 text-[14px] font-medium text-[#2563EB] transition hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1A2332]"
         >
-          📚 单词库
+          📚 {tc("单词库")}
         </Link>
       </div>
     </motion.div>

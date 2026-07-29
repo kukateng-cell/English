@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import WordFormModal, { type WordFormData } from "@/components/admin/WordFormModal";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import ErrorBanner from "@/components/ErrorBanner";
+import { useLocale } from "@/components/LocaleProvider";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface WordItem {
@@ -153,6 +154,7 @@ export default function AdminWordsPage() {
   };
 
   const levels = ["ALL", "A1", "A2", "B1", "B2"];
+  const { tc } = useLocale();
 
   if (loading) {
     return (
@@ -180,10 +182,10 @@ export default function AdminWordsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-            单词库
+            {tc("单词库")}
           </h1>
           <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
-            共 {words.length} 个单词
+            {tc(`共 ${words.length} 个单词`)}
           </p>
         </div>
         <button
@@ -193,7 +195,7 @@ export default function AdminWordsPage() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          添加
+          {tc("添加")}
         </button>
       </div>
 
@@ -208,7 +210,7 @@ export default function AdminWordsPage() {
           </svg>
           <input
             type="text"
-            placeholder="搜索单词..."
+            placeholder={tc("搜索单词...")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-[44px] w-full rounded-2xl border border-[#E7EDF8] bg-white pl-10 pr-4 text-[14px] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569]"
@@ -228,7 +230,7 @@ export default function AdminWordsPage() {
                 : "border border-[#E7EDF8] bg-white text-[#7C89A5] hover:border-[#2563EB]/30 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]"
             }`}
           >
-            {lvl === "ALL" ? "全部" : lvl}
+            {lvl === "ALL" ? tc("全部") : lvl}
           </button>
         ))}
       </div>
@@ -236,7 +238,7 @@ export default function AdminWordsPage() {
       {/* 单词列表 */}
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-[#E7EDF8] bg-white p-10 text-center text-[14px] text-[#7C89A5] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]">
-          暂无匹配的单词
+          {tc("暂无匹配的单词")}
         </div>
       ) : (
         <div className="space-y-2">
@@ -264,7 +266,7 @@ export default function AdminWordsPage() {
                     </p>
                   )}
                   <p className="text-[14px] leading-relaxed text-[#17213C] dark:text-[#E2E8F0] line-clamp-2">
-                    {word.definition}
+                    {tc(word.definition)}
                   </p>
                 </div>
                 {/* 操作按钮 */}
@@ -272,7 +274,7 @@ export default function AdminWordsPage() {
                   <button
                     onClick={() => openEdit(word)}
                     className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
-                    aria-label="编辑"
+                    aria-label={tc("编辑")}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -282,7 +284,7 @@ export default function AdminWordsPage() {
                   <button
                     onClick={() => setDeleting(word)}
                     className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-red-50 hover:text-red-500 dark:text-[#64748B] dark:hover:bg-red-950/40"
-                    aria-label="删除"
+                    aria-label={tc("删除")}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -293,10 +295,10 @@ export default function AdminWordsPage() {
               <div className="mt-3 flex items-center gap-3 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
                 {word.category && (
                   <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 dark:bg-[#1E3A5F]">
-                    {word.category}
+                    {tc(word.category)}
                   </span>
                 )}
-                <span>📝 {word.reviewCount} 次被学习</span>
+                <span>📝 {word.reviewCount} {tc("次被学习")}</span>
               </div>
             </motion.div>
           ))}
@@ -314,13 +316,13 @@ export default function AdminWordsPage() {
       {/* 删除确认 */}
       <ConfirmDialog
         open={!!deleting}
-        title="删除单词"
+        title={tc("删除单词")}
         message={
           deleting
-            ? `确定删除「${deleting.term}」吗？关联的学习记录将一并删除，且无法恢复。`
+            ? tc(`确定删除「${deleting.term}」吗？关联的学习记录将一并删除，且无法恢复。`)
             : ""
         }
-        confirmText="删除"
+        confirmText={tc("删除")}
         destructive
         loading={submitting}
         onConfirm={handleDelete}

@@ -10,6 +10,7 @@ import {
   speakEnglish,
   stopSpeech,
 } from "@/lib/speech";
+import { useLocale } from "@/components/LocaleProvider";
 
 const PRESETS = [
   { label: "慢", value: 0.6 },
@@ -30,6 +31,7 @@ function formatRate(r: number): string {
  * - 设置持久化于 localStorage，所有朗读（认字卡 / 测试 / 助记面板）默认套用。
  */
 export default function SpeechRateControl() {
+  const { tc } = useLocale();
   const [rate, setRate] = useState<number>(getSpeechRate);
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -138,7 +140,7 @@ export default function SpeechRateControl() {
                         : "border-zinc-200 text-zinc-500 hover:bg-zinc-50"
                     }`}
                   >
-                    {p.label}
+                    {tc(p.label)}
                   </button>
                 );
               })}

@@ -1,6 +1,7 @@
 "use client";
 
 import Modal from "./Modal";
+import { useLocale } from "@/components/LocaleProvider";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -21,17 +22,20 @@ export default function ConfirmDialog({
   open,
   title,
   message,
-  confirmText = "确认",
-  cancelText = "取消",
+  confirmText,
+  cancelText,
   destructive = false,
   loading = false,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
+  const { tc } = useLocale();
+  const confirm = confirmText ?? tc("确认");
+  const cancel = cancelText ?? tc("取消");
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <p className="mb-6 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
-        {message}
+        {tc(message)}
       </p>
       <div className="flex gap-2">
         <button
@@ -39,7 +43,7 @@ export default function ConfirmDialog({
           disabled={loading}
           className="flex-1 rounded-2xl border border-[#E7EDF8] bg-white px-4 py-3 text-[14px] font-semibold text-[#7C89A5] transition hover:bg-[#F8FAFC] disabled:opacity-50 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B] dark:hover:bg-[#1E293B]"
         >
-          {cancelText}
+          {cancel}
         </button>
         <button
           onClick={onConfirm}
@@ -50,7 +54,7 @@ export default function ConfirmDialog({
               : "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] hover:from-[#1D4ED8] hover:to-[#4F46E5]"
           }`}
         >
-          {loading ? "处理中..." : confirmText}
+          {loading ? tc("处理中...") : confirm}
         </button>
       </div>
     </Modal>

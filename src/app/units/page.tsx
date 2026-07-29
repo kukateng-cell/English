@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
+import { useLocale } from "@/components/LocaleProvider";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface Unit {
@@ -29,6 +30,7 @@ interface LevelStatus {
 export default function UnitsPage() {
   const { status } = useSession();
   const router = useRouter();
+  const { tc } = useLocale();
   const [level, setLevel] = useState<string>("A1");
   const [levels, setLevels] = useState<string[]>(["A1", "A2", "B1", "B2"]);
   const [levelStatus, setLevelStatus] = useState<LevelStatus[]>([]);
@@ -82,7 +84,7 @@ export default function UnitsPage() {
       <div className="flex min-h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
-          <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">加载中...</span>
+          <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">{tc("加载中...")}</span>
         </div>
       </div>
     );
@@ -119,13 +121,13 @@ export default function UnitsPage() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
-          首页
+          {tc("首页")}
         </Link>
         <Link
           href="/study"
           className="flex items-center gap-1 text-[14px] font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
         >
-          今日学习
+          {tc("今日学习")}
           <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
           </svg>
@@ -133,10 +135,10 @@ export default function UnitsPage() {
       </div>
 
       <h1 className="mb-1 text-[28px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-        单元闯关
+        {tc("单元闯关")}
       </h1>
       <p className="mb-6 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
-        按主题逐个攻克，认字后通过测试才算掌握。
+        {tc("按主题逐个攻克，认字后通过测试才算掌握。")}
       </p>
 
       {/* 级别切换 */}
@@ -153,9 +155,9 @@ export default function UnitsPage() {
               title={
                 unlocked
                   ? st?.completed
-                    ? `${lvl} 已全部完成`
-                    : `${lvl} 进度 ${st?.progress ?? 0}%`
-                    : "请先完成上一个级别"
+                    ? tc(`${lvl} 已全部完成`)
+                    : tc(`${lvl} 进度 ${st?.progress ?? 0}%`)
+                    : tc("请先完成上一个级别")
               }
               className={`shrink-0 rounded-full px-5 py-2 text-[14px] font-medium transition ${
                 isActive
@@ -186,10 +188,10 @@ export default function UnitsPage() {
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            {level} 级别尚未解锁
+            {tc(`${level} 级别尚未解锁`)}
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[#A16207] dark:text-[#D97706]">
-            请先回到上一个级别，把所有单元的认字率都练到 80% 以上，即可解锁 {level} 级别。
+            {tc(`请先回到上一个级别，把所有单元的认字率都练到 80% 以上，即可解锁 ${level} 级别。`)}
           </p>
         </div>
       )}
@@ -203,13 +205,13 @@ export default function UnitsPage() {
         <div className="relative">
           <div className="mb-4 flex items-end justify-between">
             <div>
-              <p className="text-[13px] opacity-70">{level} 级别总进度</p>
+              <p className="text-[13px] opacity-70">{tc(`${level} 级别总进度`)}</p>
               <p className="mt-1 text-[36px] font-bold leading-none tracking-[-0.02em]">{grandProgress}%</p>
             </div>
             <div className="text-right text-[13px] opacity-80">
-              <p>已掌握 {grandMastered} / {grandTotal} 词</p>
+              <p>{tc(`已掌握 ${grandMastered} / ${grandTotal} 词`)}</p>
               <p className="mt-0.5">
-                {grandDue > 0 ? `待复习 ${grandDue} 词` : "无到期复习"}
+                {grandDue > 0 ? tc(`待复习 ${grandDue} 词`) : tc("无到期复习")}
               </p>
             </div>
           </div>
@@ -228,7 +230,7 @@ export default function UnitsPage() {
       {/* 单元列表 */}
       {units.length === 0 ? (
         <div className="rounded-2xl bg-white p-10 text-center text-[14px] text-[#7C89A5] shadow-sm dark:bg-[#111827] dark:text-[#64748B]">
-          该级别暂无单词数据
+          {tc("该级别暂无单词数据")}
         </div>
       ) : (
         <div className="grid gap-3">
@@ -256,6 +258,7 @@ function UnitCard({
   level: string;
 }) {
   const router = useRouter();
+  const { tc } = useLocale();
   const completed = unit.completed;
   const started = unit.learned > 0;
   const locked = !unit.unlocked;
@@ -281,7 +284,7 @@ function UnitCard({
       {/* 状态徽章 */}
       {completed ? (
         <span className="absolute right-4 top-4 rounded-full bg-[#ECFDF5] px-2.5 py-1 text-[11px] font-semibold text-[#15803D] dark:bg-[#052E16] dark:text-[#4ADE80]">
-          ✓ 已完成
+          {tc("✓ 已完成")}
         </span>
       ) : locked ? (
         <span className="absolute right-4 top-4 flex items-center gap-1 rounded-full bg-[#F1F5F9] px-2.5 py-1 text-[11px] font-semibold text-[#94A3B8] dark:bg-[#1E293B] dark:text-[#475569]">
@@ -289,7 +292,7 @@ function UnitCard({
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
-          未解锁
+          {tc("未解锁")}
         </span>
       ) : null}
 
@@ -311,7 +314,7 @@ function UnitCard({
               : "text-[#17213C] group-hover:text-[#2563EB] dark:text-[#E2E8F0] dark:group-hover:text-[#60A5FA]"
           }`}
         >
-          {unit.name}
+          {tc(unit.name)}
         </h3>
       </div>
 
@@ -334,18 +337,18 @@ function UnitCard({
 
       <div className="flex items-center justify-between text-[12px] text-[#7C89A5] dark:text-[#64748B]">
         <span>
-          {unit.mastered}/{unit.total} 词
+          {unit.mastered}/{unit.total} {tc("词")}
         </span>
         <span className={`font-medium ${locked ? "" : "text-[#2563EB] dark:text-[#60A5FA]"}`}>
           {locked
-            ? "完成上一单元解锁"
+            ? tc("完成上一单元解锁")
             : completed
-              ? "巩固复习 →"
+              ? tc("巩固复习 →")
               : started
                 ? unit.due > 0
-                  ? `${unit.due} 词待复习 →`
-                  : "继续练习 →"
-                : "开始学习 →"}
+                  ? tc(`${unit.due} 词待复习 →`)
+                  : tc("继续练习 →")
+                : tc("开始学习 →")}
         </span>
       </div>
     </motion.button>
