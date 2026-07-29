@@ -44,7 +44,13 @@ export interface Checkpoint {
   quizTotal: number;
   quizAnswered: number;
   quizStats: { correct: number; wrong: number };
-  quizWrongCounts: Record<string, number>;
+  /**
+   * 测试阶段每词的答错计数（决定最终 SM-2 quality）。
+   * 自 VERSION=1 起必存；标记为可选是为了在类型层面承认：若将来升级 schema 后
+   * 意外加载了旧版存档（理论上不会发生，因为 loadCheckpoint 已按 version 硬判），
+   * 此处不会强制要求该字段存在。恢复侧默认 fallback 为空对象即可。
+   */
+  quizWrongCounts?: Record<string, number>;
 }
 
 const VERSION = 1;
