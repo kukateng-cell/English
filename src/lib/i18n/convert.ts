@@ -27,8 +27,8 @@ let hantInitFailed = false;
 /**
  * 取得「简→繁」转换函数。失败时回退为「不转换」（确保站点永远可用）。
  *
- * 注意：opencc-js 的 Converter API 在不同版本有差异；这里用最稳的写法——
- *   Converter({ from: 'cn', to: 'tw' }) 产出可 .toPlain() 的转换器。
+ * 注意：opencc-js 的 Converter API 在不同版本有差异；这里按当前类型与实现，
+ *   将 Converter({ from: "cn", to: "tw" }) 作为 (s: string) => string 直接调用。
  */
 function getHantConverter(): (s: string) => string {
   if (hantConverter) return hantConverter;

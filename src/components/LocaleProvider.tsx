@@ -87,14 +87,14 @@ export function LocaleProvider({ children, cookie }: LocaleProviderProps) {
         const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
         if (stored) {
           const next = normalizeLocale(stored);
-          if (next !== locale) setLocaleState(next);
+          setLocaleState((prev) => (prev === next ? prev : next));
         }
       } catch {
         // localStorage 不可用（隐私模式等）→ 维持 cookie/预设值。
       }
       setMounted(true);
     })();
-  }, [locale]);
+  }, []);
 
   // 把语言同步到 <html lang> 与 cookie（SSR 首帧由 layout 的 lang 属性提供，
   // 这里在挂载后与切换时接管）。localStorage 也在 setLocale 时写入。
