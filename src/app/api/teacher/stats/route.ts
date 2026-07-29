@@ -8,40 +8,80 @@ export async function GET() {
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
-    // 只在 DB 侧统计「已掌握」数量（interval > 21），用 _count + where 下推，
-    // 避免把每个学生的全部 Review 行读进内存再 filter。
+    // ── 1. 学生基础数据（含 totalReviews 计数） ──
     const students = await prisma.user.findMany({
       where: { role: ROLES.STUDENT },
       select: {
         id: true,
         name: true,
         email: true,
-        _count: {
-          select: { reviews: { where: { interval: { gt: 21 } } } },
-        },
+        _count: { select: { reviews: true } },
       },
     });
 
+    // ── 2. 单词总数 & 等级分布 ──
     const totalWords = await prisma.word.count();
     const wordsByLevel = await prisma.word.groupBy({ by: ["level"], _count: true });
 
-    const levelWordCounts: Record<string, number> = {};
-    for (const l of wordsByLevel) levelWordCounts[l.level] = l._count;
-
-    // 每个学生的掌握情况（mastered 已由 DB 聚合得出，无需内存过滤）
-    const studentStats = students.map((s) => {
-      const masteredCount = s._count.reviews;
-      return {
-        name: s.name,
-        email: s.email,
-        mastered: masteredCount,
-        progress: totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0,
-      };
+    // ── 3. 已掌握词汇（interval > 21），与 /api/teacher/students 使用完全相同的
+    //      查询方式，保证两端的「已掌握」统计结果在任意时刻一致。
+    const masteredRows = await prisma.review.findMany({
+      where: { user: { role: ROLES.STUDENT }, interval: { gt: 21 } },
+      select: {
+        userId: true,
+        word: { select: { level: true } },
+      },
     });
 
-    const totalMastered = studentStats.reduce((sum, s) => sum + s.mastered, 0);
+    // 按 userId 聚合「已掌握」总数
+    const masteredByUser = new Map<string, number>();
+    // 按 (userId, level) 聚合「已掌握」数
+    const masteredByUserLevel = new Map<string, number>();
+    for (const r of masteredRows) {
+      masteredByUser.set(r.userId, (masteredByUser.get(r.userId) ?? 0) + 1);
+      const lvl = r.word.level as string;
+      const key = `${r.userId}::${lvl}`;
+      masteredByUserLevel.set(key, (masteredByUserLevel.get(key) ?? 0) + 1);
+    }
 
-    // 最近活跃（按复习记录排序）
+    // ── 4. 各等级已掌握总数（所有学生汇总） ──
+    const masteredByLevel = new Map<string, number>();
+    for (const r of masteredRows) {
+      const lvl = r.word.level as string;
+      masteredByLevel.set(lvl, (masteredByLevel.get(lvl) ?? 0) + 1);
+    }
+
+    const byLevel = wordsByLevel.map((l) => ({
+      level: l.level,
+      mastered: masteredByLevel.get(l.level) ?? 0,
+      total: l._count,
+    }));
+
+    // ── 5. 今日活跃学生数（当天有 lastReviewedAt 的学生） ──
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const activeToday = await prisma.review.groupBy({
+      by: ["userId"],
+      where: {
+        lastReviewedAt: { gte: todayStart },
+        user: { role: ROLES.STUDENT },
+      },
+    });
+
+    // ── 6. 汇总统计 ──
+    const totalMastered = [...masteredByUser.values()].reduce((s, v) => s + v, 0);
+    const studentStats = students.map((s) => {
+      const mastered = masteredByUser.get(s.id) ?? 0;
+      return {
+        progress: totalWords > 0 ? Math.round((mastered / totalWords) * 100) : 0,
+      };
+    });
+    const avgProgress =
+      students.length > 0
+        ? Math.round(studentStats.reduce((s, st) => s + st.progress, 0) / students.length)
+        : 0;
+
+    // ── 7. 最近活跃学生（最近有复习记录的） ──
     const recentReviews = await prisma.review.findMany({
       where: {
         user: { role: ROLES.STUDENT },
@@ -75,16 +115,10 @@ export async function GET() {
 
     return NextResponse.json({
       totalStudents: students.length,
-      activeToday: recentActivity.length,
+      activeToday: activeToday.length,
       totalWordsMastered: totalMastered,
-      avgProgress: students.length > 0
-        ? Math.round(studentStats.reduce((s, st) => s + st.progress, 0) / students.length)
-        : 0,
-      byLevel: wordsByLevel.map((l) => ({
-        level: l.level,
-        mastered: 0,
-        total: l._count,
-      })),
+      avgProgress,
+      byLevel,
       recentActivity,
     });
   } catch {
