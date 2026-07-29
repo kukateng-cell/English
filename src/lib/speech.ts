@@ -59,11 +59,19 @@ function refreshVoice() {
   }
 }
 
-if (typeof window !== "undefined" && "speechSynthesis" in window) {
+/** 初始化语音引擎：挑选缓存 voice + 注册 voiceschanged 监听。
+ *  仅应在客户端调用（warmUpSpeech / 各组件 useEffect 中触发）。
+ *  注：不放在模块顶层，避免 SSR 期间评估任何 speechSynthesis 相关代码
+ *  （即使有 typeof window 守卫，模块级副作用在 Next.js 构建期仍会被触及，
+ *   且 onvoiceschanged 赋值在 Node 中无意义）。 */
+function initSpeech() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   refreshVoice();
-  // voices 是异步加载的（尤其 Chrome），监听变化重新挑选
   window.speechSynthesis.onvoiceschanged = refreshVoice;
 }
+
+/** 标记是否已初始化过，避免重复注册监听。 */
+let initialized = false;
 
 /**
  * 预热语音引擎。建议在用户首次交互（如进入页面、第一次点击）时调用，
@@ -71,6 +79,10 @@ if (typeof window !== "undefined" && "speechSynthesis" in window) {
  */
 export function warmUpSpeech() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  if (!initialized) {
+    initSpeech();
+    initialized = true;
+  }
   refreshVoice();
   // 触发一次静音朗读，强制引擎就绪
   try {
