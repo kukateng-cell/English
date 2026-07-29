@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { speakEnglish } from "@/lib/speech";
+import { useLocale } from "@/components/LocaleProvider";
 
 export interface QuizOption {
   id: string;
@@ -35,6 +36,7 @@ const cardMotion = {
 
 export default function QuizCard({ question, onAnswer }: QuizCardProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { tc } = useLocale();
   const answered = selectedId !== null;
   const isEnZh = question.direction === "en-zh";
 
@@ -59,7 +61,7 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
       {/* 题干标签 */}
       <div className="mb-4 text-center">
         <span className="inline-block rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-          {isEnZh ? "看英文，选中文" : "看中文，选英文"}
+          {isEnZh ? tc("看英文，选中文") : tc("看中文，选英文")}
         </span>
       </div>
 
@@ -83,7 +85,7 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
             <button
               onClick={speak}
               className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-lg transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/30"
-              aria-label="发音"
+              aria-label={tc("发音")}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
@@ -94,7 +96,7 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
           </>
         ) : (
           <p className="text-center text-[26px] font-semibold leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">
-            {question.word.definition}
+            {tc(question.word.definition)}
           </p>
         )}
       </motion.div>
@@ -147,7 +149,7 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
                 {label}
               </span>
 
-              <span className="flex-1">{opt.text}</span>
+              <span className="flex-1">{tc(opt.text)}</span>
 
               {/* 反馈图标 */}
               {answered && isCorrect && (
@@ -181,10 +183,10 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
           className="mt-5 text-center text-[14px]"
         >
           {selectedId === question.correctId ? (
-            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">✓ 答对了！</span>
+            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">{tc("✓ 答对了！")}</span>
           ) : (
             <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">
-              ✕ 答错了，这个词稍后会再考你一次
+              {tc("✕ 答错了，这个词稍后会再考你一次")}
             </span>
           )}
         </motion.p>

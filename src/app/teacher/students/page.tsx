@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
+import { useLocale } from "@/components/LocaleProvider";
 
 interface StudentItem {
   id: string;
@@ -17,6 +18,7 @@ interface StudentItem {
 }
 
 export default function TeacherStudentsPage() {
+  const { tc } = useLocale();
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,16 +69,16 @@ export default function TeacherStudentsPage() {
     >
       <div>
         <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-          学生进度
+          {tc("学生进度")}
         </h1>
         <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
-          共 {students.length} 名学生
+          {tc(`共 ${students.length} 名学生`)}
         </p>
       </div>
 
       {students.length === 0 ? (
         <div className="rounded-2xl border border-[#E7EDF8] bg-white p-10 text-center text-[14px] text-[#7C89A5] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]">
-          暂无学生数据
+          {tc("暂无学生数据")}
         </div>
       ) : (
         <div className="space-y-3">
@@ -98,7 +100,7 @@ export default function TeacherStudentsPage() {
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-                        {student.name || "未设置姓名"}
+                        {student.name || tc("未设置姓名")}
                       </p>
                       <p className="truncate text-[13px] text-[#7C89A5] dark:text-[#64748B]">
                         {student.email}
@@ -108,7 +110,7 @@ export default function TeacherStudentsPage() {
                   <div className="shrink-0 text-right">
                     <p className="text-[18px] font-bold text-[#2563EB] dark:text-[#60A5FA]">{student.progress}%</p>
                     <p className="text-[12px] text-[#7C89A5] dark:text-[#64748B]">
-                      {student.masteredWords}/{student.totalWords} 词
+                      {tc(`${student.masteredWords}/${student.totalWords} 词`)}
                     </p>
                   </div>
                 </div>
@@ -131,11 +133,11 @@ export default function TeacherStudentsPage() {
                     animate={{ opacity: 1, height: "auto" }}
                     className="mt-4 space-y-3 border-t border-[#E7EDF8] pt-4 dark:border-[#1E293B]"
                   >
-                    <p className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">各等级详情</p>
+                    <p className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("各等级详情")}</p>
                     {student.byLevel.map((l) => (
                       <div key={l.level} className="space-y-1">
                         <div className="flex items-center justify-between text-[13px]">
-                          <span className="font-medium text-[#17213C] dark:text-[#E2E8F0]">{l.level} 级</span>
+                          <span className="font-medium text-[#17213C] dark:text-[#E2E8F0]">{tc(`${l.level} 级`)}</span>
                           <span className="text-[#7C89A5] dark:text-[#64748B]">
                             {l.mastered}/{l.total} · {l.progress}%
                           </span>
@@ -149,7 +151,7 @@ export default function TeacherStudentsPage() {
                       </div>
                     ))}
                     <div className="flex items-center gap-3 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
-                      <span>📝 共复习 {student.totalReviews} 次</span>
+                      <span>{tc(`📝 共复习 ${student.totalReviews} 次`)}</span>
                     </div>
                   </motion.div>
                 )}

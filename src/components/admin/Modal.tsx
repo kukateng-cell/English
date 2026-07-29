@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, type ReactNode } from "react";
+import { useLocale } from "@/components/LocaleProvider";
 
 interface ModalProps {
   open: boolean;
@@ -15,6 +16,7 @@ interface ModalProps {
  * 点击遮罩或按 Esc 关闭。
  */
 export default function Modal({ open, onClose, title, children }: ModalProps) {
+  const { tc } = useLocale();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -55,7 +57,7 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
               <button
                 onClick={onClose}
                 className="flex h-8 w-8 items-center justify-center rounded-full text-[#7C89A5] transition hover:bg-[#F1F5F9] dark:text-[#64748B] dark:hover:bg-[#1E293B]"
-                aria-label="关闭"
+                aria-label={tc("关闭")}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M18 6 6 18M6 6l12 12" />

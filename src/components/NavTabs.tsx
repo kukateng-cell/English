@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 export interface TabItem {
   href: string;
+  /** 显示文字（已由父组件决定是否翻译——父组件可传入 tc() 后的值）。 */
   label: string;
 }
 
@@ -19,6 +20,9 @@ interface NavTabsProps {
  *   精确匹配 href；
  *   若为首页（/admin 或 /teacher），仅精确匹配；
  *   子路由（如 /admin/users）不会激活首页标签。
+ *
+ * 注意：label 是纯文本，由父组件（服务端 Layout）传入已翻译的字符串
+ * （通过 convertForServer / tc()），因此 NavTabs 自身不处理 i18n。
  */
 export default function NavTabs({ tabs }: NavTabsProps) {
   const pathname = usePathname();

@@ -14,6 +14,7 @@ import QuizCard, {
 } from "@/components/QuizCard";
 import { warmUpSpeech } from "@/lib/speech";
 import ErrorBanner from "@/components/ErrorBanner";
+import { useLocale } from "@/components/LocaleProvider";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import {
   loadCheckpoint,
@@ -175,6 +176,7 @@ function getUnitKey(): string {
 
 /** 顶部「已恢复上次进度」轻提示。 */
 function ResumeToast({ visible }: { visible: boolean }) {
+  const { tc } = useLocale();
   return (
     <AnimatePresence>
       {visible && (
@@ -184,7 +186,7 @@ function ResumeToast({ visible }: { visible: boolean }) {
           exit={{ opacity: 0, y: -12 }}
           className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-[#17213C]/90 px-5 py-2.5 text-[13px] font-medium text-white shadow-lg backdrop-blur dark:bg-white/90 dark:text-[#17213C]"
         >
-          💾 已恢复上次进度，继续答题吧
+          💾 {tc("已恢复上次进度，继续答题吧")}
         </motion.div>
       )}
     </AnimatePresence>
@@ -194,6 +196,7 @@ function ResumeToast({ visible }: { visible: boolean }) {
 export default function StudyPage() {
   const { status } = useSession();
   const router = useRouter();
+  const { tc } = useLocale();
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [pool, setPool] = useState<PoolWord[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -514,7 +517,7 @@ export default function StudyPage() {
       <div className="flex min-h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
-          <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">加载中...</span>
+          <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">{tc("加载中...")}</span>
         </div>
       </div>
     );
@@ -593,19 +596,19 @@ export default function StudyPage() {
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
         </div>
-        <h2 className="mb-2 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">单元尚未解锁</h2>
+        <h2 className="mb-2 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">{tc("单元尚未解锁")}</h2>
         <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
-          请先回到单元列表，按顺序把前面的单元认字率练到 80% 以上，即可解锁这个单元。
+          {tc("请先回到单元列表，按顺序把前面的单元认字率练到 80% 以上，即可解锁这个单元。")}
         </p>
         <div className="flex items-center gap-6 text-[14px]">
           <Link
             href="/units"
             className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
           >
-            ← 返回单元列表
+            {tc("← 返回单元列表")}
           </Link>
           <Link href="/" className="text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]">
-            返回首页
+            {tc("返回首页")}
           </Link>
         </div>
       </div>
@@ -642,7 +645,7 @@ export default function StudyPage() {
         {unitCategory && (
           <div className="mx-auto mb-4 flex w-full max-w-md px-5">
             <div className="flex items-center gap-2 rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-              <span>{unitCategory}</span>
+              <span>{tc(unitCategory)}</span>
             </div>
           </div>
         )}
@@ -650,9 +653,9 @@ export default function StudyPage() {
         {/* 进度条 */}
         <div className="mx-auto mb-5 w-full max-w-md px-5">
           <div className="mb-2 flex items-center justify-between text-[13px]">
-            <span className="font-medium text-[#2563EB] dark:text-[#60A5FA]">📝 测试中</span>
+            <span className="font-medium text-[#2563EB] dark:text-[#60A5FA]">{tc("📝 测试中")}</span>
             <span className="text-[#7C89A5] dark:text-[#64748B]">
-              剩余 {remaining} 题 · 答对 {quizStats.correct} · 答错 {quizStats.wrong}
+              {tc(`剩余 ${remaining} 题 · 答对 ${quizStats.correct} · 答错 ${quizStats.wrong}`)}
             </span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
@@ -717,18 +720,18 @@ export default function StudyPage() {
           </svg>
         </div>
         <h2 className="mb-2 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">
-          {hasQuiz ? "测试完成！" : "全部完成！"}
+          {hasQuiz ? tc("测试完成！") : tc("全部完成！")}
         </h2>
         {hasQuiz ? (
           <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
-            本次共 {knownWords.length + unknownWords.length} 词，你认识{" "}
-            {knownWords.length} 个、不认识 {unknownWords.length} 个。
+            {tc(`本次共 ${knownWords.length + unknownWords.length} 词，你认识`)}{" "}
+            {knownWords.length}{tc(` 个、不认识 `)}{unknownWords.length}{tc(` 个。`)}
             <br />
-            测试答对 {quizStats.correct} 题、答错 {quizStats.wrong} 题，全部攻克！
+            {tc(`测试答对 ${quizStats.correct} 题、答错 ${quizStats.wrong} 题，全部攻克！`)}
           </p>
         ) : (
           <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
-            今天没有更多单词了，明天再来复习吧
+            {tc("今天没有更多单词了，明天再来复习吧")}
           </p>
         )}
         <div className="flex flex-col items-center gap-3">
@@ -736,20 +739,20 @@ export default function StudyPage() {
             onClick={restart}
             className="flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
           >
-            {unitCategory ? "再练一轮" : "刷新单词"}
+            {unitCategory ? tc("再练一轮") : tc("刷新单词")}
           </button>
           <div className="flex items-center gap-6 text-[14px]">
             <Link
               href="/units"
               className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
             >
-              ← 返回单元列表
+              {tc("← 返回单元列表")}
             </Link>
             <Link
               href="/"
               className="text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
             >
-              返回首页
+              {tc("返回首页")}
             </Link>
           </div>
         </div>
@@ -778,7 +781,7 @@ export default function StudyPage() {
 
         <div className="text-center">
           <span className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            今日学习 · 认识这个单词吗？
+            {tc("今日学习 · 认识这个单词吗？")}
           </span>
         </div>
 
@@ -790,10 +793,10 @@ export default function StudyPage() {
         <div className="mx-auto mb-4 flex w-full max-w-md px-5">
           <div className="flex items-center gap-2 rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
             <Link href="/units" className="hover:underline">
-              ← 单元列表
+              {tc("← 单元列表")}
             </Link>
             <span className="opacity-40">·</span>
-            <span>{unitCategory}</span>
+            <span>{tc(unitCategory)}</span>
           </div>
         </div>
       )}
@@ -810,9 +813,9 @@ export default function StudyPage() {
             </span>
           </div>
           <div className="flex items-center gap-3 text-[13px]">
-            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">认识 {knownWords.length}</span>
+            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">{tc("认识")} {knownWords.length}</span>
             <span className="text-[#E7EDF8] dark:text-[#1E293B]">·</span>
-            <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">不认识 {unknownWords.length}</span>
+            <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">{tc("不认识")} {unknownWords.length}</span>
           </div>
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
