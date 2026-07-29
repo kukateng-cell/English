@@ -91,6 +91,40 @@ export const UNIT_COMPLETION_RATIO = 0.8;
 /** 级别顺序（用于解锁判定与排序）。未列出的级别排在已知级别之后。 */
 export const LEVEL_ORDER: string[] = ["A1", "A2", "B1", "B2"];
 
+/**
+ * 所有合法的级别（与 prisma/schema.prisma 的 enum Level 保持一致）。
+ *
+ * 这里用本地 `as const` 字面量联合，【不】从 @/generated/prisma 导入 Level：
+ * 因为本地可能连 SQLite（schema.sqlite.prisma 下 Word.level 是 String，不导出
+ * Level 枚举），直接 import 会让本地类型检查报错。LevelCode 是「字面量联合」，
+ * 既能赋给 Postgres 的 Level 枚举、也能赋给 SQLite 的 String，因此可作为
+ * 跨 schema 的统一级别类型，无需任何强转。
+ */
+export const LEVELS = ["A1", "A2", "B1", "B2"] as const;
+export type LevelCode = (typeof LEVELS)[number];
+
+/**
+ * 把任意输入规范化为合法级别字面量；空值/非法值回退为 A1。
+ *
+ * 返回 LevelCode（字面量联合），可直接赋给 Prisma 的 where/create/update
+ * 的 level 字段（Postgres enum / SQLite string 均可），无需 `as Level`、
+ * `as unknown as Level` 或 `as Prisma.WordXxxInput["level"]` 这类强转。
+ */
+export function normalizeLevel(s: unknown): LevelCode {
+  const v = String(s ?? "A1").toUpperCase();
+  if (v === "A1" || v === "A2" || v === "B1" || v === "B2") return v;
+  return "A1";
+}
+
+/**
+ * 同 normalizeLevel，但当输入为空（null/undefined/空串）时返回 null，
+ * 用于 PATCH 语义：「未传 level」= 不更新该字段。
+ */
+export function normalizeLevelOrNull(s: unknown): LevelCode | null {
+  if (s == null || s === "") return null;
+  return normalizeLevel(s);
+}
+
 /** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
 export function isUnitCompleted(total: number, mastered: number): boolean {
   return total > 0 && mastered / total >= UNIT_COMPLETION_RATIO;
