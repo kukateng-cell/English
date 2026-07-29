@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { signOut } from "next-auth/react";
+import { useLocale } from "@/components/LocaleProvider";
 
 /**
  * 首次登入强制重设密码页面。
@@ -20,6 +21,7 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { tc } = useLocale();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,16 +86,16 @@ export default function ResetPasswordPage() {
         </div>
 
         <h1 className="mb-1 text-center text-[24px] font-bold text-[#17213C] dark:text-[#E2E8F0]">
-          重设密码
+          {tc("重设密码")}
         </h1>
         <p className="mb-6 text-center text-[14px] text-[#7C89A5] dark:text-[#94A3B8]">
-          首次登录需要设置新密码后才能继续使用
+          {tc("首次登录需要设置新密码后才能继续使用")}
         </p>
 
         {success ? (
           <div className="rounded-2xl bg-[#ECFDF3] px-4 py-6 text-center text-[15px] text-[#16A34A] dark:bg-[#0B2D1A] dark:text-[#4ADE80]">
             <div className="mb-2 text-[40px] leading-none">✓</div>
-            密码已更新，正在进入系统…
+            {tc("密码已更新，正在进入系统…")}
           </div>
         ) : (
           <form
@@ -104,7 +106,7 @@ export default function ResetPasswordPage() {
             <div>
               <input
                 type="password"
-                placeholder="当前密码"
+                placeholder={tc("当前密码")}
                 value={currentPassword}
                 onChange={(e) => {
                   setCurrentPassword(e.target.value);
@@ -118,7 +120,7 @@ export default function ResetPasswordPage() {
             <div>
               <input
                 type="password"
-                placeholder="新密码（至少 8 个字符）"
+                placeholder={tc("新密码（至少 8 个字符）")}
                 value={newPassword}
                 onChange={(e) => {
                   setNewPassword(e.target.value);
@@ -133,7 +135,7 @@ export default function ResetPasswordPage() {
             <div>
               <input
                 type="password"
-                placeholder="再次输入新密码"
+                placeholder={tc("再次输入新密码")}
                 value={confirmPassword}
                 onChange={(e) => {
                   setConfirmPassword(e.target.value);
@@ -154,10 +156,10 @@ export default function ResetPasswordPage() {
               {loading ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  提交中...
+                  {tc("提交中...")}
                 </span>
               ) : (
-                "设置新密码"
+                tc("设置新密码")
               )}
             </button>
           </form>
@@ -165,7 +167,7 @@ export default function ResetPasswordPage() {
 
         {error && (
           <div className="mt-4 rounded-2xl bg-[#FEF2F2] px-4 py-3 text-center text-[14px] text-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]">
-            {error}
+            {tc(error)}
           </div>
         )}
 
@@ -175,7 +177,7 @@ export default function ResetPasswordPage() {
             onClick={() => signOut({ callbackUrl: "/login" })}
             className="text-[14px] text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
           >
-            退出登录
+            {tc("退出登录")}
           </button>
         </div>
       </div>

@@ -3,6 +3,7 @@
 import { motion, useMotionValue, useTransform } from "framer-motion";
 import type { ReactNode } from "react";
 import { speakEnglish } from "@/lib/speech";
+import { useLocale } from "@/components/LocaleProvider";
 
 interface WordCardProps {
   word: { term: string; phonetic?: string | null };
@@ -21,6 +22,7 @@ export default function WordCard({
   children,
   disabled,
 }: WordCardProps) {
+  const { tc } = useLocale();
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-250, 0, 250], [-8, 0, 8]);
   const opacityLeft = useTransform(x, [-200, -SWIPE_THRESHOLD, 0], [1, 1, 0]);
@@ -48,13 +50,13 @@ export default function WordCard({
           style={{ opacity: opacityLeft }}
           className="text-[15px] font-semibold text-[#EF6B6B]"
         >
-          ← 不认识
+          ← {tc("不认识")}
         </motion.span>
         <motion.span
           style={{ opacity: opacityRight }}
           className="text-[15px] font-semibold text-[#22C55E]"
         >
-          认识 ✓
+          {tc("认识")} ✓
         </motion.span>
       </div>
 
@@ -84,7 +86,7 @@ export default function WordCard({
         <button
           onClick={handleSpeak}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-lg transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/30"
-          aria-label="发音"
+          aria-label={tc("发音")}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
@@ -102,7 +104,7 @@ export default function WordCard({
             }}
             className="flex h-9 items-center gap-1 rounded-full bg-[#FEF2F2] px-4 text-[13px] font-medium text-[#EF6B6B] transition active:scale-[0.96] dark:bg-[#2D0B0B]"
           >
-            ← 不认识
+            ← {tc("不认识")}
           </button>
           <button
             onClick={(e) => {
@@ -111,7 +113,7 @@ export default function WordCard({
             }}
             className="flex h-9 items-center gap-1 rounded-full bg-[#ECFDF5] px-4 text-[13px] font-medium text-[#22C55E] transition active:scale-[0.96] dark:bg-[#052E16]"
           >
-            认识 ✓
+            {tc("认识")} ✓
           </button>
         </div>
       </motion.div>
