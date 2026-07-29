@@ -1,29 +1,50 @@
-import Link from "next/link";
+"use client";
 
-/** 导航标签项。label 由调用方决定是否已翻译（服务端组件可传入 tc() 后的值）。 */
-export interface NavTabItem {
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+export interface TabItem {
   href: string;
+  /** 显示文字（已由父组件决定是否翻译——父组件可传入 tc() 后的值）。 */
   label: string;
 }
 
+interface NavTabsProps {
+  tabs: TabItem[];
+}
+
 /**
- * 可复用的导航标签栏（用于管理后台 / 教师工作台等顶部切换）。
+ * 胶囊形导航标签栏——自动根据当前路由高亮 active 状态。
  *
- * 这是一个服务端组件（纯展示，无交互），标签文案由父组件传入，
- * 因此父组件可以自由使用 tc() / convertForServer 等 i18n 函数。
+ * 匹配规则：
+ *   精确匹配 href；
+ *   若为首页（/admin 或 /teacher），仅精确匹配；
+ *   子路由（如 /admin/users）不会激活首页标签。
+ *
+ * 注意：label 是纯文本，由父组件（服务端 Layout）传入已翻译的字符串
+ * （通过 convertForServer / tc()），因此 NavTabs 自身不处理 i18n。
  */
-export default function NavTabs({ tabs }: { tabs: NavTabItem[] }) {
+export default function NavTabs({ tabs }: NavTabsProps) {
+  const pathname = usePathname();
+
   return (
     <nav className="mx-auto mb-6 flex w-full max-w-[420px] gap-1 px-5">
-      {tabs.map((tab) => (
-        <Link
-          key={tab.href}
-          href={tab.href}
-          className="rounded-full px-4 py-2 text-[13px] font-medium text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
-        >
-          {tab.label}
-        </Link>
-      ))}
+      {tabs.map((tab) => {
+        const isActive = pathname === tab.href;
+        return (
+          <Link
+            key={tab.href}
+            href={tab.href}
+            className={`rounded-full px-4 py-2 text-[13px] font-medium transition ${
+              isActive
+                ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-white shadow-[0_4px_12px_rgba(37,99,235,0.15)]"
+                : "text-[#7C89A5] hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
+            }`}
+          >
+            {tab.label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }
