@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import Providers from "@/components/Providers";
 import {
-  DEFAULT_LOCALE,
   LOCALE_STORAGE_KEY,
   localeToHtmlLang,
   normalizeLocale,
