@@ -267,6 +267,52 @@ enum Level {
 
 > **ECDICT 难度筛选**：用 `tag` 字段过滤出 `gaozhong`(高中) / `cet4`(四级，≈高考难度)，对应本项目 A1–B1 范围。
 
+### 4.6 迁移历史与正确指令
+
+#### 当前迁移历史（`prisma/migrations/`）
+
+| 迁移 | 作用 |
+|------|------|
+| `20260724030000_init` | 建表（`User` / `Word` / `Review`）+ 建 `Level`（A1/A2/B1）、`Role`（STUDENT/TEACHER/ADMIN）enum + `User.role` 字段 |
+| `20260724030001_add_user_role` | **冗余 NO-OP**（见下方说明） |
+| `20260725030000_add_user_token_version` | 加 `User.tokenVersion` |
+| `20260728030000_add_user_must_change_password` | 加 `User.mustChangePassword` |
+| `20260728030001_add_b2_level` | `Level` enum 加 `B2` |
+
+#### 已修复的迁移重复问题（2026-07-30）
+
+`init` 迁移已经创建了 `Role` enum 与 `User.role` 字段，但 `add_user_role` 又重复执行了一遍相同的 `CREATE TYPE "Role"` + `ADD COLUMN role`。这在**全新数据库**上跑 `prisma migrate deploy` 时会报：
+
+```text
+ERROR: type "Role" already exists
+ERROR: column "role" of relation "User" already exists
+```
+
+**修正方式（结构性整理，不是用 `IF NOT EXISTS` 绕过）**：`Role` enum 与 `User.role` 字段只在 `init` 中创建一次（唯一来源）；`add_user_role` 的 SQL 全部移除，仅保留说明注释（NO-OP）。这样：
+
+1. **全新数据库**：`init` 建好 `Role` / `role`，`add_user_role` 为空 → 不再冲突。
+2. **既有正式数据库**：`_prisma_migrations` 已记录该迁移为 applied，Prisma 不会重新执行已套用迁移，状态保持一致，不受影响。
+3. **迁移历史完整保留**：不删文件夹、不改 `_prisma_migrations` 记录。
+
+> 已在全新空 PostgreSQL 上实测：5 个迁移可由头到尾全部成功，`prisma migrate status` 显示 `Database schema is up to date!`，seed 也能导入全部单词（5532 词）。
+
+#### 正确指令（新环境部署）
+
+```powershell
+# 1. 生成 Prisma Client（每次改 schema 后必做）
+npx prisma generate
+
+# 2. 建表 —— 用 migrate，不要用 db push
+npx prisma migrate deploy     # 或 npm run db:deploy
+
+# 3. 导入数据 + 账号（需先设 INITIAL_ADMIN_PASSWORD）
+npm run seed
+```
+
+> ⚠️ **不要用 `npx prisma db push` 建表**：它只改表结构、不写迁移历史，会让 `_prisma_migrations` 与真实库脱节（本项目早期正是因此出现 migration 重复）。
+>
+> ⚠️ migrate / seed 必须用 **Session pooler（`MIGRATE_URL`，5432，带 `?pgbouncer=true`）**；运行时才用 **Transaction pooler（`DATABASE_URL`，6543）**。详见 `DEPLOY.md`。
+
 ---
 
 ## 五、创新点

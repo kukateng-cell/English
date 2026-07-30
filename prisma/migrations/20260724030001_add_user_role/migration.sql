@@ -1,5 +1,23 @@
--- CreateEnum
-CREATE TYPE "Role" AS ENUM ('STUDENT', 'TEACHER', 'ADMIN');
-
--- AlterTable
-ALTER TABLE "User" ADD COLUMN     "role" "Role" NOT NULL DEFAULT 'STUDENT';
+-- ──────────────────────────────────────────────────────────────────────────
+-- 冗余迁移（NO-OP）
+-- ──────────────────────────────────────────────────────────────────────────
+-- 这个迁移最初是为了给 User 表新增 role 字段与 Role enum。但相同的
+-- 「CREATE TYPE "Role"」与「User.role 字段」已经在前一个迁移
+-- `20260724030000_init` 中一并建立。因此在全新的数据库上依序执行
+-- `prisma migrate deploy` 时，本迁移会重复执行：
+--     CREATE TYPE "Role" AS ENUM ('STUDENT', 'TEACHER', 'ADMIN');
+--     ALTER TABLE "User" ADD COLUMN "role" "Role" NOT NULL DEFAULT 'STUDENT';
+-- 导致错误：
+--     ERROR: type "Role" already exists
+--     ERROR: column "role" of relation "User" already exists
+--
+-- 修正方式（结构性整理，不是用 IF NOT EXISTS 绕过）：
+-- Role enum 与 User.role 字段只在 `init` 中创建一次（唯一来源），
+-- 本迁移的 SQL 全部移除，仅保留这段说明，使：
+--   1. 全新数据库：init 建好 Role / role，本迁移为空 → 不再冲突。
+--   2. 既有正式数据库：_prisma_migrations 已记录本迁移为 applied，
+--      Prisma 不会重新执行已套用迁移，因此状态保持一致，不受影响。
+--   3. 迁移历史完整保留（不删除文件夹、不改动 _prisma_migrations 记录）。
+--
+-- 见 PLAN.md / DEPLOY.md 的迁移说明。
+-- ──────────────────────────────────────────────────────────────────────────
