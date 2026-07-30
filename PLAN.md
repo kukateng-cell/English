@@ -283,7 +283,7 @@ enum Level {
 
 `init` 迁移已经创建了 `Role` enum 与 `User.role` 字段，但 `add_user_role` 又重复执行了一遍相同的 `CREATE TYPE "Role"` + `ADD COLUMN role`。这在**全新数据库**上跑 `prisma migrate deploy` 时会报：
 
-```
+```text
 ERROR: type "Role" already exists
 ERROR: column "role" of relation "User" already exists
 ```
