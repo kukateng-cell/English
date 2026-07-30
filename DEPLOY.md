@@ -24,12 +24,15 @@ flowchart TD
 
 ## 两个数据库连接串（重要）
 
-Prisma 在两种场景用不同的连接方式，所以需要**两个环境变量**：
+Prisma 在两种场景用不同的连接方式，所以需要**两个环境变量**。
+> ⚠️ 新版 Supabase 项目只有 **pooler 域名**（`aws-0-<region>.pooler.supabase.com`），旧的 `db.<REF>.supabase.co` 直连域名已不分配（连接会 `ENOTFOUND`）。所以 migrate/seed 也走 pooler 的 **5432（Session pooler）**，而不是直连。
 
 | 环境变量 | 连接类型 | 端口 | 用在哪 | 为什么 |
 |----------|---------|------|--------|--------|
-| `DATABASE_URL` | **Transaction pooler** | 6543 | `src/lib/prisma.ts`（运行时） | serverless 短连接多，pooler 复用连接，避免耗尽 |
-| `DIRECT_URL`   | **Direct connection** | 5432 | `prisma.config.ts` / `seed.ts`（migrate/seed） | migrate / db push 不支持 pooler，必须直连 |
+| `DATABASE_URL` | **Transaction pooler**（PgBouncer 事务模式） | 6543 | `src/lib/prisma.ts`（运行时） | serverless 短连接多，pooler 复用连接，避免耗尽 |
+| `MIGRATE_URL`  | **Session pooler**（同一个 pooler 域名，5432） | 5432 | `prisma.config.ts` / `seed.ts`（migrate / seed） | Transaction pooler（6543）不支持 DDL / prepared statements，跑 `migrate deploy` / seed 会卡死；**Session pooler（5432，带 `?pgbouncer=true`）支持 DDL** |
+
+两者用户名都是 `postgres.<REF>` 格式（pooler 要求）。`prisma.config.ts` 读取 `MIGRATE_URL ?? DATABASE_URL`，所以本地只要在 `.env.local` 同时设好这两个即可。
 
 ---
 
@@ -51,13 +54,15 @@ Prisma 在两种场景用不同的连接方式，所以需要**两个环境变�
      ```
 
      把 `[YOUR-PASSWORD]` 换成第 2 步设的密码 → 这就是 **`DATABASE_URL`**
-   - 切到 **Direct connection**（或 Session pooler 旁边的 direct）→ 格式类似：
+   - 切到 **Session pooler**（同一个 pooler 域名，端口换成 **5432**，并加 `?pgbouncer=true`）→ 格式类似：
 
      ```text
-     postgresql://postgres:[YOUR-PASSWORD]@db.[REF].supabase.co:5432/postgres
+     postgresql://postgres.[REF]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:5432/postgres?pgbouncer=true
      ```
 
-     同样替换密码 → 这就是 **`DIRECT_URL`**
+     同样替换密码 → 这就是 **`MIGRATE_URL`**（migrate / seed 用）
+
+   > ⚠️ 不要再用旧的 **Direct connection**（`db.[REF].supabase.co:5432`）。新版 Supabase 项目不分配该域名，连接会 `ENOTFOUND` 失败。migrate / seed 统一走 Session pooler（5432）即可。
 
 > 💡 `[REF]` 是项目的短 ID（如 `abcdwxyz...`），在 Settings → General → Reference ID 能看到。
 
@@ -71,8 +76,9 @@ Prisma 在两种场景用不同的连接方式，所以需要**两个环境变�
 
 ```bash
 # 粘贴第 1 步拿到的两个连接串（记得替换密码）
-DATABASE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
-DIRECT_URL="postgresql://postgres:[密码]@db.[REF].supabase.co:5432/postgres"
+DATABASE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase.com:6543/postgres"
+# migrate / seed 用 Session pooler（5432，必须带 ?pgbouncer=true）
+MIGRATE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase.com:5432/postgres?pgbouncer=true"
 
 # NextAuth
 NEXTAUTH_SECRET="用下面命令生成的随机串"
@@ -99,14 +105,20 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 npx prisma generate
 ```
 
-### 2.3 在 Supabase 建表
+### 2.3 在 Supabase 建表（用 migrate，不要用 db push）
 
 ```powershell
-npx prisma db push
+npx prisma migrate deploy
+# 或等价的 npm 脚本：
+npm run db:deploy
 ```
 
-这会用 `DIRECT_URL` 连 Supabase，把 schema（`User` / `Word` / `Review` + `enum Level`）同步上去。
-完成后去 Supabase → **Table Editor** 应该能看到三张表。
+这会用 `MIGRATE_URL`（Session pooler，5432）连 Supabase，按顺序执行 `prisma/migrations/` 里的全部迁移。
+完成后去 Supabase → **Table Editor** 应该能看到 `User` / `Word` / `Review` 三张表，以及 `Level` / `Role` 两个 enum。
+
+> ⚠️ **不要用 `npx prisma db push` 建表**。`db push` 只改表结构、不写迁移历史，会让 `_prisma_migrations` 与真实库结构脱节（本项目早期就是因此出现过 migration 重复 / `migrate status` 不一致等问题）。新环境一律用 `migrate deploy`，保证迁移历史可由空库重放。
+>
+> 已在全新空数据库上实测：5 个迁移可由头到尾全部成功（不再出现 `type "Role" already exists` / `column "role" already exists`），seed 也能正常导入。详见 `PLAN.md` 的「迁移历史」一节。
 
 ### 2.4 导入单词数据 + 账号
 
@@ -157,9 +169,10 @@ git push
    | Name | Value | 说明 |
    |------|-------|------|
    | `DATABASE_URL` | （第 1 步的 Transaction pooler，6543） | 运行时连库 |
-   | `DIRECT_URL` | （第 1 步的 Direct connection，5432） | 构建时 generate 用（可选，但建议加） |
+   | `MIGRATE_URL`  | （第 1 步的 Session pooler，5432，带 `?pgbouncer=true`） | 构建期 / 本地 migrate / seed 用（**可选**：Vercel 构建默认只 `generate`，不同步 schema） |
    | `NEXTAUTH_SECRET` | （和本地一样的那串） | 生产环境要重新生成一串新的也行 |
    | `NEXTAUTH_URL` | `https://你的应用名.vercel.app` | 部署后 Vercel 会给你域名；**首次可先留空或填预计域名，部署拿到真实域名后再回来改** |
+   | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
    | `TEST_ACCOUNT_PASSWORD` | （和本地一样） | 可选 |
 
    > 勾选所有环境（Production / Preview / Development）。
@@ -195,13 +208,18 @@ git push
 
 ## 常见问题
 
-### Q: 为什么要两个连接串（DATABASE_URL + DIRECT_URL）？
+### Q: 为什么要两个连接串（DATABASE_URL + MIGRATE_URL）？
 
-Vercel 是 serverless，每个请求可能新建数据库连接。直接连接（5432）连接数有限（Supabase 免费层约 60 个），高并发会耗尽。**Pooler（6543）** 复用连接，适合 serverless 运行时。但 Prisma 的 `db push` / migrate 不支持 pooler，必须直连。所以分开。
+Vercel 是 serverless，每个请求可能新建数据库连接。**Transaction pooler（6543）** 复用连接，适合 serverless 运行时（但它是 PgBouncer 事务模式，不支持 DDL / prepared statements）。**Session pooler（5432）** 支持完整 DDL，所以 migrate / seed 走它（`MIGRATE_URL`）。两者都是同一个 pooler 域名，只是端口不同；旧版 Supabase 的 `db.<REF>` 直连域名已不可用。
 
 ### Q: 以后改了 schema 怎么同步到 Supabase？
 
-本地改 `prisma/schema.prisma` → `npx prisma db push`（用 `DIRECT_URL`）。Vercel 上 `postinstall` 只生成 Client，不同步 schema。
+1. 本地改 `prisma/schema.prisma`。
+2. 生成迁移：`npx prisma migrate dev --name <说明>`（本地开发库用）；或在已上线库上手写迁移文件 + `npx prisma migrate deploy`。
+3. 重新生成 Client：`npx prisma generate`（**每次改 schema 后必做**，否则 `src/generated/prisma` 过时会引发运行时海异故障）。
+4. Vercel 上 `postinstall` 只 `generate` Client，**不同步 schema**——schema 变更要在本地 / CI 用 `migrate deploy` 先推到 Supabase。
+
+> 切勿用 `npx prisma db push` 同步生产 schema：它不写迁移历史，会造成 `_prisma_migrations` 与真实库脱节。
 
 ### Q: 以后要重新导入单词？
 
@@ -213,4 +231,4 @@ Vercel 是 serverless，每个请求可能新建数据库连接。直接连接�
 
 ### Q: 部署后数据库是空的怎么办？
 
-说明第 2.3（`db push`）或 2.4（`seed`）没在本地对 Supabase 跑过。回第 2 步重做即可——数据是存在 Supabase 里的，Vercel 只是访问它。
+说明第 2.3（`migrate deploy`）或 2.4（`seed`）没在本地对 Supabase 跑过。回第 2 步重做即可——数据是存在 Supabase 里的，Vercel 只是访问它。
