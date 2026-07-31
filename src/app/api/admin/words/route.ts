@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma, Prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 

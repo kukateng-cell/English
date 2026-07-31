@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
-import { ROLES, isRole, type Role } from "@/lib/roles";
+import { ROLES, isRole } from "@/lib/roles";
 
 export async function PATCH(
   req: Request,
