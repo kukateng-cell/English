@@ -6,10 +6,10 @@
  * category 名必须与 seed.ts 解析出的 Word.category 完全一致
  * （seed 用 `### Title (中文)` 中的英文标题，去掉括号）。
  *
- * 注意：这里【不】定义 Level 类型——Prisma 在 Postgres schema 下把
- * Word.level 定义为 `enum Level { A1 A2 B1 B2 }`（见 prisma/schema.prisma），
- * 而在 SQLite 预览 schema 下是 `String`。为避免类型冲突，本文件只用
- * 原生 string 作为级别键，API 层查询时再把 string 转成 Prisma 的 Level。
+ * 注意：这里【不】从 @/generated/prisma 直接 import Level，而是用本地
+ * `as const` 字面量联合——保持 lib 层与 Prisma 生成代码解耦，便于单测
+ * 与纯逻辑复用。LevelCode 与 Prisma 的 enum Level（A1/A2/B1/B2）一致，
+ * 可直接赋给 where/create/update 的 level 字段。
  */
 
 /** A1 级别全部单元（按词表顺序） */
@@ -94,11 +94,9 @@ export const LEVEL_ORDER: string[] = ["A1", "A2", "B1", "B2"];
 /**
  * 所有合法的级别（与 prisma/schema.prisma 的 enum Level 保持一致）。
  *
- * 这里用本地 `as const` 字面量联合，【不】从 @/generated/prisma 导入 Level：
- * 因为本地可能连 SQLite（schema.sqlite.prisma 下 Word.level 是 String，不导出
- * Level 枚举），直接 import 会让本地类型检查报错。LevelCode 是「字面量联合」，
- * 既能赋给 Postgres 的 Level 枚举、也能赋给 SQLite 的 String，因此可作为
- * 跨 schema 的统一级别类型，无需任何强转。
+ * 这里用本地 `as const` 字面量联合而非从 @/generated/prisma 导入 Level：
+ * lib 层尽量不依赖生成代码，便于单测与纯逻辑复用。LevelCode 与 Prisma
+ * 的 enum Level 完全一致，可直接赋给 where/create/update 的 level 字段。
  */
 export const LEVELS = ["A1", "A2", "B1", "B2"] as const;
 export type LevelCode = (typeof LEVELS)[number];
@@ -107,8 +105,8 @@ export type LevelCode = (typeof LEVELS)[number];
  * 把任意输入规范化为合法级别字面量；空值/非法值回退为 A1。
  *
  * 返回 LevelCode（字面量联合），可直接赋给 Prisma 的 where/create/update
- * 的 level 字段（Postgres enum / SQLite string 均可），无需 `as Level`、
- * `as unknown as Level` 或 `as Prisma.WordXxxInput["level"]` 这类强转。
+ * 的 level 字段，无需 `as Level`、`as unknown as Level` 或
+ * `as Prisma.WordXxxInput["level"]` 这类强转。
  */
 export function normalizeLevel(s: unknown): LevelCode {
   const v = String(s ?? "A1").toUpperCase();

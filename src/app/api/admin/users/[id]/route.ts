@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
-import { ROLES, isRole, type Role } from "@/lib/roles";
+import { ROLES, isRole } from "@/lib/roles";
 
 export async function PATCH(
   req: Request,
@@ -26,12 +26,8 @@ export async function PATCH(
       }
     }
 
-    const data: {
-      name?: string | null;
-      role?: Role;
-      passwordHash?: string;
-      tokenVersion?: { increment: number };
-    } = {};
+    // 以 Prisma.UserUpdateInput 为目标类型累积字段，让 TypeScript 校验字段名与类型。
+    const data: Prisma.UserUpdateInput = {};
 
     if (typeof body.name === "string") data.name = body.name.trim() || null;
     if (body.role) {
@@ -54,9 +50,10 @@ export async function PATCH(
       return NextResponse.json({ error: "没有需要更新的字段" }, { status: 400 });
     }
 
-    const user = (await prisma.user.update({
+    // data 类型由 Prisma 校验；select 与回传值类型由 Prisma 自动推断，无需任何强转。
+    const user = await prisma.user.update({
       where: { id },
-      data: data as unknown as Prisma.UserUpdateInput,
+      data,
       select: {
         id: true,
         email: true,
@@ -64,15 +61,8 @@ export async function PATCH(
         role: true,
         createdAt: true,
         _count: { select: { reviews: true } },
-      } as unknown as Prisma.UserSelect,
-    })) as unknown as {
-      id: string;
-      email: string;
-      name: string | null;
-      role: string;
-      createdAt: Date;
-      _count: { reviews: number };
-    };
+      },
+    });
 
     return NextResponse.json({
       id: user.id,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma, Prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 
@@ -87,9 +87,9 @@ export async function POST(req: Request) {
     const exists = await prisma.word.findUnique({ where: { term } });
     if (exists) return NextResponse.json({ error: "该单词已存在" }, { status: 409 });
 
-    const word = (await prisma.word.create({
-      // 整体 cast 成 create input：synonyms/antonyms/examples 在 Postgres 是 String[]/Json、
-      // 在 SQLite 是 String?（JSON 字符串），用 unknown cast 统一传数组，运行时由对应 schema 处理。
+    const word = await prisma.word.create({
+      // data 与回传值类型都由 Prisma 自动推断；synonyms/antonyms 为 String[]、
+      // examples 为 Json?，传入的字面量结构直接匹配，无需任何强转。
       data: {
         term,
         definition,
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
         synonyms: toArray(body.synonyms),
         antonyms: toArray(body.antonyms),
         examples: toExamples(body.examples),
-      } as unknown as Prisma.WordCreateInput,
+      },
       select: {
         id: true,
         term: true,
@@ -110,16 +110,8 @@ export async function POST(req: Request) {
         level: true,
         category: true,
         _count: { select: { reviews: true } },
-      } as unknown as Prisma.WordSelect,
-    })) as unknown as {
-      id: string;
-      term: string;
-      phonetic: string | null;
-      definition: string;
-      level: string;
-      category: string | null;
-      _count: { reviews: number };
-    };
+      },
+    });
 
     return NextResponse.json(
       {

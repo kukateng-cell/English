@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, type Word } from "@/lib/prisma";
 import {
   updateSM2,
   gestureToQuality,
@@ -9,57 +9,6 @@ import {
   type Quality,
 } from "@/lib/sm2";
 import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
-
-type WordRow = {
-  id: string;
-  term: string;
-  phonetic?: string | null;
-  pos?: string | null;
-  definition: string;
-  level: string;
-  category?: string | null;
-  // Postgres: Json/String[] 原生类型；SQLite 预览版: JSON 字符串
-  examples?: unknown;
-  synonyms?: unknown;
-  antonyms?: unknown;
-  imageUrl?: string | null;
-};
-
-/**
- * 兼容 SQLite 预览：把 JSON 字符串字段解析回数组/对象。
- * Postgres 原生数组/Json 不会被字符串包装，解析时原样返回。
- */
-function normalizeWord<T extends WordRow>(w: T) {
-  const parseArr = (v: unknown): string[] => {
-    if (Array.isArray(v)) return v as string[];
-    if (typeof v === "string") {
-      try {
-        const p = JSON.parse(v);
-        return Array.isArray(p) ? p : [];
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  };
-  const parseJson = (v: unknown) => {
-    if (v == null) return null;
-    if (typeof v === "string") {
-      try {
-        return JSON.parse(v);
-      } catch {
-        return null;
-      }
-    }
-    return v;
-  };
-  return {
-    ...w,
-    examples: parseJson(w.examples),
-    synonyms: parseArr(w.synonyms),
-    antonyms: parseArr(w.antonyms),
-  };
-}
 
 /**
  * 计算当前用户的「闯关解锁」状态。
@@ -155,9 +104,10 @@ export async function GET(req: Request) {
     }
   }
 
-  let queue: {
+  // 队列项：word 为 Prisma 完整 Word（原生 string[] / Json），state 为 SM-2 状态快照。
+  type QueueItem = {
     reviewId: string | null;
-    word: ReturnType<typeof normalizeWord<WordRow>>;
+    word: Word;
     state: {
       easeFactor: number;
       interval: number;
@@ -165,7 +115,8 @@ export async function GET(req: Request) {
       nextReviewDate: Date;
       lastReviewedAt: Date | null;
     };
-  }[] = [];
+  };
+  let queue: QueueItem[] = [];
 
   if (unitMode) {
     // ── 单元练习模式：取出该单元全部单词 ──
@@ -194,7 +145,7 @@ export async function GET(req: Request) {
             lastReviewedAt: r.lastReviewedAt,
           }
         : createInitialState();
-      return { reviewId: r?.id ?? null, word: normalizeWord(w as WordRow), state };
+      return { reviewId: r?.id ?? null, word: w, state };
     });
 
     // 排序：未学(0) → 到期待复习(1) → 已排期未到期(2)
@@ -244,7 +195,7 @@ export async function GET(req: Request) {
     queue = [
       ...dueReviews.map((r) => ({
         reviewId: r.id,
-        word: normalizeWord(r.word as WordRow),
+        word: r.word,
         state: {
           easeFactor: r.easeFactor,
           interval: r.interval,
@@ -255,7 +206,7 @@ export async function GET(req: Request) {
       })),
       ...newWords.map((w) => ({
         reviewId: null,
-        word: normalizeWord(w as WordRow),
+        word: w,
         state: createInitialState(),
       })),
     ];
