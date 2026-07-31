@@ -1,27 +1,19 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient, Prisma } from "@/generated/prisma";
+import { PrismaClient, Prisma, type Word } from "@/generated/prisma";
 
-// 重新导出 Prisma 命名空间（含 WordWhereInput 等查询输入类型），
-// 供 API 层在两种 schema（Postgres enum / SQLite string）下统一引用类型。
-export { Prisma };
+// 重新导出 Prisma 命名空间与模型类型（含 WordUpdateInput / WordSelect / Word 等），
+// 供 API 层引用，使 data/select/回传值都能得到原生类型推断。数据库固定为 Postgres。
+export { Prisma, type Word };
 
 // Prisma 7 移除了 Rust engine：必须用 driver adapter。
-// 根据 DATABASE_URL 的协议自动选择适配器：
-//   - file:./... → SQLite（本地预览，搭配 schema.sqlite.prisma + dev.db）
-//   - postgres:// / postgresql:// → Postgres（Supabase / Vercel 生产）
-// 这样本地开发与生产部署都能用同一份 lib/prisma.ts。
-const createPrismaClient = () => {
-  const url = process.env.DATABASE_URL ?? "";
-  const adapter =
-    url.startsWith("file:")
-      ? new PrismaBetterSqlite3({ url })
-      : new PrismaPg({ connectionString: url });
-  return new PrismaClient({ adapter });
-};
+// 本地与生产都连 Postgres（Supabase / Vercel），统一用 PrismaPg 适配器。
+const createPrismaClient = () =>
+  new PrismaClient({
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL ?? "" }),
+  });
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prisma?: PrismaClient;
 };
 
 // Reuse a single PrismaClient across hot-reloads in development

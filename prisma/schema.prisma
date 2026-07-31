@@ -1,5 +1,5 @@
-// Prisma schema — PostgreSQL（Supabase / Vercel 生产部署）
-// 本地开发也连 Postgres（Supabase）。旧的 SQLite 预览版备份在 prisma/schema.sqlite.prisma。
+// Prisma schema — PostgreSQL（本地开发与生产部署统一连 Postgres / Supabase）。
+// 项目已统一切到 Postgres，旧的 SQLite 预览版已移除。
 
 generator client {
   provider   = "prisma-client-js"

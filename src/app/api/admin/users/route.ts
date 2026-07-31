@@ -4,17 +4,10 @@ import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES, DEFAULT_ROLE, isRole, type Role } from "@/lib/roles";
 
-/** 用户查询返回的结构（role / _count 在 Postgres schema 存在，SQLite 预览 schema 不存在）。 */
-type UserRow = {
-  id: string;
-  email: string;
-  name: string | null;
-  role: string;
-  createdAt: Date;
-  _count: { reviews: number };
-};
-
-// role / _count 在 SQLite 预览版生成的 client 中不存在；用 unknown cast 适配两种 schema。
+/**
+ * 用户查询统一用到的字段。给 select 显式声明 Prisma.UserSelect 类型，
+ * 既得到字段补全，又让 Prisma 据此精确推断回传值类型（无需再写 UserRow）。
+ */
 const USER_SELECT = {
   id: true,
   email: true,
@@ -22,17 +15,17 @@ const USER_SELECT = {
   role: true,
   createdAt: true,
   _count: { select: { reviews: true } },
-} as unknown as Prisma.UserSelect;
+} satisfies Prisma.UserSelect;
 
 export async function GET() {
   const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
-    const users = (await prisma.user.findMany({
+    const users = await prisma.user.findMany({
       select: USER_SELECT,
       orderBy: { createdAt: "desc" },
-    })) as unknown as UserRow[];
+    });
 
     return NextResponse.json(
       users.map((u) => ({
@@ -70,11 +63,11 @@ export async function POST(req: Request) {
     if (exists) return NextResponse.json({ error: "该账号已存在" }, { status: 409 });
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = (await prisma.user.create({
-      // role 字段在 Postgres schema 存在、SQLite 预览 schema 不存在；用 unknown cast 适配两者。
-      data: { email, passwordHash, name, role } as unknown as Prisma.UserCreateInput,
+    // data 类型由 Prisma.UserCreateInput 自动校验；回传值由 select 自动推断。
+    const user = await prisma.user.create({
+      data: { email, passwordHash, name, role },
       select: USER_SELECT,
-    })) as unknown as UserRow;
+    });
 
     return NextResponse.json(
       {

@@ -38,7 +38,9 @@ export async function PATCH(
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
 
-    const data: Record<string, unknown> = {};
+    // 直接以 Prisma.WordUpdateInput 为目标类型累积字段，
+    // 让 TypeScript 校验每个字段名与类型——拼错字段或类型不符都会编译报错。
+    const data: Prisma.WordUpdateInput = {};
 
     if (typeof body.term === "string") {
       const term = body.term.trim();
@@ -72,9 +74,10 @@ export async function PATCH(
       return NextResponse.json({ error: "没有需要更新的字段" }, { status: 400 });
     }
 
-    const word = (await prisma.word.update({
+    // select 与回传值类型都由 Prisma 依据 select 自动推断，无需任何强转。
+    const word = await prisma.word.update({
       where: { id },
-      data: data as unknown as Prisma.WordUpdateInput,
+      data,
       select: {
         id: true,
         term: true,
@@ -83,16 +86,8 @@ export async function PATCH(
         level: true,
         category: true,
         _count: { select: { reviews: true } },
-      } as unknown as Prisma.WordSelect,
-    })) as unknown as {
-      id: string;
-      term: string;
-      phonetic: string | null;
-      definition: string;
-      level: string;
-      category: string | null;
-      _count: { reviews: number };
-    };
+      },
+    });
 
     return NextResponse.json({
       id: word.id,
