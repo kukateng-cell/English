@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ROLES, DEFAULT_ROLE } from "@/lib/roles";
@@ -9,6 +9,9 @@ import { useLocale } from "@/components/LocaleProvider";
 
 export default function LoginPage() {
   const { tc } = useLocale();
+  // 登录成功后用 update() 刷新 SessionProvider 的缓存 session，
+  // 避免客户端导航到受保护页时 useSession() 读到过期的未登录状态。
+  const { update } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -62,6 +65,20 @@ export default function LoginPage() {
       }
       setError("账号或密码错误，请重试");
     } else {
+      // 关键修复：登录成功后先刷新 SessionProvider 的缓存 session。
+      // NextAuth v4 的 SessionProvider 在登录前缓存了「未登录」状态；
+      // 若直接 router.push 做客户端导航，目标页（/study、/units）的
+      // useSession() 仍会读到过期的 unauthenticated，被认证守卫立即
+      // 弹回登录页——表现为「登录后要退出登录界面再点一次才能进入」。
+      // update() 会重新请求 /api/auth/session 并同步 context，之后
+      // 客户端导航即可被正确识别为已登录。
+      try {
+        await update();
+      } catch {
+        // 刷新失败（罕见）不阻断主流程：随后仍按原逻辑跳转，
+        // 最坏情况用户刷新页面即可正常进入。
+      }
+
       // 登录成功后：优先回到來時的 callbackUrl（proxy 帶上的），
       // 否則按角色跳轉到對應入口。
       const callbackUrl = new URLSearchParams(window.location.search).get(
