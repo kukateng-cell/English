@@ -1,21 +1,25 @@
 /**
  * 答题进度存档点（checkpoint）
  *
- * 用户在认字 / 测试阶段每答完一题都会写入一个存档点。若用户中途离开页面
- * （例如有急事），下次回到答题页时会自动恢复到上次的阶段与位置，无需
- * 从头再来。
+ * 学习流程为「逐词」推进：每个词先做认字评估，随即立刻测试，答对后再
+ * 推送下一个词。用户每完成一步都会写入存档点；若中途离开页面（例如有
+ * 急事），下次回到答题页时可从「下一个未做的词」继续，无需从头再来。
+ *
+ * 重要：存档点只记录「已完成词的边界」，不记录某个词进行到一半的状态。
+ * 因此用户若在某个词的测试中途离开，回来时不会被强制回到「上次那个
+ * 还没测完的词」，而是直接从下一个新词开始。
  *
  * 存档范围：单个浏览器 + 单个上下文（全局队列 或 某个单元）。
  * 用 localStorage 存储，避免给数据库增加 schema 迁移负担；存档点天然
  * 跟随浏览器，符合「临时续做」的语义。
  *
- * 只存「可恢复」的进度数据（阶段、索引、统计、测试队列的词 id 顺序），
+ * 只存「可恢复」的进度数据（下一个词的下标、已分类词 id、累计统计），
  * 完整的 WordFull 对象在恢复时由从服务端拉取的队列按 id 重建，
  * 因此存档点小巧、且不会因词库内容变动而引用失效（失效时直接丢弃）。
  */
 
-/** 与认字评估 → 测试 → 完成 三段式一致的阶段。 */
-export type Phase = "assessment" | "quiz" | "done";
+/** 阶段：仍在逐词学习中，或已全部完成。 */
+export type Phase = "assess" | "done";
 
 /** 一份可恢复的存档点。 */
 export interface Checkpoint {
@@ -27,33 +31,26 @@ export interface Checkpoint {
   /** 上下文标识：`'global'` 或 `${level}::${category}`。 */
   unitKey: string;
   /**
-   * 本次从服务端拉取的队列词 id 顺序（恢复时的「指纹」）。
-   * 若恢复时实际队列的指纹与存档不一致（例如换天 / 词库变化），
+   * 本次从服务端拉取的队列词 id 集合（恢复时的「指纹」）。
+   * 若恢复时实际队列的词集合与存档不一致（例如换天 / 词库变化），
    * 视为过期，直接丢弃存档从头开始。
    */
   queueSignature: string[];
 
-  // ── 认字评估阶段 ──
-  currentIndex: number;
-  knownWordIds: string[];
-  unknownWordIds: string[];
-
-  // ── 测试阶段 ──
-  quizQueueIds: string[]; // 测试队列（含答错后重新插入的重复项，顺序敏感）
-  quizIndex: number;
-  quizTotal: number;
-  quizAnswered: number;
-  quizStats: { correct: number; wrong: number };
   /**
-   * 测试阶段每词的答错计数（决定最终 SM-2 quality）。
-   * 自 VERSION=1 起通常会写入；标记为可选是为了在类型层面承认：若将来升级 schema 后
-   * 意外加载了旧版存档（理论上不会发生，因为 loadCheckpoint 已按 version 硬判），
-   * 此处不会强制要求该字段存在。恢复侧默认 fallback 为空对象即可。
+   * 下一个要学习的词下标。恢复时始终从该词的「认字评估」步开始，
+   * 不恢复某个词进行到一半的测试状态。
    */
-  quizWrongCounts?: Record<string, number>;
+  currentIndex: number;
+  /** 已完成词中标记为「认识」的词 id（用于完成页统计）。 */
+  knownWordIds: string[];
+  /** 已完成词中标记为「不认识」的词 id（用于完成页统计）。 */
+  unknownWordIds: string[];
+  /** 累计测试统计。 */
+  quizStats: { correct: number; wrong: number };
 }
 
-const VERSION = 1;
+const VERSION = 2;
 const PREFIX = "study:checkpoint:";
 
 function keyFor(unitKey: string): string {
