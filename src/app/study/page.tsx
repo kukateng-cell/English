@@ -54,7 +54,8 @@ interface PoolWord {
   definition: string;
 }
 
-type Phase = "assessment" | "quiz" | "done";
+/** 当前词处在哪一步：先认字评估，随即立刻测试。 */
+type WordStep = "assess" | "quiz";
 
 /** 洗牌 */
 function shuffle<T>(arr: T[]): T[] {
@@ -232,20 +233,17 @@ export default function StudyPage() {
     [],
   );
 
-  // 阶段流转：认字评估 → 测试 → 完成
-  const [phase, setPhase] = useState<Phase>("assessment");
+  // 逐词流转：每个词「认字评估 → 立即测试 → 下一词」交替进行。
+  // wordStep 表示「当前这个词」处在哪一步；done 表示整轮已全部完成。
+  const [wordStep, setWordStep] = useState<WordStep>("assess");
+  const [done, setDone] = useState(false);
   const [knownWords, setKnownWords] = useState<WordFull[]>([]);
   const [unknownWords, setUnknownWords] = useState<WordFull[]>([]);
 
-  // 测试阶段状态
-  const [quizQueue, setQuizQueue] = useState<WordFull[]>([]);
-  const [quizIndex, setQuizIndex] = useState(0);
-  const [quizTotal, setQuizTotal] = useState(0); // 题目总数（含重做，用于进度）
-  const [quizAnswered, setQuizAnswered] = useState(0); // 已答次数
-  const [quizStats, setQuizStats] = useState({
-    correct: 0,
-    wrong: 0,
-  });
+  // 测试统计：每答一次（对/错）累计；答错立即原地重测，直到答对再进入下一词。
+  const [quizStats, setQuizStats] = useState({ correct: 0, wrong: 0 });
+  // 重测计数器：答错后自增，用来强制重新生成题目（新的干扰项 / 方向）。
+  const [quizAttempt, setQuizAttempt] = useState(0);
 
   // 干扰项来源池：外部词 + 本次评估队列词
   const distractorSource: PoolWord[] = useMemo(
@@ -293,28 +291,25 @@ export default function StudyPage() {
       if (!sigMatch) return false;
 
       const wordMap = new Map(loadedQueue.map((q) => [q.word.id, q.word]));
-      const needIds = [
-        ...cp.knownWordIds,
-        ...cp.unknownWordIds,
-        ...cp.quizQueueIds,
-      ];
+      const needIds = [...cp.knownWordIds, ...cp.unknownWordIds];
       if (needIds.some((id) => !wordMap.has(id))) return false;
 
       setKnownWords(cp.knownWordIds.map((id) => wordMap.get(id)!));
       setUnknownWords(cp.unknownWordIds.map((id) => wordMap.get(id)!));
-      quizWrongCounts.current = cp.quizWrongCounts ?? {};
+      setQuizStats(cp.quizStats);
 
-      if (cp.phase === "quiz") {
-        setQuizQueue(cp.quizQueueIds.map((id) => wordMap.get(id)!));
-        setQuizTotal(cp.quizTotal);
-        setQuizIndex(cp.quizIndex);
-        setQuizAnswered(cp.quizAnswered);
-        setQuizStats(cp.quizStats);
-        setPhase("quiz");
+      // 永远从「认字评估」步开始当前词，不恢复某个词进行到一半的测试状态。
+      // 这样用户中途离开后回来，不会被强制回到「上次那个还没测完的词」。
+      quizWrongCounts.current = {};
+      setQuizAttempt(0);
+      setWordStep("assess");
+
+      if (cp.phase === "done" || cp.currentIndex >= loadedQueue.length) {
+        setDone(true);
+        setCurrentIndex(loadedQueue.length);
       } else {
-        // assessment（done 不恢复，已完成无需续做）
+        setDone(false);
         setCurrentIndex(cp.currentIndex);
-        setPhase("assessment");
       }
       return true;
     },
@@ -366,67 +361,35 @@ export default function StudyPage() {
     };
   }, [status, reloadKey, restoreProgress, flashResumed]);
 
-  // 测试阶段的当前题目（由 quizIndex 派生，不再用 effect 驱动）
-  const currentQuestion = useMemo(() => {
-    if (phase !== "quiz") return null;
-    if (quizIndex >= quizQueue.length) return null;
-    return buildQuestion(quizQueue[quizIndex], distractorSource);
-  }, [phase, quizIndex, quizQueue, distractorSource]);
+  // 当前词：取队列中 currentIndex 位置。逐词推进，每个词评估完立刻测试。
+  const currentWord = queue[currentIndex]?.word ?? null;
 
-  // 是否还有当前词（未越界）。用稳定的布尔派生值替代在 effect 里直接引用
-  // quizQueue.length：既避免 react-hooks/exhaustive-deps 警告，也让 effect
-  // 的触发条件清晰——只有"有当前词 / 无当前词"这一状态翻转时才需要重跑。
-  const hasCurrentWord = phase === "quiz" && quizIndex < quizQueue.length;
+  // 当前词的测试题（仅在该词的「测试」步生成）。答错后 quizAttempt 自增，
+  // 强制重新出题（新的方向 / 干扰项），让用户原地重测直到答对。
+  const currentQuestion = useMemo(() => {
+    if (done || wordStep !== "quiz" || !currentWord) return null;
+    void quizAttempt; // 答错重测时自增 → 触发重新生成题目
+    return buildQuestion(currentWord, distractorSource);
+  }, [done, wordStep, currentWord, distractorSource, quizAttempt]);
 
   // 若当前词无法生成有效配对题（如 DVD↔DVD 这类纯英文词条，或干扰项不足），
-  // 自动判对并跳到下一题，避免界面卡住。
-  // 依赖说明：
-  //   - hasCurrentWord：阶段切换或 quizIndex 越界翻转时重跑（等价于原先的
-  //     phase + 边界判断，但用一个稳定布尔值表达，语义更清晰）
-  //   - currentQuestion：题目生成结果变化时重跑。即使两次都为 null（null === null
-  //     不触发），hasCurrentWord 翻转或 quizIndex 推进也能触发重跑，
-  //     足以覆盖"连续多个词都无法出题"的链式自动跳过。
-  //   注意：不再依赖 quizQueue.length。答错重排是 splice 纯插入（length 总 +1），
-  //   但 length 作为 effect 依赖既冗余又脆弱（若未来改成移动而非复制，length 不变
-  //   会导致误判）。以"当前词本身"为准更稳健。
+  // 自动判对并进入下一词，避免界面卡住。
   useEffect(() => {
-    if (!hasCurrentWord) return;
+    if (done || wordStep !== "quiz" || !currentWord) return;
     if (currentQuestion !== null) return;
     // 用 setTimeout(0) 推迟到下一帧，避免在渲染期间 setState
     const t = setTimeout(() => handleQuizAnswerRef.current(true), 0);
     return () => clearTimeout(t);
-  }, [hasCurrentWord, currentQuestion]);
-
-  // 评估阶段全部滑完 → 进入测试或完成阶段
-  // （在事件回调里触发，避免在 effect 内 setState，符合 react-hooks 规则）
-  const transitionFromAssessment = (
-    known: WordFull[],
-    unknown: WordFull[]
-  ) => {
-    const qq = [...known, ...unknown];
-    if (qq.length === 0) {
-      setPhase("done");
-    } else {
-      quizWrongCounts.current = {};
-      setQuizQueue(qq);
-      setQuizTotal(qq.length);
-      setQuizIndex(0);
-      setQuizAnswered(0);
-      setPhase("quiz");
-    }
-  };
+  }, [done, wordStep, currentWord, currentQuestion]);
 
   // 测试作答（必须在所有 early return 之前调用，遵守 Rules of Hooks）
   const handleQuizAnswer = useCallback(
     (correct: boolean) => {
-      const word = quizQueue[quizIndex];
-      setQuizAnswered((n) => n + 1);
+      const word = queue[currentIndex]?.word;
       setQuizStats((s) => ({
         correct: s.correct + (correct ? 1 : 0),
         wrong: s.wrong + (correct ? 0 : 1),
       }));
-
-      const nextIndex = quizIndex + 1;
 
       if (!correct) {
         // 记录该词答错次数，影响最终掌握评级（quality）。
@@ -434,38 +397,31 @@ export default function StudyPage() {
           quizWrongCounts.current[word.id] =
             (quizWrongCounts.current[word.id] ?? 0) + 1;
         }
-        // 答错：把这个词插到 2~3 题之后重新考，趁记忆新鲜立刻复习，
-        // 反复出题直到答对一次为止（不再算作"已掌握"）。
-        setQuizQueue((prev) => {
-          const wrongWord = prev[quizIndex];
-          if (!wrongWord) return prev;
-          const insertAt = Math.min(
-            quizIndex + 2 + Math.floor(Math.random() * 2), // 当前位置后 2~3 题
-            prev.length
-          );
-          const next = [...prev];
-          next.splice(insertAt, 0, wrongWord);
-          return next;
-        });
-        setQuizTotal((n) => n + 1);
-        setQuizIndex(nextIndex);
+        // 答错：立刻原地重测（重新出题），反复直到答对一次，再进入下一词。
+        setQuizAttempt((n) => n + 1);
+        return;
+      }
+
+      // 答对：依据答错次数计算 quality 并写入 SM-2。
+      // 单词的掌握程度完全由测试表现决定，认字阶段的手势不参与记录。
+      if (word) {
+        const wrongs = quizWrongCounts.current[word.id] ?? 0;
+        const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
+        submitQuizReview(word.id, quality);
+      }
+
+      // 进入下一个词（或整轮完成）
+      const nextIndex = currentIndex + 1;
+      if (nextIndex >= queue.length) {
+        setDone(true);
       } else {
-        // 答对：依据答错次数计算 quality 并写入 SM-2。
-        // 认字阶段不再记录，单词的掌握程度完全由测试表现决定。
-        if (word) {
-          const wrongs = quizWrongCounts.current[word.id] ?? 0;
-          const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
-          submitQuizReview(word.id, quality);
-        }
-        // 若是最后一题则进入完成阶段，否则进入下一题
-        if (nextIndex >= quizQueue.length) {
-          setPhase("done");
-        } else {
-          setQuizIndex(nextIndex);
-        }
+        setCurrentIndex(nextIndex);
+        setWordStep("assess");
+        setQuizAttempt(0);
+        quizWrongCounts.current = {};
       }
     },
-    [quizIndex, quizQueue]
+    [currentIndex, queue]
   );
 
   // 让 ref 始终持有最新的 handleQuizAnswer（在 effect 中同步，避免渲染期写 ref）
@@ -473,42 +429,38 @@ export default function StudyPage() {
     handleQuizAnswerRef.current = handleQuizAnswer;
   }, [handleQuizAnswer]);
 
-  // 存档点：每答完一题（认字 / 测试）都会写入本地存档，方便用户中途离开后续做。
-  // 完成阶段自动清除存档；加载中或队列为空时不写。recycle。
+  // 存档点：每完成一步都写入本地存档，方便用户中途离开后续做。
+  // 完成时自动清除存档；加载中或队列为空时不写。
   useEffect(() => {
     if (loading || status !== "authenticated") return;
     const unitKey = getUnitKey();
-    if (phase === "done") {
+    if (done) {
       clearCheckpoint(unitKey);
       return;
     }
     if (queue.length === 0) return;
+    // 一旦进入「测试」步，存档即视为该词已完成：currentIndex 存为下一个词。
+    // 这样用户中途离开后再回来，不会被强制回到「上次那个还没测完的词」，
+    // 而是直接从下一个新词开始认字评估。
+    const savedIndex = wordStep === "quiz" ? currentIndex + 1 : currentIndex;
     saveCheckpoint(unitKey, {
-      phase,
+      phase: savedIndex >= queue.length ? "done" : "assess",
       unitKey,
       queueSignature: queue.map((q) => q.word.id),
-      currentIndex,
+      currentIndex: savedIndex,
       knownWordIds: knownWords.map((w) => w.id),
       unknownWordIds: unknownWords.map((w) => w.id),
-      quizQueueIds: quizQueue.map((w) => w.id),
-      quizIndex,
-      quizTotal,
-      quizAnswered,
       quizStats,
-      quizWrongCounts: quizWrongCounts.current,
     });
   }, [
     loading,
     status,
-    phase,
+    done,
+    wordStep,
     queue,
     currentIndex,
     knownWords,
     unknownWords,
-    quizQueue,
-    quizIndex,
-    quizTotal,
-    quizAnswered,
     quizStats,
   ]);
 
@@ -527,21 +479,15 @@ export default function StudyPage() {
 
   const current = queue[currentIndex];
 
-  // 右滑：认识（仅本地分类，不写记录；掌握与否交给后续测试判定）
+  // 右滑：认识（仅本地分类，不写记录；掌握与否交给随后的测试判定）
+  // 选好「是否认识」后，立刻进入该词的测试步。
   const handleSwipeRight = () => {
     if (!current) return;
-    // 记下本次加入后的「认识」列表（供本回调内判断阶段转换使用）
-    const newKnown = [...knownWords, current.word];
-    setKnownWords(newKnown);
+    setKnownWords((prev) => [...prev, current.word]);
     setDirection("right");
     setTimeout(() => {
-      // 若是评估阶段最后一张，则进入测试 / 完成；否则进入下一张
-      if (currentIndex + 1 >= queue.length) {
-        transitionFromAssessment(newKnown, unknownWords);
-      } else {
-        setCurrentIndex((i) => i + 1);
-      }
       setDirection(null);
+      setWordStep("quiz");
     }, 350);
   };
 
@@ -553,18 +499,11 @@ export default function StudyPage() {
     setTimeout(() => setHelpVisible(true), 350);
   };
 
-  // 助记面板关闭 → 下一个单词
+  // 助记面板关闭 → 立刻进入该词的测试步
   const handleHelpDismiss = () => {
     setHelpVisible(false);
     setDirection(null);
-    setTimeout(() => {
-      // 若是评估阶段最后一张，则进入测试 / 完成；否则进入下一张
-      if (currentIndex + 1 >= queue.length) {
-        transitionFromAssessment(knownWords, unknownWords);
-      } else {
-        setCurrentIndex((i) => i + 1);
-      }
-    }, 200);
+    setTimeout(() => setWordStep("quiz"), 200);
   };
 
   // 重新开始：清空状态并清除存档点，触发重新拉取
@@ -574,14 +513,12 @@ export default function StudyPage() {
     setPool([]);
     setLocked(false);
     setCurrentIndex(0);
-    setPhase("assessment");
+    setWordStep("assess");
+    setDone(false);
     setKnownWords([]);
     setUnknownWords([]);
-    setQuizQueue([]);
-    setQuizIndex(0);
-    setQuizTotal(0);
-    setQuizAnswered(0);
     setQuizStats({ correct: 0, wrong: 0 });
+    setQuizAttempt(0);
     quizWrongCounts.current = {};
     setReloadKey((k) => k + 1);
   };
@@ -615,10 +552,11 @@ export default function StudyPage() {
     );
   }
 
-  // ───────── 测试阶段渲染 ─────────
-  if (phase === "quiz") {
-    const remaining = Math.max(0, quizQueue.length - quizIndex);
-    const progressPct = quizTotal > 0 ? (quizAnswered / quizTotal) * 100 : 0;
+  // ───────── 当前词测试步渲染（认字评估后立刻测试该词） ─────────
+  if (wordStep === "quiz" && current) {
+    // 以「词」为单位的进度：当前是第几个词 / 总词数
+    const progressPct =
+      queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
     return (
       <div className="flex min-h-full flex-col pb-24">
@@ -636,7 +574,7 @@ export default function StudyPage() {
             </svg>
           </Link>
           <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            {quizAnswered} / {quizTotal}
+            {tc("📝 测试中")}
           </span>
           <div className="w-9" />
         </div>
@@ -650,12 +588,14 @@ export default function StudyPage() {
           </div>
         )}
 
-        {/* 进度条 */}
+        {/* 进度条（以「词」为单位） */}
         <div className="mx-auto mb-5 w-full max-w-md px-5">
           <div className="mb-2 flex items-center justify-between text-[13px]">
-            <span className="font-medium text-[#2563EB] dark:text-[#60A5FA]">{tc("📝 测试中")}</span>
+            <span className="font-medium text-[#2563EB] dark:text-[#60A5FA]">
+              {tc(`第 ${currentIndex + 1} / ${queue.length} 词`)}
+            </span>
             <span className="text-[#7C89A5] dark:text-[#64748B]">
-              {tc(`剩余 ${remaining} 题 · 答对 ${quizStats.correct} · 答错 ${quizStats.wrong}`)}
+              {tc(`答对 ${quizStats.correct} · 答错 ${quizStats.wrong}`)}
             </span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
@@ -675,7 +615,7 @@ export default function StudyPage() {
             {currentQuestion && (
               <motion.div
                 key={
-                  currentQuestion.word.id + quizIndex + currentQuestion.direction
+                  currentQuestion.word.id + quizAttempt + currentQuestion.direction
                 }
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -709,7 +649,7 @@ export default function StudyPage() {
   }
 
   // ───────── 完成渲染 ─────────
-  if (phase === "done" || (queue.length === 0 && !loading)) {
+  if (done || (queue.length === 0 && !loading)) {
     const hasQuiz = quizStats.correct + quizStats.wrong > 0;
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
