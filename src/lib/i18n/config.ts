@@ -39,3 +39,14 @@ export function normalizeLocale(s: string | null | undefined): Locale {
   if (/^zh[-_]?(hans|cn|sg)/i.test(v)) return "zh-Hans";
   return (LOCALES as readonly string[]).includes(v) ? (v as Locale) : DEFAULT_LOCALE;
 }
+
+/**
+ * 站点标题 / 描述（简体为唯一来源，与全站文案策略一致）。
+ * 显示层依当前语言经 convertText 即时转繁：
+ * - 服务端：layout 的 generateMetadata 读取 cookie 生成 <title>；
+ * - 客户端：LocaleProvider 在切换语言时同步 document.title。
+ * 这样「网页标题」也跟随语言选择，不再恒为简体。
+ */
+export const SITE_TITLE = "英语单词认读 · 中学生学习平台";
+export const SITE_DESCRIPTION =
+  "基于 SM-2 间隔重复算法的中学生英语单词认读学习网站。移动优先，随时随地学单词。";

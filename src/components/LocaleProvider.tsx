@@ -15,6 +15,7 @@ import {
   LOCALE_STORAGE_KEY,
   localeToHtmlLang,
   normalizeLocale,
+  SITE_TITLE,
   type Locale,
 } from "@/lib/i18n/config";
 import { convertText } from "@/lib/i18n/convert";
@@ -83,6 +84,15 @@ export function LocaleProvider({ children, initialLocale }: LocaleProviderProps)
     }
     if (typeof document !== "undefined") {
       document.cookie = `${LOCALE_COOKIE_KEY}=${encodeURIComponent(locale)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    }
+  }, [locale]);
+
+  // 切换语言时同步浏览器标签页标题：metadata 的 <title> 是 SSR 输出，
+  // 客户端切换语言不会自动重算，这里显式覆盖 document.title，
+  // 让繁体偏好立即反映到标签页（与 layout 的 generateMetadata 互补）。
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.title = convertText(SITE_TITLE, locale);
     }
   }, [locale]);
 

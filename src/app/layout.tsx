@@ -7,7 +7,10 @@ import {
   LOCALE_STORAGE_KEY,
   localeToHtmlLang,
   normalizeLocale,
+  SITE_TITLE,
+  SITE_DESCRIPTION,
 } from "@/lib/i18n/config";
+import { convertText } from "@/lib/i18n/convert";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,14 +23,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// 标题/描述以简体为来源；显示层会依语言转繁（见 LocaleProvider）。
-// metadata 里的文字属 SSR 静态输出，这里给简体（与源代码一致）；
-// 浏览器/SEO 以 <html lang> 为准（lang 随用户选择动态更新）。
-export const metadata: Metadata = {
-  title: "英语单词认读 · 中学生学习平台",
-  description:
-    "基于 SM-2 间隔重复算法的中学生英语单词认读学习网站。移动优先，随时随地学单词。",
-};
+/**
+ * 站点标题/描述：以简体为来源，依请求 cookie 的语言偏好即时转繁。
+ * 繁体用户刷新/导航时看到的就是繁体标题（不再是恒定的简体）。
+ * 客户端切换语言后由 LocaleProvider 同步 document.title，无需刷新。
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const cookieStore = await cookies();
+  const locale = normalizeLocale(cookieStore.get(LOCALE_COOKIE_KEY)?.value);
+  return {
+    title: convertText(SITE_TITLE, locale),
+    description: convertText(SITE_DESCRIPTION, locale),
+  };
+}
 
 /**
  * 在 hydration 之前同步执行的脚本：
