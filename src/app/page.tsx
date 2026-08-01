@@ -1,19 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { convertForServer } from "@/lib/i18n/convert";
-import { getCurrentUser } from "@/lib/session";
-import { homePathFor } from "@/lib/roles";
 
 export default async function Home() {
-  // 已登录用户不应停留在「营销落地页」（带登录/开始学习按钮）：
-  // 直接按角色跳到对应入口（学生 → /study，老师 → /teacher，管理员 → /admin）。
-  // 这样无论登录后是否误落到首页，都会被立刻引导到学习/工作画面。
-  const user = await getCurrentUser();
-  if (user) {
-    redirect(homePathFor(user.role));
-  }
-
   const cookieStore = await cookies();
   const tc = (s: string) => convertForServer(s, cookieStore.toString());
 
