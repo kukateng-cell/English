@@ -12,6 +12,22 @@ import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
 import { computeStreak, checkInStudyDay } from "@/lib/streak";
 
 /**
+ * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
+ *
+ * 用于打散单词推送顺序：保留记忆曲线要求的「到期/优先级」调度，
+ * 同时让同级（同日到期、单元内同一优先级、新词批次）的词随机出现，
+ * 避免固定字母序 / 固定时间序带来的机械感。
+ */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
  * 计算当前用户的「闯关解锁」状态。
  *
  * - unitUnlock: { [`${level}::${category}`]: unlocked } —— 仅含真实存在的单元，
@@ -149,17 +165,21 @@ export async function GET(req: Request) {
       return { reviewId: r?.id ?? null, word: w, state };
     });
 
-    // 排序：未学(0) → 到期待复习(1) → 已排期未到期(2)
-    queue.sort((a, b) => {
-      const rank = (q: (typeof queue)[number]) => {
-        if (!q.reviewId) return 0; // 未学
-        return q.state.nextReviewDate <= now ? 1 : 2; // 到期 / 已排期
-      };
-      return rank(a) - rank(b);
-    });
+    // 排序：未学(0) → 到期待复习(1) → 已排期未到期(2)；
+    // 同优先级内随机打散，避免单元内总是固定字母序。
+    const rank = (q: (typeof queue)[number]) => {
+      if (!q.reviewId) return 0; // 未学
+      return q.state.nextReviewDate <= now ? 1 : 2; // 到期 / 已排期
+    };
+    const byRank: QueueItem[][] = [[], [], []];
+    for (const q of queue) byRank[rank(q)].push(q);
+    queue = byRank.flatMap((g) => shuffle(g));
   } else {
     // ── 默认全局模式：到期待复习 + 新词 ──
-    // 1. 取出到期的 Review（待复习单词）
+    // 1. 取出到期的 Review（待复习单词）。
+    //    多取一批（60）以便在内存中按「到期日」分组随机：既保留记忆曲线
+    //    「最早到期先复习」的调度，又让同一天到期的词随机出现，避免固定时间序。
+    const DUE_FETCH_LIMIT = 60;
     const dueReviews = await prisma.review.findMany({
       where: {
         userId,
@@ -167,8 +187,20 @@ export async function GET(req: Request) {
       },
       include: { word: true },
       orderBy: { nextReviewDate: "asc" },
-      take: 20,
+      take: DUE_FETCH_LIMIT,
     });
+    // 按到期日（YYYY-MM-DD）分组，组内洗牌，再按日期升序展平，最后取 20。
+    const dueByDay = new Map<string, typeof dueReviews>();
+    for (const r of dueReviews) {
+      const day = r.nextReviewDate.toISOString().slice(0, 10);
+      const list = dueByDay.get(day) ?? [];
+      list.push(r);
+      dueByDay.set(day, list);
+    }
+    const dueSorted = [...dueByDay.keys()]
+      .sort()
+      .flatMap((day) => shuffle(dueByDay.get(day)!))
+      .slice(0, 20);
 
     // 2. 取新词（没有 Review 记录的单词）
     const reviewedWordIds = (
@@ -187,14 +219,16 @@ export async function GET(req: Request) {
 
     // 新词只从已解锁单元中引入，避免绕过闯关解锁直接学习后续单元。
     // category 为 null 的单词按 "未分类" 记键，与 computeUnlockInfo 一致。
-    const newWords = newWordsRaw
-      .filter((w) =>
+    // 新词从已解锁单元中随机抽取 5 个（而非固定字母序前 5 个），
+    // 让每次学习的新词批次更有变化，避免总是从 A 开头的那批开始。
+    const newWords = shuffle(
+      newWordsRaw.filter((w) =>
         unlockedKeys.has(`${w.level}::${w.category ?? "未分类"}`),
-      )
-      .slice(0, 5);
+      ),
+    ).slice(0, 5);
 
     queue = [
-      ...dueReviews.map((r) => ({
+      ...dueSorted.map((r) => ({
         reviewId: r.id,
         word: r.word,
         state: {
