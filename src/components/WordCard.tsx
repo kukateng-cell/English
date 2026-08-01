@@ -1,6 +1,11 @@
 "use client";
 
-import { motion, useMotionValue, useTransform } from "framer-motion";
+import {
+  motion,
+  useAnimationControls,
+  useMotionValue,
+  useTransform,
+} from "framer-motion";
 import type { ReactNode } from "react";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
@@ -14,6 +19,11 @@ interface WordCardProps {
 }
 
 const SWIPE_THRESHOLD = 80;
+// 飞出屏幕的距离 / 旋转角度
+const FLY_OFF_X = 600;
+const FLY_OFF_ROTATE = 18;
+// 飞出动画时长（与父级 setTimeout 保持一致，避免「弹回 → 再飞出」的双重动作）
+const FLY_DURATION = 0.28;
 
 export default function WordCard({
   word,
@@ -24,14 +34,32 @@ export default function WordCard({
 }: WordCardProps) {
   const { tc } = useLocale();
   const x = useMotionValue(0);
+  const controls = useAnimationControls();
   const rotate = useTransform(x, [-250, 0, 250], [-8, 0, 8]);
   const opacityLeft = useTransform(x, [-200, -SWIPE_THRESHOLD, 0], [1, 1, 0]);
   const opacityRight = useTransform(x, [0, SWIPE_THRESHOLD, 200], [0, 1, 1]);
 
-  const handleDragEnd = (_: unknown, info: { offset: { x: number } }) => {
-    if (info.offset.x < -SWIPE_THRESHOLD) {
+  const handleDragEnd = (
+    _: unknown,
+    info: { offset: { x: number }; velocity: { x: number } }
+  ) => {
+    const dir = info.offset.x < 0 ? -1 : 1;
+    // 快速横扫（velocity）或拖拽超过阈值都判定为划走
+    const swiped = Math.abs(info.offset.x) > SWIPE_THRESHOLD || Math.abs(info.velocity.x) > 500;
+    if (!swiped) {
+      // 未达到划走条件：平滑回弹到中心
+      controls.start({ x: 0, rotate: 0, transition: { type: "spring", stiffness: 500, damping: 40 } });
+      return;
+    }
+    // 达到划走条件：顺着释放方向 + 速度「一次过」飞出屏幕，不再先弹回中心
+    controls.start({
+      x: dir * FLY_OFF_X,
+      rotate: dir * FLY_OFF_ROTATE,
+      transition: { duration: FLY_DURATION, ease: [0.4, 0, 0.2, 1] },
+    });
+    if (dir < 0) {
       onSwipeLeft();
-    } else if (info.offset.x > SWIPE_THRESHOLD) {
+    } else {
       onSwipeRight();
     }
   };
@@ -65,6 +93,7 @@ export default function WordCard({
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.7}
         onDragEnd={handleDragEnd}
+        animate={controls}
         style={{ x, rotate }}
         whileTap={{ scale: disabled ? 1 : 1.02 }}
         className="relative z-10 mx-auto flex h-[260px] w-full flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
