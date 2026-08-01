@@ -87,3 +87,17 @@ export async function computeStreak(userId: string): Promise<StreakInfo> {
   }
   return { count, studiedToday: dates.has(today), lastDate: last };
 }
+
+/** 取某用户最近 n 天的打卡日期（按日期升序），供打卡日历展示。 */
+export async function fetchRecentStudyDays(
+  userId: string,
+  n: number,
+): Promise<string[]> {
+  const since = offsetDay(todayKey(), -(n - 1));
+  const rows = await prisma.studyDay.findMany({
+    where: { userId, date: { gte: since } },
+    select: { date: true },
+    orderBy: { date: "asc" },
+  });
+  return rows.map((r) => r.date);
+}

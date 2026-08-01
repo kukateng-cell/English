@@ -16,6 +16,7 @@ import { warmUpSpeech } from "@/lib/speech";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import StreakBadge from "@/components/StreakBadge";
+import StreakCalendar from "@/components/StreakCalendar";
 import type { StreakInfo } from "@/lib/streak";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import {
@@ -763,6 +764,10 @@ export default function StudyPage() {
             🔥 {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
           </div>
         )}
+        {/* 打卡日历：当月视图，激励保持连续学习 */}
+        <div className="mb-6 w-full max-w-sm">
+          <StreakCalendar />
+        </div>
         <div className="flex flex-col items-center gap-3">
           {unitCategory ? (
             // 单元练习模式：主按钮 = 下一个单元；找不到可练单元时回退到 /units
