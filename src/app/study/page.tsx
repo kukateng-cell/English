@@ -208,6 +208,8 @@ export default function StudyPage() {
   const [unitCategory, setUnitCategory] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 「下一个单元」按钮的加载态（完成画面用）
+  const [nextLoading, setNextLoading] = useState(false);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
@@ -413,6 +415,10 @@ export default function StudyPage() {
       // 进入下一个词（或整轮完成）
       const nextIndex = currentIndex + 1;
       if (nextIndex >= queue.length) {
+        // 整轮完成。必须把 wordStep 移出 "quiz"，否则上面的
+        // `wordStep === "quiz" && current` 分支会抢先渲染最后一题的测试画面，
+        // 把完成画面（含「下一个单元 / 返回单元列表」按钮）挡住。
+        setWordStep("assess");
         setDone(true);
       } else {
         setCurrentIndex(nextIndex);
@@ -521,6 +527,69 @@ export default function StudyPage() {
     setQuizAttempt(0);
     quizWrongCounts.current = {};
     setReloadKey((k) => k + 1);
+  };
+
+  // 进入「下一个单元」：在当前级别内找当前单元之后的下一个「已解锁且未完成」
+  // 单元；当前级别没有了，就跨到下一个已解锁、有未完成单元的级别。
+  // 仅单元练习模式可用（全局今日学习模式没有「下一个单元」概念）。
+  const goToNextUnit = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const level = params.get("level");
+    const category = params.get("category");
+    if (!level || !category) return; // 非单元模式，没有「下一单元」
+    setNextLoading(true);
+    try {
+      // 1) 拿当前级别的单元列表 + 各级别状态
+      const data = await fetch(`/api/units?level=${encodeURIComponent(level)}`).then(
+        (r) => r.json(),
+      );
+      type U = { name: string; unlocked: boolean; completed: boolean };
+      // 在给定单元列表里挑「当前 category 之后」第一个 unlocked && !completed 的单元
+      const findNext = (units: U[], fromCat: string): U | null => {
+        const idx = units.findIndex((u) => u.name === fromCat);
+        return units.find((u, i) => i > idx && u.unlocked && !u.completed) ?? null;
+      };
+      const inLevel = findNext((data.units ?? []) as U[], category);
+      if (inLevel) {
+        window.location.assign(
+          `/study?level=${encodeURIComponent(level)}&category=${encodeURIComponent(inLevel.name)}`,
+        );
+        return;
+      }
+      // 2) 当前级别没有下一个可练单元 → 跨级别找下一个已解锁、有未完成单元的级别
+      const levelStatus: {
+        level: string;
+        unlocked: boolean;
+        completed: boolean;
+      }[] = data.levelStatus ?? [];
+      const order = [level, ...levelStatus.map((l) => l.level)];
+      const seen = new Set<string>();
+      for (const lvl of [...new Set(order)]) {
+        if (seen.has(lvl) || lvl === level) {
+          seen.add(lvl);
+          continue;
+        }
+        seen.add(lvl);
+        const st = levelStatus.find((l) => l.level === lvl);
+        if (!st?.unlocked) continue; // 级别未解锁
+        const ld = await fetch(`/api/units?level=${encodeURIComponent(lvl)}`).then((r) =>
+          r.json(),
+        );
+        const first = (ld.units ?? []).find(
+          (u: U) => u.unlocked && !u.completed,
+        );
+        if (first) {
+          window.location.assign(
+            `/study?level=${encodeURIComponent(lvl)}&category=${encodeURIComponent(first.name)}`,
+          );
+          return;
+        }
+      }
+      // 3) 所有可练单元都已完成 → 回单元列表
+      window.location.assign("/units");
+    } catch {
+      setNextLoading(false);
+    }
   };
 
   // ───────── 被锁单元渲染（仅手动改 URL 访问锁住单元时出现） ─────────
@@ -675,12 +744,36 @@ export default function StudyPage() {
           </p>
         )}
         <div className="flex flex-col items-center gap-3">
-          <button
-            onClick={restart}
-            className="flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
-          >
-            {unitCategory ? tc("再练一轮") : tc("刷新单词")}
-          </button>
+          {unitCategory ? (
+            // 单元练习模式：主按钮 = 下一个单元；找不到可练单元时回退到 /units
+            <button
+              onClick={goToNextUnit}
+              disabled={nextLoading}
+              className="flex h-[44px] min-w-[160px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] disabled:opacity-60"
+            >
+              {nextLoading ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  {tc("加载中...")}
+                </>
+              ) : (
+                <>
+                  {tc("下一个单元")}
+                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                  </svg>
+                </>
+              )}
+            </button>
+          ) : (
+            // 全局今日学习模式：主按钮 = 刷新今日单词
+            <button
+              onClick={restart}
+              className="flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
+            >
+              {tc("刷新单词")}
+            </button>
+          )}
           <div className="flex items-center gap-6 text-[14px]">
             <Link
               href="/units"
