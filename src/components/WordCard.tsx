@@ -43,18 +43,18 @@ export default function WordCard({
   };
 
   return (
-    <div className="relative mx-auto w-full max-w-md select-none px-5">
+    <div className="relative mx-auto w-full max-w-md select-none px-4">
       {/* 背景提示文字 */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-10">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-12">
         <motion.span
           style={{ opacity: opacityLeft }}
-          className="text-[15px] font-semibold text-[#EF6B6B]"
+          className="text-[17px] font-semibold text-[#EF6B6B]"
         >
           ← {tc("不认识")}
         </motion.span>
         <motion.span
           style={{ opacity: opacityRight }}
-          className="text-[15px] font-semibold text-[#22C55E]"
+          className="text-[17px] font-semibold text-[#22C55E]"
         >
           {tc("认识")} ✓
         </motion.span>
@@ -96,13 +96,13 @@ export default function WordCard({
         </button>
 
         {/* 底部按钮区域 */}
-        <div className="absolute bottom-5 flex w-full items-center justify-between px-6">
+        <div className="absolute bottom-5 flex w-full items-center justify-between px-5">
           <button
             onClick={(e) => {
               e.stopPropagation();
               onSwipeLeft();
             }}
-            className="flex h-9 items-center gap-1 rounded-full bg-[#FEF2F2] px-4 text-[13px] font-medium text-[#EF6B6B] transition active:scale-[0.96] dark:bg-[#2D0B0B]"
+            className="flex h-12 items-center gap-1.5 rounded-full bg-[#FEF2F2] px-6 text-[15px] font-semibold text-[#EF6B6B] transition active:scale-[0.96] dark:bg-[#2D0B0B]"
           >
             ← {tc("不认识")}
           </button>
@@ -111,7 +111,7 @@ export default function WordCard({
               e.stopPropagation();
               onSwipeRight();
             }}
-            className="flex h-9 items-center gap-1 rounded-full bg-[#ECFDF5] px-4 text-[13px] font-medium text-[#22C55E] transition active:scale-[0.96] dark:bg-[#052E16]"
+            className="flex h-12 items-center gap-1.5 rounded-full bg-[#ECFDF5] px-6 text-[15px] font-semibold text-[#22C55E] transition active:scale-[0.96] dark:bg-[#052E16]"
           >
             {tc("认识")} ✓
           </button>

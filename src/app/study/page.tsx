@@ -769,7 +769,7 @@ export default function StudyPage() {
       <SpeechRateControl />
 
       {/* 顶部导航栏 */}
-      <div className="mx-auto flex w-full max-w-md items-center justify-between px-5 pt-5 pb-3">
+      <div className="mx-auto flex w-full max-w-md items-center justify-between px-4 pt-5 pb-3">
         <Link
           href="/units"
           className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
@@ -790,7 +790,7 @@ export default function StudyPage() {
 
       {/* 单元上下文 */}
       {unitCategory && (
-        <div className="mx-auto mb-4 flex w-full max-w-md px-5">
+        <div className="mx-auto mb-4 flex w-full max-w-md px-4">
           <div className="flex items-center gap-2 rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
             <Link href="/units" className="hover:underline">
               {tc("← 单元列表")}
@@ -802,7 +802,7 @@ export default function StudyPage() {
       )}
 
       {/* 进度信息 */}
-      <div className="mx-auto mb-6 w-full max-w-md px-5">
+      <div className="mx-auto mb-6 w-full max-w-md px-4">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-[24px] font-bold tabular-nums text-[#17213C] dark:text-[#E2E8F0]">
@@ -830,10 +830,11 @@ export default function StudyPage() {
       </div>
 
       {/* 卡片区域 */}
-      <div className="flex-1 flex flex-col items-center justify-center">
+      <div className="flex-1 flex w-full flex-col items-center justify-center">
         <AnimatePresence mode="wait">
           <motion.div
             key={current.word.id + currentIndex}
+            className="w-full"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{
@@ -852,17 +853,17 @@ export default function StudyPage() {
         </AnimatePresence>
 
         {/* 底部按钮（桌面端备选） */}
-        <div className="mt-6 flex gap-8">
+        <div className="mt-6 flex w-full justify-center gap-10 px-5">
           <button
             onClick={handleSwipeLeft}
-            className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#FECACA] text-[#EF6B6B] transition hover:bg-[#FEF2F2] active:scale-95 dark:border-[#7F1D1D] dark:hover:bg-[#2D0B0B]"
+            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#FECACA] text-xl text-[#EF6B6B] transition hover:bg-[#FEF2F2] active:scale-95 dark:border-[#7F1D1D] dark:hover:bg-[#2D0B0B]"
             aria-label="不认识"
           >
             ✕
           </button>
           <button
             onClick={handleSwipeRight}
-            className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#BBF7D0] text-[#22C55E] transition hover:bg-[#ECFDF5] active:scale-95 dark:border-[#14532D] dark:hover:bg-[#052E16]"
+            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#BBF7D0] text-xl text-[#22C55E] transition hover:bg-[#ECFDF5] active:scale-95 dark:border-[#14532D] dark:hover:bg-[#052E16]"
             aria-label="认识"
           >
             ✓
