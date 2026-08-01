@@ -225,9 +225,16 @@ Vercel 是 serverless，每个请求可能新建数据库连接。**Transaction 
 
 改 `word list.md` → `npm run seed`（幂等，已存在的词会跳过）。
 
-### Q: 本地还能用 SQLite 吗？
+### Q: 本地开发怎么连数据库？
 
-不能了。代码已统一切到 Postgres。旧的 SQLite schema 备份在 `prisma/schema.sqlite.prisma`，本地数据库 `prisma/dev.db` 仍在但不再使用。
+两种方式（任选其一）：
+
+1. **本地 Docker Postgres（推荐，离线开发）**：仓库根目录的 `docker-compose.yml` 已配好，
+   `docker compose up -d` 启动后，`.env.local` 用 `.env.example` 里的本地连接串即可
+   （`localhost:5432`，`DATABASE_URL` 与 `MIGRATE_URL` 相同）。
+2. **直连 Supabase**：用第 1 步拿到的 pooler 连接串（`DATABASE_URL`=6543、`MIGRATE_URL`=5432）。
+
+代码已统一为 Postgres，不再支持 SQLite。
 
 ### Q: 部署后数据库是空的怎么办？
 

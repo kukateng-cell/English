@@ -39,10 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 
-# local SQLite preview db (本地预览用，不进版本库)
-prisma/*.db
-prisma/*.db-journal
-dev.db
+# next.js (auto-generated, do not edit)
 next-env.d.ts
 
 # prisma (Prisma 7) — generated client lives in src/generated
