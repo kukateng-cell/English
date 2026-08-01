@@ -15,6 +15,8 @@ import QuizCard, {
 import { warmUpSpeech } from "@/lib/speech";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import StreakBadge from "@/components/StreakBadge";
+import type { StreakInfo } from "@/lib/streak";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import {
   loadCheckpoint,
@@ -154,12 +156,22 @@ function buildQuestion(
  * 只有测试阶段「答对」的词才会调用，确保单词的掌握记录来自真实的测试表现，
  * 而非认字阶段的自我评估手势。
  */
-function submitQuizReview(wordId: string, quality: number) {
+function submitQuizReview(
+  wordId: string,
+  quality: number,
+  onDone?: (s: StreakInfo) => void,
+) {
   void fetch("/api/study", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ wordId, quality }),
-  });
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      // 服务端打卡后返回最新 streak，用于实时刷新 🔥 徽章。
+      if (data?.streak && onDone) onDone(data.streak);
+    })
+    .catch(() => {});
 }
 
 /**
@@ -208,6 +220,8 @@ export default function StudyPage() {
   const [unitCategory, setUnitCategory] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 连续学习天数（GET /api/study 返回，POST 提交后实时刷新）
+  const [streak, setStreak] = useState<StreakInfo | null>(null);
   // 「下一个单元」按钮的加载态（完成画面用）
   const [nextLoading, setNextLoading] = useState(false);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
@@ -348,6 +362,7 @@ export default function StudyPage() {
         setQueue(data.queue || []);
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category : null);
+        setStreak(data.streak ?? null);
         // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
         if (!cancelled && restoreProgress(data.queue || [])) {
           flashResumed();
@@ -409,7 +424,7 @@ export default function StudyPage() {
       if (word) {
         const wrongs = quizWrongCounts.current[word.id] ?? 0;
         const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
-        submitQuizReview(word.id, quality);
+        submitQuizReview(word.id, quality, setStreak);
       }
 
       // 进入下一个词（或整轮完成）
@@ -645,7 +660,7 @@ export default function StudyPage() {
           <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
             {tc("📝 测试中")}
           </span>
-          <div className="w-9" />
+          {streak && <StreakBadge streak={streak} />}
         </div>
 
         {/* 单元上下文 */}
@@ -743,6 +758,11 @@ export default function StudyPage() {
             {tc("今天没有更多单词了，明天再来复习吧")}
           </p>
         )}
+        {streak && streak.count > 0 && (
+          <div className="mb-6 flex items-center gap-2 rounded-2xl bg-[#FFF7E6] px-5 py-3 text-[14px] font-semibold text-[#F59E0B] dark:bg-[#2A1E00] dark:text-[#FBBF24]">
+            🔥 {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
+          </div>
+        )}
         <div className="flex flex-col items-center gap-3">
           {unitCategory ? (
             // 单元练习模式：主按钮 = 下一个单元；找不到可练单元时回退到 /units
@@ -818,7 +838,7 @@ export default function StudyPage() {
           </span>
         </div>
 
-        <div className="w-9" />
+        {streak && <StreakBadge streak={streak} />}
       </div>
 
       {/* 单元上下文 */}

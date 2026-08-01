@@ -9,6 +9,7 @@ import {
   type Quality,
 } from "@/lib/sm2";
 import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
+import { computeStreak, checkInStudyDay } from "@/lib/streak";
 
 /**
  * 计算当前用户的「闯关解锁」状态。
@@ -234,7 +235,10 @@ export async function GET(req: Request) {
     pool = [];
   }
 
-  return NextResponse.json({ queue, pool, unitMode, level, category });
+  // 连续学习天数：随队列一起返回，前端用于展示 🔥 打卡徽章。
+  const streak = await computeStreak(userId);
+
+  return NextResponse.json({ queue, pool, unitMode, level, category, streak });
 }
 
 /** POST /api/study — 提交一次学习结果（认字评估手势 或 测试 quality） */
@@ -299,5 +303,10 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, nextState });
+  // 打卡：完成一次有效学习（测试答对并提交）即记为「今天学过」，用于连续学习天数。
+  // upsert 幂等——同一天多次提交只保留一条打卡记录。
+  await checkInStudyDay(userId);
+  const streak = await computeStreak(userId);
+
+  return NextResponse.json({ ok: true, nextState, streak });
 }
