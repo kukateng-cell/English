@@ -18,6 +18,7 @@ import { useLocale } from "@/components/LocaleProvider";
 import StreakBadge from "@/components/StreakBadge";
 import StreakCalendar from "@/components/StreakCalendar";
 import type { StreakInfo } from "@/lib/streak";
+import type { AchievementDef } from "@/lib/achievements";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import {
   loadCheckpoint,
@@ -161,6 +162,7 @@ function submitQuizReview(
   wordId: string,
   quality: number,
   onDone?: (s: StreakInfo) => void,
+  onAchievements?: (list: AchievementDef[]) => void,
 ) {
   void fetch("/api/study", {
     method: "POST",
@@ -169,8 +171,12 @@ function submitQuizReview(
   })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
-      // 服务端打卡后返回最新 streak，用于实时刷新 🔥 徽章。
+      // 服务端打卡后返回最新 streak，用于实时刷新 🔥 徽章；
+      // 若解锁了新成就，一并通知前端弹出提示。
       if (data?.streak && onDone) onDone(data.streak);
+      if (data?.newlyUnlocked?.length && onAchievements) {
+        onAchievements(data.newlyUnlocked);
+      }
     })
     .catch(() => {});
 }
@@ -207,6 +213,42 @@ function ResumeToast({ visible }: { visible: boolean }) {
   );
 }
 
+/** 成就解锁弹窗（fixed 定位，学习各阶段共用）。 */
+function AchievementToast({
+  items,
+  onClose,
+}: {
+  items: AchievementDef[];
+  onClose: () => void;
+}) {
+  const { tc } = useLocale();
+  return (
+    <AnimatePresence>
+      {items.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -16 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -16 }}
+          className="fixed left-1/2 top-16 z-50 flex -translate-x-1/2 flex-col items-center gap-1 rounded-2xl bg-[#17213C]/95 px-5 py-3 text-center text-white shadow-lg backdrop-blur dark:bg-white/95 dark:text-[#17213C]"
+        >
+          <div className="text-[13px] font-bold">🎉 {tc("解锁新成就")}</div>
+          {items.map((a) => (
+            <div key={a.key} className="text-[13px]">
+              {a.icon} {tc(a.title)}
+            </div>
+          ))}
+          <button
+            onClick={onClose}
+            className="mt-1 text-[11px] text-[#94A3B8] underline dark:text-[#64748B]"
+          >
+            {tc("知道了")}
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function StudyPage() {
   const { status } = useSession();
   const router = useRouter();
@@ -223,6 +265,8 @@ export default function StudyPage() {
   const [error, setError] = useState<string | null>(null);
   // 连续学习天数（GET /api/study 返回，POST 提交后实时刷新）
   const [streak, setStreak] = useState<StreakInfo | null>(null);
+  // 本次学习中新解锁的成就（POST 返回，用于即时弹提示）
+  const [newAchievements, setNewAchievements] = useState<AchievementDef[]>([]);
   // 「下一个单元」按钮的加载态（完成画面用）
   const [nextLoading, setNextLoading] = useState(false);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
@@ -249,6 +293,13 @@ export default function StudyPage() {
     },
     [],
   );
+
+  // 成就解锁提示：3.2s 后自动消失
+  useEffect(() => {
+    if (newAchievements.length === 0) return;
+    const t = setTimeout(() => setNewAchievements([]), 3200);
+    return () => clearTimeout(t);
+  }, [newAchievements]);
 
   // 逐词流转：每个词「认字评估 → 立即测试 → 下一词」交替进行。
   // wordStep 表示「当前这个词」处在哪一步；done 表示整轮已全部完成。
@@ -425,7 +476,9 @@ export default function StudyPage() {
       if (word) {
         const wrongs = quizWrongCounts.current[word.id] ?? 0;
         const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
-        submitQuizReview(word.id, quality, setStreak);
+        submitQuizReview(word.id, quality, setStreak, (list) =>
+          setNewAchievements((prev) => [...prev, ...list]),
+        );
       }
 
       // 进入下一个词（或整轮完成）
@@ -646,6 +699,10 @@ export default function StudyPage() {
     return (
       <div className="flex min-h-full flex-col pb-24">
         <ResumeToast visible={showResumedBanner} />
+        <AchievementToast
+          items={newAchievements}
+          onClose={() => setNewAchievements([])}
+        />
         <SpeechRateControl />
 
         {/* 顶部导航栏 */}
@@ -738,6 +795,10 @@ export default function StudyPage() {
     const hasQuiz = quizStats.correct + quizStats.wrong > 0;
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <AchievementToast
+          items={newAchievements}
+          onClose={() => setNewAchievements([])}
+        />
         <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#ECFDF5] dark:bg-[#052E16]">
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -813,6 +874,12 @@ export default function StudyPage() {
               {tc("返回首页")}
             </Link>
           </div>
+          <Link
+            href="/achievements"
+            className="text-[13px] font-medium text-[#F59E0B] transition hover:text-[#FBBF24] dark:text-[#FBBF24]"
+          >
+            🎖 {tc("查看我的成就")}
+          </Link>
         </div>
       </div>
     );
@@ -824,6 +891,10 @@ export default function StudyPage() {
   return (
     <div className="flex min-h-full flex-col pb-24">
       <ResumeToast visible={showResumedBanner} />
+      <AchievementToast
+        items={newAchievements}
+        onClose={() => setNewAchievements([])}
+      />
       <SpeechRateControl />
 
       {/* 顶部导航栏 */}
