@@ -26,6 +26,7 @@ model User {
   createdAt    DateTime @default(now())
   reviews      Review[]
   studyDays    StudyDay[]
+  achievements UserAchievement[]
 }
 
 // ── 单词（来自 word list.md + ECDICT） ──
@@ -86,6 +87,20 @@ model StudyDay {
   @@unique([userId, date])
   @@index([userId])
   @@index([date])
+}
+
+// ── 用户成就解锁记录 ──
+// 成就「定义」放在代码常量（src/lib/achievements.ts，key 唯一），
+// 本表只记录「哪个用户解锁了哪个成就」，避免频繁改表。
+model UserAchievement {
+  id         String   @id @default(cuid())
+  userId     String
+  key        String // 成就 key（对应 src/lib/achievements.ts 的 ACHIEVEMENTS）
+  unlockedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
 }
 
 enum Role {

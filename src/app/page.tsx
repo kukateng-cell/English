@@ -96,6 +96,22 @@ export default async function Home() {
           {tc("单元闯关")}
         </Link>
 
+        {/* 排行榜 / 成就入口 */}
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <Link
+            href="/leaderboard"
+            className="flex h-[44px] items-center justify-center gap-1.5 rounded-2xl border border-[#E7EDF8] bg-white text-[14px] font-medium text-[#2563EB] shadow-sm transition-all hover:border-[#2563EB]/30 hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:border-[#1E3A5F] dark:hover:bg-[#1A2332]"
+          >
+            🏆 {tc("排行榜")}
+          </Link>
+          <Link
+            href="/achievements"
+            className="flex h-[44px] items-center justify-center gap-1.5 rounded-2xl border border-[#E7EDF8] bg-white text-[14px] font-medium text-[#F59E0B] shadow-sm transition-all hover:border-[#F59E0B]/30 hover:bg-[#FFFBEB] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#FBBF24] dark:hover:border-[#7A4A00] dark:hover:bg-[#2A1E00]"
+          >
+            🎖 {tc("成就")}
+          </Link>
+        </div>
+
         {/* 底部登录入口 */}
         <div className="text-center text-sm text-[#7C89A5] dark:text-[#64748B]">
           {tc("已有账号？")}{" "}

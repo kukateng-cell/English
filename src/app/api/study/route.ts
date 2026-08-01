@@ -10,6 +10,7 @@ import {
 } from "@/lib/sm2";
 import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
 import { computeStreak, checkInStudyDay } from "@/lib/streak";
+import { checkAchievements } from "@/lib/achievements";
 
 /**
  * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
@@ -341,6 +342,8 @@ export async function POST(req: Request) {
   // upsert 幂等——同一天多次提交只保留一条打卡记录。
   await checkInStudyDay(userId);
   const streak = await computeStreak(userId);
+  // 成就检查：打卡后检查并解锁可能达成的新成就（幂等），返回本次新解锁的。
+  const newlyUnlocked = await checkAchievements(userId);
 
-  return NextResponse.json({ ok: true, nextState, streak });
+  return NextResponse.json({ ok: true, nextState, streak, newlyUnlocked });
 }
