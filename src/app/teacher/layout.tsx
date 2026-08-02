@@ -57,6 +57,7 @@ export default async function TeacherLayout({
         tabs={[
           { href: "/teacher", label: tc("概览") },
           { href: "/teacher/students", label: tc("学生进度") },
+          { href: "/teacher/leaderboard", label: tc("排行榜") },
         ]}
       />
 

@@ -34,7 +34,7 @@ export interface LeaderboardData {
 const TOP_N = 20;
 
 /** 纯函数：从打卡日期集合计算连续天数（Duolingo 式，今天/昨天起点）。 */
-function countStreak(dates: Set<string>): number {
+export function countStreak(dates: Set<string>): number {
   const today = todayKey();
   const yesterday = offsetDay(today, -1);
   let cursor: string | null = null;

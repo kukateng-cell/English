@@ -64,17 +64,17 @@ export interface StreakData {
 }
 
 export default function StreakCalendar({
-  previewData,
+  data: externalData,
 }: {
-  /** 预览模式：直接使用传入数据（离线演示用），不发起请求。 */
-  previewData?: StreakData;
+  /** 外部传入数据（老师查看学生 / 离线预览用），传入则不自行请求。 */
+  data?: StreakData;
 }) {
   const { tc } = useLocale();
   const [data, setData] = useState<StreakData | null>(null);
 
   // 挂载时拉取打卡数据（独立 API，不影响 /api/study 的主流程）
   useEffect(() => {
-    if (previewData) return;
+    if (externalData) return;
     let cancelled = false;
     fetch("/api/streak")
       .then((r) => (r.ok ? r.json() : null))
@@ -85,9 +85,9 @@ export default function StreakCalendar({
     return () => {
       cancelled = true;
     };
-  }, [previewData]);
+  }, [externalData]);
 
-  const effective = previewData ?? data;
+  const effective = externalData ?? data;
 
   const daysSet = useMemo(() => new Set(effective?.days ?? []), [effective]);
   const grid = useMemo(() => {

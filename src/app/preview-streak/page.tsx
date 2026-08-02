@@ -24,6 +24,13 @@ const mockLeaderboard: { rank: number; name: string; value: number; me: boolean 
   { rank: 5, name: "student05", value: 18, me: false },
 ];
 
+// 老师端·学生进度预览数据（连续天数 / 今日打卡 / 流失预警）
+const mockStudents = [
+  { name: "李华", email: "student01", streak: 6, studiedToday: true, cumulativeDays: 12, achievementCount: 3, progress: 45, masteredWords: 120, totalWords: 400 },
+  { name: "王芳", email: "student02", streak: 3, studiedToday: false, cumulativeDays: 8, achievementCount: 2, progress: 32, masteredWords: 85, totalWords: 400 },
+  { name: "张伟", email: "student03", streak: 0, studiedToday: false, cumulativeDays: 2, achievementCount: 0, progress: 12, masteredWords: 30, totalWords: 400, atRisk: true },
+];
+
 export default function PreviewStreakPage() {
   const samples = [
     {
@@ -79,7 +86,7 @@ export default function PreviewStreakPage() {
           打卡日历（当月视图）
         </div>
         <StreakCalendar
-          previewData={{
+          data={{
             streak: { count: 6, studiedToday: true, lastDate: "2026-08-02" },
             days: ["2026-08-01", "2026-08-02"],
           }}
@@ -136,6 +143,69 @@ export default function PreviewStreakPage() {
               </div>
               <div className="flex items-center gap-1 text-[14px] font-semibold tabular-nums text-[#2563EB] dark:text-[#60A5FA]">
                 🔥 <span>{e.value}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── 老师端·学生进度（连续天数 / 今日打卡 / 流失预警） ── */}
+      <div className="w-full max-w-sm">
+        <div className="mb-3 text-center text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          老师端·学生进度（连续天数 / 今日打卡 / 流失预警）
+        </div>
+        <div className="space-y-3">
+          {mockStudents.map((s) => (
+            <div
+              key={s.email}
+              className={`rounded-2xl border bg-white p-4 dark:bg-[#111827] ${
+                s.atRisk
+                  ? "border-[#FECACA] dark:border-[#7F1D1D]"
+                  : "border-[#E7EDF8] dark:border-[#1E293B]"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[15px] font-bold text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+                    {s.name.charAt(0)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
+                        {s.name}
+                      </p>
+                      {s.atRisk && (
+                        <span className="rounded-full bg-[#FEF2F2] px-1.5 py-0.5 text-[10px] font-semibold text-[#EF4444] dark:bg-[#2D0B0B] dark:text-[#F87171]">
+                          ⚠️ 需关注
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <StreakBadge
+                        streak={{
+                          count: s.streak,
+                          studiedToday: s.studiedToday,
+                          lastDate: "2026-08-02",
+                        }}
+                      />
+                      {s.studiedToday && (
+                        <span className="flex items-center gap-1 rounded-full bg-[#ECFDF5] px-2 py-0.5 text-[11px] font-semibold text-[#15803D] dark:bg-[#052E16] dark:text-[#4ADE80]">
+                          ● 今日已学
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[18px] font-bold text-[#2563EB] dark:text-[#60A5FA]">{s.progress}%</p>
+                  <p className="text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+                    {s.masteredWords}/{s.totalWords} 词
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+                <span>🗓️ 累计 {s.cumulativeDays} 天</span>
+                <span>🎖 {s.achievementCount} 个成就</span>
               </div>
             </div>
           ))}

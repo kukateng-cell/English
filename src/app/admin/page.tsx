@@ -15,6 +15,9 @@ interface Stats {
   totalWords: number;
   totalReviews: number;
   reviewsToday: number;
+  todayCheckedIn: number;
+  maxStreak: number;
+  activeTrend: { date: string; count: number }[];
   wordsByLevel: { level: string; count: number }[];
 }
 
@@ -112,6 +115,23 @@ export default function AdminDashboard() {
           }
           color="amber"
         />
+        <StatCard
+          label={tc("今日打卡人数")}
+          value={stats?.todayCheckedIn ?? 0}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M8 2v4M16 2v4M3 9h18" /><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M8 15l3 3 5-5" /></svg>
+          }
+          color="green"
+        />
+        <StatCard
+          label={tc("最长连续天数")}
+          value={stats?.maxStreak ?? 0}
+          subtitle={tc("天")}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" /></svg>
+          }
+          color="rose"
+        />
       </div>
 
       {/* 用户角色分布 */}
@@ -139,6 +159,43 @@ export default function AdminDashboard() {
                 <p className="mt-0.5 text-[12px] font-medium text-[#7C89A5] dark:text-[#64748B]">{l.level}</p>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 近 14 天打卡趋势 */}
+      {stats?.activeTrend && stats.activeTrend.length > 0 && (
+        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
+          <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
+            {tc("近 14 天打卡趋势")}
+          </h3>
+          <div className="flex h-32 items-end gap-1.5">
+            {(() => {
+              const max = Math.max(...stats.activeTrend.map((x) => x.count), 1);
+              return stats.activeTrend.map((d) => {
+                const h = Math.max(6, Math.round((d.count / max) * 100));
+                return (
+                  <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
+                    <span className="text-[10px] tabular-nums text-[#7C89A5] dark:text-[#64748B]">
+                      {d.count > 0 ? d.count : ""}
+                    </span>
+                    <div
+                      title={`${d.date}: ${d.count}`}
+                      className={`w-full rounded-t-md ${
+                        d.count > 0
+                          ? "bg-gradient-to-t from-[#2563EB] to-[#5B6FEF]"
+                          : "bg-[#E7EDF8] dark:bg-[#1E293B]"
+                      }`}
+                      style={{ height: `${h}%` }}
+                    />
+                  </div>
+                );
+              });
+            })()}
+          </div>
+          <div className="mt-2 flex justify-between text-[10px] text-[#94A3B8] dark:text-[#64748B]">
+            <span>{stats.activeTrend[0]?.date.slice(5)}</span>
+            <span>{stats.activeTrend[stats.activeTrend.length - 1]?.date.slice(5)}</span>
           </div>
         </div>
       )}
@@ -173,13 +230,14 @@ function StatCard({
   value: number;
   subtitle?: string;
   icon: React.ReactNode;
-  color: "blue" | "indigo" | "green" | "amber";
+  color: "blue" | "indigo" | "green" | "amber" | "rose";
 }) {
   const colorMap = {
     blue: { bg: "bg-[#EEF4FF]", text: "text-[#2563EB]", darkBg: "dark:bg-[#1E3A5F]", darkText: "dark:text-[#60A5FA]" },
     indigo: { bg: "bg-[#EEF0FF]", text: "text-[#4F46E5]", darkBg: "dark:bg-[#1E1B4B]", darkText: "dark:text-[#A5B4FC]" },
     green: { bg: "bg-[#ECFDF5]", text: "text-[#15803D]", darkBg: "dark:bg-[#052E16]", darkText: "dark:text-[#4ADE80]" },
     amber: { bg: "bg-[#FFFBEB]", text: "text-[#B45309]", darkBg: "dark:bg-[#291800]", darkText: "dark:text-[#FBBF24]" },
+    rose: { bg: "bg-[#FFF1F2]", text: "text-[#E11D48]", darkBg: "dark:bg-[#3D0D1C]", darkText: "dark:text-[#FB7185]" },
   };
   const c = colorMap[color];
 

@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
+import StreakBadge from "@/components/StreakBadge";
+import StreakCalendar from "@/components/StreakCalendar";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { useLocale } from "@/components/LocaleProvider";
+import { todayKey } from "@/lib/streak";
 
 interface StudentItem {
   id: string;
@@ -14,8 +17,17 @@ interface StudentItem {
   masteredWords: number;
   totalWords: number;
   progress: number;
+  // 留存画像（来自 /api/teacher/students 的 insights）
+  streak: number;
+  studiedToday: boolean;
+  cumulativeDays: number;
+  achievementCount: number;
+  lastStudyDate: string | null;
+  days: string[];
   byLevel: { level: string; mastered: number; total: number; progress: number }[];
 }
+
+type SortKey = "default" | "streak" | "today" | "progress";
 
 export default function TeacherStudentsPage() {
   const { tc } = useLocale();
@@ -24,6 +36,7 @@ export default function TeacherStudentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("default");
 
   useEffect(() => {
     (async () => {
@@ -43,6 +56,35 @@ export default function TeacherStudentsPage() {
       }
     })();
   }, [reloadKey]);
+
+  // 排序（默认保持班级顺序；同分时按连续天数/累计天数进一步排序）
+  const sorted = useMemo(() => {
+    const arr = [...students];
+    if (sortKey === "streak") {
+      arr.sort(
+        (a, b) => b.streak - a.streak || b.cumulativeDays - a.cumulativeDays,
+      );
+    } else if (sortKey === "today") {
+      arr.sort(
+        (a, b) =>
+          Number(b.studiedToday) - Number(a.studiedToday) || b.streak - a.streak,
+      );
+    } else if (sortKey === "progress") {
+      arr.sort((a, b) => b.progress - a.progress);
+    }
+    return arr;
+  }, [students, sortKey]);
+
+  // 流失预警：无连续（streak=0）且最近打卡距今 >= 3 天
+  const isAtRisk = (s: StudentItem) => {
+    if (s.streak > 0 || !s.lastStudyDate) return false;
+    const [y, m, d] = s.lastStudyDate.split("-").map(Number);
+    const [ty, tm, td] = todayKey().split("-").map(Number);
+    const diff = Math.round(
+      (Date.UTC(ty, tm - 1, td) - Date.UTC(y, m - 1, d)) / 86400000,
+    );
+    return diff >= 3;
+  };
 
   if (loading) {
     return (
@@ -76,13 +118,37 @@ export default function TeacherStudentsPage() {
         </p>
       </div>
 
+      {/* 排序切换 */}
+      <div className="flex gap-1 rounded-full bg-[#EEF4FF] p-1 dark:bg-[#1E3A5F]/40">
+        {(
+          [
+            { key: "default", label: "默认" },
+            { key: "streak", label: "🔥 连续" },
+            { key: "today", label: "今日" },
+            { key: "progress", label: "进度" },
+          ] as { key: SortKey; label: string }[]
+        ).map((o) => (
+          <button
+            key={o.key}
+            onClick={() => setSortKey(o.key)}
+            className={`flex-1 rounded-full px-3 py-2 text-[13px] font-medium transition ${
+              sortKey === o.key
+                ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-white shadow"
+                : "text-[#7C89A5] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:text-[#60A5FA]"
+            }`}
+          >
+            {tc(o.label)}
+          </button>
+        ))}
+      </div>
+
       {students.length === 0 ? (
         <div className="rounded-2xl border border-[#E7EDF8] bg-white p-10 text-center text-[14px] text-[#7C89A5] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]">
           {tc("暂无学生数据")}
         </div>
       ) : (
         <div className="space-y-3">
-          {students.map((student, i) => (
+          {sorted.map((student, i) => (
             <motion.div
               key={student.id}
               initial={{ opacity: 0, y: 8 }}
@@ -91,7 +157,11 @@ export default function TeacherStudentsPage() {
             >
               <button
                 onClick={() => setExpandedId(expandedId === student.id ? null : student.id)}
-                className="w-full rounded-2xl border border-[#E7EDF8] bg-white p-4 text-left shadow-sm transition hover:border-[#2563EB]/20 dark:border-[#1E293B] dark:bg-[#111827]"
+                className={`w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition dark:bg-[#111827] ${
+                  isAtRisk(student)
+                    ? "border-[#FECACA] dark:border-[#7F1D1D]"
+                    : "border-[#E7EDF8] hover:border-[#2563EB]/20 dark:border-[#1E293B]"
+                }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
@@ -99,12 +169,33 @@ export default function TeacherStudentsPage() {
                       {(student.name || student.email).charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-                        {student.name || tc("未设置姓名")}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
+                          {student.name || tc("未设置姓名")}
+                        </p>
+                        {isAtRisk(student) && (
+                          <span className="shrink-0 rounded-full bg-[#FEF2F2] px-1.5 py-0.5 text-[10px] font-semibold text-[#EF4444] dark:bg-[#2D0B0B] dark:text-[#F87171]">
+                            ⚠️ {tc("需关注")}
+                          </span>
+                        )}
+                      </div>
                       <p className="truncate text-[13px] text-[#7C89A5] dark:text-[#64748B]">
                         {student.email}
                       </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <StreakBadge
+                          streak={{
+                            count: student.streak,
+                            studiedToday: student.studiedToday,
+                            lastDate: student.lastStudyDate,
+                          }}
+                        />
+                        {student.studiedToday && (
+                          <span className="flex items-center gap-1 rounded-full bg-[#ECFDF5] px-2 py-0.5 text-[11px] font-semibold text-[#15803D] dark:bg-[#052E16] dark:text-[#4ADE80]">
+                            ● {tc("今日已学")}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
@@ -124,6 +215,15 @@ export default function TeacherStudentsPage() {
                     animate={{ width: `${student.progress}%` }}
                     transition={{ duration: 0.5, delay: i * 0.05 }}
                   />
+                </div>
+
+                {/* 留存统计 */}
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+                  <span>🗓️ {tc(`累计 ${student.cumulativeDays} 天`)}</span>
+                  <span>🎖 {tc(`${student.achievementCount} 个成就`)}</span>
+                  {student.lastStudyDate && (
+                    <span>{tc(`最近学习 ${student.lastStudyDate}`)}</span>
+                  )}
                 </div>
 
                 {/* 展开详情 */}
@@ -152,6 +252,23 @@ export default function TeacherStudentsPage() {
                     ))}
                     <div className="flex items-center gap-3 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
                       <span>{tc(`📝 共复习 ${student.totalReviews} 次`)}</span>
+                    </div>
+
+                    {/* 打卡日历 */}
+                    <div>
+                      <p className="mb-2 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+                        {tc("打卡日历")}
+                      </p>
+                      <StreakCalendar
+                        data={{
+                          streak: {
+                            count: student.streak,
+                            studiedToday: student.studiedToday,
+                            lastDate: student.lastStudyDate,
+                          },
+                          days: student.days ?? [],
+                        }}
+                      />
                     </div>
                   </motion.div>
                 )}

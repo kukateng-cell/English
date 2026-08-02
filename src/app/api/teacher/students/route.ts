@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { getStudentInsights } from "@/lib/insights";
 
 export async function GET() {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
@@ -24,6 +25,9 @@ export async function GET() {
     const wordsByLevel = await prisma.word.groupBy({ by: ["level"], _count: true });
     const levelWordCounts: Record<string, number> = {};
     for (const l of wordsByLevel) levelWordCounts[l.level] = l._count;
+
+    // 留存画像（连续天数 / 今日打卡 / 成就数 / 最近 30 天打卡）
+    const insights = await getStudentInsights();
 
     // 只取「已掌握」(interval > 21) 的 Review 行，where 下推到 DB；
     // 这里只传输满足条件的子集（而非全部 Review），再在内存按 (学生, 级别) 聚合。
@@ -69,6 +73,14 @@ export async function GET() {
           totalWords,
           progress: totalWords > 0 ? Math.round((mastered / totalWords) * 100) : 0,
           byLevel,
+          ...(insights.get(s.id) ?? {
+            streak: 0,
+            studiedToday: false,
+            cumulativeDays: 0,
+            achievementCount: 0,
+            lastStudyDate: null,
+            days: [],
+          }),
         };
       })
     );

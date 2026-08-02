@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { getStudentInsights, getDailyActiveTrend } from "@/lib/insights";
 
 export async function GET() {
   const auth = await requireRole(ROLES.ADMIN);
@@ -27,6 +28,15 @@ export async function GET() {
     const roleMap: Record<string, number> = {};
     for (const r of usersByRole) roleMap[r.role] = r._count;
 
+    // 留存数据：今日打卡人数、最长连续天数、近 14 天打卡趋势
+    const [insights, activeTrend] = await Promise.all([
+      getStudentInsights(),
+      getDailyActiveTrend(14),
+    ]);
+    const insightList = [...insights.values()];
+    const todayCheckedIn = insightList.filter((i) => i.studiedToday).length;
+    const maxStreak = insightList.reduce((m, i) => Math.max(m, i.streak), 0);
+
     return NextResponse.json({
       totalUsers,
       totalStudents: roleMap[ROLES.STUDENT] ?? 0,
@@ -35,6 +45,9 @@ export async function GET() {
       totalWords,
       totalReviews,
       reviewsToday,
+      todayCheckedIn,
+      maxStreak,
+      activeTrend,
       wordsByLevel: wordsByLevel.map((w) => ({ level: w.level, count: w._count })),
     });
   } catch {
