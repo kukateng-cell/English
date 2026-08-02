@@ -15,6 +15,10 @@ import QuizCard, {
 import { warmUpSpeech } from "@/lib/speech";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import StreakBadge from "@/components/StreakBadge";
+import StreakCalendar from "@/components/StreakCalendar";
+import type { StreakInfo } from "@/lib/streak";
+import type { AchievementDef } from "@/lib/achievements";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import {
   loadCheckpoint,
@@ -154,12 +158,27 @@ function buildQuestion(
  * 只有测试阶段「答对」的词才会调用，确保单词的掌握记录来自真实的测试表现，
  * 而非认字阶段的自我评估手势。
  */
-function submitQuizReview(wordId: string, quality: number) {
+function submitQuizReview(
+  wordId: string,
+  quality: number,
+  onDone?: (s: StreakInfo) => void,
+  onAchievements?: (list: AchievementDef[]) => void,
+) {
   void fetch("/api/study", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ wordId, quality }),
-  });
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      // 服务端打卡后返回最新 streak，用于实时刷新 🔥 徽章；
+      // 若解锁了新成就，一并通知前端弹出提示。
+      if (data?.streak && onDone) onDone(data.streak);
+      if (data?.newlyUnlocked?.length && onAchievements) {
+        onAchievements(data.newlyUnlocked);
+      }
+    })
+    .catch(() => {});
 }
 
 /**
@@ -194,6 +213,42 @@ function ResumeToast({ visible }: { visible: boolean }) {
   );
 }
 
+/** 成就解锁弹窗（fixed 定位，学习各阶段共用）。 */
+function AchievementToast({
+  items,
+  onClose,
+}: {
+  items: AchievementDef[];
+  onClose: () => void;
+}) {
+  const { tc } = useLocale();
+  return (
+    <AnimatePresence>
+      {items.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -16 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -16 }}
+          className="fixed left-1/2 top-16 z-50 flex -translate-x-1/2 flex-col items-center gap-1 rounded-2xl bg-[#17213C]/95 px-5 py-3 text-center text-white shadow-lg backdrop-blur dark:bg-white/95 dark:text-[#17213C]"
+        >
+          <div className="text-[13px] font-bold">🎉 {tc("解锁新成就")}</div>
+          {items.map((a) => (
+            <div key={a.key} className="text-[13px]">
+              {a.icon} {tc(a.title)}
+            </div>
+          ))}
+          <button
+            onClick={onClose}
+            className="mt-1 text-[11px] text-[#94A3B8] underline dark:text-[#64748B]"
+          >
+            {tc("知道了")}
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function StudyPage() {
   const { status } = useSession();
   const router = useRouter();
@@ -208,6 +263,12 @@ export default function StudyPage() {
   const [unitCategory, setUnitCategory] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 连续学习天数（GET /api/study 返回，POST 提交后实时刷新）
+  const [streak, setStreak] = useState<StreakInfo | null>(null);
+  // 本次学习中新解锁的成就（POST 返回，用于即时弹提示）
+  const [newAchievements, setNewAchievements] = useState<AchievementDef[]>([]);
+  // 「下一个单元」按钮的加载态（完成画面用）
+  const [nextLoading, setNextLoading] = useState(false);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
@@ -232,6 +293,13 @@ export default function StudyPage() {
     },
     [],
   );
+
+  // 成就解锁提示：3.2s 后自动消失
+  useEffect(() => {
+    if (newAchievements.length === 0) return;
+    const t = setTimeout(() => setNewAchievements([]), 3200);
+    return () => clearTimeout(t);
+  }, [newAchievements]);
 
   // 逐词流转：每个词「认字评估 → 立即测试 → 下一词」交替进行。
   // wordStep 表示「当前这个词」处在哪一步；done 表示整轮已全部完成。
@@ -346,6 +414,7 @@ export default function StudyPage() {
         setQueue(data.queue || []);
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category : null);
+        setStreak(data.streak ?? null);
         // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
         if (!cancelled && restoreProgress(data.queue || [])) {
           flashResumed();
@@ -407,12 +476,18 @@ export default function StudyPage() {
       if (word) {
         const wrongs = quizWrongCounts.current[word.id] ?? 0;
         const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
-        submitQuizReview(word.id, quality);
+        submitQuizReview(word.id, quality, setStreak, (list) =>
+          setNewAchievements((prev) => [...prev, ...list]),
+        );
       }
 
       // 进入下一个词（或整轮完成）
       const nextIndex = currentIndex + 1;
       if (nextIndex >= queue.length) {
+        // 整轮完成。必须把 wordStep 移出 "quiz"，否则上面的
+        // `wordStep === "quiz" && current` 分支会抢先渲染最后一题的测试画面，
+        // 把完成画面（含「下一个单元 / 返回单元列表」按钮）挡住。
+        setWordStep("assess");
         setDone(true);
       } else {
         setCurrentIndex(nextIndex);
@@ -523,6 +598,69 @@ export default function StudyPage() {
     setReloadKey((k) => k + 1);
   };
 
+  // 进入「下一个单元」：在当前级别内找当前单元之后的下一个「已解锁且未完成」
+  // 单元；当前级别没有了，就跨到下一个已解锁、有未完成单元的级别。
+  // 仅单元练习模式可用（全局今日学习模式没有「下一个单元」概念）。
+  const goToNextUnit = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const level = params.get("level");
+    const category = params.get("category");
+    if (!level || !category) return; // 非单元模式，没有「下一单元」
+    setNextLoading(true);
+    try {
+      // 1) 拿当前级别的单元列表 + 各级别状态
+      const data = await fetch(`/api/units?level=${encodeURIComponent(level)}`).then(
+        (r) => r.json(),
+      );
+      type U = { name: string; unlocked: boolean; completed: boolean };
+      // 在给定单元列表里挑「当前 category 之后」第一个 unlocked && !completed 的单元
+      const findNext = (units: U[], fromCat: string): U | null => {
+        const idx = units.findIndex((u) => u.name === fromCat);
+        return units.find((u, i) => i > idx && u.unlocked && !u.completed) ?? null;
+      };
+      const inLevel = findNext((data.units ?? []) as U[], category);
+      if (inLevel) {
+        window.location.assign(
+          `/study?level=${encodeURIComponent(level)}&category=${encodeURIComponent(inLevel.name)}`,
+        );
+        return;
+      }
+      // 2) 当前级别没有下一个可练单元 → 跨级别找下一个已解锁、有未完成单元的级别
+      const levelStatus: {
+        level: string;
+        unlocked: boolean;
+        completed: boolean;
+      }[] = data.levelStatus ?? [];
+      const order = [level, ...levelStatus.map((l) => l.level)];
+      const seen = new Set<string>();
+      for (const lvl of [...new Set(order)]) {
+        if (seen.has(lvl) || lvl === level) {
+          seen.add(lvl);
+          continue;
+        }
+        seen.add(lvl);
+        const st = levelStatus.find((l) => l.level === lvl);
+        if (!st?.unlocked) continue; // 级别未解锁
+        const ld = await fetch(`/api/units?level=${encodeURIComponent(lvl)}`).then((r) =>
+          r.json(),
+        );
+        const first = (ld.units ?? []).find(
+          (u: U) => u.unlocked && !u.completed,
+        );
+        if (first) {
+          window.location.assign(
+            `/study?level=${encodeURIComponent(lvl)}&category=${encodeURIComponent(first.name)}`,
+          );
+          return;
+        }
+      }
+      // 3) 所有可练单元都已完成 → 回单元列表
+      window.location.assign("/units");
+    } catch {
+      setNextLoading(false);
+    }
+  };
+
   // ───────── 被锁单元渲染（仅手动改 URL 访问锁住单元时出现） ─────────
   if (locked) {
     return (
@@ -561,6 +699,10 @@ export default function StudyPage() {
     return (
       <div className="flex min-h-full flex-col pb-24">
         <ResumeToast visible={showResumedBanner} />
+        <AchievementToast
+          items={newAchievements}
+          onClose={() => setNewAchievements([])}
+        />
         <SpeechRateControl />
 
         {/* 顶部导航栏 */}
@@ -576,7 +718,7 @@ export default function StudyPage() {
           <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
             {tc("📝 测试中")}
           </span>
-          <div className="w-9" />
+          {streak && <StreakBadge streak={streak} />}
         </div>
 
         {/* 单元上下文 */}
@@ -653,6 +795,10 @@ export default function StudyPage() {
     const hasQuiz = quizStats.correct + quizStats.wrong > 0;
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <AchievementToast
+          items={newAchievements}
+          onClose={() => setNewAchievements([])}
+        />
         <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#ECFDF5] dark:bg-[#052E16]">
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -674,13 +820,46 @@ export default function StudyPage() {
             {tc("今天没有更多单词了，明天再来复习吧")}
           </p>
         )}
+        {streak && streak.count > 0 && (
+          <div className="mb-6 flex items-center gap-2 rounded-2xl bg-[#FFF7E6] px-5 py-3 text-[14px] font-semibold text-[#F59E0B] dark:bg-[#2A1E00] dark:text-[#FBBF24]">
+            🔥 {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
+          </div>
+        )}
+        {/* 打卡日历：当月视图，激励保持连续学习 */}
+        <div className="mb-6 w-full max-w-sm">
+          <StreakCalendar />
+        </div>
         <div className="flex flex-col items-center gap-3">
-          <button
-            onClick={restart}
-            className="flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
-          >
-            {unitCategory ? tc("再练一轮") : tc("刷新单词")}
-          </button>
+          {unitCategory ? (
+            // 单元练习模式：主按钮 = 下一个单元；找不到可练单元时回退到 /units
+            <button
+              onClick={goToNextUnit}
+              disabled={nextLoading}
+              className="flex h-[44px] min-w-[160px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] disabled:opacity-60"
+            >
+              {nextLoading ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  {tc("加载中...")}
+                </>
+              ) : (
+                <>
+                  {tc("下一个单元")}
+                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                  </svg>
+                </>
+              )}
+            </button>
+          ) : (
+            // 全局今日学习模式：主按钮 = 刷新今日单词
+            <button
+              onClick={restart}
+              className="flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
+            >
+              {tc("刷新单词")}
+            </button>
+          )}
           <div className="flex items-center gap-6 text-[14px]">
             <Link
               href="/units"
@@ -695,6 +874,12 @@ export default function StudyPage() {
               {tc("返回首页")}
             </Link>
           </div>
+          <Link
+            href="/achievements"
+            className="text-[13px] font-medium text-[#F59E0B] transition hover:text-[#FBBF24] dark:text-[#FBBF24]"
+          >
+            🎖 {tc("查看我的成就")}
+          </Link>
         </div>
       </div>
     );
@@ -706,6 +891,10 @@ export default function StudyPage() {
   return (
     <div className="flex min-h-full flex-col pb-24">
       <ResumeToast visible={showResumedBanner} />
+      <AchievementToast
+        items={newAchievements}
+        onClose={() => setNewAchievements([])}
+      />
       <SpeechRateControl />
 
       {/* 顶部导航栏 */}
@@ -725,7 +914,7 @@ export default function StudyPage() {
           </span>
         </div>
 
-        <div className="w-9" />
+        {streak && <StreakBadge streak={streak} />}
       </div>
 
       {/* 单元上下文 */}

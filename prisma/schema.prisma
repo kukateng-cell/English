@@ -25,6 +25,8 @@ model User {
   mustChangePassword Boolean @default(true)
   createdAt    DateTime @default(now())
   reviews      Review[]
+  studyDays    StudyDay[]
+  achievements UserAchievement[]
 }
 
 // ── 单词（来自 word list.md + ECDICT） ──
@@ -69,6 +71,36 @@ enum Level {
   A2
   B1
   B2
+}
+
+// ── 学习打卡（每日一条） ──
+// 用于「连续学习天数 / 打卡」，并为后续的成就、排行榜等功能预留数据基础。
+// date 存本地日期字符串（Asia/Shanghai，YYYY-MM-DD），按「用户 + 天」幂等打卡，
+// 避免 DateTime 的 UTC 时区导致跨日判断错乱。
+model StudyDay {
+  id        String   @id @default(cuid())
+  userId    String
+  date      String // YYYY-MM-DD（Asia/Shanghai 本地日期）
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+}
+
+// ── 用户成就解锁记录 ──
+// 成就「定义」放在代码常量（src/lib/achievements.ts，key 唯一），
+// 本表只记录「哪个用户解锁了哪个成就」，避免频繁改表。
+model UserAchievement {
+  id         String   @id @default(cuid())
+  userId     String
+  key        String // 成就 key（对应 src/lib/achievements.ts 的 ACHIEVEMENTS）
+  unlockedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
 }
 
 enum Role {

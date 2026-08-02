@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { signIn, useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ROLES, DEFAULT_ROLE } from "@/lib/roles";
 import { useLocale } from "@/components/LocaleProvider";
@@ -20,7 +19,6 @@ export default function LoginPage() {
   // 非 null 时禁用登录按钮并显示倒计时，到 0 自动解除。
   const [lockUntil, setLockUntil] = useState<number | null>(null);
   const [remainingSec, setRemainingSec] = useState(0);
-  const router = useRouter();
 
   // 锁定倒计时：每秒刷新剩余秒数，到 0 自动清除锁定状态。
   useEffect(() => {
@@ -89,6 +87,11 @@ export default function LoginPage() {
         callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
           ? callbackUrl
           : null;
+      // 用 window.location.replace 做整页跳转（而非 router.push）：
+      // router.push + router.refresh 在部分手机浏览器上会相互竞争，导致跳转
+      // 没生效、停在登录页甚至被带回首页。replace 是硬跳转、稳定可靠，且
+      // 替换历史记录（后退键不会回到登录页），体验更干净。
+      let target = "/study";
       try {
         const me = await fetch("/api/auth/session").then((r) => r.json());
         const role = (me?.user?.role as string) ?? DEFAULT_ROLE;
@@ -96,20 +99,20 @@ export default function LoginPage() {
         // 首次登入強制改密碼：优先引导到重设页（覆盖默认的角色跳转与 callbackUrl，
         // 避免用户带着预设密码进入系统）。
         if (mustChangePassword) {
-          router.push("/reset-password");
+          target = "/reset-password";
         } else if (safeCallback) {
-          router.push(safeCallback);
+          target = safeCallback;
         } else if (role === ROLES.ADMIN) {
-          router.push("/admin");
+          target = "/admin";
         } else if (role === ROLES.TEACHER) {
-          router.push("/teacher");
+          target = "/teacher";
         } else {
-          router.push("/study");
+          target = "/study";
         }
       } catch {
-        router.push(safeCallback ?? "/study");
+        target = safeCallback ?? "/study";
       }
-      router.refresh();
+      window.location.replace(target);
     }
   };
 
