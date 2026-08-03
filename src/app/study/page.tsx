@@ -16,6 +16,7 @@ import { warmUpSpeech } from "@/lib/speech";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import StreakBadge from "@/components/StreakBadge";
+import LogoutButton from "@/components/LogoutButton";
 import StreakCalendar from "@/components/StreakCalendar";
 import type { StreakInfo } from "@/lib/streak";
 import type { AchievementDef } from "@/lib/achievements";
@@ -718,7 +719,10 @@ export default function StudyPage() {
           <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
             {tc("📝 测试中")}
           </span>
-          {streak && <StreakBadge streak={streak} />}
+          <div className="flex items-center gap-2">
+            {streak && <StreakBadge streak={streak} />}
+            <LogoutButton />
+          </div>
         </div>
 
         {/* 单元上下文 */}
@@ -914,7 +918,10 @@ export default function StudyPage() {
           </span>
         </div>
 
-        {streak && <StreakBadge streak={streak} />}
+        <div className="flex items-center gap-2">
+          {streak && <StreakBadge streak={streak} />}
+          <LogoutButton />
+        </div>
       </div>
 
       {/* 单元上下文 */}
