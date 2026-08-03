@@ -96,7 +96,7 @@ export default function WordCard({
         animate={controls}
         style={{ x, rotate }}
         whileTap={{ scale: disabled ? 1 : 1.02 }}
-        className="relative z-10 mx-auto flex h-[260px] w-full flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
+        className="relative z-10 mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
       >
         {/* 单词 */}
         <h2

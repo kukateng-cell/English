@@ -889,7 +889,7 @@ export default function StudyPage() {
 
   // ───────── 认字评估阶段渲染 ─────────
   return (
-    <div className="flex min-h-full flex-col pb-24">
+    <div className="flex min-h-full flex-col pb-8">
       <ResumeToast visible={showResumedBanner} />
       <AchievementToast
         items={newAchievements}
@@ -932,20 +932,10 @@ export default function StudyPage() {
 
       {/* 进度信息 */}
       <div className="mx-auto mb-6 w-full max-w-md px-4">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-[24px] font-bold tabular-nums text-[#17213C] dark:text-[#E2E8F0]">
-              {currentIndex + 1}
-            </span>
-            <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">
-              / {queue.length}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-[13px]">
-            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">{tc("认识")} {knownWords.length}</span>
-            <span className="text-[#E7EDF8] dark:text-[#1E293B]">·</span>
-            <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">{tc("不认识")} {unknownWords.length}</span>
-          </div>
+        <div className="mb-2 flex items-center justify-center gap-3 text-[13px]">
+          <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">{tc("认识")} {knownWords.length}</span>
+          <span className="text-[#E7EDF8] dark:text-[#1E293B]">·</span>
+          <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">{tc("不认识")} {unknownWords.length}</span>
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
           <motion.div
@@ -980,24 +970,6 @@ export default function StudyPage() {
             />
           </motion.div>
         </AnimatePresence>
-
-        {/* 底部按钮（桌面端备选） */}
-        <div className="mt-6 flex w-full justify-center gap-10 px-5">
-          <button
-            onClick={handleSwipeLeft}
-            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#FECACA] text-xl text-[#EF6B6B] transition hover:bg-[#FEF2F2] active:scale-95 dark:border-[#7F1D1D] dark:hover:bg-[#2D0B0B]"
-            aria-label="不认识"
-          >
-            ✕
-          </button>
-          <button
-            onClick={handleSwipeRight}
-            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#BBF7D0] text-xl text-[#22C55E] transition hover:bg-[#ECFDF5] active:scale-95 dark:border-[#14532D] dark:hover:bg-[#052E16]"
-            aria-label="认识"
-          >
-            ✓
-          </button>
-        </div>
       </div>
 
       {/* 助记面板 */}
