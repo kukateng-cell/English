@@ -63,7 +63,11 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    // 会话有效期 30 天：登录一次后保持登录，直到主动退出或过期。
+    maxAge: 30 * 24 * 60 * 60,
+  },
   pages: {
     signIn: "/login",
     error: "/login",

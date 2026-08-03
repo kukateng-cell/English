@@ -1,8 +1,20 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { convertForServer } from "@/lib/i18n/convert";
 
 export default async function Home() {
+  // 已登录用户直接跳转到对应入口，免去再看落地页 / 登录页
+  const session = await getServerSession(authOptions);
+  if (session?.user) {
+    const role = (session.user as { role?: string }).role;
+    redirect(
+      role === "ADMIN" ? "/admin" : role === "TEACHER" ? "/teacher" : "/study",
+    );
+  }
+
   const cookieStore = await cookies();
   const tc = (s: string) => convertForServer(s, cookieStore.toString());
 
