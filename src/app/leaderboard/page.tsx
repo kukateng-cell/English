@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useLocale } from "@/components/LocaleProvider";
 import type {
   LeaderboardData,
@@ -52,6 +53,16 @@ export default function LeaderboardPage() {
   return (
     <div className="flex min-h-full flex-col px-5 py-8">
       <div className="mx-auto w-full max-w-md">
+        {/* 返回首页 */}
+        <Link
+          href="/"
+          aria-label={tc("返回")}
+          className="mb-5 flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+        </Link>
         <div className="mb-5 text-center">
           <div className="mb-2 text-[36px] leading-none">🏆</div>
           <h1 className="mb-1 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">

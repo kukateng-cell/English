@@ -26,6 +26,14 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
   const { tc } = useLocale();
   const speak = () => speakEnglish(word.term);
   const examples = Array.isArray(word.examples) ? word.examples : [];
+  // 过滤无意义的词性值（如 "0"、空、"null"、纯数字）
+  const meaningfulPos =
+    word.pos &&
+    word.pos.trim().length > 0 &&
+    !/^\d+$/.test(word.pos.trim()) &&
+    word.pos.trim().toLowerCase() !== "null"
+      ? word.pos
+      : null;
 
   return (
     <AnimatePresence>
@@ -69,9 +77,9 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
             <p className="text-[18px] font-medium leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">
               {tc(word.definition)}
             </p>
-            {word.pos && (
+            {meaningfulPos && (
               <span className="mt-2 inline-block rounded-full bg-[#EEF4FF] px-3 py-1 text-xs font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-                {tc(word.pos)}
+                {tc(meaningfulPos)}
               </span>
             )}
           </div>
