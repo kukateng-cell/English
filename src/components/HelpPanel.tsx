@@ -131,12 +131,12 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
             </div>
           )}
 
-          {/* 学完了按钮 */}
+          {/* 学完了按钮：点击后进入「当前词」的测试，而非跳到下一个词 */}
           <button
             onClick={onDismiss}
             className="mt-1 flex h-[44px] w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] dark:shadow-[0_8px_24px_rgba(37,99,235,0.1)]"
           >
-            {tc("我学会了，下一个 →")}
+            {tc("我学会了，开始测试 →")}
           </button>
         </motion.div>
       )}
