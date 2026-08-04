@@ -316,7 +316,9 @@ export default function StudyPage() {
   // 「不认识」的词的测试会延后：不立即测，而是记入 pendingQuizzes。
   // 在下一个生字认完且测完后，再回头测这些延后的词（FIFO）。
   // quizTarget 指向「当前正在测的词」，可能是刚认完的词，也可能是延后的词。
-  const [pendingQuizzes, setPendingQuizzes] = useState<WordFull[]>([]);
+  // pendingQuizzes 用 ref：它只被各回调读写、从不参与渲染，用 ref 避免
+  // 多余重渲染，也不会触发 ESLint 「声明但未读取」警告。
+  const pendingQuizzes = useRef<WordFull[]>([]);
   const [quizTarget, setQuizTarget] = useState<WordFull | null>(null);
 
   // 干扰项来源池：外部词 + 本次评估队列词
@@ -375,10 +377,10 @@ export default function StudyPage() {
       // 永远从「认字评估」步开始当前词，不恢复某个词进行到一半的测试状态。
       // 这样用户中途离开后回来，不会被强制回到「上次那个还没测完的词」。
       quizWrongCounts.current = {};
+      pendingQuizzes.current = [];
       setQuizAttempt(0);
       setWordStep("assess");
       setQuizTarget(null);
-      setPendingQuizzes([]);
 
       if (cp.phase === "done" || cp.currentIndex >= loadedQueue.length) {
         setDone(true);
@@ -468,21 +470,20 @@ export default function StudyPage() {
     if (nextIndex >= queue.length) {
       // 已经是最后一个生字：先回头测延后队列里的不认识词（FIFO），
       // 全部测完后再标记整轮完成。
-      setPendingQuizzes((prev) => {
-        if (prev.length > 0) {
-          const [next, ...rest] = prev;
-          setQuizTarget(next);
-          setQuizAttempt(0);
-          quizWrongCounts.current = {};
-          setWordStep("quiz");
-          return rest;
-        }
+      const pending = pendingQuizzes.current;
+      if (pending.length > 0) {
+        const [next, ...rest] = pending;
+        pendingQuizzes.current = rest;
+        setQuizTarget(next);
+        setQuizAttempt(0);
+        quizWrongCounts.current = {};
+        setWordStep("quiz");
+      } else {
         // 没有延后词了 → 整轮完成。
         setWordStep("assess");
         setQuizTarget(null);
         setDone(true);
-        return prev;
-      });
+      }
     } else {
       setCurrentIndex(nextIndex);
       setWordStep("assess");
@@ -525,18 +526,17 @@ export default function StudyPage() {
 
       // 答对后：优先回头测延后队列里的不认识词（FIFO），
       // 队列空了才推进到下一个生字的认字评估。
-      setPendingQuizzes((prev) => {
-        if (prev.length > 0) {
-          const [next, ...rest] = prev;
-          setQuizTarget(next);
-          setQuizAttempt(0);
-          quizWrongCounts.current = {};
-          return rest;
-        }
+      const pending = pendingQuizzes.current;
+      if (pending.length > 0) {
+        const [next, ...rest] = pending;
+        pendingQuizzes.current = rest;
+        setQuizTarget(next);
+        setQuizAttempt(0);
+        quizWrongCounts.current = {};
+      } else {
         // 没有延后词了 → 推进到下一个生字
         advanceToNextAssess();
-        return prev;
-      });
+      }
     },
     [quizTarget, advanceToNextAssess]
   );
@@ -627,7 +627,7 @@ export default function StudyPage() {
     setDirection(null);
     // 把当前不认识的词记入延后测试队列
     if (current) {
-      setPendingQuizzes((prev) => [...prev, current.word]);
+      pendingQuizzes.current = [...pendingQuizzes.current, current.word];
     }
     // 推进到下一个生字的认字评估
     setTimeout(() => advanceToNextAssess(), 200);
@@ -647,7 +647,7 @@ export default function StudyPage() {
     setQuizStats({ correct: 0, wrong: 0 });
     setQuizAttempt(0);
     setQuizTarget(null);
-    setPendingQuizzes([]);
+    pendingQuizzes.current = [];
     quizWrongCounts.current = {};
     setReloadKey((k) => k + 1);
   };
