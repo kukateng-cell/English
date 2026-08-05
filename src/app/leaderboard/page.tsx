@@ -25,15 +25,19 @@ export default function LeaderboardPage() {
     if (status === "unauthenticated") router.push("/login");
     if (status !== "authenticated") return;
     let cancelled = false;
-    setError(false);
-    fetch("/api/leaderboard")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
+    (async () => {
+      // 重新加载时先清掉上次的错误态（IIFE 内调用，符合 set-state-in-effect 规则）。
+      setError(false);
+      try {
+        const res = await fetch("/api/leaderboard");
+        const d = res.ok ? await res.json() : null;
         if (cancelled) return;
         if (d) setData(d);
         else setError(true);
-      })
-      .catch(() => !cancelled && setError(true));
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    })();
     return () => {
       cancelled = true;
     };
