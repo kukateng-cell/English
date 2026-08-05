@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import type { AchievementStatus } from "@/lib/achievements";
 
@@ -55,22 +56,39 @@ export default function AchievementsPage() {
   const { tc } = useLocale();
   const [list, setList] = useState<AchievementStatus[] | null>(null);
   const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
     if (status !== "authenticated") return;
     let cancelled = false;
+    setError(false);
     fetch("/api/achievements")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (!cancelled && d) setList(d.achievements ?? []);
-        else if (!cancelled) setError(true);
+        if (cancelled) return;
+        if (d) setList(d.achievements ?? []);
+        else setError(true);
       })
       .catch(() => !cancelled && setError(true));
     return () => {
       cancelled = true;
     };
-  }, [status, router]);
+  }, [status, router, reloadKey]);
+
+  if (status === "unauthenticated") return null;
+
+  // 加载失败：显示错误 + 重试，避免一直转圈。
+  if ((status === "loading" || !list) && error) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6">
+        <ErrorBanner
+          message="加载失败，请检查网络后重试"
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+      </div>
+    );
+  }
 
   if (status === "loading" || !list) {
     return (
@@ -79,7 +97,6 @@ export default function AchievementsPage() {
       </div>
     );
   }
-  if (status === "unauthenticated") return null;
 
   const unlockedCount = list.filter((a) => a.unlocked).length;
 
@@ -106,12 +123,6 @@ export default function AchievementsPage() {
             {tc("已解锁")} {unlockedCount} / {list.length}
           </p>
         </div>
-
-        {error && (
-          <p className="mb-4 text-center text-[13px] text-[#EF6B6B]">
-            {tc("加载失败，请刷新重试")}
-          </p>
-        )}
 
         {/* 成就网格 */}
         <div className="grid grid-cols-2 gap-3">

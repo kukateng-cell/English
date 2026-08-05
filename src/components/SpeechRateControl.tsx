@@ -78,7 +78,7 @@ export default function SpeechRateControl() {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-40">
+    <div className="fixed bottom-4 left-4 z-40">
       <button
         ref={buttonRef}
         type="button"
@@ -98,7 +98,7 @@ export default function SpeechRateControl() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-full right-0 mb-2 w-64 rounded-2xl border border-zinc-200/70 bg-white p-4 shadow-xl"
+            className="absolute bottom-full left-0 mb-2 w-64 rounded-2xl border border-zinc-200/70 bg-white p-4 shadow-xl"
           >
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-semibold text-zinc-800">

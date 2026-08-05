@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import type {
   LeaderboardData,
@@ -18,22 +19,39 @@ export default function LeaderboardPage() {
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [active, setActive] = useState<LeaderboardType>("streak");
   const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
     if (status !== "authenticated") return;
     let cancelled = false;
+    setError(false);
     fetch("/api/leaderboard")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (!cancelled && d) setData(d);
-        else if (!cancelled) setError(true);
+        if (cancelled) return;
+        if (d) setData(d);
+        else setError(true);
       })
       .catch(() => !cancelled && setError(true));
     return () => {
       cancelled = true;
     };
-  }, [status, router]);
+  }, [status, router, reloadKey]);
+
+  if (status === "unauthenticated") return null;
+
+  // 加载失败：显示错误 + 重试，避免一直转圈。
+  if ((status === "loading" || !data) && error) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6">
+        <ErrorBanner
+          message="加载失败，请检查网络后重试"
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+      </div>
+    );
+  }
 
   if (status === "loading" || !data) {
     return (
@@ -42,7 +60,6 @@ export default function LeaderboardPage() {
       </div>
     );
   }
-  if (status === "unauthenticated") return null;
 
   const list: LeaderboardList =
     data.lists.find((l) => l.type === active) ?? data.lists[0];
@@ -72,12 +89,6 @@ export default function LeaderboardPage() {
             {tc("和同学一起保持学习动力")}
           </p>
         </div>
-
-        {error && (
-          <p className="mb-4 text-center text-[13px] text-[#EF6B6B]">
-            {tc("加载失败，请刷新重试")}
-          </p>
-        )}
 
         {/* Tab 切换 */}
         <div className="mb-4 flex gap-1 rounded-full bg-[#EEF4FF] p-1 dark:bg-[#1E3A5F]/40">
