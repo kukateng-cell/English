@@ -152,7 +152,7 @@ export async function GET(req: Request) {
     );
     const now = new Date();
 
-    queue = unitWords.map((w) => {
+    const allItems = unitWords.map((w) => {
       const r = reviewMap.get(w.id);
       const state = r
         ? {
@@ -165,6 +165,38 @@ export async function GET(req: Request) {
         : createInitialState();
       return { reviewId: r?.id ?? null, word: w, state };
     });
+
+    // ── 精准重做：优先做「未掌握」的词，只补少量已掌握词作点缀 ──
+    // 「未掌握」= repetitions < 1：包括从没做对的词，以及做错后被 SM-2 打回
+    // （quality < 3 → repetitions 重置为 0）的词。这正是用户想补救的「错题」。
+    //
+    // 分两种场景：
+    //   - 首次学习：单元词几乎都是未掌握（repetitions = 0）→ 全部进队列，
+    //     行为与改造前一致，不会让学生「只做一部分就结束」。
+    //   - 重做 / 补救：已有部分掌握 → 只把未掌握的词放进队列，
+    //     再从已掌握的词里随机抽一小批（与未掌握数等量、上限 10）做巩固，
+    //     让学生不必重做整个单元，只针对错题 + 少量复习。
+    const MASTERED_REPETITIONS = 1;
+    const REVIEW_SUPPLEMENT_CAP = 10;
+    const notMastered = allItems.filter(
+      (it) => it.state.repetitions < MASTERED_REPETITIONS,
+    );
+    const mastered = allItems.filter(
+      (it) => it.state.repetitions >= MASTERED_REPETITIONS,
+    );
+
+    if (notMastered.length === 0) {
+      // 单元已全部掌握（例如纯复习）：给已掌握词排序后全部返回，保持原行为。
+      queue = allItems;
+    } else if (mastered.length === 0) {
+      // 没有任何已掌握词（首次学习）：全部进队列。
+      queue = allItems;
+    } else {
+      // 重做 / 补救场景：主队列 = 未掌握词；从已掌握词随机补一小批巩固。
+      const supplement = shuffle(mastered)
+        .slice(0, Math.min(notMastered.length, REVIEW_SUPPLEMENT_CAP));
+      queue = [...notMastered, ...supplement];
+    }
 
     // 排序：未学(0) → 到期待复习(1) → 已排期未到期(2)；
     // 同优先级内随机打散，避免单元内总是固定字母序。
