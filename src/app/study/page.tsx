@@ -787,16 +787,9 @@ export default function StudyPage() {
           </div>
         )}
 
-        {/* 进度条（以「词」为单位） */}
+        {/* 进度条：只保留一条安静的位置感，不显示「第 N / 总数」
+            以免给学生「还有好多要做」的压迫感。可以随时退出，进度会自动保留。 */}
         <div className="mx-auto mb-5 w-full max-w-md px-5">
-          <div className="mb-2 flex items-center justify-between text-[13px]">
-            <span className="font-medium text-[#2563EB] dark:text-[#60A5FA]">
-              {tc(`第 ${currentIndex + 1} / ${queue.length} 词`)}
-            </span>
-            <span className="text-[#7C89A5] dark:text-[#64748B]">
-              {tc(`答对 ${quizStats.correct} · 答错 ${quizStats.wrong}`)}
-            </span>
-          </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
             <motion.div
               className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
