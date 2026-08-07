@@ -391,7 +391,14 @@ npm run seed
 
 - ✅ Next.js 16 + React 19 + Tailwind v4 脚手架已就绪
 - ✅ Prisma 7 + adapter-pg 配置正确（符合 Prisma 7 driver adapter 规范）
-- ✅ PostgreSQL（Neon）连接配置就绪
-- ✅ `word list.md` 已有 A1 级别主题分类词表（约 20 主题）
-- ⏳ Prisma schema 仍为默认 User 示例，待按本计划书第四章定稿
-- ⏳ 业务页面、认证、SM-2 逻辑均未开始
+- ✅ PostgreSQL（Neon / Supabase）连接配置就绪（Transaction pooler 6543 运行时 + Session pooler 5432 migrate/seed）
+- ✅ `word list.md` 词表已入库：A1 / A2 / B1 / B2 四级，约 200+ 单元、5000+ 词
+- ✅ Prisma schema 定稿：`User` / `Word` / `Review` / `StudyDay` / `UserAchievement`，`Role`（STUDENT/TEACHER/ADMIN）、`Level`（A1/A2/B1/B2）
+- ✅ 认证：Auth.js Credentials 登录、JWT 长期免登、首次登录强制改密、登录限流（Upstash）、三层角色守卫（proxy / RSC / API）
+- ✅ 学习核心：SM-2 间隔重复、滑动认字评估 + 即时测试、多模态助记面板、单元闯关解锁（80% 认字率）、进度续学（checkpoint + 离线评测缓冲）
+- ✅ 留存：连续打卡日历、成就系统（9 项）、排行榜（连续天数 / 掌握词数 / 累计打卡）
+- ✅ 教师端 / 管理端：班级统计、学生分级别进度、重置学生密码、用户与单词库管理
+- ✅ 简繁切换（opencc-js）+ 明暗主题
+- ✅ 部署文档（`DEPLOY.md`）与本地 `docker-compose.yml` 就绪
+- ⏳ PWA（里程碑 P6）：未实现
+- ⏳ 未来工作（见第九节）：HLR / BKT / DKT、听写 / 拼写模式
