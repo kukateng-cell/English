@@ -26,6 +26,11 @@ import {
   saveCheckpoint,
   clearCheckpoint,
 } from "@/lib/checkpoint";
+import {
+  enqueuePendingReview,
+  flushPendingReviews,
+  pendingReviewCount,
+} from "@/lib/review-queue";
 
 interface WordFull {
   id: string;
@@ -164,13 +169,19 @@ function submitQuizReview(
   quality: number,
   onDone?: (s: StreakInfo) => void,
   onAchievements?: (list: AchievementDef[]) => void,
+  onError?: (pendingCount: number) => void,
 ) {
+  // 提交失败（断网 / 5xx）不再静默丢弃：把该次评测暂存到本地待同步队列，
+  // 稍后自动重试（见 StudyPage 的 flush 机制）。服务端 POST 幂等，重试安全。
   void fetch("/api/study", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ wordId, quality }),
   })
-    .then((r) => (r.ok ? r.json() : null))
+    .then(async (r) => {
+      if (!r.ok) throw new Error(`study POST failed: ${r.status}`);
+      return r.json();
+    })
     .then((data) => {
       // 服务端打卡后返回最新 streak，用于实时刷新 🔥 徽章；
       // 若解锁了新成就，一并通知前端弹出提示。
@@ -179,7 +190,11 @@ function submitQuizReview(
         onAchievements(data.newlyUnlocked);
       }
     })
-    .catch(() => {});
+    .catch(() => {
+      // 入队待重试，并通过 onError 把最新队列长度回传给页面更新 UI。
+      const remaining = enqueuePendingReview(wordId, quality);
+      onError?.(remaining);
+    });
 }
 
 /**
@@ -250,6 +265,56 @@ function AchievementToast({
   );
 }
 
+/**
+ * 「待同步」提示条：当存在本地缓冲、尚未成功提交的评测时显示。
+ *
+ * 提交失败不再静默丢弃 —— 用户能看到「N 条待同步」，并可手动点「立即重试」，
+ * 也会在联网 / 重新进入页面 / 定时器触发时自动重试（见 StudyPage 的 flush）。
+ */
+function PendingSyncBanner({
+  pending,
+  onRetry,
+}: {
+  pending: number;
+  onRetry: () => void;
+}) {
+  const { tc } = useLocale();
+  return (
+    <AnimatePresence>
+      {pending > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          className="mx-auto mb-3 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl bg-[#FFF7E6] px-4 py-2.5 text-[12px] font-medium text-[#B45309] dark:bg-[#2A1E00] dark:text-[#FBBF24]"
+        >
+          <span className="flex items-center gap-1.5">
+            <svg
+              className="h-3.5 w-3.5 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              <polyline points="21 4 21 10 15 10" />
+            </svg>
+            {tc(`有 ${pending} 条学习记录待同步，网络恢复后自动上传`)}
+          </span>
+          <button
+            onClick={onRetry}
+            className="shrink-0 rounded-full bg-[#F59E0B] px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-[#D97706] active:scale-95 dark:bg-[#FBBF24] dark:text-[#2A1E00]"
+          >
+            {tc("立即重试")}
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function StudyPage() {
   const { status } = useSession();
   const router = useRouter();
@@ -270,6 +335,11 @@ export default function StudyPage() {
   const [newAchievements, setNewAchievements] = useState<AchievementDef[]>([]);
   // 「下一个单元」按钮的加载态（完成画面用）
   const [nextLoading, setNextLoading] = useState(false);
+  // 待同步到服务端的评测条数：POST /api/study 失败时本地缓冲，稍后自动重试。
+  // 提交失败不再静默丢弃 —— 有条数时顶部会显示「待同步」提示条。
+  const [pendingSync, setPendingSync] = useState(0);
+  // 防止并发 flush（多次重试同时跑会重复提交同一批评测）
+  const isFlushingRef = useRef(false);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
@@ -344,6 +414,57 @@ export default function StudyPage() {
   useEffect(() => {
     warmUpSpeech();
   }, []);
+
+  // 把本地缓冲的待提交评测尽量同步到服务端。
+  // flushPendingReviews 成功提交一条即回传最新 streak / 成就，与即时提交一致。
+  const flushPending = useCallback(async () => {
+    if (isFlushingRef.current) return;
+    isFlushingRef.current = true;
+    try {
+      // 空队列时 flushPendingReviews 会立即返回 0（不发任何请求）。
+      // 这里的 setState 都在 await 之后，避免在 effect 中同步调用 setState。
+      const remaining = await flushPendingReviews((_id, data) => {
+        if (data?.streak) setStreak(data.streak as StreakInfo);
+        const unlocked = data?.newlyUnlocked as
+          | AchievementDef[]
+          | undefined;
+        if (unlocked?.length) {
+          setNewAchievements((prev) => [...prev, ...unlocked]);
+        }
+      });
+      setPendingSync(remaining);
+    } finally {
+      isFlushingRef.current = false;
+    }
+  }, []);
+
+  // 进入学习页时：先把本地缓冲的待提交评测尽量同步。
+  // flushPending 内部会在完成时（同步或异步）更新 pendingSync 计数。
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    void flushPending();
+  }, [status, flushPending]);
+
+  // 网络恢复 / 页面重新可见 / 定时器：自动重试缓冲的待提交评测，
+  // 保证用户离线时记下的学习在恢复连接后不丢失。
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const onOnline = () => void flushPending();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void flushPending();
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    // 每 30s 兜底重试一次（仅在有待提交时才会真正发请求）。
+    const timer = window.setInterval(() => {
+      if (pendingReviewCount() > 0) void flushPending();
+    }, 30000);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [status, flushPending]);
 
   /**
    * 尝试用本地存档点恢复进度。返回是否成功恢复。
@@ -519,8 +640,12 @@ export default function StudyPage() {
       if (word) {
         const wrongs = quizWrongCounts.current[word.id] ?? 0;
         const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
-        submitQuizReview(word.id, quality, setStreak, (list) =>
-          setNewAchievements((prev) => [...prev, ...list]),
+        submitQuizReview(
+          word.id,
+          quality,
+          setStreak,
+          (list) => setNewAchievements((prev) => [...prev, ...list]),
+          (pendingCount) => setPendingSync(pendingCount),
         );
       }
 
@@ -757,6 +882,10 @@ export default function StudyPage() {
           items={newAchievements}
           onClose={() => setNewAchievements([])}
         />
+        <PendingSyncBanner
+          pending={pendingSync}
+          onRetry={() => void flushPending()}
+        />
         <SpeechRateControl />
 
         {/* 顶部导航栏 */}
@@ -848,6 +977,10 @@ export default function StudyPage() {
         <AchievementToast
           items={newAchievements}
           onClose={() => setNewAchievements([])}
+        />
+        <PendingSyncBanner
+          pending={pendingSync}
+          onRetry={() => void flushPending()}
         />
         <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#ECFDF5] dark:bg-[#052E16]">
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -944,6 +1077,10 @@ export default function StudyPage() {
       <AchievementToast
         items={newAchievements}
         onClose={() => setNewAchievements([])}
+      />
+      <PendingSyncBanner
+        pending={pendingSync}
+        onRetry={() => void flushPending()}
       />
       <SpeechRateControl />
 
