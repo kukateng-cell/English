@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 
 export async function GET() {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
@@ -25,10 +26,11 @@ export async function GET() {
     const levelWordCounts: Record<string, number> = {};
     for (const l of wordsByLevel) levelWordCounts[l.level] = l._count;
 
-    // 只取「已掌握」(interval > 21) 的 Review 行，where 下推到 DB；
-    // 这里只传输满足条件的子集（而非全部 Review），再在内存按 (学生, 级别) 聚合。
+    // 只取「已掌握」(interval >= MASTERED_MIN_INTERVAL，与排行榜共用同一判定) 的
+    // Review 行，where 下推到 DB；这里只传输满足条件的子集（而非全部 Review），
+    // 再在内存按 (学生, 级别) 聚合。
     const masteredRows = await prisma.review.findMany({
-      where: { user: { role: ROLES.STUDENT }, interval: { gt: 21 } },
+      where: { user: { role: ROLES.STUDENT }, interval: { gte: MASTERED_MIN_INTERVAL } },
       select: {
         userId: true,
         word: { select: { level: true } },
