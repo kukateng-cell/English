@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
 import { todayKey, offsetDay } from "@/lib/streak";
+import { isMasteredByInterval } from "@/lib/mastered";
 
 export type LeaderboardType = "streak" | "words" | "studyDays";
 
@@ -90,7 +91,7 @@ export async function getLeaderboard(
   // 全量取 StudyDay / Review，在内存聚合
   const [studyDays, reviews] = await Promise.all([
     prisma.studyDay.findMany({ select: { userId: true, date: true } }),
-    prisma.review.findMany({ select: { userId: true, repetitions: true } }),
+    prisma.review.findMany({ select: { userId: true, interval: true } }),
   ]);
 
   // 按用户聚合打卡日期
@@ -100,10 +101,10 @@ export async function getLeaderboard(
     set.add(s.date);
     datesByUser.set(s.userId, set);
   }
-  // 按用户统计掌握词数（repetitions >= 1）与累计打卡天数
+  // 按用户统计「掌握词数」（interval >= MASTERED_MIN_INTERVAL，与教师端一致）
   const wordsByUser = new Map<string, number>();
   for (const r of reviews) {
-    if (r.repetitions >= 1) {
+    if (isMasteredByInterval(r.interval)) {
       wordsByUser.set(r.userId, (wordsByUser.get(r.userId) ?? 0) + 1);
     }
   }
