@@ -10,6 +10,8 @@ interface StudyStats {
   reviewedCount: number;
   todayNew: number;
   todayReviewed: number;
+  learnedCount: number;
+  learnedRate: number;
   masteredCount: number;
   mastery: number;
 }
@@ -19,7 +21,7 @@ interface StudyStats {
  *
  * 数据来自 GET /api/study/stats：
  *   - 今日新学 / 今日复习
- *   - 已掌握词数 / 总体掌握度（进度条）
+ *   - 已学词数 / 已学占比（进度条）
  * 供学生快速了解当天学习与整体进度，点击进入「今日学习」。
  */
 export default function StudyStats() {
@@ -71,7 +73,9 @@ export default function StudyStats() {
     );
   }
 
-  const pct = Math.min(100, Math.max(0, data.mastery));
+  // 进度条用「已学」口径（repetitions >= 1），答对一次即增长，能即时反映努力；
+  // 长期记忆口径（interval >= 22 天）门槛太高，新学生会数周看到 0%，不適合做进度条。
+  const pct = Math.min(100, Math.max(0, data.learnedRate));
 
   return (
     <Link
@@ -108,10 +112,10 @@ export default function StudyStats() {
         </div>
       </div>
 
-      {/* 掌握度 */}
+      {/* 已学进度（认字口径）*/}
       <div className="mb-1.5 flex items-center justify-between text-[12px] text-[#7C89A5] dark:text-[#64748B]">
         <span>
-          {tc("已掌握")} {data.masteredCount} / {data.totalWords}
+          {tc("已学")} {data.learnedCount} / {data.totalWords}
         </span>
         <span className="font-semibold tabular-nums text-[#2563EB] dark:text-[#60A5FA]">
           {pct}%
