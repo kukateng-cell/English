@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { MASTERED_MIN_INTERVAL, isMasteredByInterval } from "@/lib/mastered";
 
 export async function GET() {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
@@ -23,10 +24,11 @@ export async function GET() {
     const totalWords = await prisma.word.count();
     const wordsByLevel = await prisma.word.groupBy({ by: ["level"], _count: true });
 
-    // ── 3. 已掌握词汇（interval > 21），与 /api/teacher/students 使用完全相同的
-    //      查询方式，保证两端的「已掌握」统计结果在任意时刻一致。
+    // ── 3. 已掌握词汇（interval >= MASTERED_MIN_INTERVAL），
+    //      与 /api/teacher/students 及排行榜共用同一判定（见 lib/mastered.ts），
+    //      保证「已掌握 / 掌握词数 / 平均进度」在任意时刻一致。
     const masteredRows = await prisma.review.findMany({
-      where: { user: { role: ROLES.STUDENT }, interval: { gt: 21 } },
+      where: { user: { role: ROLES.STUDENT }, interval: { gte: MASTERED_MIN_INTERVAL } },
       select: {
         userId: true,
         word: { select: { level: true } },
@@ -101,7 +103,7 @@ export async function GET() {
       if (!recentMap.has(key)) {
         recentMap.set(key, { name: r.user.name, email: r.user.email, mastered: 0 });
       }
-      if (r.interval > 21) recentMap.get(key)!.mastered++;
+      if (isMasteredByInterval(r.interval)) recentMap.get(key)!.mastered++;
     }
 
     const recentActivity = [...recentMap.values()]
