@@ -51,6 +51,8 @@ export default function AdminUsersPage() {
   const [editing, setEditing] = useState<UserItem | null>(null);
   const [deleting, setDeleting] = useState<UserItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // 删除失败的错误文案（在确认弹窗内展示，不静默失败）
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // 每次「打开」表单时自增，作为 Modal 的 key 强制 remount，让表单从最新 props 重新初始化。
   const [formKey, setFormKey] = useState(0);
 
@@ -139,6 +141,7 @@ export default function AdminUsersPage() {
   const handleDelete = async () => {
     if (!deleting) return;
     setSubmitting(true);
+    setDeleteError(null);
     try {
       const res = await fetch(`/api/admin/users/${deleting.id}`, {
         method: "DELETE",
@@ -149,6 +152,8 @@ export default function AdminUsersPage() {
       }
       setUsers((prev) => prev.filter((u) => u.id !== deleting.id));
       setDeleting(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "删除失败，请重试");
     } finally {
       setSubmitting(false);
     }
@@ -315,8 +320,12 @@ export default function AdminUsersPage() {
         confirmText={tc("删除")}
         destructive
         loading={submitting}
+        error={deleteError}
         onConfirm={handleDelete}
-        onClose={() => setDeleting(null)}
+        onClose={() => {
+          setDeleteError(null);
+          setDeleting(null);
+        }}
       />
     </motion.div>
   );

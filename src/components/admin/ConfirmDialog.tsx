@@ -11,6 +11,8 @@ interface ConfirmDialogProps {
   cancelText?: string;
   destructive?: boolean;
   loading?: boolean;
+  /** 删除/提交失败时的错误文案（在弹窗内展示，不静默失败）。 */
+  error?: string | null;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -26,6 +28,7 @@ export default function ConfirmDialog({
   cancelText,
   destructive = false,
   loading = false,
+  error = null,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
@@ -37,6 +40,11 @@ export default function ConfirmDialog({
       <p className="mb-6 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
         {message}
       </p>
+      {error && (
+        <div className="mb-4 rounded-xl bg-[#FEF2F2] px-3 py-2.5 text-[13px] font-medium text-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]">
+          {error}
+        </div>
+      )}
       <div className="flex gap-2">
         <button
           onClick={onClose}

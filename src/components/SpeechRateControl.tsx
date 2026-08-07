@@ -87,7 +87,7 @@ export default function SpeechRateControl() {
         className="flex items-center gap-1.5 rounded-full border border-zinc-200/70 bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm backdrop-blur transition hover:bg-white active:scale-95"
       >
         <span>🔊</span>
-        <span>语速 {formatRate(rate)}</span>
+        <span>{tc("语速")} {formatRate(rate)}</span>
       </button>
 
       <AnimatePresence>
@@ -102,7 +102,7 @@ export default function SpeechRateControl() {
           >
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-semibold text-zinc-800">
-                朗读语速
+                {tc("朗读语速")}
               </span>
               <span className="text-xs font-medium text-blue-600">
                 {formatRate(rate)}
@@ -121,8 +121,8 @@ export default function SpeechRateControl() {
               aria-label="语速滑杆"
             />
             <div className="mt-1 flex justify-between text-[10px] text-zinc-400">
-              <span>慢</span>
-              <span>快</span>
+              <span>{tc("慢")}</span>
+              <span>{tc("快")}</span>
             </div>
 
             {/* 预设 */}

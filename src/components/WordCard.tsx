@@ -64,6 +64,16 @@ export default function WordCard({
     }
   };
 
+  // 底部按钮：与拖拽路径一致，先播放「飞出」动画再触发回调，避免按钮瞬间切走无动画。
+  const handleButtonSwipe = (dir: number, cb: () => void) => {
+    controls.start({
+      x: dir * FLY_OFF_X,
+      rotate: dir * FLY_OFF_ROTATE,
+      transition: { duration: FLY_DURATION, ease: [0.4, 0, 0.2, 1] },
+    });
+    cb();
+  };
+
   const handleSpeak = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -129,7 +139,7 @@ export default function WordCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onSwipeLeft();
+              handleButtonSwipe(-1, onSwipeLeft);
             }}
             className="flex h-12 items-center gap-1.5 rounded-full bg-[#FEF2F2] px-6 text-[15px] font-semibold text-[#EF6B6B] transition active:scale-[0.96] dark:bg-[#2D0B0B]"
           >
@@ -138,7 +148,7 @@ export default function WordCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onSwipeRight();
+              handleButtonSwipe(1, onSwipeRight);
             }}
             className="flex h-12 items-center gap-1.5 rounded-full bg-[#ECFDF5] px-6 text-[15px] font-semibold text-[#22C55E] transition active:scale-[0.96] dark:bg-[#052E16]"
           >
