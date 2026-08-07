@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { MASTERED_MIN_INTERVAL, isMasteredByInterval } from "@/lib/mastered";
 import { todayStartUtc } from "@/lib/streak";
 
 export async function GET() {
