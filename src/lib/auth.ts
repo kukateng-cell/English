@@ -2,7 +2,6 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { ROLES } from "@/lib/roles";
 import type { Role } from "@/generated/prisma";
 import {
   checkLimit,
@@ -91,8 +90,12 @@ export const authOptions: NextAuthOptions = {
       }
 
       // 后续请求：user 不存在（只在登录时传入）。
-      // 用 token.id 查库里的最新角色 / 版本号，实现“管理员改角色后实时生效”。
-      // （NextAuth v4 JWT 模式的固有限制：角色缓存在 JWT 里，否则只能等重新登录。）
+      // 用 token.id 查库校验会话是否仍有效：
+      //   - 用户已被删除（dbUser 不存在）→ 旧会话失效；
+      //   - tokenVersion 已变化（管理员改角色 / 重置密码）→ 旧会话失效，需重新登录。
+      // 实现：jwt 回调抛错会让 NextAuth 的 session 处理清除会话 cookie
+      // （见 node_modules/next-auth/core/routes/session.js 的 catch 分支），
+      // 前端 useSession / 服务端 getServerSession 随之视为未登录。
       const userId = token.id as string | undefined;
       if (userId) {
         const dbUser = await prisma.user.findUnique({
@@ -100,20 +103,16 @@ export const authOptions: NextAuthOptions = {
           select: { role: true, tokenVersion: true, mustChangePassword: true },
         });
         if (!dbUser) {
-          // 用户已被删除：把角色降级为默认，使其被角色守卫拦下。
-          token.role = ROLES.STUDENT;
-          token.tokenVersion = undefined;
-          token.mustChangePassword = undefined;
-        } else {
-          // mustChangePassword 可能被用户自己（重设密码）或管理员修改，
-          // 每次都从 DB 刷新，确保重设密码后立即生效。
-          token.mustChangePassword = dbUser.mustChangePassword;
-          if (dbUser.tokenVersion !== token.tokenVersion) {
-            // 版本号变化 → 管理员改过角色，刷新快照。
-            token.role = dbUser.role;
-            token.tokenVersion = dbUser.tokenVersion;
-          }
+          // 用户已被删除 → 会话失效。
+          throw new Error("SESSION_INVALIDATED");
         }
+        if (dbUser.tokenVersion !== token.tokenVersion) {
+          // 版本号变化（改角色 / 重置密码）→ 旧会话失效，需重新登录。
+          throw new Error("SESSION_INVALIDATED");
+        }
+        // mustChangePassword 可能被用户自己（重设密码）或管理员修改，
+        // 每次都从 DB 刷新，确保重设密码后立即生效。
+        token.mustChangePassword = dbUser.mustChangePassword;
       }
       return token;
     },

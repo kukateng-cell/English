@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
+import Modal from "@/components/admin/Modal";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { useLocale } from "@/components/LocaleProvider";
 
@@ -24,6 +25,11 @@ export default function TeacherStudentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 重置学生密码：resetTarget 记录当前操作的学生，tempPassword 展示生成的临时密码。
+  const [resetTarget, setResetTarget] = useState<StudentItem | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -43,6 +49,34 @@ export default function TeacherStudentsPage() {
       }
     })();
   }, [reloadKey]);
+
+  /** 重置某学生密码：调用 API 生成临时密码并展示。 */
+  const resetPassword = async (student: StudentItem) => {
+    setResetTarget(student);
+    setTempPassword(null);
+    setResetError(null);
+    setResetting(true);
+    try {
+      const res = await fetch(
+        `/api/teacher/students/${student.id}/reset-password`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setResetError(data?.error ?? "重置失败，请稍后重试");
+      } else {
+        setTempPassword(data?.temporaryPassword ?? "");
+      }
+    } catch {
+      setResetError("网络错误，请稍后重试");
+    } finally {
+      setResetting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -89,9 +123,17 @@ export default function TeacherStudentsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04 }}
             >
-              <button
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setExpandedId(expandedId === student.id ? null : student.id)}
-                className="w-full rounded-2xl border border-[#E7EDF8] bg-white p-4 text-left shadow-sm transition hover:border-[#2563EB]/20 dark:border-[#1E293B] dark:bg-[#111827]"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setExpandedId(expandedId === student.id ? null : student.id);
+                  }
+                }}
+                className="w-full cursor-pointer rounded-2xl border border-[#E7EDF8] bg-white p-4 text-left shadow-sm transition hover:border-[#2563EB]/20 dark:border-[#1E293B] dark:bg-[#111827]"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
@@ -153,13 +195,75 @@ export default function TeacherStudentsPage() {
                     <div className="flex items-center gap-3 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
                       <span>{tc(`📝 共复习 ${student.totalReviews} 次`)}</span>
                     </div>
+                    <div className="mt-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void resetPassword(student);
+                        }}
+                        disabled={resetting}
+                        className="flex h-9 items-center gap-1.5 rounded-xl border border-[#E7EDF8] bg-white px-3 text-[12px] font-medium text-[#2563EB] transition hover:bg-[#EEF4FF] active:scale-[0.97] disabled:opacity-50 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1E3A5F]"
+                      >
+                        {resetting ? tc("重置中...") : tc("🔑 重置密码")}
+                      </button>
+                    </div>
                   </motion.div>
                 )}
-              </button>
+              </div>
             </motion.div>
           ))}
         </div>
       )}
+
+      {/* 重置密码结果弹窗 */}
+      <Modal
+        open={!!resetTarget}
+        onClose={() => setResetTarget(null)}
+        title={tc("重置密码")}
+      >
+        {tempPassword !== null ? (
+          <div className="space-y-4 text-center">
+            <p className="text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
+              {tc(`已为「${resetTarget?.name || resetTarget?.email}」生成临时密码：`)}
+            </p>
+            <p className="select-all rounded-2xl bg-[#EEF4FF] px-4 py-3 text-[22px] font-bold tracking-widest text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+              {tempPassword}
+            </p>
+            <p className="text-[13px] leading-relaxed text-[#F59E0B] dark:text-[#FBBF24]">
+              {tc("该学生下次登录将被要求修改密码，其旧会话已全部失效。")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setResetTarget(null)}
+              className="w-full rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 py-3 text-[15px] font-semibold text-white shadow-sm transition active:scale-[0.98]"
+            >
+              {tc("完成")}
+            </button>
+          </div>
+        ) : (
+          <div className="py-4 text-center">
+            {resetError ? (
+              <>
+                <p className="mb-4 text-[14px] text-[#EF6B6B] dark:text-[#F87171]">
+                  {tc(resetError)}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setResetTarget(null)}
+                  className="w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 py-3 text-[14px] font-semibold text-[#7C89A5] transition hover:bg-[#F8FAFC] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]"
+                >
+                  {tc("关闭")}
+                </button>
+              </>
+            ) : (
+              <p className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">
+                {tc("正在生成临时密码...")}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
     </motion.div>
   );
 }
