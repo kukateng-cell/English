@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
@@ -51,22 +49,28 @@ export function AchievementCard({ a }: { a: AchievementStatus }) {
 }
 
 export default function AchievementsPage() {
-  const { status } = useSession();
-  const router = useRouter();
   const { tc } = useLocale();
   const [list, setList] = useState<AchievementStatus[] | null>(null);
   const [error, setError] = useState(false);
+  const [needLogin, setNeedLogin] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
+  // 不再依赖 useSession() 的状态判断登录：它的 "unauthenticated" 在客户端
+  // 导航时可能读到过期缓存（见登录页 update() 说明），会把已登录用户误弹回
+  // 登录页。改为直接拉取受保护的 API——cookie 自动随请求带上，401（未登录 /
+  // 未绑定）才提示登录，已登录即可正常显示。
   useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
-    if (status !== "authenticated") return;
     let cancelled = false;
     (async () => {
       // 重新加载时先清掉上次的错误态（IIFE 内调用，符合 set-state-in-effect 规则）。
       setError(false);
+      setNeedLogin(false);
       try {
         const res = await fetch("/api/achievements");
+        if (res.status === 401) {
+          if (!cancelled) setNeedLogin(true);
+          return;
+        }
         const d = res.ok ? await res.json() : null;
         if (cancelled) return;
         if (d) setList(d.achievements ?? []);
@@ -78,12 +82,28 @@ export default function AchievementsPage() {
     return () => {
       cancelled = true;
     };
-  }, [status, router, reloadKey]);
+  }, [reloadKey]);
 
-  if (status === "unauthenticated") return null;
+  // 未登录（未绑定）：显示登录提示，而非强制重定向到登录页造成来回跳转。
+  if (needLogin) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center px-6 text-center">
+        <div className="mb-3 text-4xl">🔒</div>
+        <p className="mb-4 text-[15px] text-[#7C89A5] dark:text-[#64748B]">
+          {tc("请先登录后查看成就")}
+        </p>
+        <Link
+          href="/login"
+          className="flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] active:scale-[0.98]"
+        >
+          {tc("前往登录")}
+        </Link>
+      </div>
+    );
+  }
 
   // 加载失败：显示错误 + 重试，避免一直转圈。
-  if ((status === "loading" || !list) && error) {
+  if (!list && error) {
     return (
       <div className="flex min-h-full items-center justify-center px-6">
         <ErrorBanner
@@ -94,7 +114,7 @@ export default function AchievementsPage() {
     );
   }
 
-  if (status === "loading" || !list) {
+  if (!list) {
     return (
       <div className="flex min-h-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
