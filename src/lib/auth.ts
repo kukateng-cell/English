@@ -98,10 +98,21 @@ export const authOptions: NextAuthOptions = {
       // 前端 useSession / 服务端 getServerSession 随之视为未登录。
       const userId = token.id as string | undefined;
       if (userId) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { role: true, tokenVersion: true, mustChangePassword: true },
-        });
+        // 查库失败（DB 抖动）时 fail-open 放行，避免全体用户被误登出；
+        // 仅在「明确检测到用户已删除 / 版本不一致」时才销毁会话。
+        let dbUser: {
+          role: Role;
+          tokenVersion: number;
+          mustChangePassword: boolean;
+        } | null = null;
+        try {
+          dbUser = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true, tokenVersion: true, mustChangePassword: true },
+          });
+        } catch {
+          return token;
+        }
         if (!dbUser) {
           // 用户已被删除 → 会话失效。
           throw new Error("SESSION_INVALIDATED");
