@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { convertForServer } from "@/lib/i18n/convert";
+import StudyStats from "@/components/StudyStats";
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -92,6 +93,9 @@ export default async function Home() {
             </div>
           </div>
         </div>
+
+        {/* 学习统计（仅已登录学生）：今日新学/复习 + 掌握度 */}
+        {isLoggedIn && <StudyStats />}
 
         {/* 按钮组 */}
         <Link
