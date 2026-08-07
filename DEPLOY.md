@@ -85,6 +85,8 @@ NEXTAUTH_SECRET="用下面命令生成的随机串"
 NEXTAUTH_URL="http://localhost:3000"
 
 SEED_STUDENTS=1
+# 学生预设密码（student01..40 共用；不设置则 seed 自动生成强随机密码并打印到控制台）
+SEED_STUDENT_DEFAULT_PASSWORD="english123"
 TEST_ACCOUNT_PASSWORD="你的测试账号密码"
 
 # 管理员 / 教师账号初始密码（必填；seed 时创建 admin / teacher 这两个账号）
@@ -130,7 +132,7 @@ npm run seed
 
 - `word list.md` 里的所有单词
 - 管理员账号 `admin`、教师账号 `teacher`（密码 = 你设的 `INITIAL_ADMIN_PASSWORD`）
-- `student01` ~ `student40`（密码统一 `english123`，需在 `.env.local` 设 `SEED_STUDENTS=1`）
+- `student01` ~ `student40`（密码 = 你设的 `SEED_STUDENT_DEFAULT_PASSWORD`；未设置则 seed 自动生成强随机密码并打印到控制台。需在 `.env.local` 设 `SEED_STUDENTS=1` 才会创建）
 - 测试账号 `qa-4347e0aa14`（密码是你设的 `TEST_ACCOUNT_PASSWORD`）
 
 > ⚠️ `INITIAL_ADMIN_PASSWORD` 必填；未设置时 seed 会直接抛错中止（安全审计要求：禁止硬编码密码）。
@@ -141,7 +143,7 @@ npm run seed
 npm run dev
 ```
 
-打开 <http://localhost:3000/login，用> `student01` / `english123` 登录，确认能正常学习。
+打开 <http://localhost:3000/login，用> `student01` / 你设的 `SEED_STUDENT_DEFAULT_PASSWORD` 登录，确认能正常学习。
 **本地能跑通，说明 Supabase 连接 OK，可以进下一步。**
 
 ---
@@ -195,7 +197,7 @@ git push
 ## 第 5 步：验证线上
 
 1. 打开 `https://你的域名.vercel.app/login`
-2. 用 `student01` / `english123` 登录
+2. 用 `student01` / 你设的 `SEED_STUDENT_DEFAULT_PASSWORD` 登录
 3. 确认能加载单词、滑动学习、记录进度
 
 如果报错，看 Vercel → **Logs**（或 Functions 标签），最常见的是：
