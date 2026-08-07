@@ -6,17 +6,20 @@ import { authOptions } from "@/lib/auth";
 import { convertForServer } from "@/lib/i18n/convert";
 
 export default async function Home() {
-  // 已登录用户直接跳转到对应入口，免去再看落地页 / 登录页
   const session = await getServerSession(authOptions);
-  if (session?.user) {
-    const role = (session.user as { role?: string }).role;
-    redirect(
-      role === "ADMIN" ? "/admin" : role === "TEACHER" ? "/teacher" : "/study",
-    );
-  }
+  const role = (session?.user as { role?: string } | undefined)?.role;
+
+  // 教师 / 管理员：他们的首页是各自后台，直接跳过去（落地页是学生向的）。
+  // 学生（含未登录）：保留在落地页，把它当作「首页 / 主菜单」，
+  // 这样各页面的「首页」按钮（href="/"）才能回到真正的首页。
+  // 原先把已登录学生也重定向到 /study，会导致学生点「首页」时
+  // 又被弹回 /study，永远进不了真正的首页。
+  if (role === "ADMIN") redirect("/admin");
+  if (role === "TEACHER") redirect("/teacher");
 
   const cookieStore = await cookies();
   const tc = (s: string) => convertForServer(s, cookieStore.toString());
+  const isLoggedIn = !!session?.user;
 
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-5 py-8">
@@ -124,16 +127,18 @@ export default async function Home() {
           </Link>
         </div>
 
-        {/* 底部登录入口 */}
-        <div className="text-center text-sm text-[#7C89A5] dark:text-[#64748B]">
-          {tc("已有账号？")}{" "}
-          <Link
-            href="/login"
-            className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
-          >
-            {tc("登录")}
-          </Link>
-        </div>
+        {/* 底部登录入口：仅未登录显示，已登录用户已在主菜单内 */}
+        {!isLoggedIn && (
+          <div className="text-center text-sm text-[#7C89A5] dark:text-[#64748B]">
+            {tc("已有账号？")}{" "}
+            <Link
+              href="/login"
+              className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
+            >
+              {tc("登录")}
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );
