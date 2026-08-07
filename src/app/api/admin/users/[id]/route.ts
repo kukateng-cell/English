@@ -43,7 +43,15 @@ export async function PATCH(
       if (body.password.length < 6) {
         return NextResponse.json({ error: "密码至少 6 位" }, { status: 400 });
       }
+      if (body.password.length > 128) {
+        return NextResponse.json({ error: "密码过长" }, { status: 400 });
+      }
       data.passwordHash = await bcrypt.hash(body.password, 12);
+      if (id !== auth.userId) {
+        // 重置他人密码：强制对方下次登录修改，并让旧会话失效（tokenVersion+1）。
+        data.mustChangePassword = true;
+        data.tokenVersion = { increment: 1 };
+      }
     }
 
     if (Object.keys(data).length === 0) {

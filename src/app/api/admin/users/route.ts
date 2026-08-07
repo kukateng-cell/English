@@ -58,6 +58,8 @@ export async function POST(req: Request) {
     if (!email) return NextResponse.json({ error: "账号不能为空" }, { status: 400 });
     if (password.length < 6)
       return NextResponse.json({ error: "密码至少 6 位" }, { status: 400 });
+    if (password.length > 128)
+      return NextResponse.json({ error: "密码过长" }, { status: 400 });
 
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) return NextResponse.json({ error: "该账号已存在" }, { status: 409 });
