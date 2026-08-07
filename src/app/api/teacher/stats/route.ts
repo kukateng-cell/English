@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { todayStartUtc } from "@/lib/streak";
 
 export async function GET() {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
@@ -58,8 +59,8 @@ export async function GET() {
     }));
 
     // ── 5. 今日活跃学生数（当天有 lastReviewedAt 的学生） ──
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // 用东八区「今天 0 点」作起点，与打卡/连续天数逻辑保持一致。
+    const todayStart = todayStartUtc();
     const activeToday = await prisma.review.groupBy({
       by: ["userId"],
       where: {

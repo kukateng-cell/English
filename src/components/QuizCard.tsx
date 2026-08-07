@@ -186,7 +186,7 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
             <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">{tc("✓ 答对了！")}</span>
           ) : (
             <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">
-              {tc("✕ 答错了，这个词稍后会再考你一次")}
+              {tc("✕ 答错了，再试一次吧")}
             </span>
           )}
         </motion.p>

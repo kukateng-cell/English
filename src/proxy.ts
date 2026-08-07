@@ -60,7 +60,7 @@ const proxy: NextProxy = async (req: NextRequest) => {
   if (token && mustChangePassword && !isResetArea) {
     if (isApi) {
       return NextResponse.json(
-        { error: "Password change required", mustChangePassword: true },
+        { error: "请先设置新密码后继续", mustChangePassword: true },
         { status: 422 },
       );
     }
