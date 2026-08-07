@@ -14,6 +14,7 @@ export function statusMessage(status: number): string {
   if (status === 401) return "登录已过期，请重新登录";
   if (status === 403) return "没有权限访问此页面";
   if (status === 404) return "未找到请求的资源";
+  if (status === 422) return "请先设置新密码后继续";
   if (status === 429) return "操作过于频繁，请稍后再试";
   if (status >= 500) return "服务器开小差了，请稍后重试";
   return "加载失败，请稍后重试";

@@ -498,7 +498,11 @@ export default function StudyPage() {
       // 永远从「认字评估」步开始当前词，不恢复某个词进行到一半的测试状态。
       // 这样用户中途离开后回来，不会被强制回到「上次那个还没测完的词」。
       quizWrongCounts.current = {};
-      pendingQuizzes.current = [];
+      // 恢复「延后待测」的不认识词：恢复后继续测试它们，不再静默丢弃
+      // （丢弃会导致这些词不测试、无 SM-2 记录，第二天又当新词出现）。
+      pendingQuizzes.current = (cp.pendingQuizIds ?? [])
+        .map((id) => wordMap.get(id))
+        .filter((w): w is WordFull => Boolean(w));
       setQuizAttempt(0);
       setWordStep("assess");
       setQuizTarget(null);
@@ -528,6 +532,11 @@ export default function StudyPage() {
         const params = new URLSearchParams(window.location.search);
         const res = await fetch(`/api/study?${params.toString()}`);
         if (cancelled) return;
+        if (res.status === 401) {
+          // 会话过期：直接回登录页，而不是只显示错误横幅让用户卡住。
+          router.push("/login");
+          return;
+        }
         if (res.status === 403) {
           // 被锁单元：直接访问 URL 才会走到这里（/units 列表已禁用入口）
           setLocked(true);
@@ -559,7 +568,7 @@ export default function StudyPage() {
     return () => {
       cancelled = true;
     };
-  }, [status, reloadKey, restoreProgress, flashResumed]);
+  }, [status, reloadKey, restoreProgress, flashResumed, router]);
 
   // 认字评估阶段的词：取队列中 currentIndex 位置的词（经 current 引用）。
   // 测试阶段的词可能不同（延后回来的不认识词），由 quizTarget 单独追踪。
@@ -693,6 +702,7 @@ export default function StudyPage() {
       knownWordIds: knownWords.map((w) => w.id),
       unknownWordIds: unknownWords.map((w) => w.id),
       quizStats,
+      pendingQuizIds: pendingQuizzes.current.map((w) => w.id),
     });
   }, [
     loading,

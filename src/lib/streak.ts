@@ -101,3 +101,16 @@ export async function fetchRecentStudyDays(
   });
   return rows.map((r) => r.date);
 }
+
+/**
+ * 东八区「今天 00:00」对应的 UTC 时刻。
+ *
+ * 用于「今日活跃 / 今日学习」这类按天统计的查询起点：统一用东八区，
+ * 避免服务端（如 Vercel 的 UTC 时区）与目标用户（中文学生）时区不一致，
+ * 导致「今日」统计与其它打卡/连续天数逻辑差 8 小时。
+ */
+export function todayStartUtc(d: Date = new Date()): Date {
+  const key = todayKey(d); // YYYY-MM-DD（Asia/Shanghai）
+  // "YYYY-MM-DDT00:00:00+08:00" 由 JS 正确解析为对应的 UTC 时刻。
+  return new Date(`${key}T00:00:00+08:00`);
+}

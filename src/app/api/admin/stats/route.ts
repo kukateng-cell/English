@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { todayStartUtc } from "@/lib/streak";
 
 export async function GET() {
   const auth = await requireRole(ROLES.ADMIN);
@@ -18,7 +19,7 @@ export async function GET() {
         prisma.review.count({
           where: {
             lastReviewedAt: {
-              gte: new Date(new Date().setHours(0, 0, 0, 0)),
+              gte: todayStartUtc(),
             },
           },
         }),

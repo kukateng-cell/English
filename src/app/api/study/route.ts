@@ -243,22 +243,33 @@ export async function GET(req: Request) {
       })
     ).map((r) => r.wordId);
 
-    const newWordsRaw = await prisma.word.findMany({
-      where: {
-        id: { notIn: reviewedWordIds },
-      },
-      orderBy: { term: "asc" },
+    // 新词只从已解锁单元中引入，避免绕过闯关解锁直接学习后续单元。
+    // 查询直接下推到 DB：按已解锁的 (level, category) 组合过滤，避免全表拉取
+    // 数千个未复习词再在内存过滤。category 为 null 的单词按 "未分类" 记键，
+    // 与 computeUnlockInfo 一致。
+    const unlockedCats = [...unlockedKeys].map((k) => {
+      const sep = k.indexOf("::");
+      return {
+        level: normalizeLevel(k.slice(0, sep)),
+        category: k.slice(sep + 2) === "未分类" ? null : k.slice(sep + 2),
+      };
     });
 
-    // 新词只从已解锁单元中引入，避免绕过闯关解锁直接学习后续单元。
-    // category 为 null 的单词按 "未分类" 记键，与 computeUnlockInfo 一致。
-    // 新词从已解锁单元中随机抽取 5 个（而非固定字母序前 5 个），
-    // 让每次学习的新词批次更有变化，避免总是从 A 开头的那批开始。
-    const newWords = shuffle(
-      newWordsRaw.filter((w) =>
-        unlockedKeys.has(`${w.level}::${w.category ?? "未分类"}`),
-      ),
-    ).slice(0, 5);
+    let newWords: Word[] = [];
+    if (unlockedCats.length > 0) {
+      const newWordsRaw = await prisma.word.findMany({
+        where: {
+          id: { notIn: reviewedWordIds },
+          OR: unlockedCats.map((c) => ({
+            level: c.level,
+            category: c.category,
+          })),
+        },
+        orderBy: { term: "asc" },
+      });
+      // 已解锁单元内随机抽 5 个，让每次学习的新词批次更有变化。
+      newWords = shuffle(newWordsRaw).slice(0, 5);
+    }
 
     queue = [
       ...dueSorted.map((r) => ({

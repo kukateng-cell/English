@@ -48,9 +48,15 @@ export interface Checkpoint {
   unknownWordIds: string[];
   /** 累计测试统计。 */
   quizStats: { correct: number; wrong: number };
+  /**
+   * 尚未完成测试的「不认识」词 id（延后测试队列）。
+   * 恢复进度时据此重建 pendingQuizzes，避免恢复后这些词被静默跳过、
+   * 既不测试也无 SM-2 记录。
+   */
+  pendingQuizIds: string[];
 }
 
-const VERSION = 2;
+const VERSION = 3;
 const PREFIX = "study:checkpoint:";
 
 function keyFor(unitKey: string): string {

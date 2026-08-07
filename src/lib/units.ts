@@ -125,7 +125,10 @@ export function normalizeLevelOrNull(s: unknown): LevelCode | null {
 
 /** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
 export function isUnitCompleted(total: number, mastered: number): boolean {
-  return total > 0 && mastered / total >= UNIT_COMPLETION_RATIO;
+  // 空单元（0 词）直接视为已完成，避免「0 词单元永远无法完成」导致
+  // 后续单元 / 下一级别被永久锁死（闯关解锁死锁）。
+  if (total <= 0) return true;
+  return mastered / total >= UNIT_COMPLETION_RATIO;
 }
 
 /** 级别排序比较器：按 LEVEL_ORDER，未列出者排后并按字母序。 */
