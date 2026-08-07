@@ -344,6 +344,9 @@ export default function StudyPage() {
   const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
   const quizWrongCounts = useRef<Record<string, number>>({});
+  // 认字评估手势锁：350ms 飞出动画期间禁止重复触发，避免同一词被多次计入
+  // knownWords / unknownWords（连点 / 拖拽+按钮同时触发）。
+  const swipeLockRef = useRef(false);
 
   // 「已恢复上次进度」轻提示
   const [showResumedBanner, setShowResumedBanner] = useState(false);
@@ -734,7 +737,8 @@ export default function StudyPage() {
   // 右滑：认识（仅本地分类，不写记录；掌握与否交给随后的测试判定）
   // 选好「认识」后，立刻进入该词的测试步。
   const handleSwipeRight = () => {
-    if (!current) return;
+    if (!current || swipeLockRef.current) return;
+    swipeLockRef.current = true;
     setKnownWords((prev) => [...prev, current.word]);
     setDirection("right");
     setTimeout(() => {
@@ -743,15 +747,20 @@ export default function StudyPage() {
       setQuizAttempt(0);
       quizWrongCounts.current = {};
       setWordStep("quiz");
+      swipeLockRef.current = false;
     }, 350);
   };
 
   // 左滑：不认识 → 展示助记面板（仅本地分类，不写记录）
   const handleSwipeLeft = () => {
-    if (!current) return;
+    if (!current || swipeLockRef.current) return;
+    swipeLockRef.current = true;
     setUnknownWords((prev) => [...prev, current.word]);
     setDirection("left");
-    setTimeout(() => setHelpVisible(true), 350);
+    setTimeout(() => {
+      setHelpVisible(true);
+      swipeLockRef.current = false;
+    }, 350);
   };
 
   // 助记面板关闭 → 进入下一个生字的认字评估，而不是当前词的测试。
