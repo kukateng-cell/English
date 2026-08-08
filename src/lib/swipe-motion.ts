@@ -1,11 +1,17 @@
 export type SwipeDirection = -1 | 1;
 export type SwipePointerType = "mouse" | "pen" | "touch";
 
-const DISTANCE_RATIO = 0.24;
-const MIN_DISTANCE = 88;
-const MAX_DISTANCE = 128;
+export interface SwipePointerSample {
+  position: number;
+  time: number;
+}
+
+const DISTANCE_RATIO = 0.28;
+const MIN_DISTANCE = 104;
+const MAX_DISTANCE = 144;
 const MAX_PROJECTED_VELOCITY = 1_800;
 const MAX_RELEASE_VELOCITY = 2_400;
+const VELOCITY_WINDOW_MS = 100;
 export const OFFSCREEN_MARGIN = 40;
 export const VISUAL_COMPLETION_SLACK = 12;
 
@@ -34,10 +40,10 @@ export function decideSwipe(
   const threshold = clamp(safeWidth * DISTANCE_RATIO, MIN_DISTANCE, MAX_DISTANCE);
   const gesture =
     pointerType === "touch"
-      ? { minimumOffset: 24, minimumVelocity: 650, projectionSeconds: 0.14 }
+      ? { minimumOffset: 28, minimumVelocity: 650, projectionSeconds: 0.14 }
       : pointerType === "pen"
-        ? { minimumOffset: 32, minimumVelocity: 750, projectionSeconds: 0.12 }
-        : { minimumOffset: 44, minimumVelocity: 850, projectionSeconds: 0.1 };
+        ? { minimumOffset: 40, minimumVelocity: 750, projectionSeconds: 0.12 }
+        : { minimumOffset: 72, minimumVelocity: 900, projectionSeconds: 0.1 };
   const projectedVelocity = clamp(
     velocityX,
     -MAX_PROJECTED_VELOCITY,
@@ -57,6 +63,31 @@ export function decideSwipe(
     projectedX,
     threshold,
   };
+}
+
+/**
+ * Estimate release velocity from only the final part of a pointer gesture.
+ * Including the release sample means that holding the card still before
+ * letting go naturally reduces the launch velocity to zero.
+ */
+export function estimateSwipeVelocity(
+  samples: SwipePointerSample[],
+  releaseTime: number,
+) {
+  const recent = samples.filter(
+    (sample) =>
+      Number.isFinite(sample.position) &&
+      Number.isFinite(sample.time) &&
+      releaseTime - sample.time >= 0 &&
+      releaseTime - sample.time <= VELOCITY_WINDOW_MS,
+  );
+  if (recent.length < 2) return 0;
+
+  const first = recent[0];
+  const last = recent[recent.length - 1];
+  const elapsed = last.time - first.time;
+  if (elapsed <= 0) return 0;
+  return ((last.position - first.position) / elapsed) * 1_000;
 }
 
 /** Return an x transform that puts the entire current card beyond the viewport. */

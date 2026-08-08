@@ -7,16 +7,23 @@ import {
   useTransform,
 } from "framer-motion";
 import type { AnimationPlaybackControls } from "framer-motion";
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
 import {
   decideSwipe,
+  estimateSwipeVelocity,
   hasClearedViewport,
   launchVelocity,
   offscreenTarget,
   type SwipeDirection,
   type SwipePointerType,
+  type SwipePointerSample,
 } from "@/lib/swipe-motion";
 
 interface WordCardProps {
@@ -30,6 +37,14 @@ interface WordCardProps {
 const SWIPE_LABEL_THRESHOLD = 76;
 const BUTTON_LAUNCH_VELOCITY = 720;
 
+interface ActivePointerDrag {
+  pointerId: number;
+  pointerType: SwipePointerType;
+  startPointerX: number;
+  startCardX: number;
+  samples: SwipePointerSample[];
+}
+
 export default function WordCard({
   word,
   onSwipeLeft,
@@ -41,6 +56,7 @@ export default function WordCard({
   const x = useMotionValue(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const activeAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const activeDragRef = useRef<ActivePointerDrag | null>(null);
   const mountedRef = useRef(true);
   const dismissingRef = useRef(false);
   const rotate = useTransform(x, [-300, 0, 300], [-10, 0, 10]);
@@ -105,15 +121,13 @@ export default function WordCard({
 
     dismissingRef.current = true;
     activeAnimationRef.current?.stop();
-    // Keep the drag feature mounted during release. Imperatively block another
-    // pointer gesture without a React render, then let Motion finish tearing
-    // down the current drag call stack before the spring takes ownership of x.
+    // Pointer movement is owned by this component, so the release spring can
+    // take over the same motion value immediately without a drag teardown race.
     card.style.pointerEvents = "none";
     let animation: AnimationPlaybackControls | null = null;
     let committed = false;
 
     try {
-      await new Promise<void>((resolve) => queueMicrotask(resolve));
       if (!mountedRef.current || !card.isConnected) return;
 
       const rect = card.getBoundingClientRect();
@@ -169,36 +183,94 @@ export default function WordCard({
     }
   };
 
-  const pointerTypeOf = (
-    event: MouseEvent | TouchEvent | PointerEvent,
-  ): SwipePointerType => {
-    if ("pointerType" in event) {
-      if (event.pointerType === "touch" || event.pointerType === "pen") {
-        return event.pointerType;
-      }
-      return "mouse";
+  const pointerTypeOf = (pointerType: string): SwipePointerType => {
+    if (pointerType === "touch" || pointerType === "pen") {
+      return pointerType;
     }
-    return "touches" in event ? "touch" : "mouse";
+    return "mouse";
   };
 
-  const handleDragEnd = (
-    event: MouseEvent | TouchEvent | PointerEvent,
-    info: { offset: { x: number }; velocity: { x: number } }
+  const recordPointerSample = (
+    drag: ActivePointerDrag,
+    position: number,
+    time: number,
   ) => {
-    if (disabled || dismissingRef.current) return;
+    drag.samples.push({ position, time });
+    drag.samples = drag.samples.filter((sample) => time - sample.time <= 140);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (disabled || dismissingRef.current || activeDragRef.current) return;
+    if (event.button !== 0 || event.isPrimary === false) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+
+    stopReturnAnimation();
+    const now = performance.now();
+    activeDragRef.current = {
+      pointerId: event.pointerId,
+      pointerType: pointerTypeOf(event.pointerType),
+      startPointerX: event.clientX,
+      startCardX: x.get(),
+      samples: [{ position: event.clientX, time: now }],
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.currentTarget.style.cursor = "grabbing";
+    event.preventDefault();
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = activeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const coalesced = event.nativeEvent.getCoalescedEvents?.() ?? [event.nativeEvent];
+    const latest = coalesced[coalesced.length - 1] ?? event.nativeEvent;
+    const now = performance.now();
+    x.set(drag.startCardX + latest.clientX - drag.startPointerX);
+    for (const sample of coalesced) {
+      recordPointerSample(drag, sample.clientX, now);
+    }
+    event.preventDefault();
+  };
+
+  const finishPointerDrag = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    cancelled: boolean,
+  ) => {
+    const drag = activeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const now = performance.now();
+    recordPointerSample(drag, event.clientX, now);
+    const velocityX = cancelled
+      ? 0
+      : estimateSwipeVelocity(drag.samples, now);
+    activeDragRef.current = null;
+    event.currentTarget.style.cursor = "";
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (cancelled) {
+      returnToCentre(0);
+      return;
+    }
+
     const cardWidth = cardRef.current?.offsetWidth ?? 400;
     const decision = decideSwipe(
       x.get(),
-      info.velocity.x,
+      velocityX,
       cardWidth,
-      pointerTypeOf(event),
+      drag.pointerType,
     );
     if (!decision.dismiss) {
-      returnToCentre(info.velocity.x);
+      // A rejected gesture should visibly snap back at once. Carrying a noisy
+      // mouse velocity into this spring makes a tiny drag travel farther away
+      // for a frame or two before returning, which feels like a false swipe.
+      returnToCentre(0);
       return;
     }
     const callback = decision.direction < 0 ? onSwipeLeft : onSwipeRight;
-    void flyOff(decision.direction, info.velocity.x, callback);
+    void flyOff(decision.direction, velocityX, callback);
   };
 
   const handleButtonSwipe = (direction: SwipeDirection, callback: () => void) => {
@@ -231,12 +303,11 @@ export default function WordCard({
 
       <motion.div
         ref={cardRef}
-        drag={disabled ? false : "x"}
-        dragMomentum={false}
-        onDragStart={stopReturnAnimation}
-        onDragEnd={handleDragEnd}
-        style={{ x, rotate }}
-        whileDrag={{ scale: 1.01 }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={(event) => finishPointerDrag(event, false)}
+        onPointerCancel={(event) => finishPointerDrag(event, true)}
+        style={{ x, rotate, touchAction: "pan-y" }}
         className="relative z-10 mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] [will-change:transform] active:cursor-grabbing dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
       >
         {/* 单词 */}

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   decideSwipe,
+  estimateSwipeVelocity,
   hasClearedViewport,
   launchVelocity,
   offscreenTarget,
@@ -9,15 +10,42 @@ import {
 
 test("mouse swipe requires meaningful physical movement before velocity counts", () => {
   assert.equal(decideSwipe(12, 2_000, 416, "mouse").dismiss, false);
-  assert.equal(decideSwipe(43, 2_000, 416, "mouse").dismiss, false);
-  assert.equal(decideSwipe(44, 900, 416, "mouse").dismiss, true);
-  assert.equal(decideSwipe(99, 0, 416, "mouse").dismiss, false);
-  assert.equal(decideSwipe(100, 0, 416, "mouse").dismiss, true);
+  assert.equal(decideSwipe(71, 2_000, 416, "mouse").dismiss, false);
+  assert.equal(decideSwipe(72, 900, 416, "mouse").dismiss, true);
+  assert.equal(decideSwipe(116, 0, 416, "mouse").dismiss, false);
+  assert.equal(decideSwipe(117, 0, 416, "mouse").dismiss, true);
 });
 
 test("touch keeps a shorter intentional flick without accepting tiny jitter", () => {
-  assert.equal(decideSwipe(20, 1_400, 360, "touch").dismiss, false);
-  assert.equal(decideSwipe(24, 700, 360, "touch").dismiss, true);
+  assert.equal(decideSwipe(27, 1_400, 360, "touch").dismiss, false);
+  assert.equal(decideSwipe(28, 700, 360, "touch").dismiss, true);
+});
+
+test("release velocity uses recent pointer movement and decays after a hold", () => {
+  assert.equal(
+    Math.round(
+      estimateSwipeVelocity(
+        [
+          { position: 10, time: 920 },
+          { position: 40, time: 960 },
+          { position: 70, time: 1_000 },
+        ],
+        1_000,
+      ),
+    ),
+    750,
+  );
+  assert.equal(
+    estimateSwipeVelocity(
+      [
+        { position: 10, time: 800 },
+        { position: 70, time: 850 },
+        { position: 70, time: 1_000 },
+      ],
+      1_000,
+    ),
+    0,
+  );
 });
 
 test("swipe direction follows the projected release path", () => {
