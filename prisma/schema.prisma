@@ -26,6 +26,7 @@ model User {
   createdAt          DateTime          @default(now())
   reviews            Review[]
   reviewEvents       ReviewEvent[]
+  studySessions      StudySession[]
   studyDays          StudyDay[]
   achievements       UserAchievement[]
 }
@@ -45,6 +46,7 @@ model Word {
   imageUrl     String? // 助记图
   reviews      Review[]
   reviewEvents ReviewEvent[]
+  studySessionItems StudySessionItem[]
 
   @@index([level])
   @@index([category])
@@ -80,6 +82,8 @@ model ReviewEvent {
   // 删除词库项目时仍保留审计／统计；以下快照不依赖当前 Word 行。
   wordTerm          String
   wordLevel         Level
+  eventKind         ReviewEventKind @default(REVIEW)
+  // Non-REVIEW bridge/backfill rows use neutral quality=0; eventKind carries semantics.
   quality           Int
   newlyUnlockedKeys String[] @default([])
   // 迁移前只有累计次数、没有逐次时间；这类回填不可进入日／周时间桶。
@@ -98,6 +102,38 @@ enum Level {
   A2
   B1
   B2
+}
+
+enum ReviewEventKind {
+  REVIEW
+  LEGACY_BRIDGE
+  HISTORICAL_BACKFILL
+}
+
+// Server-issued study session. A client can only submit a scored answer for a
+// word that belongs to a live session and has an unused nonce.
+model StudySession {
+  id        String             @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime           @default(now())
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     StudySessionItem[]
+
+  @@index([userId, expiresAt])
+}
+
+model StudySessionItem {
+  id        String       @id @default(cuid())
+  sessionId String
+  wordId    String
+  nonce     String       @unique
+  usedAt    DateTime?
+  session   StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  word      Word         @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, wordId])
+  @@index([sessionId, usedAt])
 }
 
 // ── 学习打卡（每日一条） ──

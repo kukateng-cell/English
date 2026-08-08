@@ -28,6 +28,7 @@ import {
 } from "@/lib/checkpoint";
 import {
   enqueuePendingReview,
+  attachStudySessionCredentials,
   flushPendingReviews,
   pendingReviewCount,
   blockedReviewCount,
@@ -37,6 +38,7 @@ import {
   legacyReviewCount,
   claimLegacyReviews,
   discardLegacyReviews,
+  type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
 import { canResumeStudySession } from "@/lib/study-session";
 
@@ -72,23 +74,14 @@ interface PoolWord {
   definition: string;
 }
 
+interface StudySessionInfo {
+  id: string;
+  expiresAt: string;
+  nonces: Record<string, string>;
+}
+
 /** 当前词处在哪一步：先认字评估，随即立刻测试。 */
 type WordStep = "assess" | "quiz";
-
-const STUDY_BUILD_LABEL = "PREARMED-P4 · 0808";
-
-function StudyBuildBadge() {
-  return (
-    <div
-      data-testid="study-build-badge"
-      className="mt-1 flex items-center justify-center gap-1.5 rounded-full bg-[#7C3AED] px-2.5 py-1 text-[10px] font-bold tracking-[0.08em] text-white shadow-[0_3px_10px_rgba(124,58,237,0.28)]"
-      title="目前載入的學習介面版本"
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-[#A7F3D0]" />
-      最新手勢版 {STUDY_BUILD_LABEL}
-    </div>
-  );
-}
 
 /** 洗牌 */
 function shuffle<T>(arr: T[]): T[] {
@@ -191,6 +184,7 @@ function submitQuizReview(
   userId: string,
   wordId: string,
   quality: number,
+  credentials: ReviewSubmissionCredentials,
   onDone?: (s: StreakInfo) => void,
   onAchievements?: (list: AchievementDef[]) => void,
   onQueueChange?: () => void,
@@ -201,7 +195,7 @@ function submitQuizReview(
   // Write-ahead：先同步写入本地 outbox，再推进页面／发网络请求。即使用户立即
   // 关页，下一次打开仍能用同一个 operationId 幂等补交。
   try {
-    enqueuePendingReview(userId, operationId, wordId, quality);
+    enqueuePendingReview(userId, operationId, wordId, quality, credentials);
     if (saveNextCheckpoint && !saveNextCheckpoint()) {
       // 两个 localStorage key 无事务；checkpoint 写入失败时补偿删除尚未发送的
       // outbox operation，停在当前题让用户修复存储后重试。
@@ -380,6 +374,8 @@ export default function StudyPage() {
   const [error, setError] = useState<string | null>(null);
   // 连续学习天数（GET /api/study 返回，POST 提交后实时刷新）
   const [streak, setStreak] = useState<StreakInfo | null>(null);
+  // 当前服务端发出的词目／nonce 清单；quality 提交必须从这里取凭证。
+  const [studySession, setStudySession] = useState<StudySessionInfo | null>(null);
   // 本次学习中新解锁的成就（POST 返回，用于即时弹提示）
   const [newAchievements, setNewAchievements] = useState<AchievementDef[]>([]);
   // 「下一个单元」按钮的加载态（完成画面用）
@@ -506,10 +502,15 @@ export default function StudyPage() {
   // 把本地缓冲的待提交评测尽量同步到服务端。
   // flushPendingReviews 成功提交一条即回传最新 streak / 成就，与即时提交一致。
   const flushPending = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || !studySession) return;
     if (isFlushingRef.current) return;
     isFlushingRef.current = true;
     try {
+      attachStudySessionCredentials(
+        userId,
+        studySession.id,
+        studySession.nonces,
+      );
       // 空队列时 flushPendingReviews 会立即返回 0（不发任何请求）。
       // 这里的 setState 都在 await 之后，避免在 effect 中同步调用 setState。
       const remaining = await flushPendingReviews(userId, (_id, data) => {
@@ -528,7 +529,7 @@ export default function StudyPage() {
     } finally {
       isFlushingRef.current = false;
     }
-  }, [userId]);
+  }, [userId, studySession]);
 
   // 进入学习页时：先把本地缓冲的待提交评测尽量同步。
   // flushPending 内部会在完成时（同步或异步）更新 pendingSync 计数。
@@ -546,7 +547,11 @@ export default function StudyPage() {
   // 网络恢复 / 页面重新可见 / 定时器：自动重试缓冲的待提交评测，
   // 保证用户离线时记下的学习在恢复连接后不丢失。
   useEffect(() => {
-    if (status !== "authenticated" || flushedUserId !== userId) return;
+    if (
+      status !== "authenticated" ||
+      flushedUserId !== userId ||
+      !studySession
+    ) return;
     const onOnline = () => void flushPending();
     const onVisible = () => {
       if (document.visibilityState === "visible") void flushPending();
@@ -562,7 +567,7 @@ export default function StudyPage() {
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
     };
-  }, [status, userId, flushedUserId, flushPending]);
+  }, [status, userId, flushedUserId, studySession, flushPending]);
 
   /**
    * 尝试用本地存档点恢复进度。返回是否成功恢复。
@@ -684,6 +689,7 @@ export default function StudyPage() {
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category : null);
         setStreak(data.streak ?? null);
+        setStudySession(data.studySession ?? null);
         // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
         if (restoredQueue) {
           flashResumed();
@@ -720,7 +726,7 @@ export default function StudyPage() {
   }, [done, wordStep, quizTarget, distractorSource, quizAttempt]);
 
   // 若当前词无法生成有效配对题（如 DVD↔DVD 这类纯英文词条，或干扰项不足），
-  // 回退到认字手势评级并进入下一词，避免把「不认识」的不可出题词自动判成满分。
+  // 只推进流程而不写入 SM-2，避免把不可出题词自动判成满分。
   useEffect(() => {
     if (done || wordStep !== "quiz" || !quizTarget) return;
     if (currentQuestion !== null) return;
@@ -785,19 +791,11 @@ export default function StudyPage() {
 
       // 答对：依据答错次数计算 quality 并写入 SM-2。
       // 单词的掌握程度完全由测试表现决定，认字阶段的手势不参与记录。
+      // correct === null 代表没有办法生成有效题目；这种词只推进流程，
+      // 不把「自我评估」伪装成 quality=5 写入 SM-2。
       if (word) {
         const wrongs = quizWrongCounts.current[word.id] ?? 0;
-        const assessedUnknown = unknownWords.some((w) => w.id === word.id);
-        const quality =
-          correct === null
-            ? assessedUnknown
-              ? 2
-              : 5
-            : wrongs === 0
-              ? 5
-              : wrongs === 1
-                ? 4
-                : 3;
+        const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
         const nextQuizStats =
           correct === true
             ? { ...quizStats, correct: quizStats.correct + 1 }
@@ -811,38 +809,53 @@ export default function StudyPage() {
               ? "done"
               : "assess";
         const unitKey = getUnitKey();
-        const persisted = submitQuizReview(
-          userId!,
-          word.id,
-          quality,
-          setStreak,
-          (list) => setNewAchievements((prev) => [...prev, ...list]),
-          refreshSyncCounts,
-          () =>
-            setError(
-              "浏览器无法保存待同步记录，请释放存储空间或允许网站存储后重试",
-            ),
-          () =>
-            saveCheckpoint(userId!, unitKey, {
-              phase: nextPhase,
-              unitKey,
-              queueSignature: queue.map((q) => q.word.id),
-              currentIndex:
-                nextPhase === "done"
-                  ? queue.length
-                  : currentIndex + (nextPhase === "assess" ? 1 : 0),
-              knownWordIds: knownWords.map((w) => w.id),
-              unknownWordIds: unknownWords.map((w) => w.id),
-              quizStats: nextQuizStats,
-              quizTargetId:
-                nextPhase === "quiz" ? pending[0]?.id ?? null : null,
-              quizWrongCount: 0,
-              pendingQuizIds:
-                nextPhase === "quiz"
-                  ? pending.slice(1).map((w) => w.id)
-                  : [],
-            }),
-        );
+        const saveNextCheckpoint = () =>
+          saveCheckpoint(userId!, unitKey, {
+            phase: nextPhase,
+            unitKey,
+            queueSignature: queue.map((q) => q.word.id),
+            currentIndex:
+              nextPhase === "done"
+                ? queue.length
+                : currentIndex + (nextPhase === "assess" ? 1 : 0),
+            knownWordIds: knownWords.map((w) => w.id),
+            unknownWordIds: unknownWords.map((w) => w.id),
+            quizStats: nextQuizStats,
+            quizTargetId:
+              nextPhase === "quiz" ? pending[0]?.id ?? null : null,
+            quizWrongCount: 0,
+            pendingQuizIds:
+              nextPhase === "quiz"
+                ? pending.slice(1).map((w) => w.id)
+                : [],
+          });
+        const nonce = studySession?.nonces[word.id];
+        const credentials =
+          studySession && nonce
+            ? { studySessionId: studySession.id, nonce }
+            : null;
+        const persisted =
+          correct === null
+            ? saveNextCheckpoint() ||
+              (setError(
+                "浏览器无法保存学习进度，请释放存储空间或允许网站存储后重试",
+              ), false)
+            : credentials
+              ? submitQuizReview(
+                  userId!,
+                  word.id,
+                  quality,
+                  credentials,
+                  setStreak,
+                  (list) => setNewAchievements((prev) => [...prev, ...list]),
+                  refreshSyncCounts,
+                  () =>
+                    setError(
+                      "浏览器无法保存待同步记录，请释放存储空间或允许网站存储后重试",
+                    ),
+                  saveNextCheckpoint,
+                )
+              : (setError("学习 session 已失效，请重新载入题目后再试"), false);
         if (!persisted) return;
         if (correct === true) setQuizStats(nextQuizStats);
       }
@@ -871,6 +884,7 @@ export default function StudyPage() {
       currentIndex,
       queue,
       knownWords,
+      studySession,
     ]
   );
 
@@ -1000,6 +1014,7 @@ export default function StudyPage() {
     if (userId) clearCheckpoint(userId, getUnitKey());
     setQueue([]);
     setPool([]);
+    setStudySession(null);
     setLocked(false);
     setCurrentIndex(0);
     setWordStep("assess");
@@ -1156,12 +1171,9 @@ export default function StudyPage() {
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </Link>
-          <div className="flex flex-col items-center">
-            <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-              {tc("📝 测试中")}
-            </span>
-            <StudyBuildBadge />
-          </div>
+          <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+            {tc("📝 测试中")}
+          </span>
           <div className="flex items-center gap-2">
             {streak && <StreakBadge streak={streak} />}
             <LogoutButton />
@@ -1354,12 +1366,9 @@ export default function StudyPage() {
           </svg>
         </Link>
 
-        <div className="text-center">
-          <span className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            {tc("今日学习 · 认识这个单词吗？")}
-          </span>
-          <StudyBuildBadge />
-        </div>
+        <span className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          {tc("今日学习 · 认识这个单词吗？")}
+        </span>
 
         <div className="flex items-center gap-2">
           {streak && <StreakBadge streak={streak} />}

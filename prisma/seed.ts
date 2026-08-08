@@ -101,23 +101,21 @@ async function seedStudents() {
 // 与批量 student01..40 的「首次登入预设密码」分开：测试学生视为已经完成改密，
 // mustChangePassword=false，可直接进入学习页。必须显式 opt-in，生产默认不创建。
 async function seedTestStudent(username: string, password: string) {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production"
+  ) {
+    throw new Error("生产环境禁止建立本地测试学生账号。");
+  }
   const hash = await bcrypt.hash(password, 12);
   const existing = await prisma.user.findUnique({
     where: { email: username },
   });
   if (existing) {
-    await prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        passwordHash: hash,
-        name: "本地测试学生",
-        role: ROLES.STUDENT,
-        tokenVersion: { increment: 1 },
-        mustChangePassword: false,
-      },
-    });
-    console.log(`Test student ready: ${username} (password rotated)`);
-    return;
+    throw new Error(
+      `测试学生账号「${username}」已经存在；seed 不会覆盖现有账号或改变其角色。` +
+        "请使用新的保留测试账号，或先由管理员明确删除该账号。",
+    );
   }
   await prisma.user.create({
     data: {
@@ -157,6 +155,12 @@ async function seedRoles(password: string) {
       });
     }
     if (existing.role === role) return existing;
+    if (existing.role === ROLES.ADMIN && role !== ROLES.ADMIN) {
+      console.warn(
+        `保留现有管理员账号 ${email}，不会因 seed 的教师角色配置将其降级。`,
+      );
+      return existing;
+    }
     return prisma.user.update({
       where: { id: existing.id },
       data: { role, tokenVersion: { increment: 1 } },
@@ -343,7 +347,7 @@ async function main() {
     process.env.SEED_TEST_ACCOUNT === "1"
   ) {
     const testUsername = (
-      process.env.TEST_STUDENT_USERNAME ?? "student-test"
+      process.env.TEST_STUDENT_USERNAME ?? "__test_student__local"
     ).trim();
     const testPassword =
       process.env.TEST_STUDENT_PASSWORD ??
@@ -352,6 +356,11 @@ async function main() {
     if (!/^[A-Za-z0-9._-]{3,64}$/.test(testUsername)) {
       throw new Error(
         "TEST_STUDENT_USERNAME 必须为 3–64 位，只可包含字母、数字、点、下划线或连字符。",
+      );
+    }
+    if (!testUsername.startsWith("__test_student__")) {
+      throw new Error(
+        "TEST_STUDENT_USERNAME 必须使用保留前缀 __test_student__，避免误用现有账号。",
       );
     }
     if (

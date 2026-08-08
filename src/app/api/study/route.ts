@@ -396,6 +396,30 @@ export async function GET(req: Request) {
   // 连续学习天数：随队列一起返回，前端用于展示 🔥 打卡徽章。
   const streak = await computeStreak(userId);
 
+  // 每次取队列都发出一个短期 session；只有 session 内的词和一次性 nonce
+  // 才能提交 quality，避免客户端任意伪造 wordId/quality 批量推进成绩。
+  const expiresAt = new Date(Date.now() + 30 * 60_000);
+  await prisma.studySession.deleteMany({
+    where: { userId, expiresAt: { lt: new Date() } },
+  });
+  const studySession = await prisma.studySession.create({
+    data: {
+      userId,
+      expiresAt,
+      items: {
+        create: [...new Set(queueWordIds)].map((wordId) => ({
+          wordId,
+          nonce: randomUUID(),
+        })),
+      },
+    },
+    select: {
+      id: true,
+      expiresAt: true,
+      items: { select: { wordId: true, nonce: true } },
+    },
+  });
+
   return NextResponse.json({
     queue,
     pool,
@@ -404,6 +428,13 @@ export async function GET(req: Request) {
     category,
     streak,
     resumedSession,
+    studySession: {
+      id: studySession.id,
+      expiresAt: studySession.expiresAt,
+      nonces: Object.fromEntries(
+        studySession.items.map((item) => [item.wordId, item.nonce]),
+      ),
+    },
   });
 }
 
@@ -423,16 +454,27 @@ export async function POST(req: Request) {
   const wordId = typeof input.wordId === "string" ? input.wordId.trim() : "";
   const suppliedOperationId =
     typeof input.operationId === "string" ? input.operationId.trim() : "";
+  const studySessionId =
+    typeof input.studySessionId === "string" ? input.studySessionId.trim() : "";
+  const nonce = typeof input.nonce === "string" ? input.nonce.trim() : "";
   if (!wordId || wordId.length > 128) {
     return NextResponse.json({ error: "wordId 无效" }, { status: 400 });
   }
-  const requireOperationId = process.env.REQUIRE_STUDY_OPERATION_ID === "1";
+  const requireOperationId = process.env.REQUIRE_STUDY_OPERATION_ID !== "0";
   if (
     (suppliedOperationId &&
       !/^[A-Za-z0-9:_-]{8,200}$/.test(suppliedOperationId)) ||
     (!suppliedOperationId && requireOperationId)
   ) {
     return NextResponse.json({ error: "operationId 无效" }, { status: 400 });
+  }
+  if (
+    studySessionId.length < 8 ||
+    studySessionId.length > 128 ||
+    nonce.length < 8 ||
+    nonce.length > 128
+  ) {
+    return NextResponse.json({ error: "学习 session 无效或已过期" }, { status: 400 });
   }
 
   const hasQuality = Object.prototype.hasOwnProperty.call(input, "quality");
@@ -464,10 +506,8 @@ export async function POST(req: Request) {
     quality = gestureToQuality(input.gesture);
   }
 
-  // 新客户端必须提供稳定 UUID，走严格 exactly-once。发布期间仍开着的 v1 tab
-  // 没有 id；compat 模式以最近十分钟同 user/word/quality 作有界去重，先防止旧
-  // outbox 收到 400 后删除答案。它是 rollout 兼容层，不宣称严格 exactly-once；
-  // 兼容期后设置 REQUIRE_STUDY_OPERATION_ID=1 即关闭。
+  // 新客户端必须提供稳定 UUID，走严格 exactly-once。REQUIRE_STUDY_OPERATION_ID=0
+  // 只供短暂 rollout 兼容旧 tab；正常环境默认拒绝没有 operationId 的请求。
   const legacyReplayAfter = suppliedOperationId
     ? undefined
     : new Date(Date.now() - 10 * 60_000);
@@ -487,7 +527,10 @@ export async function POST(req: Request) {
           createdAt: { gte: legacyReplayAfter },
           OR: [
             { operationId: { startsWith: "legacy-v1:" }, quality },
-            { operationId: { startsWith: "cutover:" }, quality: -1 },
+            {
+              operationId: { startsWith: "cutover:" },
+              eventKind: "LEGACY_BRIDGE",
+            },
           ],
         },
         orderBy: { createdAt: "desc" },
@@ -496,13 +539,13 @@ export async function POST(req: Request) {
     const unknownTombstone =
       processed.wordId === null &&
       processed.submittedWordId.startsWith("unknown:");
-    const cutoverSentinel =
+    const legacyBridgeReplay =
       !suppliedOperationId &&
       processed.operationId.startsWith("cutover:") &&
-      processed.quality === -1;
+      processed.eventKind === "LEGACY_BRIDGE";
     if (
       (!unknownTombstone && processed.submittedWordId !== wordId) ||
-      (!cutoverSentinel && processed.quality !== quality)
+      (!legacyBridgeReplay && processed.quality !== quality)
     ) {
       return NextResponse.json(
         { error: "operationId 已用于不同的学习记录" },
@@ -544,6 +587,8 @@ export async function POST(req: Request) {
       wordId,
       quality,
       operationId,
+      studySessionId,
+      nonce,
       legacyReplayAfter,
     });
   } catch (error) {
@@ -588,6 +633,8 @@ export async function applyReviewEvent(input: {
   wordId: string;
   quality: Quality;
   operationId: string;
+  studySessionId?: string;
+  nonce?: string;
   legacyReplayAfter?: Date;
 }) {
   const MAX_TRANSACTION_ATTEMPTS = 5;
@@ -617,7 +664,7 @@ export async function applyReviewEvent(input: {
                   },
                   {
                     operationId: { startsWith: "cutover:" },
-                    quality: -1,
+                    eventKind: "LEGACY_BRIDGE",
                   },
                 ],
               },
@@ -628,14 +675,14 @@ export async function applyReviewEvent(input: {
             const unknownTombstone =
               processed.wordId === null &&
               processed.submittedWordId.startsWith("unknown:");
-            const cutoverSentinel =
+            const legacyBridgeReplay =
               Boolean(input.legacyReplayAfter) &&
               processed.operationId.startsWith("cutover:") &&
-              processed.quality === -1;
+              processed.eventKind === "LEGACY_BRIDGE";
             if (
               (!unknownTombstone &&
                 processed.submittedWordId !== input.wordId) ||
-              (!cutoverSentinel && processed.quality !== input.quality)
+                (!legacyBridgeReplay && processed.quality !== input.quality)
             ) {
               throw new StudyRequestError(
                 409,
@@ -666,6 +713,42 @@ export async function applyReviewEvent(input: {
             select: { term: true, level: true, category: true },
           });
           if (!word) throw new StudyRequestError(404, "单词不存在");
+
+          // The HTTP route always supplies both values. The optional shape keeps
+          // the migration/idempotency checker able to exercise the ledger in
+          // isolation without manufacturing browser sessions.
+          if (input.studySessionId || input.nonce) {
+            if (!input.studySessionId || !input.nonce) {
+              throw new StudyRequestError(403, "学习 session 无效或已过期");
+            }
+            const sessionItem = await tx.studySessionItem.findUnique({
+              where: {
+                sessionId_wordId: {
+                  sessionId: input.studySessionId,
+                  wordId: input.wordId,
+                },
+              },
+              include: { session: { select: { userId: true, expiresAt: true } } },
+            });
+            if (
+              !sessionItem ||
+              sessionItem.session.userId !== input.userId ||
+              sessionItem.nonce !== input.nonce ||
+              sessionItem.session.expiresAt <= new Date()
+            ) {
+              throw new StudyRequestError(403, "学习 session 无效或已过期");
+            }
+            if (sessionItem.usedAt) {
+              throw new StudyRequestError(409, "该学习题目已经提交");
+            }
+            const consumed = await tx.studySessionItem.updateMany({
+              where: { id: sessionItem.id, usedAt: null },
+              data: { usedAt: new Date() },
+            });
+            if (consumed.count !== 1) {
+              throw new StudyRequestError(409, "该学习题目已经提交");
+            }
+          }
 
           const existing = await tx.review.findUnique({
             where: {
@@ -720,6 +803,7 @@ export async function applyReviewEvent(input: {
               wordTerm: word.term,
               wordLevel: word.level,
               operationId: input.operationId,
+              eventKind: "REVIEW",
               quality: input.quality,
               newlyUnlockedKeys: newlyUnlocked.map((a) => a.key),
             },

@@ -54,12 +54,12 @@ You can start editing the page in `src/app/`. The page auto-updates as you edit 
 
 ```env
 SEED_TEST_STUDENT=1
-TEST_STUDENT_USERNAME="student-test"
+TEST_STUDENT_USERNAME="__test_student__local"
 TEST_STUDENT_PASSWORD="只用于本地测试的独立密码"
 ```
 
-运行 `npm run seed` 后，该学生会以 `mustChangePassword=false` 建立或更新，可直接
-登入学习页。此功能须在生产保持关闭。
+运行 `npm run seed` 后，该学生会以 `mustChangePassword=false` 建立，可直接登入学习页；
+若账号已经存在，seed 会停止而不会覆盖现有账号。此功能须在生产保持关闭。
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

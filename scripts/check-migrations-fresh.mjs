@@ -44,6 +44,7 @@ async function verifyLedger(client, schema) {
     "wordTerm",
     "wordLevel",
     "isHistorical",
+    "eventKind",
   ]) {
     if (!names.has(required)) throw new Error(`ReviewEvent.${required} is missing`);
   }
@@ -146,10 +147,22 @@ try {
       "utf8",
     ),
   );
+  await check.query(
+    readFileSync(
+      "prisma/migrations/20260808030000_add_review_event_kind/migration.sql",
+      "utf8",
+    ),
+  );
+  await check.query(
+    readFileSync(
+      "prisma/migrations/20260808050000_normalize_legacy_event_quality/migration.sql",
+      "utf8",
+    ),
+  );
   await verifyLedger(check, interruptedSchema);
   await check.query(`DELETE FROM "Word" WHERE "id" = 'fixture-word'`);
   const retained = await check.query(
-    `SELECT "submittedWordId", "wordId", "wordTerm", "isHistorical"
+    `SELECT "submittedWordId", "wordId", "wordTerm", "isHistorical", "eventKind"
        FROM "ReviewEvent" WHERE "operationId" = 'legacy:fixture-review:1'`,
   );
   if (
@@ -157,7 +170,8 @@ try {
     retained.rows[0].submittedWordId !== "fixture-word" ||
     retained.rows[0].wordId !== null ||
     retained.rows[0].wordTerm !== "fixture" ||
-    retained.rows[0].isHistorical !== true
+    retained.rows[0].isHistorical !== true ||
+    retained.rows[0].eventKind !== "HISTORICAL_BACKFILL"
   ) {
     throw new Error("interrupted ledger upgrade did not preserve its snapshot");
   }

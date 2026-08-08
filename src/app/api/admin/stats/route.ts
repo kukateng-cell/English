@@ -19,6 +19,7 @@ export async function GET() {
         prisma.reviewEvent.count({
           where: {
             isHistorical: false,
+            eventKind: "REVIEW",
             createdAt: {
               gte: todayStartUtc(),
             },

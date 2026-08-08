@@ -11,17 +11,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  migrate-and-deploy:
-    name: Migrate database, then trigger Vercel
+  database-verification:
+    name: Verify migrations and review ledger
     runs-on: ubuntu-latest
-    environment: production
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
-      MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
-      NEXTAUTH_SECRET: production-gate-build-placeholder
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+      MIGRATE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+      NEXTAUTH_SECRET: ci-placeholder-secret
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,8 +42,35 @@ jobs:
           node-version: "20"
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Verify migration checksums
+        run: npm run test:migration-checksums
+
+      - name: Replay migrations on a fresh schema
+        run: npm run test:migrations
+
+      - name: Deploy migrations to the CI database
+        run: npm run db:deploy
+
+      - name: Run review ledger and concurrency checks
+        run: npm run test:db
+
+  migrate-and-deploy:
+    name: Migrate database, then trigger Vercel
+    needs: database-verification
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+      NEXTAUTH_SECRET: production-gate-build-placeholder
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Require the exact current main commit
         run: |
@@ -41,7 +78,21 @@ jobs:
           git fetch --no-tags origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "::error::Checkout is not the current main commit"; exit 1; }
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
       - name: Verify required production secrets
+        env:
+          MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           test -n "$MIGRATE_URL" || { echo "::error::Missing production MIGRATE_URL"; exit 1; }
           test -n "$VERCEL_TOKEN" || { echo "::error::Missing VERCEL_TOKEN"; exit 1; }
@@ -50,13 +101,22 @@ jobs:
 
       - name: Verify application
         run: |
+          npx prisma generate
           npm test
           npm run lint
           npx tsc --noEmit
           npm run build
 
       - name: Apply production migrations
+        env:
+          MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
         run: npm run db:deploy
 
       - name: Deploy this exact checkout to Vercel production
-        run: npx --yes vercel@latest --prod --yes --token="$VERCEL_TOKEN" --meta githubCommitSha="$GITHUB_SHA"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel link --yes --project="$VERCEL_PROJECT_ID" --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN"
+          npx vercel deploy --prod --yes --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --meta githubCommitSha="$GITHUB_SHA"

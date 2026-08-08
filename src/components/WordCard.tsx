@@ -18,7 +18,10 @@ import { useLocale } from "@/components/LocaleProvider";
 import {
   decideSwipe,
   estimateSwipeVelocity,
+  hasClearedViewport,
   launchVelocity,
+  offscreenTarget,
+  OFFSCREEN_MARGIN,
   type SwipeDirection,
   type SwipePointerType,
   type SwipePointerSample,
@@ -34,22 +37,42 @@ interface WordCardProps {
 
 const SWIPE_LABEL_THRESHOLD = 76;
 const BUTTON_LAUNCH_VELOCITY = 720;
-const RELEASE_EASING = "cubic-bezier(0.22, 0.15, 0.25, 1)";
-const RELEASE_DURATION_MS = 320;
-const RETURN_EASING = "cubic-bezier(0.22, 0.72, 0.25, 1)";
-const RETURN_MOTION_EASING = [0.22, 0.72, 0.25, 1] as const;
 
 interface ActivePointerDrag {
   pointerId: number;
   pointerType: SwipePointerType;
   startPointerX: number;
   startCardX: number;
+  cardWidth: number;
+  geometry: CardGeometry;
   samples: SwipePointerSample[];
 }
 
-interface PreparedReleaseAnimations {
-  left: Animation;
-  right: Animation;
+interface CardGeometry {
+  width: number;
+  baseLeft: number;
+  baseRight: number;
+  viewportWidth: number;
+}
+
+function measureCardGeometry(
+  card: HTMLElement,
+  currentX: number,
+  viewportWidth: number,
+): CardGeometry {
+  const rect = card.getBoundingClientRect();
+  // getBoundingClientRect() is an axis-aligned box and includes the card's
+  // derived rotation. Its center does not move when rotating around the
+  // default center origin, so reconstruct the unrotated horizontal edges from
+  // the layout width before calculating the offscreen target.
+  const width = card.offsetWidth || rect.width;
+  const centerX = (rect.left + rect.right) / 2;
+  return {
+    width,
+    baseLeft: centerX - width / 2 - currentX,
+    baseRight: centerX + width / 2 - currentX,
+    viewportWidth,
+  };
 }
 
 export default function WordCard({
@@ -63,8 +86,7 @@ export default function WordCard({
   const x = useMotionValue(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const activeMotionAnimationRef = useRef<AnimationPlaybackControls | null>(null);
-  const activeVisualAnimationRef = useRef<Animation | null>(null);
-  const preparedReleaseRef = useRef<PreparedReleaseAnimations | null>(null);
+  const geometryRef = useRef<CardGeometry | null>(null);
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
   const mountedRef = useRef(true);
   const dismissingRef = useRef(false);
@@ -82,121 +104,74 @@ export default function WordCard({
 
   useEffect(() => {
     mountedRef.current = true;
+    const card = cardRef.current;
+
+    const updateGeometry = () => {
+      if (!card) return;
+      const currentX = x.get();
+      const geometry = measureCardGeometry(
+        card,
+        currentX,
+        window.innerWidth,
+      );
+      geometryRef.current = geometry;
+      if (activeDragRef.current) {
+        activeDragRef.current.geometry = geometry;
+        activeDragRef.current.cardWidth = geometry.width;
+      }
+    };
+
+    updateGeometry();
+    const resizeObserver =
+      card && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(updateGeometry)
+        : null;
+    if (resizeObserver && card) resizeObserver.observe(card);
+    const handleViewportResize = updateGeometry;
+    window.addEventListener("resize", handleViewportResize);
+
     return () => {
       mountedRef.current = false;
       activeMotionAnimationRef.current?.stop();
-      activeVisualAnimationRef.current?.cancel();
-      preparedReleaseRef.current?.left.cancel();
-      preparedReleaseRef.current?.right.cancel();
+      activeDragRef.current = null;
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", handleViewportResize);
     };
-  }, []);
+  }, [x]);
 
-  const visualX = (card: HTMLElement) => {
-    const transform = getComputedStyle(card).transform;
-    if (transform === "none") return 0;
-    try {
-      return new DOMMatrixReadOnly(transform).m41;
-    } catch {
-      return x.get();
-    }
+  const cacheGeometry = (card: HTMLElement): CardGeometry => {
+    const geometry = measureCardGeometry(card, x.get(), window.innerWidth);
+    geometryRef.current = geometry;
+    return geometry;
   };
 
-  const cancelPreparedRelease = () => {
-    preparedReleaseRef.current?.left.cancel();
-    preparedReleaseRef.current?.right.cancel();
-    preparedReleaseRef.current = null;
-  };
-
-  const createPreparedRelease = (
-    card: HTMLElement,
-    direction: SwipeDirection,
-  ) => {
-    const rect = card.getBoundingClientRect();
-    const travel =
-      direction > 0
-        ? window.innerWidth + 40 - rect.left
-        : rect.right + 40;
-    const animation = card.animate(
-      [
-        { transform: "translate3d(0px, 0, 0) rotate(0deg)" },
-        {
-          transform: `translate3d(${direction * travel}px, 0, 0) rotate(${direction * 12}deg)`,
-        },
-      ],
-      {
-        duration: RELEASE_DURATION_MS,
-        easing: RELEASE_EASING,
-        fill: "forwards",
-        composite: "add",
-      },
-    );
-    animation.pause();
-    animation.currentTime = 0;
-    return animation;
-  };
-
-  const prepareReleaseAnimations = (card: HTMLElement) => {
-    cancelPreparedRelease();
-    preparedReleaseRef.current = {
-      left: createPreparedRelease(card, -1),
-      right: createPreparedRelease(card, 1),
-    };
-  };
-
-  const stopReturnAnimation = () => {
-    if (dismissingRef.current) return;
-    const card = cardRef.current;
-    const animation = activeVisualAnimationRef.current;
-    const currentVisualX = card && animation ? visualX(card) : x.get();
+  const stopActiveAnimation = () => {
     activeMotionAnimationRef.current?.stop();
     activeMotionAnimationRef.current = null;
-    animation?.cancel();
-    activeVisualAnimationRef.current = null;
-    cancelPreparedRelease();
-    x.set(currentVisualX);
   };
 
   const returnToCentre = () => {
-    const card = cardRef.current;
-    if (!card) return;
-    stopReturnAnimation();
+    if (!cardRef.current || dismissingRef.current) return;
+    stopActiveAnimation();
 
-    const distance = Math.abs(x.get());
-    const durationMs = Math.max(180, Math.min(280, 170 + distance * 0.75));
-    const visualAnimation = card.animate(
-      [
-        { transform: getComputedStyle(card).transform },
-        { transform: "translate3d(0px, 0, 0) rotate(0deg)" },
-      ],
-      {
-        duration: durationMs,
-        easing: RETURN_EASING,
-        fill: "forwards",
-      },
-    );
     const motionAnimation = animate(x, 0, {
-      duration: durationMs / 1_000,
-      ease: RETURN_MOTION_EASING,
+      type: "spring",
+      velocity: 0,
+      stiffness: 500,
+      damping: 42,
+      mass: 0.75,
+      restSpeed: 18,
+      restDelta: 0.5,
     });
-    activeVisualAnimationRef.current = visualAnimation;
     activeMotionAnimationRef.current = motionAnimation;
 
-    void visualAnimation.finished.then(
+    void motionAnimation.finished.then(
       () => {
-        if (activeVisualAnimationRef.current === visualAnimation) {
-          x.set(0);
-          motionAnimation.stop();
-          visualAnimation.cancel();
-          activeVisualAnimationRef.current = null;
-          if (activeMotionAnimationRef.current === motionAnimation) {
-            activeMotionAnimationRef.current = null;
-          }
+        if (activeMotionAnimationRef.current === motionAnimation) {
+          activeMotionAnimationRef.current = null;
         }
       },
       () => {
-        if (activeVisualAnimationRef.current === visualAnimation) {
-          activeVisualAnimationRef.current = null;
-        }
         if (activeMotionAnimationRef.current === motionAnimation) {
           activeMotionAnimationRef.current = null;
         }
@@ -204,60 +179,73 @@ export default function WordCard({
     );
   };
 
-  const flyOff = async (
+  const flyOff = (
     direction: SwipeDirection,
     velocityX: number,
     callback: () => void,
+    geometryOverride?: CardGeometry,
   ) => {
     if (disabled || dismissingRef.current) return;
     const card = cardRef.current;
     if (!card) return;
-    const prepared = preparedReleaseRef.current;
-    preparedReleaseRef.current = null;
+    // Pointer swipes pass their pointerdown snapshot so pointerup does not
+    // force a synchronous layout read. Button swipes use the observer-updated
+    // snapshot; the fallback only covers an interaction before mount effects
+    // have measured the card.
+    const geometry = geometryOverride ?? geometryRef.current ?? cacheGeometry(card);
 
     dismissingRef.current = true;
-    activeMotionAnimationRef.current?.stop();
-    activeMotionAnimationRef.current = null;
-    activeVisualAnimationRef.current?.cancel();
-    activeVisualAnimationRef.current = null;
-    // Pointer-down already created and paused both compositor tracks. Release
-    // only plays the selected track, avoiding the first-frame commit delay that
-    // occurs when a Web Animation is constructed inside pointer-up.
+    stopActiveAnimation();
     card.style.pointerEvents = "none";
-    let visualAnimation: Animation | null = null;
+    const currentX = x.get();
+    const targetX = offscreenTarget(
+      direction,
+      currentX,
+      geometry.baseLeft + currentX,
+      geometry.baseRight + currentX,
+      geometry.viewportWidth,
+      OFFSCREEN_MARGIN,
+    );
+    const motionAnimation = animate(x, targetX, {
+      type: "spring",
+      velocity: launchVelocity(velocityX, direction),
+      stiffness: 260,
+      damping: 30,
+      mass: 0.75,
+      restSpeed: 80,
+      restDelta: 6,
+    });
+    activeMotionAnimationRef.current = motionAnimation;
     let committed = false;
+    let unsubscribe = () => {};
 
-    try {
-      if (!mountedRef.current || !card.isConnected) return;
-      const speed = Math.abs(launchVelocity(velocityX, direction));
-      visualAnimation =
-        direction < 0
-          ? (prepared?.left ?? createPreparedRelease(card, -1))
-          : (prepared?.right ?? createPreparedRelease(card, 1));
-      const unusedAnimation = direction < 0 ? prepared?.right : prepared?.left;
-      unusedAnimation?.cancel();
-      visualAnimation.updatePlaybackRate(
-        Math.max(0.9, Math.min(1.45, 0.9 + speed / 4_800)),
-      );
-      activeVisualAnimationRef.current = visualAnimation;
-      visualAnimation.play();
-      await visualAnimation.finished;
-      if (mountedRef.current) {
-        committed = true;
-        callback();
-      }
-    } catch {
-      // Stopping an animation during unmount is expected; never commit the swipe.
-    } finally {
-      if (visualAnimation && activeVisualAnimationRef.current === visualAnimation) {
-        if (!committed) visualAnimation.cancel();
-        activeVisualAnimationRef.current = null;
-      }
+    const resetAfterFailure = () => {
+      unsubscribe();
+      if (activeMotionAnimationRef.current !== motionAnimation) return;
+      activeMotionAnimationRef.current = null;
       if (!committed && card.isConnected) {
         card.style.pointerEvents = "";
         dismissingRef.current = false;
       }
-    }
+    };
+
+    const commit = () => {
+      if (committed) return;
+      committed = true;
+      unsubscribe();
+      motionAnimation.stop();
+      if (activeMotionAnimationRef.current === motionAnimation) {
+        activeMotionAnimationRef.current = null;
+      }
+      if (mountedRef.current) callback();
+    };
+
+    unsubscribe = x.on("change", (latest) => {
+      if (hasClearedViewport(direction, latest, targetX)) commit();
+    });
+
+    if (hasClearedViewport(direction, x.get(), targetX)) commit();
+    void motionAnimation.finished.then(commit, resetAfterFailure);
   };
 
   const pointerTypeOf = (pointerType: string): SwipePointerType => {
@@ -276,19 +264,26 @@ export default function WordCard({
     drag.samples = drag.samples.filter((sample) => time - sample.time <= 140);
   };
 
+  const pointerSampleTime = (event: Pick<PointerEvent, "timeStamp">) =>
+    Number.isFinite(event.timeStamp) && event.timeStamp > 0
+      ? event.timeStamp
+      : performance.now();
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || dismissingRef.current || activeDragRef.current) return;
     if (event.button !== 0 || event.isPrimary === false) return;
-    if ((event.target as HTMLElement).closest("button")) return;
+    if (event.target instanceof Element && event.target.closest("button")) return;
 
-    stopReturnAnimation();
-    prepareReleaseAnimations(event.currentTarget);
-    const now = performance.now();
+    stopActiveAnimation();
+    const geometry = cacheGeometry(event.currentTarget);
+    const now = pointerSampleTime(event.nativeEvent);
     activeDragRef.current = {
       pointerId: event.pointerId,
       pointerType: pointerTypeOf(event.pointerType),
       startPointerX: event.clientX,
       startCardX: x.get(),
+      cardWidth: geometry.width,
+      geometry,
       samples: [{ position: event.clientX, time: now }],
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -302,11 +297,10 @@ export default function WordCard({
 
     const coalesced = event.nativeEvent.getCoalescedEvents?.() ?? [event.nativeEvent];
     const latest = coalesced[coalesced.length - 1] ?? event.nativeEvent;
-    const now = performance.now();
-    x.set(drag.startCardX + latest.clientX - drag.startPointerX);
     for (const sample of coalesced) {
-      recordPointerSample(drag, sample.clientX, now);
+      recordPointerSample(drag, sample.clientX, pointerSampleTime(sample));
     }
+    x.set(drag.startCardX + latest.clientX - drag.startPointerX);
     event.preventDefault();
   };
 
@@ -317,11 +311,16 @@ export default function WordCard({
     const drag = activeDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
 
-    const now = performance.now();
-    recordPointerSample(drag, event.clientX, now);
+    const releaseTime = pointerSampleTime(event.nativeEvent);
+    if (!cancelled) {
+      const releaseX =
+        drag.startCardX + event.clientX - drag.startPointerX;
+      x.set(releaseX);
+      recordPointerSample(drag, event.clientX, releaseTime);
+    }
     const velocityX = cancelled
       ? 0
-      : estimateSwipeVelocity(drag.samples, now);
+      : estimateSwipeVelocity(drag.samples, releaseTime);
     activeDragRef.current = null;
     event.currentTarget.style.cursor = "";
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -333,11 +332,10 @@ export default function WordCard({
       return;
     }
 
-    const cardWidth = cardRef.current?.offsetWidth ?? 400;
     const decision = decideSwipe(
       x.get(),
       velocityX,
-      cardWidth,
+      drag.cardWidth,
       drag.pointerType,
     );
     if (!decision.dismiss) {
@@ -348,7 +346,7 @@ export default function WordCard({
       return;
     }
     const callback = decision.direction < 0 ? onSwipeLeft : onSwipeRight;
-    void flyOff(decision.direction, velocityX, callback);
+    void flyOff(decision.direction, velocityX, callback, drag.geometry);
   };
 
   const handleButtonSwipe = (direction: SwipeDirection, callback: () => void) => {
@@ -385,6 +383,7 @@ export default function WordCard({
         onPointerMove={handlePointerMove}
         onPointerUp={(event) => finishPointerDrag(event, false)}
         onPointerCancel={(event) => finishPointerDrag(event, true)}
+        onLostPointerCapture={(event) => finishPointerDrag(event, true)}
         style={{ x, rotate, touchAction: "pan-y" }}
         className="relative z-10 mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] [will-change:transform] active:cursor-grabbing dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
       >

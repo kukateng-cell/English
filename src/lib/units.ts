@@ -105,7 +105,7 @@ export type LevelCode = (typeof LEVELS)[number];
 export function isLevel(value: unknown): value is LevelCode {
   return (
     typeof value === "string" &&
-    (LEVELS as readonly string[]).includes(value.toUpperCase())
+    (LEVELS as readonly string[]).includes(value)
   );
 }
 

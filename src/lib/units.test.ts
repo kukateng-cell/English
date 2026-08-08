@@ -29,7 +29,7 @@ test("unlock chain cannot skip an incomplete earlier unit or level", () => {
 
 test("strict level predicate rejects mutation typos", () => {
   assert.equal(isLevel("B2"), true);
-  assert.equal(isLevel("b2"), true);
+  assert.equal(isLevel("b2"), false);
   assert.equal(isLevel("B3"), false);
   assert.equal(isLevel(null), false);
 });

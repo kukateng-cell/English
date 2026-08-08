@@ -11,7 +11,8 @@
  */
 import { prisma, type Prisma } from "@/lib/prisma";
 
-type StreakDb = Pick<Prisma.TransactionClient, "studyDay">;
+type StreakDb = Pick<Prisma.TransactionClient, "studyDay"> &
+  Partial<Pick<Prisma.TransactionClient, "$queryRaw">>;
 
 /** 统一用东八区（Asia/Shanghai）计算「本地日期」，与目标用户（中文学生）一致。 */
 const TIME_ZONE = "Asia/Shanghai";
@@ -69,33 +70,51 @@ export async function computeStreak(
   userId: string,
   db: StreakDb = prisma,
 ): Promise<StreakInfo> {
-  const days = await db.studyDay.findMany({
+  const latest = await db.studyDay.findFirst({
     where: { userId },
     select: { date: true },
+    orderBy: { date: "desc" },
   });
-  const dates = new Set(days.map((d) => d.date));
-  const lastDate = days.reduce<string | null>(
-    (latest, day) => (!latest || day.date > latest ? day.date : latest),
-    null,
-  );
+  const lastDate = latest?.date ?? null;
   const today = todayKey();
   const yesterday = offsetDay(today, -1);
 
-  let cursor: string;
-  if (dates.has(today)) {
-    cursor = today;
-  } else if (dates.has(yesterday)) {
-    cursor = yesterday;
-  } else {
+  const cursor = lastDate === today ? today : lastDate === yesterday ? yesterday : null;
+  if (!cursor) {
     return { count: 0, studiedToday: false, lastDate };
   }
 
-  let count = 0;
-  while (dates.has(cursor)) {
-    count++;
-    cursor = offsetDay(cursor, -1);
-  }
-  return { count, studiedToday: dates.has(today), lastDate };
+  // StudyDay.date is an indexed YYYY-MM-DD string. The recursive query only
+  // follows the contiguous prefix ending today/yesterday, instead of loading
+  // the user's entire history into Node on every review/achievement update.
+  const rows = db.$queryRaw
+    ? await db.$queryRaw<Array<{ date: string }>>`
+        WITH RECURSIVE streak(date) AS (
+          SELECT "date"
+          FROM "StudyDay"
+          WHERE "userId" = ${userId} AND "date" = ${cursor}
+          UNION ALL
+          SELECT day."date"
+          FROM "StudyDay" AS day
+          JOIN streak AS previous
+            ON day."userId" = ${userId}
+           AND day."date" = to_char(
+             to_date(previous.date, 'YYYY-MM-DD') - INTERVAL '1 day',
+             'YYYY-MM-DD'
+           )
+        )
+        SELECT date FROM streak
+      `
+    : await db.studyDay.findMany({
+        where: { userId },
+        select: { date: true },
+      });
+
+  return {
+    count: rows.length,
+    studiedToday: lastDate === today,
+    lastDate,
+  };
 }
 
 /** 取某用户最近 n 天的打卡日期（按日期升序），供打卡日历展示。 */

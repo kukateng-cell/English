@@ -9,6 +9,7 @@ async function main() {
   const suffix = randomUUID();
   let userId: string | null = null;
   let wordId: string | null = null;
+  let sessionWordId: string | null = null;
 
   try {
     const [historicalReviews, historicalEvents, unmarkedLegacyEvents] =
@@ -79,6 +80,64 @@ async function main() {
         wordId: word.id,
         quality: 3,
         operationId: firstOperation,
+      }),
+    );
+
+    const sessionWord = await prisma.word.create({
+      data: {
+        term: `codex-session-${suffix}`,
+        definition: "session nonce test",
+        level: "A1",
+        category: `codex-session-${suffix}`,
+        synonyms: [],
+        antonyms: [],
+      },
+    });
+    sessionWordId = sessionWord.id;
+    await prisma.review.create({
+      data: { userId, wordId: sessionWordId, nextReviewDate: new Date() },
+    });
+    const submissionNonce = randomUUID();
+    const sessionOperationId = `session_${randomUUID()}`;
+    const studySession = await prisma.studySession.create({
+      data: {
+        userId,
+        expiresAt: new Date(Date.now() + 60_000),
+        items: {
+          create: { wordId: sessionWordId, nonce: submissionNonce },
+        },
+      },
+    });
+    const secured = await applyReviewEvent({
+      userId,
+      wordId: sessionWord.id,
+      quality: 5,
+      operationId: sessionOperationId,
+      studySessionId: studySession.id,
+      nonce: submissionNonce,
+    });
+    if (secured.duplicate) {
+      throw new Error("fresh study session submission was treated as duplicate");
+    }
+    const securedRetry = await applyReviewEvent({
+      userId,
+      wordId: sessionWord.id,
+      quality: 5,
+      operationId: sessionOperationId,
+      studySessionId: studySession.id,
+      nonce: submissionNonce,
+    });
+    if (!securedRetry.duplicate) {
+      throw new Error("study session nonce did not remain idempotent");
+    }
+    await assertRejectsConflict(() =>
+      applyReviewEvent({
+        userId: user.id,
+        wordId: sessionWordId!,
+        quality: 5,
+        operationId: `session-reuse_${randomUUID()}`,
+        studySessionId: studySession.id,
+        nonce: submissionNonce,
       }),
     );
 
@@ -207,6 +266,7 @@ async function main() {
   } finally {
     if (userId) await prisma.user.deleteMany({ where: { id: userId } });
     if (wordId) await prisma.word.deleteMany({ where: { id: wordId } });
+    if (sessionWordId) await prisma.word.deleteMany({ where: { id: sessionWordId } });
     await prisma.$disconnect();
   }
 }

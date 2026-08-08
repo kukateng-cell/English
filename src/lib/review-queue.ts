@@ -20,6 +20,16 @@ export interface PendingReview {
   /** 永久 4xx 会转入 blocked，停止自动重送但保留给用户查看／清除。 */
   status: "pending" | "blocked";
   lastError?: string;
+  /** 暂时性错误的下一次允许提交时间，避免 429/5xx 时连续轰炸服务端。 */
+  nextAttemptAt?: number;
+  /** 由 GET /api/study 发出的 server-side submission credentials。 */
+  studySessionId?: string;
+  nonce?: string;
+}
+
+export interface ReviewSubmissionCredentials {
+  studySessionId: string;
+  nonce: string;
 }
 
 /** 单条评测成功提交后，服务端返回的数据（仅保留页面需要的字段，松散类型）。 */
@@ -31,7 +41,9 @@ export interface StudyPostResult {
 const QUEUE_PREFIX = "study:review-queue:";
 const ITEM_PREFIX = "study:review-item:";
 const LEGACY_QUEUE_KEY = "study:review-queue";
-const VERSION = 3;
+const VERSION = 4;
+const MAX_FLUSH_BATCH = 20;
+const MAX_RETRY_DELAY_MS = 15 * 60_000;
 
 interface StoredQueue {
   version: number;
@@ -48,7 +60,10 @@ function isPendingReview(x: unknown): x is PendingReview {
     typeof r.quality === "number" &&
     typeof r.ts === "number" &&
     (r.attempts === undefined || typeof r.attempts === "number") &&
-    (r.status === undefined || r.status === "pending" || r.status === "blocked")
+    (r.status === undefined || r.status === "pending" || r.status === "blocked") &&
+    (r.nextAttemptAt === undefined || typeof r.nextAttemptAt === "number") &&
+    (r.studySessionId === undefined || typeof r.studySessionId === "string") &&
+    (r.nonce === undefined || typeof r.nonce === "string")
   );
 }
 
@@ -79,6 +94,11 @@ function normalizePendingReview(
     attempts: typeof row.attempts === "number" ? row.attempts : 0,
     status: row.status === "blocked" ? "blocked" : "pending",
     lastError: typeof row.lastError === "string" ? row.lastError : undefined,
+    nextAttemptAt:
+      typeof row.nextAttemptAt === "number" ? row.nextAttemptAt : undefined,
+    studySessionId:
+      typeof row.studySessionId === "string" ? row.studySessionId : undefined,
+    nonce: typeof row.nonce === "string" ? row.nonce : undefined,
   };
 }
 
@@ -108,10 +128,14 @@ export function loadPendingReviews(userId: string): PendingReview[] {
     const raw = window.localStorage.getItem(queueKey(userId));
     if (raw) {
       try {
-        // v2/v3 stored one mutable array. Migrate each operation to its own key so
+        // v2/v3/v4 stored one mutable array. Migrate each operation to its own key so
         // different tabs can enqueue without a read-modify-write lost update.
         const parsed = JSON.parse(raw) as Partial<StoredQueue>;
-        if (parsed.version === VERSION || parsed.version === 2) {
+        if (
+          parsed.version === VERSION ||
+          parsed.version === 3 ||
+          parsed.version === 2
+        ) {
           const scoped = Array.isArray(parsed.items)
             ? parsed.items
                 .filter(isPendingReview)
@@ -275,6 +299,7 @@ export function enqueuePendingReview(
   operationId: string,
   wordId: string,
   quality: number,
+  credentials?: ReviewSubmissionCredentials,
 ): number {
   const item: PendingReview = {
     ownerId: userId,
@@ -284,9 +309,47 @@ export function enqueuePendingReview(
     ts: Date.now(),
     attempts: 0,
     status: "pending",
+    nextAttemptAt: undefined,
+    studySessionId: credentials?.studySessionId,
+    nonce: credentials?.nonce,
   };
   if (!writeReviewItem(userId, item)) {
     throw new Error("REVIEW_QUEUE_STORAGE_UNAVAILABLE");
+  }
+  return pendingReviewCount(userId);
+}
+
+/**
+ * Rebind legacy outbox rows to the current server-issued session when their
+ * word is present in the freshly loaded queue. Rows not in that queue remain
+ * pending and visible; they are never sent without a valid nonce and never
+ * silently discarded.
+ */
+export function attachStudySessionCredentials(
+  userId: string,
+  studySessionId: string,
+  nonces: Record<string, string>,
+): number {
+  const assignedWords = new Set<string>();
+  for (const item of loadPendingReviews(userId)) {
+    if (item.status !== "pending") continue;
+    const nonce = nonces[item.wordId];
+    if (!nonce) continue;
+    // A session issues one nonce per word. Rebind only one legacy operation
+    // per word; later repeated operations wait for a fresh session instead of
+    // racing on, or reusing, the same one-time nonce.
+    if (assignedWords.has(item.wordId)) continue;
+    assignedWords.add(item.wordId);
+    if (item.studySessionId === studySessionId && item.nonce === nonce) {
+      continue;
+    }
+    writeReviewItem(userId, {
+      ...item,
+      studySessionId,
+      nonce,
+      nextAttemptAt: undefined,
+      lastError: undefined,
+    });
   }
   return pendingReviewCount(userId);
 }
@@ -297,7 +360,8 @@ export function enqueuePendingReview(
  * 逐条提交（复用幂等的 POST /api/study）：
  * - 成功（HTTP 2xx）：从队列移除，并通过 onDone 回传最新 streak / 成就。
  * - 网络错误（fetch throw）：判定为断网，立即停止本轮，剩余条目原样保留。
- * - 非 2xx：标记失败并保留；401/422 暂停本轮，其他错误继续下一条。
+ * - 429/408/5xx：标记失败、设置退避时间并立即停止本轮，避免继续轰炸服务端。
+ * - 其他非 2xx：永久 4xx 转 blocked；可恢复错误保留并按指数退避重试。
  *
  * @returns flush 后仍留在队列里的条数。
  */
@@ -305,15 +369,45 @@ async function flushPendingReviewsUnlocked(
   userId: string,
   onDone?: (wordId: string, data: StudyPostResult) => void,
 ): Promise<number> {
-  const queue = loadPendingReviews(userId).filter((r) => r.status === "pending");
-  if (queue.length === 0) return 0;
+  const now = Date.now();
+  const queue = loadPendingReviews(userId)
+    .filter(
+      (r) =>
+        r.status === "pending" &&
+        Boolean(r.studySessionId && r.nonce) &&
+        (!r.nextAttemptAt || r.nextAttemptAt <= now),
+    )
+    .slice(0, MAX_FLUSH_BATCH);
+  if (queue.length === 0) return pendingReviewCount(userId);
 
   const succeededOperations = new Set<string>();
   const failedOperations = new Map<
     string,
-    { permanent: boolean; message?: string }
+    { permanent: boolean; message?: string; nextAttemptAt?: number }
   >();
   let networkDown = false;
+
+  const retryAfterMs = (response: Response): number | undefined => {
+    const raw = response.headers.get("Retry-After");
+    if (!raw) return undefined;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds)) {
+      return Math.max(0, Math.min(MAX_RETRY_DELAY_MS, seconds * 1_000));
+    }
+    const timestamp = Date.parse(raw);
+    if (!Number.isFinite(timestamp)) return undefined;
+    return Math.max(0, Math.min(MAX_RETRY_DELAY_MS, timestamp - Date.now()));
+  };
+
+  const backoffMs = (item: PendingReview, retryAfter?: number) => {
+    if (retryAfter !== undefined) return retryAfter;
+    const base = Math.min(
+      MAX_RETRY_DELAY_MS,
+      1_000 * 2 ** Math.min(item.attempts, 8),
+    );
+    const jitter = 0.75 + Math.random() * 0.5;
+    return Math.min(MAX_RETRY_DELAY_MS, Math.round(base * jitter));
+  };
 
   for (const item of queue) {
     if (networkDown) break;
@@ -328,6 +422,8 @@ async function flushPendingReviewsUnlocked(
           operationId: item.operationId,
           wordId: item.wordId,
           quality: item.quality,
+          studySessionId: item.studySessionId,
+          nonce: item.nonce,
         }),
       });
       if (res.ok) {
@@ -345,13 +441,28 @@ async function flushPendingReviewsUnlocked(
           res.status >= 400 &&
           res.status < 500 &&
           ![401, 408, 422, 429].includes(res.status);
-        failedOperations.set(item.operationId, { permanent, message });
-        // 未登入／尚未完成强制改密时，后续条目也不可能成功；保留原队列等状态恢复。
-        if (res.status === 401 || res.status === 422) networkDown = true;
+        const stopBatch =
+          res.status === 401 ||
+          res.status === 408 ||
+          res.status === 422 ||
+          res.status === 429 ||
+          res.status >= 500;
+        failedOperations.set(item.operationId, {
+          permanent,
+          message,
+          nextAttemptAt: permanent
+            ? undefined
+            : Date.now() + backoffMs(item, retryAfterMs(res)),
+        });
+        // 未登入、尚未完成强制改密、限流或服务端错误时，后续条目也不应继续发送。
+        if (stopBatch) networkDown = true;
       }
     } catch {
       // fetch 抛错 = 断网 / DNS 失败：本条失败且停止本轮，避免连续打失败请求。
-      failedOperations.set(item.operationId, { permanent: false });
+      failedOperations.set(item.operationId, {
+        permanent: false,
+        nextAttemptAt: Date.now() + backoffMs(item),
+      });
       networkDown = true;
     }
 
@@ -377,6 +488,7 @@ async function flushPendingReviewsUnlocked(
       attempts: item.attempts + 1,
       status: failure.permanent ? "blocked" : item.status,
       lastError: failure.message ?? item.lastError,
+      nextAttemptAt: failure.permanent ? undefined : failure.nextAttemptAt,
     });
   }
   return pendingReviewCount(userId);

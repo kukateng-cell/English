@@ -90,7 +90,7 @@ SEED_STUDENTS=1
 # 学生预设密码（student01..40 共用；不设置则 seed 自动生成强随机密码并打印到控制台）
 SEED_STUDENT_DEFAULT_PASSWORD="english123"
 SEED_TEST_STUDENT=1
-TEST_STUDENT_USERNAME="student-test"
+TEST_STUDENT_USERNAME="__test_student__local"
 TEST_STUDENT_PASSWORD="你的本地测试密码"
 
 # 管理员 / 教师账号初始密码（必填；seed 时创建 admin / teacher 这两个账号）
@@ -141,8 +141,10 @@ npm run seed
 - `word list.md` 里的所有单词
 - 管理员账号 `admin`、教师账号 `teacher`（密码 = 你设的 `INITIAL_ADMIN_PASSWORD`）
 - `student01` ~ `student40`（密码 = 你设的 `SEED_STUDENT_DEFAULT_PASSWORD`；未设置则 seed 自动生成强随机密码并打印到控制台。需在 `.env.local` 设 `SEED_STUDENTS=1` 才会创建）
-- 本地测试学生 `student-test`（或 `TEST_STUDENT_USERNAME` 指定的账号），密码为
-  `TEST_STUDENT_PASSWORD`；该账号 `mustChangePassword=false`，可直接进入学习页
+- 本地测试学生 `__test_student__local`（或 `TEST_STUDENT_USERNAME` 指定的、带
+  `__test_student__` 保留前缀的全新账号），密码为 `TEST_STUDENT_PASSWORD`；该账号
+  `mustChangePassword=false`，可直接进入学习页。若账号已经存在，seed 会停止而不会
+  覆盖密码、姓名或角色。
 
 测试学生只有在 `SEED_TEST_STUDENT=1` 时才会创建；生产必须保持为 `0`。
 
@@ -187,7 +189,7 @@ git push
    | `NEXTAUTH_URL` | `https://你的应用名.vercel.app` | 部署后 Vercel 会给你域名；**首次可先留空或填预计域名，部署拿到真实域名后再回来改** |
    | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
    | `SEED_TEST_STUDENT` | `0` | 生产不可自动建立本地测试学生 |
-   | `REQUIRE_STUDY_OPERATION_ID` | 首轮 `0`，兼容期后 `1` | 两阶段关闭旧学习页兼容层 |
+   | `REQUIRE_STUDY_OPERATION_ID` | 默认严格模式（可不设置） | 新客户端必须带 operationId；仅受控 rollout 才可临时设为 `0` |
 
    > `DATABASE_URL` / `NEXTAUTH_*` 按需要勾选环境；`MIGRATE_URL` 不可放进 Vercel。
 
@@ -207,17 +209,11 @@ Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 
 不会出现「一个 SHA 做 migration、另一个 SHA 被 Deploy Hook 发布」的问题。
 
 本次 `ReviewEvent` 迁移采用 expand/contract bridge：数据库 trigger 会捕捉仍在运行
-的旧版本写入，迁移结束亦会再核对补齐 snapshot gap；新版 transaction 会设置标记，
-避免 trigger 与应用双写。部署期间无需假装旧流量不存在，累计次数不会漏失。
-
-首次发布本修正时把 `REQUIRE_STUDY_OPERATION_ID=0`：新页面一律提交 UUID，部署前
-已经打开、尚未 reload 的旧页面则由 API 用最近十分钟的 user/word/quality 事件作
-有界兼容去重，避免旧 outbox 因 400 而删除答案。观察至少一个既定兼容期并确认
-旧版本流量归零后，把变量改为 `1` 再发布；此后无 operationId 的请求会被拒绝，
-所有受支持客户端均为严格 exactly-once。兼容层只用于避免旧答案因 400 被删除，
-采用 bounded at-most-once 取舍：同一旧客户端在十分钟内对同词提交相同 quality 的
-真实第二次练习可能被合并。因此兼容期应尽量短，亦不可把此层描述成严格
-exactly-once 或完全无损。
+的旧版本写入，迁移结束亦会再核对补齐 snapshot gap；`eventKind` 明确区分真实
+`REVIEW`、`LEGACY_BRIDGE` 与 `HISTORICAL_BACKFILL`，不再用 `quality=-1` 表示语义。
+新版学习页还会取得短期 `StudySession` 及每词一次性 nonce；API 不接受没有有效
+session/nonce 的成绩提交。旧页面必须 reload 后才能继续提交，避免客户端任意伪造
+quality 或重复推进 SM-2。
 
 ### 4.2 修正 NEXTAUTH_URL（重要）
 
