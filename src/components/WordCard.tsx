@@ -1,14 +1,22 @@
 "use client";
 
 import {
+  animate,
   motion,
-  useAnimationControls,
   useMotionValue,
   useTransform,
 } from "framer-motion";
-import type { ReactNode } from "react";
+import type { AnimationPlaybackControls } from "framer-motion";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
+import {
+  decideSwipe,
+  hasClearedViewport,
+  launchVelocity,
+  offscreenTarget,
+  type SwipeDirection,
+} from "@/lib/swipe-motion";
 
 interface WordCardProps {
   word: { term: string; phonetic?: string | null };
@@ -18,12 +26,8 @@ interface WordCardProps {
   disabled?: boolean;
 }
 
-const SWIPE_THRESHOLD = 80;
-// 飞出屏幕的距离 / 旋转角度
-const FLY_OFF_X = 600;
-const FLY_OFF_ROTATE = 18;
-// 飞出动画时长（与父级 setTimeout 保持一致，避免「弹回 → 再飞出」的双重动作）
-const FLY_DURATION = 0.28;
+const SWIPE_LABEL_THRESHOLD = 76;
+const BUTTON_LAUNCH_VELOCITY = 720;
 
 export default function WordCard({
   word,
@@ -34,44 +38,139 @@ export default function WordCard({
 }: WordCardProps) {
   const { tc } = useLocale();
   const x = useMotionValue(0);
-  const controls = useAnimationControls();
-  const rotate = useTransform(x, [-250, 0, 250], [-8, 0, 8]);
-  const opacityLeft = useTransform(x, [-200, -SWIPE_THRESHOLD, 0], [1, 1, 0]);
-  const opacityRight = useTransform(x, [0, SWIPE_THRESHOLD, 200], [0, 1, 1]);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const activeAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const mountedRef = useRef(true);
+  const dismissingRef = useRef(false);
+  const [dismissing, setDismissing] = useState(false);
+  const rotate = useTransform(x, [-300, 0, 300], [-10, 0, 10]);
+  const opacityLeft = useTransform(
+    x,
+    [-200, -SWIPE_LABEL_THRESHOLD, 0],
+    [1, 1, 0],
+  );
+  const opacityRight = useTransform(
+    x,
+    [0, SWIPE_LABEL_THRESHOLD, 200],
+    [0, 1, 1],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeAnimationRef.current?.stop();
+    };
+  }, []);
+
+  const stopReturnAnimation = () => {
+    if (dismissingRef.current) return;
+    activeAnimationRef.current?.stop();
+    activeAnimationRef.current = null;
+  };
+
+  const returnToCentre = (velocityX: number) => {
+    const animation = animate(x, 0, {
+      type: "spring",
+      velocity: Math.max(-2_400, Math.min(2_400, velocityX)),
+      stiffness: 480,
+      damping: 38,
+      mass: 0.85,
+      restSpeed: 18,
+      restDelta: 0.5,
+    });
+    activeAnimationRef.current = animation;
+    void animation.finished.then(
+      () => {
+        if (activeAnimationRef.current === animation) {
+          activeAnimationRef.current = null;
+        }
+      },
+      () => {
+        if (activeAnimationRef.current === animation) {
+          activeAnimationRef.current = null;
+        }
+      },
+    );
+  };
+
+  const flyOff = async (
+    direction: SwipeDirection,
+    velocityX: number,
+    callback: () => void,
+  ) => {
+    if (disabled || dismissingRef.current) return;
+    const card = cardRef.current;
+    if (!card) return;
+
+    dismissingRef.current = true;
+    setDismissing(true);
+    activeAnimationRef.current?.stop();
+
+    const rect = card.getBoundingClientRect();
+    const target = offscreenTarget(
+      direction,
+      x.get(),
+      rect.left,
+      rect.right,
+      window.innerWidth,
+    );
+    const animation = animate(x, target, {
+      type: "spring",
+      velocity: launchVelocity(velocityX, direction),
+      stiffness: 150,
+      damping: 20,
+      mass: 0.9,
+      restSpeed: 120,
+      restDelta: 8,
+    });
+    activeAnimationRef.current = animation;
+
+    try {
+      let unsubscribe = () => {};
+      const clearedViewport = new Promise<void>((resolve) => {
+        const checkPosition = (latest: number) => {
+          if (hasClearedViewport(direction, latest, target)) resolve();
+        };
+        unsubscribe = x.on("change", checkPosition);
+        checkPosition(x.get());
+      });
+      await Promise.race([
+        clearedViewport,
+        animation.finished.then(
+          () => undefined,
+          () => undefined,
+        ),
+      ]);
+      unsubscribe();
+      animation.stop();
+      if (mountedRef.current) callback();
+    } catch {
+      // Stopping an animation during unmount is expected; never commit the swipe.
+    } finally {
+      if (activeAnimationRef.current === animation) {
+        activeAnimationRef.current = null;
+      }
+    }
+  };
 
   const handleDragEnd = (
     _: unknown,
     info: { offset: { x: number }; velocity: { x: number } }
   ) => {
-    const dir = info.offset.x < 0 ? -1 : 1;
-    // 快速横扫（velocity）或拖拽超过阈值都判定为划走
-    const swiped = Math.abs(info.offset.x) > SWIPE_THRESHOLD || Math.abs(info.velocity.x) > 500;
-    if (!swiped) {
-      // 未达到划走条件：平滑回弹到中心
-      controls.start({ x: 0, rotate: 0, transition: { type: "spring", stiffness: 500, damping: 40 } });
+    if (disabled || dismissingRef.current) return;
+    const cardWidth = cardRef.current?.offsetWidth ?? 400;
+    const decision = decideSwipe(x.get(), info.velocity.x, cardWidth);
+    if (!decision.dismiss) {
+      returnToCentre(info.velocity.x);
       return;
     }
-    // 达到划走条件：顺着释放方向 + 速度「一次过」飞出屏幕，不再先弹回中心
-    controls.start({
-      x: dir * FLY_OFF_X,
-      rotate: dir * FLY_OFF_ROTATE,
-      transition: { duration: FLY_DURATION, ease: [0.4, 0, 0.2, 1] },
-    });
-    if (dir < 0) {
-      onSwipeLeft();
-    } else {
-      onSwipeRight();
-    }
+    const callback = decision.direction < 0 ? onSwipeLeft : onSwipeRight;
+    void flyOff(decision.direction, info.velocity.x, callback);
   };
 
-  // 底部按钮：与拖拽路径一致，先播放「飞出」动画再触发回调，避免按钮瞬间切走无动画。
-  const handleButtonSwipe = (dir: number, cb: () => void) => {
-    controls.start({
-      x: dir * FLY_OFF_X,
-      rotate: dir * FLY_OFF_ROTATE,
-      transition: { duration: FLY_DURATION, ease: [0.4, 0, 0.2, 1] },
-    });
-    cb();
+  const handleButtonSwipe = (direction: SwipeDirection, callback: () => void) => {
+    void flyOff(direction, direction * BUTTON_LAUNCH_VELOCITY, callback);
   };
 
   const handleSpeak = (e: React.MouseEvent) => {
@@ -99,14 +198,14 @@ export default function WordCard({
       </div>
 
       <motion.div
-        drag={disabled ? false : "x"}
-        dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.7}
+        ref={cardRef}
+        drag={disabled || dismissing ? false : "x"}
+        dragMomentum={false}
+        onDragStart={stopReturnAnimation}
         onDragEnd={handleDragEnd}
-        animate={controls}
         style={{ x, rotate }}
-        whileTap={{ scale: disabled ? 1 : 1.02 }}
-        className="relative z-10 mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
+        whileDrag={{ scale: 1.01 }}
+        className="relative z-10 mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] [will-change:transform] active:cursor-grabbing dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
       >
         {/* 单词 */}
         <h2
@@ -137,20 +236,22 @@ export default function WordCard({
         {/* 底部按钮区域 */}
         <div className="absolute bottom-5 flex w-full items-center justify-between px-5">
           <button
+            disabled={disabled || dismissing}
             onClick={(e) => {
               e.stopPropagation();
               handleButtonSwipe(-1, onSwipeLeft);
             }}
-            className="flex h-12 items-center gap-1.5 rounded-full bg-[#FEF2F2] px-6 text-[15px] font-semibold text-[#EF6B6B] transition active:scale-[0.96] dark:bg-[#2D0B0B]"
+            className="flex h-12 items-center gap-1.5 rounded-full bg-[#FEF2F2] px-6 text-[15px] font-semibold text-[#EF6B6B] transition active:scale-[0.96] disabled:pointer-events-none dark:bg-[#2D0B0B]"
           >
             ← {tc("不认识")}
           </button>
           <button
+            disabled={disabled || dismissing}
             onClick={(e) => {
               e.stopPropagation();
               handleButtonSwipe(1, onSwipeRight);
             }}
-            className="flex h-12 items-center gap-1.5 rounded-full bg-[#ECFDF5] px-6 text-[15px] font-semibold text-[#22C55E] transition active:scale-[0.96] dark:bg-[#052E16]"
+            className="flex h-12 items-center gap-1.5 rounded-full bg-[#ECFDF5] px-6 text-[15px] font-semibold text-[#22C55E] transition active:scale-[0.96] disabled:pointer-events-none dark:bg-[#052E16]"
           >
             {tc("认识")} ✓
           </button>

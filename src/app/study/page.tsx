@@ -358,7 +358,6 @@ export default function StudyPage() {
   const [pool, setPool] = useState<PoolWord[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [helpVisible, setHelpVisible] = useState(false);
-  const [direction, setDirection] = useState<"left" | "right" | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [unitCategory, setUnitCategory] = useState<string | null>(null);
@@ -413,7 +412,7 @@ export default function StudyPage() {
   const handleQuizAnswerRef = useRef<(correct: boolean | null) => void>(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
   const quizWrongCounts = useRef<Record<string, number>>({});
-  // 认字评估手势锁：350ms 飞出动画期间禁止重复触发，避免同一词被多次计入
+  // 认字评估手势锁：飞出完成与状态切换期间禁止重复触发，避免同一词被多次计入
   // knownWords / unknownWords（连点 / 拖拽+按钮同时触发）。
   const swipeLockRef = useRef(false);
   // Swipe 分类与进入 quiz/help 涉及动画；期间不写 checkpoint，避免保存半步状态。
@@ -947,18 +946,12 @@ export default function StudyPage() {
   const handleSwipeRight = () => {
     if (!current || swipeLockRef.current) return;
     swipeLockRef.current = true;
-    setSwipeTransitioning(true);
     setKnownWords((prev) => [...prev, current.word]);
-    setDirection("right");
-    setTimeout(() => {
-      setDirection(null);
-      setQuizTarget(current.word);
-      setQuizAttempt(0);
-      quizWrongCounts.current = {};
-      setWordStep("quiz");
-      swipeLockRef.current = false;
-      setSwipeTransitioning(false);
-    }, 350);
+    setQuizTarget(current.word);
+    setQuizAttempt(0);
+    quizWrongCounts.current = {};
+    setWordStep("quiz");
+    swipeLockRef.current = false;
   };
 
   // 左滑：不认识 → 展示助记面板（仅本地分类，不写记录）
@@ -967,11 +960,8 @@ export default function StudyPage() {
     swipeLockRef.current = true;
     setSwipeTransitioning(true);
     setUnknownWords((prev) => [...prev, current.word]);
-    setDirection("left");
-    setTimeout(() => {
-      setHelpVisible(true);
-      swipeLockRef.current = false;
-    }, 350);
+    setHelpVisible(true);
+    swipeLockRef.current = false;
   };
 
   // 助记面板关闭 → 进入下一个生字的认字评估，而不是当前词的测试。
@@ -979,7 +969,6 @@ export default function StudyPage() {
   // 再回头测这个词。
   const handleHelpDismiss = () => {
     setHelpVisible(false);
-    setDirection(null);
     // 把当前不认识的词记入延后测试队列
     if (current) {
       pendingQuizzes.current = [...pendingQuizzes.current, current.word];
@@ -1392,26 +1381,20 @@ export default function StudyPage() {
 
       {/* 卡片区域 */}
       <div className="flex-1 flex w-full flex-col items-center justify-center">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={current.word.id + currentIndex}
-            className="w-full"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{
-              opacity: 0,
-              x: direction === "right" ? 300 : direction === "left" ? -300 : 0,
-              transition: { duration: 0.3 },
-            }}
-          >
-            <WordCard
-              word={current.word}
-              onSwipeLeft={handleSwipeLeft}
-              onSwipeRight={handleSwipeRight}
-              disabled={helpVisible}
-            />
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={current.word.id + currentIndex}
+          className="w-full"
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          <WordCard
+            word={current.word}
+            onSwipeLeft={handleSwipeLeft}
+            onSwipeRight={handleSwipeRight}
+            disabled={helpVisible}
+          />
+        </motion.div>
       </div>
 
       {/* 助记面板 */}
