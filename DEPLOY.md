@@ -89,8 +89,9 @@ NEXTAUTH_URL="http://localhost:3000"
 SEED_STUDENTS=1
 # 学生预设密码（student01..40 共用；不设置则 seed 自动生成强随机密码并打印到控制台）
 SEED_STUDENT_DEFAULT_PASSWORD="english123"
-TEST_ACCOUNT_PASSWORD="你的测试账号密码"
-SEED_TEST_ACCOUNT=0
+SEED_TEST_STUDENT=1
+TEST_STUDENT_USERNAME="student-test"
+TEST_STUDENT_PASSWORD="你的本地测试密码"
 
 # 管理员 / 教师账号初始密码（必填；seed 时创建 admin / teacher 这两个账号）
 INITIAL_ADMIN_PASSWORD="你的管理员初始密码"
@@ -140,9 +141,10 @@ npm run seed
 - `word list.md` 里的所有单词
 - 管理员账号 `admin`、教师账号 `teacher`（密码 = 你设的 `INITIAL_ADMIN_PASSWORD`）
 - `student01` ~ `student40`（密码 = 你设的 `SEED_STUDENT_DEFAULT_PASSWORD`；未设置则 seed 自动生成强随机密码并打印到控制台。需在 `.env.local` 设 `SEED_STUDENTS=1` 才会创建）
-- 测试账号 `qa-4347e0aa14`（密码是你设的 `TEST_ACCOUNT_PASSWORD`）
+- 本地测试学生 `student-test`（或 `TEST_STUDENT_USERNAME` 指定的账号），密码为
+  `TEST_STUDENT_PASSWORD`；该账号 `mustChangePassword=false`，可直接进入学习页
 
-测试账号只有在 `SEED_TEST_ACCOUNT=1` 时才会创建；生产必须保持为 `0`。
+测试学生只有在 `SEED_TEST_STUDENT=1` 时才会创建；生产必须保持为 `0`。
 
 > ⚠️ `INITIAL_ADMIN_PASSWORD` 必填；未设置时 seed 会直接抛错中止（安全审计要求：禁止硬编码密码）。
 
@@ -184,7 +186,7 @@ git push
    | `NEXTAUTH_SECRET` | （和本地一样的那串） | 生产环境要重新生成一串新的也行 |
    | `NEXTAUTH_URL` | `https://你的应用名.vercel.app` | 部署后 Vercel 会给你域名；**首次可先留空或填预计域名，部署拿到真实域名后再回来改** |
    | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
-   | `SEED_TEST_ACCOUNT` | `0` | 生产不可自动建立测试账号 |
+   | `SEED_TEST_STUDENT` | `0` | 生产不可自动建立本地测试学生 |
    | `REQUIRE_STUDY_OPERATION_ID` | 首轮 `0`，兼容期后 `1` | 两阶段关闭旧学习页兼容层 |
 
    > `DATABASE_URL` / `NEXTAUTH_*` 按需要勾选环境；`MIGRATE_URL` 不可放进 Vercel。

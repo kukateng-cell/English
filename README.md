@@ -48,6 +48,19 @@ You can start editing the page in `src/app/`. The page auto-updates as you edit 
 3. 写入本地 `.env`，或填入 Vercel 项目的 **Settings → Environment Variables**。
 4. 重新部署即可；限流键统一带前缀 `login:`，便于在 Upstash 控制台辨识。
 
+### 可直接登入的本地测试学生
+
+若不想每次用 `student01` 测试时都走首次改密流程，可在 `.env.local` 设置：
+
+```env
+SEED_TEST_STUDENT=1
+TEST_STUDENT_USERNAME="student-test"
+TEST_STUDENT_PASSWORD="只用于本地测试的独立密码"
+```
+
+运行 `npm run seed` 后，该学生会以 `mustChangePassword=false` 建立或更新，可直接
+登入学习页。此功能须在生产保持关闭。
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

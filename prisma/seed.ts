@@ -97,37 +97,39 @@ async function seedStudents() {
   );
 }
 
-// ── 测试 / 管理员种子账号 ──
-// 内部测试账号必须显式 opt-in，且密码只可来自环境变量；生产默认完全不创建。
-const TEST_ACCOUNT = "qa-4347e0aa14";
-
-async function seedTestAccount(password: string) {
+// ── 本地测试学生 ──
+// 与批量 student01..40 的「首次登入预设密码」分开：测试学生视为已经完成改密，
+// mustChangePassword=false，可直接进入学习页。必须显式 opt-in，生产默认不创建。
+async function seedTestStudent(username: string, password: string) {
   const hash = await bcrypt.hash(password, 12);
   const existing = await prisma.user.findUnique({
-    where: { email: TEST_ACCOUNT },
+    where: { email: username },
   });
   if (existing) {
     await prisma.user.update({
       where: { id: existing.id },
       data: {
         passwordHash: hash,
+        name: "本地测试学生",
+        role: ROLES.STUDENT,
         tokenVersion: { increment: 1 },
         mustChangePassword: false,
       },
     });
-    console.log(`Test account password rotated: ${TEST_ACCOUNT}`);
+    console.log(`Test student ready: ${username} (password rotated)`);
     return;
   }
   await prisma.user.create({
     data: {
-      email: TEST_ACCOUNT,
+      email: username,
       passwordHash: hash,
-      name: "测试账号",
-      // 特权测试账号不强制改密碼。
+      name: "本地测试学生",
+      role: ROLES.STUDENT,
+      // 这组独立测试凭证视为已经完成首次改密，可直接进入学习页。
       mustChangePassword: false,
     },
   });
-  console.log(`Test account created: ${TEST_ACCOUNT}`);
+  console.log(`Test student ready: ${username} (created)`);
 }
 
 // ── 管理员 / 教师种子账号 ──
@@ -334,17 +336,33 @@ async function main() {
   if (process.env.SEED_STUDENTS === "1") {
     await seedStudents();
   }
-  if (process.env.SEED_TEST_ACCOUNT === "1") {
-    const testPassword = process.env.TEST_ACCOUNT_PASSWORD ?? "";
+  // 推荐新变量；保留旧 SEED_TEST_ACCOUNT / TEST_ACCOUNT_PASSWORD 一个发布周期，
+  // 让已有本地环境升级后不会突然失效。
+  if (
+    process.env.SEED_TEST_STUDENT === "1" ||
+    process.env.SEED_TEST_ACCOUNT === "1"
+  ) {
+    const testUsername = (
+      process.env.TEST_STUDENT_USERNAME ?? "student-test"
+    ).trim();
+    const testPassword =
+      process.env.TEST_STUDENT_PASSWORD ??
+      process.env.TEST_ACCOUNT_PASSWORD ??
+      "";
+    if (!/^[A-Za-z0-9._-]{3,64}$/.test(testUsername)) {
+      throw new Error(
+        "TEST_STUDENT_USERNAME 必须为 3–64 位，只可包含字母、数字、点、下划线或连字符。",
+      );
+    }
     if (
       testPassword.length < MIN_PASSWORD_LENGTH ||
       testPassword.length > MAX_PASSWORD_LENGTH
     ) {
       throw new Error(
-        `SEED_TEST_ACCOUNT=1 时，TEST_ACCOUNT_PASSWORD 必须为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`,
+        `SEED_TEST_STUDENT=1 时，TEST_STUDENT_PASSWORD 必须为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`,
       );
     }
-    await seedTestAccount(testPassword);
+    await seedTestStudent(testUsername, testPassword);
   }
 
   await prisma.$disconnect();
