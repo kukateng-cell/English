@@ -9,14 +9,14 @@ export async function GET() {
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
-    // totalReviews：用 DB 侧的 _count 下推，避免把 Review 行读进内存。
+    // totalReviews：评测事件数，而不是「有 Review 状态的不同单词数」。
     const students = await prisma.user.findMany({
       where: { role: ROLES.STUDENT },
       select: {
         id: true,
         name: true,
         email: true,
-        _count: { select: { reviews: true } },
+        _count: { select: { reviewEvents: true } },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -66,7 +66,7 @@ export async function GET() {
           id: s.id,
           name: s.name,
           email: s.email,
-          totalReviews: s._count.reviews,
+          totalReviews: s._count.reviewEvents,
           masteredWords: mastered,
           totalWords,
           progress: totalWords > 0 ? Math.round((mastered / totalWords) * 100) : 0,

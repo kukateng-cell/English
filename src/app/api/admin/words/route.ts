@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { normalizeLevel } from "@/lib/units";
+import { isLevel, normalizeLevel } from "@/lib/units";
 
 // normalizeLevel 统一来自 @/lib/units（返回 LevelCode 字面量联合，
 // 直接兼容 Prisma 的 enum Level，无需强转）。
@@ -20,7 +20,7 @@ export async function GET() {
         definition: true,
         level: true,
         category: true,
-        _count: { select: { reviews: true } },
+        _count: { select: { reviewEvents: true } },
       },
       orderBy: { term: "asc" },
     });
@@ -33,7 +33,7 @@ export async function GET() {
         definition: w.definition,
         level: w.level,
         category: w.category,
-        reviewCount: w._count.reviews,
+        reviewCount: w._count.reviewEvents,
       }))
     );
   } catch {
@@ -75,6 +75,9 @@ export async function POST(req: Request) {
 
     const term = String(body.term ?? "").trim();
     const definition = String(body.definition ?? "").trim();
+    if (!isLevel(body.level)) {
+      return NextResponse.json({ error: "级别无效" }, { status: 400 });
+    }
     const level = normalizeLevel(body.level);
 
     if (!term) return NextResponse.json({ error: "单词不能为空" }, { status: 400 });
@@ -106,7 +109,7 @@ export async function POST(req: Request) {
         definition: true,
         level: true,
         category: true,
-        _count: { select: { reviews: true } },
+        _count: { select: { reviewEvents: true } },
       },
     });
 
@@ -118,11 +121,17 @@ export async function POST(req: Request) {
         definition: word.definition,
         level: word.level,
         category: word.category,
-        reviewCount: word._count.reviews,
+        reviewCount: word._count.reviewEvents,
       },
       { status: 201 }
     );
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json({ error: "该单词已存在" }, { status: 409 });
+    }
     return NextResponse.json({ error: "创建单词失败" }, { status: 500 });
   }
 }

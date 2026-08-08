@@ -30,7 +30,15 @@ import {
   enqueuePendingReview,
   flushPendingReviews,
   pendingReviewCount,
+  blockedReviewCount,
+  blockedReviewMessage,
+  discardBlockedReviews,
+  discardPendingReview,
+  legacyReviewCount,
+  claimLegacyReviews,
+  discardLegacyReviews,
 } from "@/lib/review-queue";
+import { canResumeStudySession } from "@/lib/study-session";
 
 interface WordFull {
   id: string;
@@ -165,36 +173,40 @@ function buildQuestion(
  * 而非认字阶段的自我评估手势。
  */
 function submitQuizReview(
+  userId: string,
   wordId: string,
   quality: number,
   onDone?: (s: StreakInfo) => void,
   onAchievements?: (list: AchievementDef[]) => void,
-  onError?: (pendingCount: number) => void,
-) {
-  // 提交失败（断网 / 5xx）不再静默丢弃：把该次评测暂存到本地待同步队列，
-  // 稍后自动重试（见 StudyPage 的 flush 机制）。服务端 POST 幂等，重试安全。
-  void fetch("/api/study", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wordId, quality }),
+  onQueueChange?: () => void,
+  onStorageError?: () => void,
+  saveNextCheckpoint?: () => boolean,
+): boolean {
+  const operationId = crypto.randomUUID();
+  // Write-ahead：先同步写入本地 outbox，再推进页面／发网络请求。即使用户立即
+  // 关页，下一次打开仍能用同一个 operationId 幂等补交。
+  try {
+    enqueuePendingReview(userId, operationId, wordId, quality);
+    if (saveNextCheckpoint && !saveNextCheckpoint()) {
+      // 两个 localStorage key 无事务；checkpoint 写入失败时补偿删除尚未发送的
+      // outbox operation，停在当前题让用户修复存储后重试。
+      discardPendingReview(userId, operationId);
+      throw new Error("CHECKPOINT_STORAGE_UNAVAILABLE");
+    }
+  } catch {
+    onStorageError?.();
+    return false;
+  }
+  onQueueChange?.();
+  void flushPendingReviews(userId, (_id, data) => {
+    if (data?.streak && onDone) onDone(data.streak as StreakInfo);
+    if (Array.isArray(data?.newlyUnlocked) && data.newlyUnlocked.length) {
+      onAchievements?.(data.newlyUnlocked as AchievementDef[]);
+    }
   })
-    .then(async (r) => {
-      if (!r.ok) throw new Error(`study POST failed: ${r.status}`);
-      return r.json();
-    })
-    .then((data) => {
-      // 服务端打卡后返回最新 streak，用于实时刷新 🔥 徽章；
-      // 若解锁了新成就，一并通知前端弹出提示。
-      if (data?.streak && onDone) onDone(data.streak);
-      if (data?.newlyUnlocked?.length && onAchievements) {
-        onAchievements(data.newlyUnlocked);
-      }
-    })
-    .catch(() => {
-      // 入队待重试，并通过 onError 把最新队列长度回传给页面更新 UI。
-      const remaining = enqueuePendingReview(wordId, quality);
-      onError?.(remaining);
-    });
+    .catch(() => undefined)
+    .finally(() => onQueueChange?.());
+  return true;
 }
 
 /**
@@ -273,15 +285,27 @@ function AchievementToast({
  */
 function PendingSyncBanner({
   pending,
+  blocked,
+  blockedError,
+  legacy,
   onRetry,
+  onDiscardBlocked,
+  onClaimLegacy,
+  onDiscardLegacy,
 }: {
   pending: number;
+  blocked: number;
+  blockedError: string | null;
+  legacy: number;
   onRetry: () => void;
+  onDiscardBlocked: () => void;
+  onClaimLegacy: () => void;
+  onDiscardLegacy: () => void;
 }) {
   const { tc } = useLocale();
   return (
     <AnimatePresence>
-      {pending > 0 && (
+      {pending + blocked + legacy > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -301,14 +325,24 @@ function PendingSyncBanner({
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
               <polyline points="21 4 21 10 15 10" />
             </svg>
-            {tc(`有 ${pending} 条学习记录待同步，网络恢复后自动上传`)}
+            {legacy > 0
+              ? tc(`发现旧版留下的 ${legacy} 条记录，请确认是否属于当前账号`)
+              : blocked > 0
+                ? tc(`${blocked} 条记录无法自动同步，已停止重试：${blockedError ?? "请求无效"}`)
+                : tc(`有 ${pending} 条学习记录待同步，网络恢复后自动上传`)}
           </span>
-          <button
-            onClick={onRetry}
-            className="shrink-0 rounded-full bg-[#F59E0B] px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-[#D97706] active:scale-95 dark:bg-[#FBBF24] dark:text-[#2A1E00]"
-          >
-            {tc("立即重试")}
-          </button>
+          <span className="flex shrink-0 gap-1.5">
+            {legacy > 0 ? (
+              <>
+                <button onClick={onClaimLegacy} className="rounded-full bg-[#F59E0B] px-3 py-1 text-[11px] font-semibold text-white">{tc("归入我的记录")}</button>
+                <button onClick={onDiscardLegacy} className="rounded-full border border-[#F59E0B] px-3 py-1 text-[11px] font-semibold">{tc("不是我的")}</button>
+              </>
+            ) : blocked > 0 ? (
+              <button onClick={onDiscardBlocked} className="rounded-full border border-[#F59E0B] px-3 py-1 text-[11px] font-semibold">{tc("清除失败记录")}</button>
+            ) : (
+              <button onClick={onRetry} className="rounded-full bg-[#F59E0B] px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-[#D97706] active:scale-95 dark:bg-[#FBBF24] dark:text-[#2A1E00]">{tc("立即重试")}</button>
+            )}
+          </span>
         </motion.div>
       )}
     </AnimatePresence>
@@ -316,7 +350,8 @@ function PendingSyncBanner({
 }
 
 export default function StudyPage() {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
+  const userId = session?.user?.id ?? null;
   const router = useRouter();
   const { tc } = useLocale();
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -338,15 +373,51 @@ export default function StudyPage() {
   // 待同步到服务端的评测条数：POST /api/study 失败时本地缓冲，稍后自动重试。
   // 提交失败不再静默丢弃 —— 有条数时顶部会显示「待同步」提示条。
   const [pendingSync, setPendingSync] = useState(0);
+  const [blockedSync, setBlockedSync] = useState(0);
+  const [blockedSyncError, setBlockedSyncError] = useState<string | null>(null);
+  const [legacySync, setLegacySync] = useState(0);
+  const [flushedUserId, setFlushedUserId] = useState<string | null>(null);
   // 防止并发 flush（多次重试同时跑会重复提交同一批评测）
   const isFlushingRef = useRef(false);
+
+  const refreshSyncCounts = useCallback(() => {
+    if (!userId) return;
+    setPendingSync(pendingReviewCount(userId));
+    setBlockedSync(blockedReviewCount(userId));
+    setBlockedSyncError(blockedReviewMessage(userId));
+    setLegacySync(legacyReviewCount());
+  }, [userId]);
+
+  const discardBlocked = useCallback(() => {
+    if (!userId) return;
+    discardBlockedReviews(userId);
+    refreshSyncCounts();
+  }, [userId, refreshSyncCounts]);
+
+  const claimLegacy = useCallback(() => {
+    if (!userId) return;
+    try {
+      claimLegacyReviews(userId);
+    } catch {
+      setError("浏览器无法保存旧版记录，请释放存储空间后重试");
+      return;
+    }
+    refreshSyncCounts();
+  }, [userId, refreshSyncCounts]);
+
+  const discardLegacy = useCallback(() => {
+    discardLegacyReviews();
+    refreshSyncCounts();
+  }, [refreshSyncCounts]);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
-  const handleQuizAnswerRef = useRef<(correct: boolean) => void>(() => {});
+  const handleQuizAnswerRef = useRef<(correct: boolean | null) => void>(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
   const quizWrongCounts = useRef<Record<string, number>>({});
   // 认字评估手势锁：350ms 飞出动画期间禁止重复触发，避免同一词被多次计入
   // knownWords / unknownWords（连点 / 拖拽+按钮同时触发）。
   const swipeLockRef = useRef(false);
+  // Swipe 分类与进入 quiz/help 涉及动画；期间不写 checkpoint，避免保存半步状态。
+  const [swipeTransitioning, setSwipeTransitioning] = useState(false);
 
   // 「已恢复上次进度」轻提示
   const [showResumedBanner, setShowResumedBanner] = useState(false);
@@ -421,12 +492,13 @@ export default function StudyPage() {
   // 把本地缓冲的待提交评测尽量同步到服务端。
   // flushPendingReviews 成功提交一条即回传最新 streak / 成就，与即时提交一致。
   const flushPending = useCallback(async () => {
+    if (!userId) return;
     if (isFlushingRef.current) return;
     isFlushingRef.current = true;
     try {
       // 空队列时 flushPendingReviews 会立即返回 0（不发任何请求）。
       // 这里的 setState 都在 await 之后，避免在 effect 中同步调用 setState。
-      const remaining = await flushPendingReviews((_id, data) => {
+      const remaining = await flushPendingReviews(userId, (_id, data) => {
         if (data?.streak) setStreak(data.streak as StreakInfo);
         const unlocked = data?.newlyUnlocked as
           | AchievementDef[]
@@ -436,22 +508,31 @@ export default function StudyPage() {
         }
       });
       setPendingSync(remaining);
+      setBlockedSync(blockedReviewCount(userId));
+      setBlockedSyncError(blockedReviewMessage(userId));
+      setLegacySync(legacyReviewCount());
     } finally {
       isFlushingRef.current = false;
     }
-  }, []);
+  }, [userId]);
 
   // 进入学习页时：先把本地缓冲的待提交评测尽量同步。
   // flushPending 内部会在完成时（同步或异步）更新 pendingSync 计数。
   useEffect(() => {
     if (status !== "authenticated") return;
-    void flushPending();
-  }, [status, flushPending]);
+    let cancelled = false;
+    void flushPending().finally(() => {
+      if (!cancelled) setFlushedUserId(userId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, userId, flushPending]);
 
   // 网络恢复 / 页面重新可见 / 定时器：自动重试缓冲的待提交评测，
   // 保证用户离线时记下的学习在恢复连接后不丢失。
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" || flushedUserId !== userId) return;
     const onOnline = () => void flushPending();
     const onVisible = () => {
       if (document.visibilityState === "visible") void flushPending();
@@ -460,14 +541,14 @@ export default function StudyPage() {
     document.addEventListener("visibilitychange", onVisible);
     // 每 30s 兜底重试一次（仅在有待提交时才会真正发请求）。
     const timer = window.setInterval(() => {
-      if (pendingReviewCount() > 0) void flushPending();
+      if (userId && pendingReviewCount(userId) > 0) void flushPending();
     }, 30000);
     return () => {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
     };
-  }, [status, flushPending]);
+  }, [status, userId, flushedUserId, flushPending]);
 
   /**
    * 尝试用本地存档点恢复进度。返回是否成功恢复。
@@ -475,10 +556,11 @@ export default function StudyPage() {
    * 若存档与当前队列指纹不一致或引用了不存在的词，则视为过期并丢弃。
    */
   const restoreProgress = useCallback(
-    (loadedQueue: QueueItem[]): boolean => {
+    (loadedQueue: QueueItem[]): QueueItem[] | null => {
+      if (!userId) return null;
       const unitKey = getUnitKey();
-      const cp = loadCheckpoint(unitKey);
-      if (!cp) return false;
+      const cp = loadCheckpoint(userId, unitKey);
+      if (!cp) return null;
 
       // 用「词的集合」比对而非顺序：单元练习的服务端队列会按 SM-2 状态
       // （未学/到期/已排期）重排，同一单元两次访问顺序可能不同，但词集合稳定。
@@ -488,51 +570,77 @@ export default function StudyPage() {
       const sigMatch =
         loadedIds.size === cpSet.size &&
         [...loadedIds].every((id) => cpSet.has(id));
-      if (!sigMatch) return false;
+      if (!sigMatch) {
+        // 词被删除、移组或权限变化时，服务端会回退到一条新队列。清除失效
+        // checkpoint，避免之后每次进入都反复尝试同一批旧 id。
+        clearCheckpoint(userId, unitKey);
+        return null;
+      }
 
-      const wordMap = new Map(loadedQueue.map((q) => [q.word.id, q.word]));
+      // API 会随机洗牌；按 checkpoint 保存的原顺序重建，确保 currentIndex 仍指
+      // 向同一个词，而不是把旧 index 套到新顺序。
+      const loadedMap = new Map(loadedQueue.map((q) => [q.word.id, q]));
+      const restoredQueue = cp.queueSignature.map((id) => loadedMap.get(id)!);
+
+      const wordMap = new Map(restoredQueue.map((q) => [q.word.id, q.word]));
       const needIds = [...cp.knownWordIds, ...cp.unknownWordIds];
-      if (needIds.some((id) => !wordMap.has(id))) return false;
+      if (needIds.some((id) => !wordMap.has(id))) return null;
 
       setKnownWords(cp.knownWordIds.map((id) => wordMap.get(id)!));
       setUnknownWords(cp.unknownWordIds.map((id) => wordMap.get(id)!));
       setQuizStats(cp.quizStats);
 
-      // 永远从「认字评估」步开始当前词，不恢复某个词进行到一半的测试状态。
-      // 这样用户中途离开后回来，不会被强制回到「上次那个还没测完的词」。
-      quizWrongCounts.current = {};
+      const restoredQuizTarget = cp.quizTargetId
+        ? wordMap.get(cp.quizTargetId) ?? null
+        : null;
+      if (cp.phase === "quiz" && !restoredQuizTarget) return null;
+      quizWrongCounts.current = restoredQuizTarget
+        ? { [restoredQuizTarget.id]: cp.quizWrongCount ?? 0 }
+        : {};
       // 恢复「延后待测」的不认识词：恢复后继续测试它们，不再静默丢弃
       // （丢弃会导致这些词不测试、无 SM-2 记录，第二天又当新词出现）。
       pendingQuizzes.current = (cp.pendingQuizIds ?? [])
         .map((id) => wordMap.get(id))
         .filter((w): w is WordFull => Boolean(w));
       setQuizAttempt(0);
-      setWordStep("assess");
-      setQuizTarget(null);
+      setWordStep(cp.phase === "quiz" ? "quiz" : "assess");
+      setQuizTarget(cp.phase === "quiz" ? restoredQuizTarget : null);
 
-      if (cp.phase === "done" || cp.currentIndex >= loadedQueue.length) {
+      if (cp.phase === "done" || cp.currentIndex >= restoredQueue.length) {
         setDone(true);
-        setCurrentIndex(loadedQueue.length);
+        setCurrentIndex(restoredQueue.length);
       } else {
         setDone(false);
         setCurrentIndex(cp.currentIndex);
       }
-      return true;
+      return restoredQueue;
     },
-    [],
+    [userId],
   );
 
   // 加载队列：认证通过后，以及每次 restart（reloadKey 变化）触发。
   // 通过 URL query 决定是「全局今日队列」还是「指定单元练习」。
   // 用内联 async IIFE 触发请求，符合 react-hooks/set-state-in-effect 规则。
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" || flushedUserId !== userId) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams(window.location.search);
+        // 固定恢复队列：成功提交一题后，动态 due/new/补救集合会立刻变化；把
+        // checkpoint 的原 id 顺序交回服务端作当前权限验证并重建，才可真正续做。
+        const checkpoint = userId
+          ? loadCheckpoint(userId, getUnitKey())
+          : null;
+        if (checkpoint && canResumeStudySession(checkpoint.queueSignature)) {
+          params.set("resumeIds", checkpoint.queueSignature.join(","));
+        } else if (checkpoint) {
+          // 旧版本可能保存过超过当前请求上限的单元；先丢弃再让服务端
+          // 生成同样受限的新队列，避免每次 Retry 都重复收到 400。
+          clearCheckpoint(userId!, getUnitKey());
+        }
         const res = await fetch(`/api/study?${params.toString()}`);
         if (cancelled) return;
         if (res.status === 401) {
@@ -554,12 +662,16 @@ export default function StudyPage() {
         }
         setLocked(false);
         const data = await res.json();
-        setQueue(data.queue || []);
+        const loadedQueue = (data.queue || []) as QueueItem[];
+        const restoredQueue = !cancelled
+          ? restoreProgress(loadedQueue)
+          : null;
+        setQueue(restoredQueue ?? loadedQueue);
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category : null);
         setStreak(data.streak ?? null);
         // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
-        if (!cancelled && restoreProgress(data.queue || [])) {
+        if (restoredQueue) {
           flashResumed();
         }
       } catch (e) {
@@ -571,7 +683,15 @@ export default function StudyPage() {
     return () => {
       cancelled = true;
     };
-  }, [status, reloadKey, restoreProgress, flashResumed, router]);
+  }, [
+    status,
+    flushedUserId,
+    userId,
+    reloadKey,
+    restoreProgress,
+    flashResumed,
+    router,
+  ]);
 
   // 认字评估阶段的词：取队列中 currentIndex 位置的词（经 current 引用）。
   // 测试阶段的词可能不同（延后回来的不认识词），由 quizTarget 单独追踪。
@@ -586,12 +706,12 @@ export default function StudyPage() {
   }, [done, wordStep, quizTarget, distractorSource, quizAttempt]);
 
   // 若当前词无法生成有效配对题（如 DVD↔DVD 这类纯英文词条，或干扰项不足），
-  // 自动判对并进入下一词，避免界面卡住。
+  // 回退到认字手势评级并进入下一词，避免把「不认识」的不可出题词自动判成满分。
   useEffect(() => {
     if (done || wordStep !== "quiz" || !quizTarget) return;
     if (currentQuestion !== null) return;
     // 用 setTimeout(0) 推迟到下一帧，避免在渲染期间 setState
-    const t = setTimeout(() => handleQuizAnswerRef.current(true), 0);
+    const t = setTimeout(() => handleQuizAnswerRef.current(null), 0);
     return () => clearTimeout(t);
   }, [done, wordStep, quizTarget, currentQuestion]);
 
@@ -628,15 +748,17 @@ export default function StudyPage() {
 
   // 测试作答（必须在所有 early return 之前调用，遵守 Rules of Hooks）
   const handleQuizAnswer = useCallback(
-    (correct: boolean) => {
+    (correct: boolean | null) => {
       // 测试目标可能是刚认完的词，也可能是延后回来的不认识词
       const word = quizTarget;
-      setQuizStats((s) => ({
-        correct: s.correct + (correct ? 1 : 0),
-        wrong: s.wrong + (correct ? 0 : 1),
-      }));
+      if (correct === false) {
+        setQuizStats((s) => ({
+          correct: s.correct,
+          wrong: s.wrong + 1,
+        }));
+      }
 
-      if (!correct) {
+      if (correct === false) {
         // 记录该词答错次数，影响最终掌握评级（quality）。
         if (word) {
           quizWrongCounts.current[word.id] =
@@ -651,14 +773,64 @@ export default function StudyPage() {
       // 单词的掌握程度完全由测试表现决定，认字阶段的手势不参与记录。
       if (word) {
         const wrongs = quizWrongCounts.current[word.id] ?? 0;
-        const quality = wrongs === 0 ? 5 : wrongs === 1 ? 4 : 3;
-        submitQuizReview(
+        const assessedUnknown = unknownWords.some((w) => w.id === word.id);
+        const quality =
+          correct === null
+            ? assessedUnknown
+              ? 2
+              : 5
+            : wrongs === 0
+              ? 5
+              : wrongs === 1
+                ? 4
+                : 3;
+        const nextQuizStats =
+          correct === true
+            ? { ...quizStats, correct: quizStats.correct + 1 }
+            : quizStats;
+        const pending = pendingQuizzes.current;
+        const nextIndex = currentIndex + 1;
+        const nextPhase =
+          pending.length > 0
+            ? "quiz"
+            : nextIndex >= queue.length
+              ? "done"
+              : "assess";
+        const unitKey = getUnitKey();
+        const persisted = submitQuizReview(
+          userId!,
           word.id,
           quality,
           setStreak,
           (list) => setNewAchievements((prev) => [...prev, ...list]),
-          (pendingCount) => setPendingSync(pendingCount),
+          refreshSyncCounts,
+          () =>
+            setError(
+              "浏览器无法保存待同步记录，请释放存储空间或允许网站存储后重试",
+            ),
+          () =>
+            saveCheckpoint(userId!, unitKey, {
+              phase: nextPhase,
+              unitKey,
+              queueSignature: queue.map((q) => q.word.id),
+              currentIndex:
+                nextPhase === "done"
+                  ? queue.length
+                  : currentIndex + (nextPhase === "assess" ? 1 : 0),
+              knownWordIds: knownWords.map((w) => w.id),
+              unknownWordIds: unknownWords.map((w) => w.id),
+              quizStats: nextQuizStats,
+              quizTargetId:
+                nextPhase === "quiz" ? pending[0]?.id ?? null : null,
+              quizWrongCount: 0,
+              pendingQuizIds:
+                nextPhase === "quiz"
+                  ? pending.slice(1).map((w) => w.id)
+                  : [],
+            }),
         );
+        if (!persisted) return;
+        if (correct === true) setQuizStats(nextQuizStats);
       }
 
       // 答对后：优先回头测延后队列里的不认识词（FIFO），
@@ -675,7 +847,17 @@ export default function StudyPage() {
         advanceToNextAssess();
       }
     },
-    [quizTarget, advanceToNextAssess]
+    [
+      quizTarget,
+      advanceToNextAssess,
+      userId,
+      unknownWords,
+      refreshSyncCounts,
+      quizStats,
+      currentIndex,
+      queue,
+      knownWords,
+    ]
   );
 
   // 让 ref 始终持有最新的 handleQuizAnswer（在 effect 中同步，避免渲染期写 ref）
@@ -686,25 +868,47 @@ export default function StudyPage() {
   // 存档点：每完成一步都写入本地存档，方便用户中途离开后续做。
   // 完成时自动清除存档；加载中或队列为空时不写。
   useEffect(() => {
-    if (loading || status !== "authenticated") return;
+    if (
+      loading ||
+      status !== "authenticated" ||
+      !userId ||
+      swipeTransitioning
+    )
+      return;
     const unitKey = getUnitKey();
     if (done) {
-      clearCheckpoint(unitKey);
+      if (pendingReviewCount(userId) === 0) {
+        clearCheckpoint(userId, unitKey);
+      } else {
+        saveCheckpoint(userId, unitKey, {
+          phase: "done",
+          unitKey,
+          queueSignature: queue.map((q) => q.word.id),
+          currentIndex: queue.length,
+          knownWordIds: knownWords.map((w) => w.id),
+          unknownWordIds: unknownWords.map((w) => w.id),
+          quizStats,
+          quizTargetId: null,
+          quizWrongCount: 0,
+          pendingQuizIds: [],
+        });
+      }
       return;
     }
     if (queue.length === 0) return;
-    // 一旦进入「测试」步，存档即视为该词已完成：currentIndex 存为下一个词。
-    // 这样用户中途离开后再回来，不会被强制回到「上次那个还没测完的词」，
-    // 而是直接从下一个新词开始认字评估。
-    const savedIndex = wordStep === "quiz" ? currentIndex + 1 : currentIndex;
-    saveCheckpoint(unitKey, {
-      phase: savedIndex >= queue.length ? "done" : "assess",
+    saveCheckpoint(userId, unitKey, {
+      phase: wordStep,
       unitKey,
       queueSignature: queue.map((q) => q.word.id),
-      currentIndex: savedIndex,
+      currentIndex,
       knownWordIds: knownWords.map((w) => w.id),
       unknownWordIds: unknownWords.map((w) => w.id),
       quizStats,
+      quizTargetId: wordStep === "quiz" ? quizTarget?.id ?? null : null,
+      quizWrongCount:
+        wordStep === "quiz" && quizTarget
+          ? quizWrongCounts.current[quizTarget.id] ?? 0
+          : 0,
       pendingQuizIds: pendingQuizzes.current.map((w) => w.id),
     });
   }, [
@@ -717,6 +921,10 @@ export default function StudyPage() {
     knownWords,
     unknownWords,
     quizStats,
+    quizTarget,
+    userId,
+    swipeTransitioning,
+    pendingSync,
   ]);
 
   if (status === "loading" || loading) {
@@ -739,6 +947,7 @@ export default function StudyPage() {
   const handleSwipeRight = () => {
     if (!current || swipeLockRef.current) return;
     swipeLockRef.current = true;
+    setSwipeTransitioning(true);
     setKnownWords((prev) => [...prev, current.word]);
     setDirection("right");
     setTimeout(() => {
@@ -748,6 +957,7 @@ export default function StudyPage() {
       quizWrongCounts.current = {};
       setWordStep("quiz");
       swipeLockRef.current = false;
+      setSwipeTransitioning(false);
     }, 350);
   };
 
@@ -755,6 +965,7 @@ export default function StudyPage() {
   const handleSwipeLeft = () => {
     if (!current || swipeLockRef.current) return;
     swipeLockRef.current = true;
+    setSwipeTransitioning(true);
     setUnknownWords((prev) => [...prev, current.word]);
     setDirection("left");
     setTimeout(() => {
@@ -774,12 +985,15 @@ export default function StudyPage() {
       pendingQuizzes.current = [...pendingQuizzes.current, current.word];
     }
     // 推进到下一个生字的认字评估
-    setTimeout(() => advanceToNextAssess(), 200);
+    setTimeout(() => {
+      advanceToNextAssess();
+      setSwipeTransitioning(false);
+    }, 200);
   };
 
   // 重新开始：清空状态并清除存档点，触发重新拉取
   const restart = () => {
-    clearCheckpoint(getUnitKey());
+    if (userId) clearCheckpoint(userId, getUnitKey());
     setQueue([]);
     setPool([]);
     setLocked(false);
@@ -793,6 +1007,7 @@ export default function StudyPage() {
     setQuizTarget(null);
     pendingQuizzes.current = [];
     quizWrongCounts.current = {};
+    setSwipeTransitioning(false);
     setReloadKey((k) => k + 1);
   };
 
@@ -859,6 +1074,20 @@ export default function StudyPage() {
     }
   };
 
+  // ───────── 加载／本地持久化失败渲染 ─────────
+  // 必须早于 quiz/done 等 early return：例如 localStorage quota 错误发生时，
+  // QuizCard 已锁定答案；这里卸载它并让用户修复存储后从 checkpoint 重试。
+  if (error) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <ErrorBanner
+          message={error}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+      </div>
+    );
+  }
+
   // ───────── 被锁单元渲染（仅手动改 URL 访问锁住单元时出现） ─────────
   if (locked) {
     return (
@@ -903,7 +1132,13 @@ export default function StudyPage() {
         />
         <PendingSyncBanner
           pending={pendingSync}
+          blocked={blockedSync}
+          blockedError={blockedSyncError}
+          legacy={legacySync}
           onRetry={() => void flushPending()}
+          onDiscardBlocked={discardBlocked}
+          onClaimLegacy={claimLegacy}
+          onDiscardLegacy={discardLegacy}
         />
         <SpeechRateControl />
 
@@ -974,20 +1209,6 @@ export default function StudyPage() {
     );
   }
 
-  // ───────── 加载失败渲染 ─────────
-  // 必须放在「完成」分支之前：fetch 出错时 queue 为空、loading 为 false，
-  // 否则会被下面的 done 分支当成「今日无词」误报「全部完成」。
-  if (error) {
-    return (
-      <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
-        <ErrorBanner
-          message={error}
-          onRetry={() => setReloadKey((k) => k + 1)}
-        />
-      </div>
-    );
-  }
-
   // ───────── 完成渲染 ─────────
   if (done || (queue.length === 0 && !loading)) {
     const hasQuiz = quizStats.correct + quizStats.wrong > 0;
@@ -999,7 +1220,13 @@ export default function StudyPage() {
         />
         <PendingSyncBanner
           pending={pendingSync}
+          blocked={blockedSync}
+          blockedError={blockedSyncError}
+          legacy={legacySync}
           onRetry={() => void flushPending()}
+          onDiscardBlocked={discardBlocked}
+          onClaimLegacy={claimLegacy}
+          onDiscardLegacy={discardLegacy}
         />
         <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#ECFDF5] dark:bg-[#052E16]">
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1099,7 +1326,13 @@ export default function StudyPage() {
       />
       <PendingSyncBanner
         pending={pendingSync}
+        blocked={blockedSync}
+        blockedError={blockedSyncError}
+        legacy={legacySync}
         onRetry={() => void flushPending()}
+        onDiscardBlocked={discardBlocked}
+        onClaimLegacy={claimLegacy}
+        onDiscardLegacy={discardLegacy}
       />
       <SpeechRateControl />
 

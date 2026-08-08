@@ -8,6 +8,7 @@ import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { ROLES, isRole, type Role } from "@/lib/roles";
+import { signOut } from "next-auth/react";
 
 interface UserItem {
   id: string;
@@ -118,7 +119,13 @@ export default function AdminUsersPage() {
           const err = await res.json().catch(() => null);
           throw new Error(err?.error ?? "更新失败");
         }
-        const updated: UserItem = await res.json();
+        const updated = (await res.json()) as UserItem & {
+          sessionInvalidated?: boolean;
+        };
+        if (updated.sessionInvalidated) {
+          await signOut({ callbackUrl: "/login" });
+          return;
+        }
         setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       } else {
         const res = await fetch("/api/admin/users", {

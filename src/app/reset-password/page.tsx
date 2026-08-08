@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { signOut } from "next-auth/react";
 import { useLocale } from "@/components/LocaleProvider";
+import { safeCallbackPath } from "@/lib/safe-callback-url";
+import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 
 /**
  * 首次登入强制重设密码页面。
@@ -27,8 +29,8 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     setError("");
 
-    if (newPassword.length < 8) {
-      setError("新密码至少 8 个字符");
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      setError(`新密码至少 ${MIN_PASSWORD_LENGTH} 个字符`);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -55,14 +57,19 @@ export default function ResetPasswordPage() {
       }
       setSuccess(true);
       setLoading(false);
-      // 先打一次 /api/auth/session：NextAuth 在解析 session 时会跑 jwt 回调、
-      // 依据 DB 里最新的 mustChangePassword=false 重新签发并写入 session cookie。
-      // （reset API 内部的 getServerSession 只在内存里刷新 token，不会回写 cookie；
-      //  必须走 session 端点才会 Set-Cookie。）写完 cookie 再整页跳转，
-      // proxy 才能读到 mustChangePassword=false 而不再拦截。
-      setTimeout(async () => {
-        await fetch("/api/auth/session").catch(() => {});
-        window.location.assign("/study");
+      // 后端已递增 tokenVersion，使所有旧 session（包括当前这一枚）失效。
+      // 明确登出再重新登录，避免其他装置上以临时密码取得的 JWT 继续存活。
+      setTimeout(() => {
+        const rawCallback = new URLSearchParams(window.location.search).get(
+          "callbackUrl",
+        );
+        const safeCallback = safeCallbackPath(
+          rawCallback,
+          window.location.origin,
+        );
+        void signOut({
+          callbackUrl: `/login?callbackUrl=${encodeURIComponent(safeCallback)}`,
+        });
       }, 900);
     } catch {
       setError("网络错误，请稍后重试");
@@ -120,7 +127,9 @@ export default function ResetPasswordPage() {
             <div>
               <input
                 type="password"
-                placeholder={tc("新密码（至少 8 个字符）")}
+                placeholder={tc(
+                  `新密码（至少 ${MIN_PASSWORD_LENGTH} 个字符）`,
+                )}
                 value={newPassword}
                 onChange={(e) => {
                   setNewPassword(e.target.value);
@@ -128,7 +137,7 @@ export default function ResetPasswordPage() {
                 }}
                 autoComplete="new-password"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 className="h-[48px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[15px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA] dark:focus:ring-[#60A5FA]/10"
               />
             </div>
@@ -143,7 +152,7 @@ export default function ResetPasswordPage() {
                 }}
                 autoComplete="new-password"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 className="h-[48px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[15px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA] dark:focus:ring-[#60A5FA]/10"
               />
             </div>

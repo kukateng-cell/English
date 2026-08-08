@@ -1,0 +1,62 @@
+name: Migrate and deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  migrate-and-deploy:
+    name: Migrate database, then trigger Vercel
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+      NEXTAUTH_SECRET: production-gate-build-placeholder
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Require the exact current main commit
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main" || { echo "::error::Production deploys must run from main"; exit 1; }
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "::error::Checkout is not the current main commit"; exit 1; }
+
+      - name: Verify required production secrets
+        run: |
+          test -n "$MIGRATE_URL" || { echo "::error::Missing production MIGRATE_URL"; exit 1; }
+          test -n "$VERCEL_TOKEN" || { echo "::error::Missing VERCEL_TOKEN"; exit 1; }
+          test -n "$VERCEL_ORG_ID" || { echo "::error::Missing VERCEL_ORG_ID"; exit 1; }
+          test -n "$VERCEL_PROJECT_ID" || { echo "::error::Missing VERCEL_PROJECT_ID"; exit 1; }
+
+      - name: Verify application
+        run: |
+          npm test
+          npm run lint
+          npx tsc --noEmit
+          npm run build
+
+      - name: Apply production migrations
+        run: npm run db:deploy
+
+      - name: Deploy this exact checkout to Vercel production
+        run: npx --yes vercel@latest --prod --yes --token="$VERCEL_TOKEN" --meta githubCommitSha="$GITHUB_SHA"

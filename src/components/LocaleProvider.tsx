@@ -19,6 +19,7 @@ import {
   type Locale,
 } from "@/lib/i18n/config";
 import { convertText } from "@/lib/i18n/convert";
+import { useRouter } from "next/navigation";
 
 interface LocaleContextValue {
   locale: Locale;
@@ -54,6 +55,7 @@ interface LocaleProviderProps {
  * 挂载后语言变化会即时反映到 <html lang>，满足「lang 跟随选择更新」。
  */
 export function LocaleProvider({ children, initialLocale }: LocaleProviderProps) {
+  const router = useRouter();
   // 首帧语言（SSR 与 hydration 必须一致，避免 mismatch）：从 initialLocale 或预设值。
   const [locale, setLocaleState] = useState<Locale>(
     () => initialLocale ?? DEFAULT_LOCALE,
@@ -62,19 +64,24 @@ export function LocaleProvider({ children, initialLocale }: LocaleProviderProps)
 
   // 挂载后：读 localStorage（主要持久化来源），与 SSR 首帧协调。
   useEffect(() => {
-    (async () => {
+    queueMicrotask(() => {
       try {
         const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
         if (stored) {
           const next = normalizeLocale(stored);
           setLocaleState((prev) => (prev === next ? prev : next));
+          if (next !== (initialLocale ?? DEFAULT_LOCALE)) {
+            document.cookie = `${LOCALE_COOKIE_KEY}=${encodeURIComponent(next)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+            router.refresh();
+          }
         }
       } catch {
         // localStorage 不可用（隐私模式等）→ 维持 cookie/预设值。
+      } finally {
+        setMounted(true);
       }
-      setMounted(true);
-    })();
-  }, []);
+    });
+  }, [initialLocale, router]);
 
   // 把语言同步到 <html lang> 与 cookie（SSR 首帧由 layout 的 lang 属性提供，
   // 这里在挂载后与切换时接管）。localStorage 也在 setLocale 时写入。
@@ -103,8 +110,11 @@ export function LocaleProvider({ children, initialLocale }: LocaleProviderProps)
     } catch {
       // 忽略写入失败（隐私模式）
     }
-    // cookie 由上面的 effect 同步（保证 <html lang> 与 cookie 一起更新）。
-  }, []);
+    // 先同步 cookie，再刷新 RSC；否则首页／后台 layout 的服务端文案要到下次
+    // 导航才会切换语言。effect 仍保留作初始挂载同步。
+    document.cookie = `${LOCALE_COOKIE_KEY}=${encodeURIComponent(next)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    router.refresh();
+  }, [router]);
 
   // tc：用 useMemo 稳定引用，避免每次渲染都生成新函数导致子组件重渲染。
   const tc = useCallback((text: string) => convertText(text, locale), [locale]);

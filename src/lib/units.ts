@@ -101,6 +101,14 @@ export const LEVEL_ORDER: string[] = ["A1", "A2", "B1", "B2"];
 export const LEVELS = ["A1", "A2", "B1", "B2"] as const;
 export type LevelCode = (typeof LEVELS)[number];
 
+/** 写入 API 使用的严格级别校验；与 normalizeLevel 的宽松回退语义分开。 */
+export function isLevel(value: unknown): value is LevelCode {
+  return (
+    typeof value === "string" &&
+    (LEVELS as readonly string[]).includes(value.toUpperCase())
+  );
+}
+
 /**
  * 把任意输入规范化为合法级别字面量；空值/非法值回退为 A1。
  *
@@ -121,6 +129,11 @@ export function normalizeLevel(s: unknown): LevelCode {
 export function normalizeLevelOrNull(s: unknown): LevelCode | null {
   if (s == null || s === "") return null;
   return normalizeLevel(s);
+}
+
+/** UI/API 用「未分类」代表数据库的 NULL category；查询前统一映射回来。 */
+export function unitCategoryToStorage(category: string | null): string | null {
+  return category === "未分类" ? null : category;
 }
 
 /** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
@@ -189,10 +202,10 @@ export function computeUnlocks(stats: LeveledUnitStats): {
   const levelUnlock: Record<string, boolean> = {};
   const unitUnlock: Record<string, boolean> = {};
 
-  let prevLevelFullyCompleted = true; // 第一个级别恒解锁
+  let previousLevelChainCompleted = true; // 第一个级别恒解锁
   for (const lvl of sortedLevels) {
     const units = stats[lvl] ?? [];
-    const levelUnlocked = prevLevelFullyCompleted;
+    const levelUnlocked: boolean = previousLevelChainCompleted;
     levelUnlock[lvl] = levelUnlocked;
 
     if (!levelUnlocked) {
@@ -201,16 +214,19 @@ export function computeUnlocks(stats: LeveledUnitStats): {
         unitUnlock[`${lvl}::${u.name}`] = false;
       }
     } else {
-      let prevUnitCompleted = true; // 该级别第一个单元直接开放
+      let previousUnitChainCompleted = true; // 该级别第一个单元直接开放
       for (const u of units) {
-        unitUnlock[`${lvl}::${u.name}`] = prevUnitCompleted;
-        prevUnitCompleted = isUnitCompleted(u.stat.total, u.stat.mastered);
+        unitUnlock[`${lvl}::${u.name}`] = previousUnitChainCompleted;
+        previousUnitChainCompleted =
+          previousUnitChainCompleted &&
+          isUnitCompleted(u.stat.total, u.stat.mastered);
       }
     }
 
     // 本级别是否「全部单元已完成」（用于解锁下一级别）。
     // 注意：必须基于真实数据，而非解锁标记，确保解锁判定稳健。
-    prevLevelFullyCompleted =
+    previousLevelChainCompleted =
+      levelUnlocked &&
       units.length > 0 &&
       units.every((u) => isUnitCompleted(u.stat.total, u.stat.mastered));
   }

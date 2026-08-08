@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from "@/lib/password-policy";
 
-/** 生成随机临时密码（8 位，字母+数字，避开易混淆字符）。 */
+/** 生成密码学安全的随机临时密码（12 位，避开易混淆字符）。 */
 function generateTemporaryPassword(): string {
   const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let pwd = "";
-  for (let i = 0; i < 8; i++) {
-    pwd += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 12; i++) {
+    pwd += chars[randomInt(chars.length)];
   }
   return pwd;
 }
@@ -37,7 +42,7 @@ export async function POST(
 
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true },
+      select: { id: true, role: true, tokenVersion: true },
     });
     if (!target) {
       return NextResponse.json({ error: "用户不存在" }, { status: 404 });
@@ -58,10 +63,13 @@ export async function POST(
       body.newPassword.trim()
     ) {
       newPassword = body.newPassword.trim();
-      if (newPassword.length < 6) {
-        return NextResponse.json({ error: "新密码至少 6 位" }, { status: 400 });
+      if (newPassword.length < MIN_PASSWORD_LENGTH) {
+        return NextResponse.json(
+          { error: `新密码至少 ${MIN_PASSWORD_LENGTH} 位` },
+          { status: 400 },
+        );
       }
-      if (newPassword.length > 128) {
+      if (newPassword.length > MAX_PASSWORD_LENGTH) {
         return NextResponse.json({ error: "新密码过长" }, { status: 400 });
       }
     } else {
@@ -69,8 +77,13 @@ export async function POST(
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id },
+    const updated = await prisma.user.updateMany({
+      // 把 role 放进写入条件，堵住「检查时仍是学生、hash 期间被升权」的竞态。
+      where: {
+        id,
+        role: ROLES.STUDENT,
+        tokenVersion: target.tokenVersion,
+      },
       data: {
         passwordHash,
         // 强制下次登录修改密码
@@ -79,6 +92,12 @@ export async function POST(
         tokenVersion: { increment: 1 },
       },
     });
+    if (updated.count !== 1) {
+      return NextResponse.json(
+        { error: "学生账号已被其他操作更新，请刷新后重试" },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json({ ok: true, temporaryPassword: newPassword });
   } catch {

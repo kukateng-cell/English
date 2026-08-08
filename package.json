@@ -4,12 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/prebuild.mjs && next build",
+    "build": "next build",
     "postinstall": "prisma generate",
     "start": "next start",
+    "test": "node --import tsx --test src/lib/*.test.ts",
+    "test:db": "node --import tsx scripts/check-review-idempotency.ts",
+    "test:migrations": "node scripts/check-migrations-fresh.mjs",
+    "test:migration-checksums": "node scripts/check-migration-checksums.mjs",
     "lint": "eslint",
     "seed": "npx tsx prisma/seed.ts",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "node scripts/migrate-deploy.mjs"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
@@ -26,6 +30,7 @@
     "next": "16.2.10",
     "next-auth": "^4.24.14",
     "opencc-js": "^1.4.1",
+    "pg": "^8.22.0",
     "prisma": "^7.8.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"

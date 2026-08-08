@@ -8,7 +8,7 @@
  *
  * 限流策略：滑动窗口（sliding window）。
  *  - 账号维度：同一 Email 每 1 分钟最多 5 次登录尝试。
- *  - IP    维度：同一 IP   每 1 分钟最多 5 次登录尝试。
+ *  - IP    维度：同一 IP   每 1 分钟最多 120 次预认证尝试（校园/NAT 友好）。
  *  - 任一维度耗尽即拒绝（并返回距下次可重试的秒数）。
  *
  * 为什么用「每次尝试都计数」而非「只记失败」：
@@ -31,8 +31,9 @@
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
-/** 每个窗口内允许的最大尝试次数（账号 / IP 两个维度各自计数）。 */
-const MAX_ATTEMPTS = 5;
+/** 单账号保持严格；共享校园/NAT IP 使用较宽的预认证防洪门槛。 */
+const ACCOUNT_MAX_ATTEMPTS = 5;
+const IP_MAX_ATTEMPTS = 120;
 
 /** Upstash 滑动窗口时长（@upstash/ratelimit 接受的 Duration 字符串）。 */
 const WINDOW = "1 m";
@@ -181,18 +182,35 @@ const sharedRedis = useUpstash
   : null;
 
 /**
- * 登录尝试限流后端（prefix="login"）。
- * 账号维度防暴力破解；IP 维度防密码喷洒。
+ * 账号维度限流后端（严格防暴力破解）。
  */
-const backend: LimiterBackend = useUpstash
-  ? createUpstashBackend(MAX_ATTEMPTS, WINDOW, sharedRedis!, KEY_PREFIX)
+const accountBackend: LimiterBackend = useUpstash
+  ? createUpstashBackend(
+      ACCOUNT_MAX_ATTEMPTS,
+      WINDOW,
+      sharedRedis!,
+      `${KEY_PREFIX}-account`,
+    )
   : (() => {
       // 本地开发回退：单实例内存计数（与分布式语义一致，但不跨实例共享）。
       console.warn(
         "[login-limiter] 未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
           "降级为单实例内存限流（仅供本地开发；生产请务必配置 Upstash Redis）。",
       );
-      const mem = createMemoryBackend(MAX_ATTEMPTS, WINDOW_MS);
+      const mem = createMemoryBackend(ACCOUNT_MAX_ATTEMPTS, WINDOW_MS);
+      memoryResets.push(mem.resetAllForTests);
+      return mem.backend;
+    })();
+
+const ipBackend: LimiterBackend = useUpstash
+  ? createUpstashBackend(
+      IP_MAX_ATTEMPTS,
+      WINDOW,
+      sharedRedis!,
+      `${KEY_PREFIX}-ip`,
+    )
+  : (() => {
+      const mem = createMemoryBackend(IP_MAX_ATTEMPTS, WINDOW_MS);
       memoryResets.push(mem.resetAllForTests);
       return mem.backend;
     })();
@@ -257,7 +275,7 @@ function normalizeAccount(account: string): string {
 /**
  * 检查当前请求是否被允许尝试登录，并消费一个令牌。
  *
- * 策略：先消费「账号」维度，再消费「IP」维度；任一维度耗尽即拒绝。
+ * 策略：先消费严格「账号」维度，再消费较宽「IP」预认证维度；任一耗尽即拒绝。
  * 先查账号是为了在账号已被限流时不额外消耗 IP 维度的配额。
  *
  * 注意：本函数「会」消费令牌（即使是合法用户登录也计 1 次）。
@@ -270,7 +288,7 @@ export async function checkLimit(
   ip: string,
 ): Promise<LimitResult> {
   try {
-    const r1 = await backend.limit(`account:${normalizeAccount(account)}`);
+    const r1 = await accountBackend.limit(normalizeAccount(account));
     if (!r1.ok) {
       return {
         ok: false,
@@ -279,7 +297,7 @@ export async function checkLimit(
       };
     }
 
-    const r2 = await backend.limit(`ip:${ip}`);
+    const r2 = await ipBackend.limit(ip);
     if (!r2.ok) {
       return {
         ok: false,
@@ -312,7 +330,7 @@ export async function getLimitStatus(
   dimension?: Dimension;
 }> {
   try {
-    const acct = await backend.remaining(`account:${normalizeAccount(account)}`);
+    const acct = await accountBackend.remaining(normalizeAccount(account));
     if (acct.remaining <= 0) {
       return {
         locked: true,
@@ -321,7 +339,7 @@ export async function getLimitStatus(
       };
     }
 
-    const ipr = await backend.remaining(`ip:${ip}`);
+    const ipr = await ipBackend.remaining(ip);
     if (ipr.remaining <= 0) {
       return {
         locked: true,
@@ -373,7 +391,7 @@ export async function checkStatusRate(ip: string): Promise<LimitResult> {
  */
 export async function resetAccount(account: string): Promise<void> {
   try {
-    await backend.reset(`account:${normalizeAccount(account)}`);
+    await accountBackend.reset(normalizeAccount(account));
   } catch (err) {
     console.error("[login-limiter] resetAccount 后端错误：", err);
   }
@@ -387,6 +405,17 @@ export async function resetAccount(account: string): Promise<void> {
  */
 export function getClientIp(headers: unknown): string {
   if (!headers || typeof headers !== "object") return "unknown";
+  if (
+    "get" in headers &&
+    typeof (headers as { get?: unknown }).get === "function"
+  ) {
+    const webHeaders = headers as { get(name: string): string | null };
+    const xff = webHeaders.get("x-forwarded-for");
+    if (xff) return xff.split(",")[0].trim();
+    const xri = webHeaders.get("x-real-ip");
+    if (xri) return xri.trim();
+    return "unknown";
+  }
   const h = headers as Record<string, unknown>;
   const pick = (name: string): string | undefined => {
     const v = h[name];

@@ -13,12 +13,13 @@ export async function GET() {
       await Promise.all([
         prisma.user.count(),
         prisma.word.count(),
-        prisma.review.count(),
+        prisma.reviewEvent.count(),
         prisma.user.groupBy({ by: ["role"], _count: true }),
         prisma.word.groupBy({ by: ["level"], _count: true }),
-        prisma.review.count({
+        prisma.reviewEvent.count({
           where: {
-            lastReviewedAt: {
+            isHistorical: false,
+            createdAt: {
               gte: todayStartUtc(),
             },
           },

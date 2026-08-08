@@ -1,16 +1,27 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma, type Word } from "@/lib/prisma";
+import { prisma, Prisma, type Word } from "@/lib/prisma";
 import {
   updateSM2,
   gestureToQuality,
   createInitialState,
   type Quality,
 } from "@/lib/sm2";
-import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
+import {
+  aggregateAllLevels,
+  levelCompare,
+  normalizeLevel,
+  unitCategoryToStorage,
+} from "@/lib/units";
 import { computeStreak, checkInStudyDay } from "@/lib/streak";
-import { checkAchievements } from "@/lib/achievements";
+import {
+  achievementsForKeys,
+  checkAchievements,
+} from "@/lib/achievements";
+import { checkStudyRate } from "@/lib/study-limiter";
+import { MAX_STUDY_SESSION_WORDS } from "@/lib/study-session";
 
 /**
  * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
@@ -38,13 +49,16 @@ function shuffle<T>(arr: T[]): T[] {
  *
  * category 为 null 的单词统一按 "未分类" 记键，与 aggregateAllLevels 一致。
  */
-async function computeUnlockInfo(userId: string): Promise<{
+async function computeUnlockInfo(
+  userId: string,
+  db: Pick<Prisma.TransactionClient, "word" | "review"> = prisma,
+): Promise<{
   unitUnlock: Record<string, boolean>;
   unlockedKeys: Set<string>;
 }> {
   // 一次 groupBy 同时拿到「存在的级别」与「每个单元的总词数」，
   // 替代原先「distinct level + findMany 全部 words」的全表扫描。
-  const unitTotalsRows = await prisma.word.groupBy({
+  const unitTotalsRows = await db.word.groupBy({
     by: ["level", "category"],
     _count: { _all: true },
   });
@@ -59,7 +73,7 @@ async function computeUnlockInfo(userId: string): Promise<{
   }));
 
   // 当前用户 Review（select 一并带 word 的 level / category），按单元聚合。
-  const reviewRows = await prisma.review.findMany({
+  const reviewRows = await db.review.findMany({
     where: { userId },
     select: {
       repetitions: true,
@@ -88,6 +102,19 @@ async function computeUnlockInfo(userId: string): Promise<{
   return { unitUnlock, unlockedKeys };
 }
 
+function unlockedCategoryFilters(unlockedKeys: Set<string>) {
+  return [...unlockedKeys].map((key) => {
+    const separator = key.indexOf("::");
+    return {
+      level: normalizeLevel(key.slice(0, separator)),
+      category:
+        key.slice(separator + 2) === "未分类"
+          ? null
+          : key.slice(separator + 2),
+    };
+  });
+}
+
 /**
  * GET /api/study
  * - 无参数：全局「今日待复习 + 新词」队列（默认学习模式）。
@@ -106,9 +133,26 @@ export async function GET(req: Request) {
   const category = url.searchParams.get("category");
   const level = url.searchParams.get("level");
   const unitMode = !!(category && level);
+  // 单元列表把数据库 NULL category 显示为「未分类」；查询时必须映射回 NULL。
+  const unitCategoryValue = unitCategoryToStorage(category);
+  const resumeRaw = url.searchParams.get("resumeIds");
+  let resumeIds: string[] | null = null;
+  if (resumeRaw !== null) {
+    const parsed = resumeRaw.split(",").filter(Boolean);
+    if (
+      parsed.length === 0 ||
+      parsed.length > MAX_STUDY_SESSION_WORDS ||
+      new Set(parsed).size !== parsed.length ||
+      parsed.some((id) => id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id))
+    ) {
+      return NextResponse.json({ error: "resumeIds 无效" }, { status: 400 });
+    }
+    resumeIds = parsed;
+  }
 
   // 计算解锁状态：单元模式用于拦截被锁单元；全局模式用于过滤新词来源。
   const { unitUnlock, unlockedKeys } = await computeUnlockInfo(userId);
+  const unlockedCats = unlockedCategoryFilters(unlockedKeys);
 
   if (unitMode) {
     // 守卫：通过 URL 直接访问被锁单元时拦截。
@@ -135,11 +179,61 @@ export async function GET(req: Request) {
     };
   };
   let queue: QueueItem[] = [];
+  let resumedSession = false;
 
-  if (unitMode) {
+  // 恢复中的 session 必须沿用最初固定的词集合。一次成功 POST 会马上改变
+  // due/new/未掌握筛选结果，所以不能用重新计算出的动态队列来验证 checkpoint。
+  // 服务端按当前权限重新验证这些 id：单元模式只能恢复该单元；全局模式容许
+  // 既有 Review 或目前已解锁的新词。任何词被删除/移组时便放弃恢复并重算。
+  if (resumeIds) {
+    const resumeWords = await prisma.word.findMany({
+      where: {
+        id: { in: resumeIds },
+        ...(unitMode
+          ? { level: normalizeLevel(level), category: unitCategoryValue }
+          : {
+              // 与正常 global GET / POST 权限一致：到期复习可以来自后来
+              // 重新锁上的单元；只有从未学过的新词才要求目前已解锁。
+              OR: [
+                { reviews: { some: { userId } } },
+                ...unlockedCats,
+              ],
+            }),
+      },
+    });
+    if (resumeWords.length === resumeIds.length) {
+      resumedSession = true;
+      const wordMap = new Map(resumeWords.map((word) => [word.id, word]));
+      const reviews = await prisma.review.findMany({
+        where: { userId, wordId: { in: resumeIds } },
+      });
+      const reviewMap = new Map(reviews.map((review) => [review.wordId, review]));
+      queue = resumeIds.map((id) => {
+        const word = wordMap.get(id)!;
+        const review = reviewMap.get(id);
+        return {
+          reviewId: review?.id ?? null,
+          word,
+          state: review
+            ? {
+                easeFactor: review.easeFactor,
+                interval: review.interval,
+                repetitions: review.repetitions,
+                nextReviewDate: review.nextReviewDate,
+                lastReviewedAt: review.lastReviewedAt,
+              }
+            : createInitialState(),
+        };
+      });
+    }
+  }
+
+  if (queue.length > 0) {
+    // 固定 session queue 已在上面按 checkpoint 顺序恢复，无需再抽样或洗牌。
+  } else if (unitMode) {
     // ── 单元练习模式：取出该单元全部单词 ──
     const unitWords = await prisma.word.findMany({
-      where: { level: normalizeLevel(level), category },
+      where: { level: normalizeLevel(level), category: unitCategoryValue },
       orderBy: { term: "asc" },
     });
     const unitWordIds = unitWords.map((w) => w.id);
@@ -206,7 +300,9 @@ export async function GET(req: Request) {
     };
     const byRank: QueueItem[][] = [[], [], []];
     for (const q of queue) byRank[rank(q)].push(q);
-    queue = byRank.flatMap((g) => shuffle(g));
+    queue = byRank
+      .flatMap((g) => shuffle(g))
+      .slice(0, MAX_STUDY_SESSION_WORDS);
   } else {
     // ── 默认全局模式：到期待复习 + 新词 ──
     // 1. 取出到期的 Review（待复习单词）。
@@ -247,14 +343,6 @@ export async function GET(req: Request) {
     // 查询直接下推到 DB：按已解锁的 (level, category) 组合过滤，避免全表拉取
     // 数千个未复习词再在内存过滤。category 为 null 的单词按 "未分类" 记键，
     // 与 computeUnlockInfo 一致。
-    const unlockedCats = [...unlockedKeys].map((k) => {
-      const sep = k.indexOf("::");
-      return {
-        level: normalizeLevel(k.slice(0, sep)),
-        category: k.slice(sep + 2) === "未分类" ? null : k.slice(sep + 2),
-      };
-    });
-
     let newWords: Word[] = [];
     if (unlockedCats.length > 0) {
       const newWordsRaw = await prisma.word.findMany({
@@ -291,32 +379,32 @@ export async function GET(req: Request) {
     ];
   }
 
-  // 取干扰词池（用于「测试」阶段的选择题选项）
-  // 从词库中随机窗口取 40 个，客户端每次从中随机抽 3 个作干扰项
+  // 干扰词同样只可来自已解锁单元，避免响应泄露未解锁内容与可提交的 wordId。
   const queueWordIds = queue.map((q) => q.word.id);
   let pool: { id: string; term: string; definition: string }[] = [];
-  try {
-    const totalWords = await prisma.word.count();
-    const poolSize = Math.min(40, totalWords);
-    const skip =
-      totalWords > poolSize
-        ? Math.floor(Math.random() * (totalWords - poolSize))
-        : 0;
-    pool = await prisma.word.findMany({
-      where: { id: { notIn: queueWordIds } },
-      skip,
-      take: poolSize,
+  if (unlockedCats.length > 0) {
+    const candidates = await prisma.word.findMany({
+      where: {
+        id: { notIn: queueWordIds },
+        OR: unlockedCats,
+      },
       select: { id: true, term: true, definition: true },
-      orderBy: { term: "asc" },
     });
-  } catch {
-    pool = [];
+    pool = shuffle(candidates).slice(0, 40);
   }
 
   // 连续学习天数：随队列一起返回，前端用于展示 🔥 打卡徽章。
   const streak = await computeStreak(userId);
 
-  return NextResponse.json({ queue, pool, unitMode, level, category, streak });
+  return NextResponse.json({
+    queue,
+    pool,
+    unitMode,
+    level,
+    category,
+    streak,
+    resumedSession,
+  });
 }
 
 /** POST /api/study — 提交一次学习结果（认字评估手势 或 测试 quality） */
@@ -327,66 +415,326 @@ export async function POST(req: Request) {
   }
   const userId = (session.user as { id: string }).id;
 
-  const body = await req.json();
-  const { wordId, gesture, quality: qualityInput } = body as {
-    wordId: string;
-    gesture?: "left" | "right";
-    quality?: number;
-  };
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+  }
+  const input = body as Record<string, unknown>;
+  const wordId = typeof input.wordId === "string" ? input.wordId.trim() : "";
+  const suppliedOperationId =
+    typeof input.operationId === "string" ? input.operationId.trim() : "";
+  if (!wordId || wordId.length > 128) {
+    return NextResponse.json({ error: "wordId 无效" }, { status: 400 });
+  }
+  const requireOperationId = process.env.REQUIRE_STUDY_OPERATION_ID === "1";
+  if (
+    (suppliedOperationId &&
+      !/^[A-Za-z0-9:_-]{8,200}$/.test(suppliedOperationId)) ||
+    (!suppliedOperationId && requireOperationId)
+  ) {
+    return NextResponse.json({ error: "operationId 无效" }, { status: 400 });
+  }
+
+  const hasQuality = Object.prototype.hasOwnProperty.call(input, "quality");
+  const hasGesture = Object.prototype.hasOwnProperty.call(input, "gesture");
+  if (hasQuality === hasGesture) {
+    return NextResponse.json(
+      { error: "必须且只能提供 quality 或 gesture" },
+      { status: 400 },
+    );
+  }
 
   // 优先使用测试阶段直接传入的 quality（0~5），精确反映掌握程度；
   // 兼容旧的认字评估阶段（仅传 gesture）。
   let quality: Quality;
-  if (
-    typeof qualityInput === "number" &&
-    Number.isInteger(qualityInput) &&
-    qualityInput >= 0 &&
-    qualityInput <= 5
-  ) {
-    quality = qualityInput as Quality;
+  if (hasQuality) {
+    if (
+      typeof input.quality !== "number" ||
+      !Number.isInteger(input.quality) ||
+      input.quality < 0 ||
+      input.quality > 5
+    ) {
+      return NextResponse.json({ error: "quality 无效" }, { status: 400 });
+    }
+    quality = input.quality as Quality;
   } else {
-    quality = gestureToQuality(gesture ?? "left");
+    if (input.gesture !== "left" && input.gesture !== "right") {
+      return NextResponse.json({ error: "gesture 无效" }, { status: 400 });
+    }
+    quality = gestureToQuality(input.gesture);
   }
 
-  // 用 (userId, wordId) 这个【业务唯一约束】来查是否已存在，
-  // 不依赖客户端传的 id（前端状态可能丢失/重复提交，会导致 create 撞唯一约束 500）。
-  const existing = await prisma.review.findUnique({
-    where: { userId_wordId: { userId, wordId } },
-  });
+  // 新客户端必须提供稳定 UUID，走严格 exactly-once。发布期间仍开着的 v1 tab
+  // 没有 id；compat 模式以最近十分钟同 user/word/quality 作有界去重，先防止旧
+  // outbox 收到 400 后删除答案。它是 rollout 兼容层，不宣称严格 exactly-once；
+  // 兼容期后设置 REQUIRE_STUDY_OPERATION_ID=1 即关闭。
+  const legacyReplayAfter = suppliedOperationId
+    ? undefined
+    : new Date(Date.now() - 10 * 60_000);
+  const operationId = suppliedOperationId || `legacy-v1:${randomUUID()}`;
 
-  const prevState = existing
-    ? {
-        easeFactor: existing.easeFactor,
-        interval: existing.interval,
-        repetitions: existing.repetitions,
-        nextReviewDate: existing.nextReviewDate,
-        lastReviewedAt: existing.lastReviewedAt,
-      }
-    : createInitialState();
+  // 已完成 operation 的安全 replay 不消耗写入 rate limit。仍会核对完整
+  // fingerprint；transaction 内保留第二次检查，防止 preflight 后的竞态。
+  const processed = suppliedOperationId
+    ? await prisma.reviewEvent.findUnique({
+        where: { userId_operationId: { userId, operationId } },
+      })
+    : await prisma.reviewEvent.findFirst({
+        where: {
+          userId,
+          submittedWordId: wordId,
+          isHistorical: false,
+          createdAt: { gte: legacyReplayAfter },
+          OR: [
+            { operationId: { startsWith: "legacy-v1:" }, quality },
+            { operationId: { startsWith: "cutover:" }, quality: -1 },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+      });
+  if (processed) {
+    const unknownTombstone =
+      processed.wordId === null &&
+      processed.submittedWordId.startsWith("unknown:");
+    const cutoverSentinel =
+      !suppliedOperationId &&
+      processed.operationId.startsWith("cutover:") &&
+      processed.quality === -1;
+    if (
+      (!unknownTombstone && processed.submittedWordId !== wordId) ||
+      (!cutoverSentinel && processed.quality !== quality)
+    ) {
+      return NextResponse.json(
+        { error: "operationId 已用于不同的学习记录" },
+        { status: 409 },
+      );
+    }
+    const review = unknownTombstone
+      ? null
+      : await prisma.review.findUnique({
+          where: {
+            userId_wordId: { userId, wordId: processed.submittedWordId },
+          },
+        });
+    const streak = await computeStreak(userId);
+    return NextResponse.json({
+      ok: true,
+      nextState: review ? reviewStateFromRow(review) : null,
+      newlyUnlocked: achievementsForKeys(processed.newlyUnlockedKeys),
+      duplicate: true,
+      streak,
+    });
+  }
 
-  const nextState = updateSM2(prevState, quality);
+  const rate = await checkStudyRate(userId);
+  if (!rate.ok) {
+    return NextResponse.json(
+      { error: "学习提交过于频繁，请稍后再试" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSec ?? 60) },
+      },
+    );
+  }
 
-  // upsert 原子地处理「已存在则更新 / 不存在则创建」，彻底避免并发重复提交的约束冲突。
-  await prisma.review.upsert({
-    where: { userId_wordId: { userId, wordId } },
-    create: {
+  let result;
+  try {
+    result = await applyReviewEvent({
       userId,
       wordId,
-      ...nextState,
-      totalReviews: 1,
-    },
-    update: {
-      ...nextState,
-      totalReviews: { increment: 1 },
-    },
-  });
-
-  // 打卡：完成一次有效学习（测试答对并提交）即记为「今天学过」，用于连续学习天数。
-  // upsert 幂等——同一天多次提交只保留一条打卡记录。
-  await checkInStudyDay(userId);
+      quality,
+      operationId,
+      legacyReplayAfter,
+    });
+  } catch (error) {
+    if (error instanceof StudyRequestError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
   const streak = await computeStreak(userId);
-  // 成就检查：打卡后检查并解锁可能达成的新成就（幂等），返回本次新解锁的。
-  const newlyUnlocked = await checkAchievements(userId);
 
-  return NextResponse.json({ ok: true, nextState, streak, newlyUnlocked });
+  return NextResponse.json({ ok: true, ...result, streak });
+}
+
+class StudyRequestError extends Error {
+  constructor(
+    public readonly status: 403 | 404 | 409,
+    message: string,
+  ) {
+    super(message);
+    this.name = "StudyRequestError";
+  }
+}
+
+function reviewStateFromRow(row: {
+  easeFactor: number;
+  interval: number;
+  repetitions: number;
+  nextReviewDate: Date;
+  lastReviewedAt: Date | null;
+}) {
+  return {
+    easeFactor: row.easeFactor,
+    interval: row.interval,
+    repetitions: row.repetitions,
+    nextReviewDate: row.nextReviewDate,
+    lastReviewedAt: row.lastReviewedAt,
+  };
+}
+
+export async function applyReviewEvent(input: {
+  userId: string;
+  wordId: string;
+  quality: Quality;
+  operationId: string;
+  legacyReplayAfter?: Date;
+}) {
+  const MAX_TRANSACTION_ATTEMPTS = 5;
+  for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          let processed = await tx.reviewEvent.findUnique({
+            where: {
+              userId_operationId: {
+                userId: input.userId,
+                operationId: input.operationId,
+              },
+            },
+          });
+          if (!processed && input.legacyReplayAfter) {
+            processed = await tx.reviewEvent.findFirst({
+              where: {
+                userId: input.userId,
+                submittedWordId: input.wordId,
+                isHistorical: false,
+                createdAt: { gte: input.legacyReplayAfter },
+                OR: [
+                  {
+                    operationId: { startsWith: "legacy-v1:" },
+                    quality: input.quality,
+                  },
+                  {
+                    operationId: { startsWith: "cutover:" },
+                    quality: -1,
+                  },
+                ],
+              },
+              orderBy: { createdAt: "desc" },
+            });
+          }
+          if (processed) {
+            const unknownTombstone =
+              processed.wordId === null &&
+              processed.submittedWordId.startsWith("unknown:");
+            const cutoverSentinel =
+              Boolean(input.legacyReplayAfter) &&
+              processed.operationId.startsWith("cutover:") &&
+              processed.quality === -1;
+            if (
+              (!unknownTombstone &&
+                processed.submittedWordId !== input.wordId) ||
+              (!cutoverSentinel && processed.quality !== input.quality)
+            ) {
+              throw new StudyRequestError(
+                409,
+                "operationId 已用于不同的学习记录",
+              );
+            }
+            const review = unknownTombstone
+              ? null
+              : await tx.review.findUnique({
+                  where: {
+                    userId_wordId: {
+                      userId: input.userId,
+                      wordId: processed.submittedWordId,
+                    },
+                  },
+                });
+            return {
+              nextState: review ? reviewStateFromRow(review) : null,
+              newlyUnlocked: achievementsForKeys(
+                processed.newlyUnlockedKeys,
+              ),
+              duplicate: true,
+            };
+          }
+
+          const word = await tx.word.findUnique({
+            where: { id: input.wordId },
+            select: { term: true, level: true, category: true },
+          });
+          if (!word) throw new StudyRequestError(404, "单词不存在");
+
+          const existing = await tx.review.findUnique({
+            where: {
+              userId_wordId: {
+                userId: input.userId,
+                wordId: input.wordId,
+              },
+            },
+          });
+          if (!existing) {
+            // 授权读取与状态写入在同一个 Serializable transaction 内；并发请求
+            // 改变前置单元掌握状态时，本交易会冲突重试并重新计算解锁。
+            const unlockInfo = await computeUnlockInfo(input.userId, tx);
+            const unitKey = `${word.level}::${word.category ?? "未分类"}`;
+            if (unlockInfo.unitUnlock[unitKey] !== true) {
+              throw new StudyRequestError(403, "该单元尚未解锁");
+            }
+          }
+          const previousState = existing
+            ? reviewStateFromRow(existing)
+            : createInitialState();
+          const nextState = updateSM2(previousState, input.quality);
+
+          // 告知 cutover trigger 这是一笔会由 v2 代码显式写 ledger 的交易。
+          await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v2', true)`;
+          await tx.review.upsert({
+            where: {
+              userId_wordId: {
+                userId: input.userId,
+                wordId: input.wordId,
+              },
+            },
+            create: {
+              userId: input.userId,
+              wordId: input.wordId,
+              ...nextState,
+              totalReviews: 1,
+            },
+            update: {
+              ...nextState,
+              totalReviews: { increment: 1 },
+            },
+          });
+
+          await checkInStudyDay(input.userId, tx);
+          const newlyUnlocked = await checkAchievements(input.userId, tx);
+          await tx.reviewEvent.create({
+            data: {
+              userId: input.userId,
+              submittedWordId: input.wordId,
+              wordId: input.wordId,
+              wordTerm: word.term,
+              wordLevel: word.level,
+              operationId: input.operationId,
+              quality: input.quality,
+              newlyUnlockedKeys: newlyUnlocked.map((a) => a.key),
+            },
+          });
+
+          return { nextState, newlyUnlocked, duplicate: false };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      const retryable =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === "P2034" || error.code === "P2002");
+      if (!retryable || attempt === MAX_TRANSACTION_ATTEMPTS) throw error;
+    }
+  }
+  throw new Error("Review transaction retry exhausted");
 }

@@ -20,11 +20,12 @@ You can start editing the page in `src/app/`. The page auto-updates as you edit 
 
 ## 环境变量（Environment Variables）
 
-复制 `.env.example` 为 `.env` 并按需填写：
+复制 `.env.example` 为 `.env.local` 并按需填写：
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `DATABASE_URL` | ✅ | Prisma 数据库连接串（本地 SQLite 或生产 PostgreSQL） |
+| `DATABASE_URL` | ✅ | 应用运行时 PostgreSQL 连接串 |
+| `MIGRATE_URL` | ✅（迁移/seed） | PostgreSQL Session/direct 连接串；不会回退到 runtime URL |
 | `NEXTAUTH_SECRET` | ✅ | JWT 签名密钥，生产请用 `openssl rand -base64 32` |
 | `NEXTAUTH_URL` | ✅ | 应用根 URL（本地为 `http://localhost:3000`） |
 | `UPSTASH_REDIS_REST_URL` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST URL |
@@ -33,7 +34,8 @@ You can start editing the page in `src/app/`. The page auto-updates as you edit 
 ### 登录限流（Upstash Redis）
 
 登录限流基于 `@upstash/ratelimit` + `@upstash/redis`，按「账号」与「来源 IP」双维度
-滑动窗口限流：**同一账号或同一 IP 每 1 分钟最多 5 次登录尝试**，超出即拒绝并返回剩余等待秒数。
+滑动窗口限流：**同一账号每分钟最多 5 次、同一来源 IP 每分钟最多 120 次**。
+账号桶负责防暴力破解；较宽的 IP 桶只作预认证防洪，避免同一校园/NAT 下正常集体登录被误封。
 分布式存储确保 Serverless / 多实例（如 Vercel）部署下计数共享、无法被绕过。
 
 **未配置** `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` 时，会自动降级为

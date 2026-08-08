@@ -3,6 +3,10 @@ import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES, DEFAULT_ROLE, isRole, type Role } from "@/lib/roles";
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from "@/lib/password-policy";
 
 /**
  * 用户查询统一用到的字段。给 select 显式声明 Prisma.UserSelect 类型，
@@ -14,7 +18,7 @@ const USER_SELECT = {
   name: true,
   role: true,
   createdAt: true,
-  _count: { select: { reviews: true } },
+  _count: { select: { reviewEvents: true } },
 } satisfies Prisma.UserSelect;
 
 export async function GET() {
@@ -33,7 +37,7 @@ export async function GET() {
         email: u.email,
         name: u.name,
         role: u.role,
-        totalReviews: u._count.reviews,
+        totalReviews: u._count.reviewEvents,
         createdAt: u.createdAt.toISOString(),
       }))
     );
@@ -56,9 +60,12 @@ export async function POST(req: Request) {
     const role: Role = isRole(body.role) ? body.role : DEFAULT_ROLE;
 
     if (!email) return NextResponse.json({ error: "账号不能为空" }, { status: 400 });
-    if (password.length < 6)
-      return NextResponse.json({ error: "密码至少 6 位" }, { status: 400 });
-    if (password.length > 128)
+    if (password.length < MIN_PASSWORD_LENGTH)
+      return NextResponse.json(
+        { error: `密码至少 ${MIN_PASSWORD_LENGTH} 位` },
+        { status: 400 },
+      );
+    if (password.length > MAX_PASSWORD_LENGTH)
       return NextResponse.json({ error: "密码过长" }, { status: 400 });
 
     const exists = await prisma.user.findUnique({ where: { email } });
@@ -77,12 +84,18 @@ export async function POST(req: Request) {
         email: user.email,
         name: user.name,
         role: user.role,
-        totalReviews: user._count.reviews,
+        totalReviews: user._count.reviewEvents,
         createdAt: user.createdAt.toISOString(),
       },
       { status: 201 }
     );
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json({ error: "该账号已存在" }, { status: 409 });
+    }
     return NextResponse.json({ error: "创建用户失败" }, { status: 500 });
   }
 }

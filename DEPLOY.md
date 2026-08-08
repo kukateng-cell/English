@@ -32,7 +32,9 @@ Prisma 在两种场景用不同的连接方式，所以需要**两个环境变�
 | `DATABASE_URL` | **Transaction pooler**（PgBouncer 事务模式） | 6543 | `src/lib/prisma.ts`（运行时） | serverless 短连接多，pooler 复用连接，避免耗尽 |
 | `MIGRATE_URL`  | **Session pooler**（同一个 pooler 域名，5432） | 5432 | `prisma.config.ts` / `seed.ts`（migrate / seed） | Transaction pooler（6543）不支持 DDL / prepared statements，跑 `migrate deploy` / seed 会卡死；**Session pooler（5432，带 `?pgbouncer=true`）支持 DDL** |
 
-两者用户名都是 `postgres.<REF>` 格式（pooler 要求）。`prisma.config.ts` 读取 `MIGRATE_URL ?? DATABASE_URL`，所以本地只要在 `.env.local` 同时设好这两个即可。
+两者用户名都是 `postgres.<REF>` 格式（pooler 要求）。运行时只读取
+`DATABASE_URL`；迁移与 seed 必须显式提供 `MIGRATE_URL`，两者不会互相回退，
+避免把生产 DDL 权限意外带进 build 或一般运行环境。
 
 ---
 
@@ -88,6 +90,7 @@ SEED_STUDENTS=1
 # 学生预设密码（student01..40 共用；不设置则 seed 自动生成强随机密码并打印到控制台）
 SEED_STUDENT_DEFAULT_PASSWORD="english123"
 TEST_ACCOUNT_PASSWORD="你的测试账号密码"
+SEED_TEST_ACCOUNT=0
 
 # 管理员 / 教师账号初始密码（必填；seed 时创建 admin / teacher 这两个账号）
 INITIAL_ADMIN_PASSWORD="你的管理员初始密码"
@@ -116,11 +119,15 @@ npm run db:deploy
 ```
 
 这会用 `MIGRATE_URL`（Session pooler，5432）连 Supabase，按顺序执行 `prisma/migrations/` 里的全部迁移。
-完成后去 Supabase → **Table Editor** 应该能看到 `User` / `Word` / `Review` 三张表，以及 `Level` / `Role` 两个 enum。
+完成后去 Supabase → **Table Editor** 应该能看到 `User` / `Word` / `Review` / `ReviewEvent` 等表，以及 `Level` / `Role` 两个 enum。
 
 > ⚠️ **不要用 `npx prisma db push` 建表**。`db push` 只改表结构、不写迁移历史，会让 `_prisma_migrations` 与真实库结构脱节（本项目早期就是因此出现过 migration 重复 / `migrate status` 不一致等问题）。新环境一律用 `migrate deploy`，保证迁移历史可由空库重放。
 >
-> 已在全新空数据库上实测：5 个迁移可由头到尾全部成功（不再出现 `type "Role" already exists` / `column "role" already exists`），seed 也能正常导入。详见 `PLAN.md` 的「迁移历史」一节。
+> 迁移必须可由全新空数据库从头重放；CI／发布 gate 会在部署前完成代码检查。
+> `npm run db:deploy` 亦会先比较数据库已套用 migration 的 SHA-256 checksum 与
+> 仓库文件；任何已发布 migration 被改写都会立即中止。不要手改
+> `_prisma_migrations`。若某个开发库曾套用未定稿 migration，请保留原库作备份，
+> 将资料迁到由当前仓库从空 schema 建立的 canonical 环境，再切换连接串。
 
 ### 2.4 导入单词数据 + 账号
 
@@ -134,6 +141,8 @@ npm run seed
 - 管理员账号 `admin`、教师账号 `teacher`（密码 = 你设的 `INITIAL_ADMIN_PASSWORD`）
 - `student01` ~ `student40`（密码 = 你设的 `SEED_STUDENT_DEFAULT_PASSWORD`；未设置则 seed 自动生成强随机密码并打印到控制台。需在 `.env.local` 设 `SEED_STUDENTS=1` 才会创建）
 - 测试账号 `qa-4347e0aa14`（密码是你设的 `TEST_ACCOUNT_PASSWORD`）
+
+测试账号只有在 `SEED_TEST_ACCOUNT=1` 时才会创建；生产必须保持为 `0`。
 
 > ⚠️ `INITIAL_ADMIN_PASSWORD` 必填；未设置时 seed 会直接抛错中止（安全审计要求：禁止硬编码密码）。
 
@@ -171,20 +180,44 @@ git push
    | Name | Value | 说明 |
    |------|-------|------|
    | `DATABASE_URL` | （第 1 步的 Transaction pooler，6543） | 运行时连库 |
-   | `MIGRATE_URL`  | （第 1 步的 Session pooler，5432，带 `?pgbouncer=true`） | 构建期 / 本地 migrate / seed 用（**可选**：Vercel 构建默认只 `generate`，不同步 schema） |
+   | `MIGRATE_URL`  | 不要填入 Vercel Preview / Runtime | 只存入 GitHub `production` environment secret；build 不可持有 DDL 凭证 |
    | `NEXTAUTH_SECRET` | （和本地一样的那串） | 生产环境要重新生成一串新的也行 |
    | `NEXTAUTH_URL` | `https://你的应用名.vercel.app` | 部署后 Vercel 会给你域名；**首次可先留空或填预计域名，部署拿到真实域名后再回来改** |
    | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
-   | `TEST_ACCOUNT_PASSWORD` | （和本地一样） | 可选 |
+   | `SEED_TEST_ACCOUNT` | `0` | 生产不可自动建立测试账号 |
+   | `REQUIRE_STUDY_OPERATION_ID` | 首轮 `0`，兼容期后 `1` | 两阶段关闭旧学习页兼容层 |
 
-   > 勾选所有环境（Production / Preview / Development）。
+   > `DATABASE_URL` / `NEXTAUTH_*` 按需要勾选环境；`MIGRATE_URL` 不可放进 Vercel。
 
 6. **Build & Development Settings**：保持默认即可
    - `postinstall` 脚本会自动跑 `prisma generate` 生成 Client
    - Build Command 维持 `next build`
 7. 点 **Deploy**，等 1~3 分钟
 
-### 4.1 修正 NEXTAUTH_URL（重要）
+### 4.1 生产迁移与发布门闩
+
+正式启用后，请在 Vercel 关闭 `main` 的自动 Production deployment。把 Vercel 的
+`VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`，以及 Session pooler 的
+`MIGRATE_URL` 保存为 GitHub `production` environment secrets。之后每次发布只从
+`main` 运行 GitHub Actions 的
+**Migrate and deploy production**：workflow 会先执行全部 migration，成功后才触发
+Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 promotion，亦
+不会出现「一个 SHA 做 migration、另一个 SHA 被 Deploy Hook 发布」的问题。
+
+本次 `ReviewEvent` 迁移采用 expand/contract bridge：数据库 trigger 会捕捉仍在运行
+的旧版本写入，迁移结束亦会再核对补齐 snapshot gap；新版 transaction 会设置标记，
+避免 trigger 与应用双写。部署期间无需假装旧流量不存在，累计次数不会漏失。
+
+首次发布本修正时把 `REQUIRE_STUDY_OPERATION_ID=0`：新页面一律提交 UUID，部署前
+已经打开、尚未 reload 的旧页面则由 API 用最近十分钟的 user/word/quality 事件作
+有界兼容去重，避免旧 outbox 因 400 而删除答案。观察至少一个既定兼容期并确认
+旧版本流量归零后，把变量改为 `1` 再发布；此后无 operationId 的请求会被拒绝，
+所有受支持客户端均为严格 exactly-once。兼容层只用于避免旧答案因 400 被删除，
+采用 bounded at-most-once 取舍：同一旧客户端在十分钟内对同词提交相同 quality 的
+真实第二次练习可能被合并。因此兼容期应尽量短，亦不可把此层描述成严格
+exactly-once 或完全无损。
+
+### 4.2 修正 NEXTAUTH_URL（重要）
 
 部署完成后，Vercel 会给你一个域名（如 `https://english-xxx.vercel.app`）：
 
@@ -219,7 +252,7 @@ Vercel 是 serverless，每个请求可能新建数据库连接。**Transaction 
 1. 本地改 `prisma/schema.prisma`。
 2. 生成迁移：`npx prisma migrate dev --name <说明>`（本地开发库用）；或在已上线库上手写迁移文件 + `npx prisma migrate deploy`。
 3. 重新生成 Client：`npx prisma generate`（**每次改 schema 后必做**，否则 `src/generated/prisma` 过时会引发运行时海异故障）。
-4. Vercel 上 `postinstall` 只 `generate` Client，**不同步 schema**——schema 变更要在本地 / CI 用 `migrate deploy` 先推到 Supabase。
+4. Vercel 上 `postinstall` 只 `generate` Client，**不同步 schema**。使用 `.github/workflows/deploy-production.yml` 的 production environment gate；它先以 `MIGRATE_URL` 执行 `npm run db:deploy`，成功后才以 Vercel CLI 发布同一 checkout。不要在 Preview 或 build 阶段迁移正式数据库。
 
 > 切勿用 `npx prisma db push` 同步生产 schema：它不写迁移历史，会造成 `_prisma_migrations` 与真实库脱节。
 

@@ -43,15 +43,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   //（该规则只标记 effect body 内直接同步调用的 setState，不标记 IIFE 内的）。
   useEffect(() => {
     (async () => {
-      const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-      const initial: Theme =
-        stored === "light" || stored === "dark"
-          ? stored
-          : window.matchMedia("(prefers-color-scheme: dark)").matches
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
+        const initial: Theme =
+          stored === "light" || stored === "dark"
+            ? stored
+            : window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        setThemeState(initial);
+      } catch {
+        // localStorage 被浏览器策略禁用时仍采用系统偏好，并完成挂载。
+        setThemeState(
+          window.matchMedia("(prefers-color-scheme: dark)").matches
             ? "dark"
-            : "light";
-      setThemeState(initial);
-      setMounted(true);
+            : "light",
+        );
+      } finally {
+        setMounted(true);
+      }
     })();
   }, []);
 

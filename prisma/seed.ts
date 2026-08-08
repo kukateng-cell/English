@@ -14,14 +14,21 @@ import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Level } from "../src/generated/prisma";
 import { ROLES } from "../src/lib/roles";
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from "../src/lib/password-policy";
 
 // seed 是独立脚本（tsx 运行），不会自动读环境变量，手动加载 .env.local。
 dotenv.config({ path: ".env.local" });
 
-// Seed 用 Session pooler（MIGRATE_URL，5432，支持长事务）；运行时才用 6543 的 DATABASE_URL。
+// Seed 会写入大量资料，必须显式使用 Session/direct connection；绝不回退 runtime URL。
+if (!process.env.MIGRATE_URL) {
+  throw new Error("执行 seed 必须显式设置 MIGRATE_URL。");
+}
 const prisma = new PrismaClient({
   adapter: new PrismaPg({
-    connectionString: process.env.MIGRATE_URL ?? process.env.DATABASE_URL,
+    connectionString: process.env.MIGRATE_URL,
   }),
 });
 
@@ -42,7 +49,11 @@ const STUDENT_COUNT = 40;
  */
 function resolveStudentPassword(): { password: string; fromEnv: boolean } {
   const fromEnv = process.env.SEED_STUDENT_DEFAULT_PASSWORD;
-  if (fromEnv && fromEnv.trim().length >= 8) {
+  if (
+    fromEnv &&
+    fromEnv.trim().length >= MIN_PASSWORD_LENGTH &&
+    fromEnv.trim().length <= MAX_PASSWORD_LENGTH
+  ) {
     return { password: fromEnv.trim(), fromEnv: true };
   }
   // 未提供或强度不足：生成 24 字节 base64 随机密码（~192 bit 熵）。
@@ -87,19 +98,24 @@ async function seedStudents() {
 }
 
 // ── 测试 / 管理员种子账号 ──
-// 账号名随机生成、难以被猜中，专供内部测试功能使用；未来需要时可升级为管理员。
-// 生产环境可通过环境变量 TEST_ACCOUNT_PASSWORD 覆盖密码，避免密码进入版本库。
+// 内部测试账号必须显式 opt-in，且密码只可来自环境变量；生产默认完全不创建。
 const TEST_ACCOUNT = "qa-4347e0aa14";
-const TEST_ACCOUNT_PASSWORD =
-  process.env.TEST_ACCOUNT_PASSWORD ?? "e8yJ4F+bZso&aKxnC3pjzBVp";
 
-async function seedTestAccount() {
-  const hash = await bcrypt.hash(TEST_ACCOUNT_PASSWORD, 12);
+async function seedTestAccount(password: string) {
+  const hash = await bcrypt.hash(password, 12);
   const existing = await prisma.user.findUnique({
     where: { email: TEST_ACCOUNT },
   });
   if (existing) {
-    console.log(`Test account already exists: ${TEST_ACCOUNT}`);
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        passwordHash: hash,
+        tokenVersion: { increment: 1 },
+        mustChangePassword: false,
+      },
+    });
+    console.log(`Test account password rotated: ${TEST_ACCOUNT}`);
     return;
   }
   await prisma.user.create({
@@ -117,35 +133,36 @@ async function seedTestAccount() {
 // ── 管理员 / 教师种子账号 ──
 // 通过 CLI seed 创建，取代旧的公开 HTTP 端点 /api/seed-roles（避免无鉴权提权）。
 // 初始密码必须来自环境变量 INITIAL_ADMIN_PASSWORD，严禁硬编码（安全审计要求）。
-// 使用 upsert：账号已存在时仅校正角色，绝不覆盖密码——尊重管理员可能已自行修改的密码。
+// 账号已存在时仅校正角色，绝不覆盖密码；角色变化会撤销旧 JWT。
 async function seedRoles(password: string) {
   const hash = await bcrypt.hash(password, 12);
 
-  const admin = await prisma.user.upsert({
-    where: { email: "admin" },
-    create: {
-      email: "admin",
-      passwordHash: hash,
-      name: "管理员",
-      role: ROLES.ADMIN,
-      // 管理员账号不强制改密碼（密码来自 INITIAL_ADMIN_PASSWORD 环境变量）。
-      mustChangePassword: false,
-    },
-    update: { role: ROLES.ADMIN },
-  });
+  const ensureRole = async (
+    email: string,
+    name: string,
+    role: typeof ROLES.ADMIN | typeof ROLES.TEACHER,
+  ) => {
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (!existing) {
+      return prisma.user.create({
+        data: {
+          email,
+          passwordHash: hash,
+          name,
+          role,
+          mustChangePassword: false,
+        },
+      });
+    }
+    if (existing.role === role) return existing;
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: { role, tokenVersion: { increment: 1 } },
+    });
+  };
 
-  const teacher = await prisma.user.upsert({
-    where: { email: "teacher" },
-    create: {
-      email: "teacher",
-      passwordHash: hash,
-      name: "王老师",
-      role: ROLES.TEACHER,
-      // 教师账号不强制改密碼。
-      mustChangePassword: false,
-    },
-    update: { role: ROLES.TEACHER },
-  });
+  const admin = await ensureRole("admin", "管理员", ROLES.ADMIN);
+  const teacher = await ensureRole("teacher", "王老师", ROLES.TEACHER);
 
   console.log(
     `Roles seeded: admin (id=${admin.id}), teacher (id=${teacher.id})`,
@@ -155,9 +172,13 @@ async function seedRoles(password: string) {
 async function main() {
   // 初始密码必须由环境变量提供，严禁硬编码（安全审计要求）。
   const initialPassword = process.env.INITIAL_ADMIN_PASSWORD;
-  if (!initialPassword) {
+  if (
+    !initialPassword ||
+    initialPassword.length < MIN_PASSWORD_LENGTH ||
+    initialPassword.length > MAX_PASSWORD_LENGTH
+  ) {
     throw new Error(
-      "INITIAL_ADMIN_PASSWORD 未设置：请在 .env.local 中配置初始密码后再运行 seed。",
+      `INITIAL_ADMIN_PASSWORD 必须为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`,
     );
   }
 
@@ -313,7 +334,18 @@ async function main() {
   if (process.env.SEED_STUDENTS === "1") {
     await seedStudents();
   }
-  await seedTestAccount();
+  if (process.env.SEED_TEST_ACCOUNT === "1") {
+    const testPassword = process.env.TEST_ACCOUNT_PASSWORD ?? "";
+    if (
+      testPassword.length < MIN_PASSWORD_LENGTH ||
+      testPassword.length > MAX_PASSWORD_LENGTH
+    ) {
+      throw new Error(
+        `SEED_TEST_ACCOUNT=1 时，TEST_ACCOUNT_PASSWORD 必须为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`,
+      );
+    }
+    await seedTestAccount(testPassword);
+  }
 
   await prisma.$disconnect();
 }

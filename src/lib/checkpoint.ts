@@ -5,9 +5,8 @@
  * 推送下一个词。用户每完成一步都会写入存档点；若中途离开页面（例如有
  * 急事），下次回到答题页时可从「下一个未做的词」继续，无需从头再来。
  *
- * 重要：存档点只记录「已完成词的边界」，不记录某个词进行到一半的状态。
- * 因此用户若在某个词的测试中途离开，回来时不会被强制回到「上次那个
- * 还没测完的词」，而是直接从下一个新词开始。
+ * 测试中的词并未完成，因此会记录 quiz target 与答错次数；恢复时继续该词，
+ * 不会把未写入 Review 的词误当成已完成。
  *
  * 存档范围：单个浏览器 + 单个上下文（全局队列 或 某个单元）。
  * 用 localStorage 存储，避免给数据库增加 schema 迁移负担；存档点天然
@@ -19,12 +18,14 @@
  */
 
 /** 阶段：仍在逐词学习中，或已全部完成。 */
-export type Phase = "assess" | "done";
+export type Phase = "assess" | "quiz" | "done";
 
 /** 一份可恢复的存档点。 */
 export interface Checkpoint {
   /** 结构版本号，升级字段时递增以作废旧存档。 */
   version: number;
+  /** 防止公用浏览器切换账号时跨用户恢复。 */
+  ownerId: string;
   /** 写入时间（仅用于排查，不参与恢复判定）。 */
   ts: number;
   phase: Phase;
@@ -48,6 +49,9 @@ export interface Checkpoint {
   unknownWordIds: string[];
   /** 累计测试统计。 */
   quizStats: { correct: number; wrong: number };
+  /** phase=quiz 时当前测试目标及已答错次数。 */
+  quizTargetId: string | null;
+  quizWrongCount: number;
   /**
    * 尚未完成测试的「不认识」词 id（延后测试队列）。
    * 恢复进度时据此重建 pendingQuizzes，避免恢复后这些词被静默跳过、
@@ -56,21 +60,108 @@ export interface Checkpoint {
   pendingQuizIds: string[];
 }
 
-const VERSION = 3;
+const VERSION = 4;
 const PREFIX = "study:checkpoint:";
 
-function keyFor(unitKey: string): string {
-  return PREFIX + unitKey;
+function keyFor(userId: string, unitKey: string): string {
+  return `${PREFIX}${encodeURIComponent(userId)}:${unitKey}`;
+}
+
+function isWordIdArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (id) =>
+        typeof id === "string" &&
+        id.length > 0 &&
+        id.length <= 128 &&
+        /^[A-Za-z0-9_-]+$/.test(id),
+    )
+  );
+}
+
+/** localStorage is untrusted/mutable; validate every field used by restoreProgress. */
+function isCheckpoint(
+  value: unknown,
+  userId: string,
+  unitKey: string,
+): value is Checkpoint {
+  if (typeof value !== "object" || value === null) return false;
+  const data = value as Record<string, unknown>;
+  const stats = data.quizStats as Record<string, unknown> | null;
+  if (
+    data.version !== VERSION ||
+    data.ownerId !== userId ||
+    data.unitKey !== unitKey ||
+    typeof data.ts !== "number" ||
+    !Number.isFinite(data.ts) ||
+    (data.phase !== "assess" &&
+      data.phase !== "quiz" &&
+      data.phase !== "done") ||
+    !Number.isInteger(data.currentIndex) ||
+    (data.currentIndex as number) < 0 ||
+    !isWordIdArray(data.queueSignature) ||
+    new Set(data.queueSignature).size !== data.queueSignature.length ||
+    (data.currentIndex as number) > data.queueSignature.length ||
+    !isWordIdArray(data.knownWordIds) ||
+    !isWordIdArray(data.unknownWordIds) ||
+    !isWordIdArray(data.pendingQuizIds) ||
+    (data.quizTargetId !== null && typeof data.quizTargetId !== "string") ||
+    !Number.isInteger(data.quizWrongCount) ||
+    (data.quizWrongCount as number) < 0 ||
+    typeof stats !== "object" ||
+    stats === null ||
+    !Number.isInteger(stats.correct) ||
+    (stats.correct as number) < 0 ||
+    !Number.isInteger(stats.wrong) ||
+    (stats.wrong as number) < 0
+  ) {
+    return false;
+  }
+  const queueIds = data.queueSignature as string[];
+  const knownIds = data.knownWordIds as string[];
+  const unknownIds = data.unknownWordIds as string[];
+  const pendingIds = data.pendingQuizIds as string[];
+  const queueSet = new Set(queueIds);
+  const knownSet = new Set(knownIds);
+  const targetId = data.quizTargetId as string | null;
+  if (
+    queueIds.length === 0 ||
+    new Set(knownIds).size !== knownIds.length ||
+    new Set(unknownIds).size !== unknownIds.length ||
+    new Set(pendingIds).size !== pendingIds.length ||
+    [...knownIds, ...unknownIds, ...pendingIds].some(
+      (id) => !queueSet.has(id),
+    ) ||
+    unknownIds.some((id) => knownSet.has(id)) ||
+    (targetId !== null &&
+      (!isWordIdArray([targetId]) || !queueSet.has(targetId))) ||
+    (data.phase === "quiz" && targetId === null) ||
+    (data.phase !== "quiz" && targetId !== null) ||
+    (targetId !== null && pendingIds.includes(targetId)) ||
+    (data.phase === "done" &&
+      (pendingIds.length !== 0 || data.currentIndex !== queueIds.length)) ||
+    (data.phase !== "done" && (data.currentIndex as number) >= queueIds.length)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** 读取某个上下文的存档点；不存在或解析失败返回 null。 */
-export function loadCheckpoint(unitKey: string): Checkpoint | null {
+export function loadCheckpoint(
+  userId: string,
+  unitKey: string,
+): Checkpoint | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(keyFor(unitKey));
+    const raw = window.localStorage.getItem(keyFor(userId, unitKey));
     if (!raw) return null;
-    const data = JSON.parse(raw) as Checkpoint;
-    if (data.version !== VERSION) return null;
+    const data = JSON.parse(raw) as unknown;
+    if (!isCheckpoint(data, userId, unitKey)) {
+      window.localStorage.removeItem(keyFor(userId, unitKey));
+      return null;
+    }
     return data;
   } catch {
     return null;
@@ -79,23 +170,39 @@ export function loadCheckpoint(unitKey: string): Checkpoint | null {
 
 /** 写入（覆盖）某个上下文的存档点。 */
 export function saveCheckpoint(
+  userId: string,
   unitKey: string,
-  cp: Omit<Checkpoint, "version" | "ts">,
-): void {
-  if (typeof window === "undefined") return;
+  cp: Omit<Checkpoint, "version" | "ts" | "ownerId">,
+): boolean {
+  if (typeof window === "undefined") return false;
   try {
-    const full: Checkpoint = { ...cp, version: VERSION, ts: Date.now() };
-    window.localStorage.setItem(keyFor(unitKey), JSON.stringify(full));
+    const full: Checkpoint = {
+      ...cp,
+      ownerId: userId,
+      version: VERSION,
+      ts: Date.now(),
+    };
+    window.localStorage.setItem(
+      keyFor(userId, unitKey),
+      JSON.stringify(full),
+    );
+    return true;
   } catch {
-    // localStorage 满或被禁用时静默跳过 —— 存档点是增强功能，不应阻断学习。
+    // 不可留下较旧 checkpoint，否则 outbox 已落地但重开后会再答同一词。
+    try {
+      window.localStorage.removeItem(keyFor(userId, unitKey));
+    } catch {
+      // 存储完全不可用；outbox 入队会阻止页面推进并显示明确错误。
+    }
+    return false;
   }
 }
 
 /** 清除某个上下文的存档点（完成 / 重新开始时调用）。 */
-export function clearCheckpoint(unitKey: string): void {
+export function clearCheckpoint(userId: string, unitKey: string): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(keyFor(unitKey));
+    window.localStorage.removeItem(keyFor(userId, unitKey));
   } catch {
     // 忽略
   }

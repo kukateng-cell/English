@@ -98,27 +98,22 @@ export const authOptions: NextAuthOptions = {
       // 前端 useSession / 服务端 getServerSession 随之视为未登录。
       const userId = token.id as string | undefined;
       if (userId) {
-        // 查库失败（DB 抖动）时 fail-open 放行，避免全体用户被误登出；
-        // 仅在「明确检测到用户已删除 / 版本不一致」时才销毁会话。
-        let dbUser: {
-          role: Role;
-          tokenVersion: number;
-          mustChangePassword: boolean;
-        } | null = null;
-        try {
-          dbUser = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { role: true, tokenVersion: true, mustChangePassword: true },
-          });
-        } catch {
-          return token;
-        }
+        // 会话有效性是安全判断：DB 无法验证时必须 fail-closed，不能继续信任
+        // 可能已被删除、降权或改密撤销的 30 天旧 JWT。
+        const dbUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { role: true, tokenVersion: true, mustChangePassword: true },
+        });
         if (!dbUser) {
           // 用户已被删除 → 会话失效。
           throw new Error("SESSION_INVALIDATED");
         }
-        if (dbUser.tokenVersion !== token.tokenVersion) {
-          // 版本号变化（改角色 / 重置密码）→ 旧会话失效，需重新登录。
+        if (
+          dbUser.tokenVersion !== token.tokenVersion ||
+          dbUser.role !== token.role
+        ) {
+          // 版本号或角色快照变化 → 旧会话失效。角色比较是纵深防御：即使某个
+          // 离线维护脚本漏了递增 tokenVersion，也不能继续信任旧的特权 JWT。
           throw new Error("SESSION_INVALIDATED");
         }
         // mustChangePassword 可能被用户自己（重设密码）或管理员修改，

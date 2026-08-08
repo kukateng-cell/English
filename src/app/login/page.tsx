@@ -5,6 +5,7 @@ import { signIn, useSession } from "next-auth/react";
 import Link from "next/link";
 import { ROLES, DEFAULT_ROLE } from "@/lib/roles";
 import { useLocale } from "@/components/LocaleProvider";
+import { safeCallbackPath } from "@/lib/safe-callback-url";
 
 export default function LoginPage() {
   const { tc } = useLocale();
@@ -38,15 +39,22 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await signIn("credentials", {
-      email: email.trim(),
-      password,
-      redirect: false,
-    });
+    let result;
+    try {
+      result = await signIn("credentials", {
+        email: email.trim(),
+        password,
+        redirect: false,
+      });
+    } catch {
+      setLoading(false);
+      setError("网络连接失败，请检查网络后重试");
+      return;
+    }
 
     setLoading(false);
 
-    if (result?.error) {
+    if (!result || result.error) {
       // NextAuth v4 CredentialsProvider 不透传具体错误原因（密码错 / 被锁），
       // 这里再查一次限流状态：被锁则显示倒计时并禁用按钮，避免用户无意义重试。
       try {
@@ -83,10 +91,9 @@ export default function LoginPage() {
         "callbackUrl",
       );
       // 安全檢查：只允許站內相對路徑，防止開放重導向（協議相對 URL //evil.com）
-      const safeCallback =
-        callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
-          ? callbackUrl
-          : null;
+      const safeCallback = callbackUrl
+        ? safeCallbackPath(callbackUrl, window.location.origin, "") || null
+        : null;
       // 用 window.location.replace 做整页跳转（而非 router.push）：
       // router.push + router.refresh 在部分手机浏览器上会相互竞争，导致跳转
       // 没生效、停在登录页甚至被带回首页。replace 是硬跳转、稳定可靠，且
@@ -96,18 +103,19 @@ export default function LoginPage() {
         const me = await fetch("/api/auth/session").then((r) => r.json());
         const role = (me?.user?.role as string) ?? DEFAULT_ROLE;
         const mustChangePassword = me?.user?.mustChangePassword === true;
+        const roleHome =
+          role === ROLES.ADMIN
+            ? "/admin"
+            : role === ROLES.TEACHER
+              ? "/teacher"
+              : "/study";
+        const postLoginTarget = safeCallback ?? roleHome;
         // 首次登入強制改密碼：优先引导到重设页（覆盖默认的角色跳转与 callbackUrl，
         // 避免用户带着预设密码进入系统）。
         if (mustChangePassword) {
-          target = "/reset-password";
-        } else if (safeCallback) {
-          target = safeCallback;
-        } else if (role === ROLES.ADMIN) {
-          target = "/admin";
-        } else if (role === ROLES.TEACHER) {
-          target = "/teacher";
+          target = `/reset-password?callbackUrl=${encodeURIComponent(postLoginTarget)}`;
         } else {
-          target = "/study";
+          target = postLoginTarget;
         }
       } catch {
         target = safeCallback ?? "/study";
@@ -170,7 +178,6 @@ export default function LoginPage() {
                 setError("");
               }}
               required
-              minLength={8}
               className="h-[48px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[15px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA] dark:focus:ring-[#60A5FA]/10"
             />
           </div>

@@ -9,7 +9,9 @@
  * - 今天未打卡但昨天打卡：显示「截至昨天」的连续天数（今天打卡即可 +1）；
  * - 断签（今天、昨天都未打卡）：count = 0。
  */
-import { prisma } from "@/lib/prisma";
+import { prisma, type Prisma } from "@/lib/prisma";
+
+type StreakDb = Pick<Prisma.TransactionClient, "studyDay">;
 
 /** 统一用东八区（Asia/Shanghai）计算「本地日期」，与目标用户（中文学生）一致。 */
 const TIME_ZONE = "Asia/Shanghai";
@@ -41,9 +43,12 @@ export function offsetDay(key: string, days: number): string {
 }
 
 /** 为用户打今天的卡（幂等：同一天只记一条）。 */
-export async function checkInStudyDay(userId: string): Promise<void> {
+export async function checkInStudyDay(
+  userId: string,
+  db: StreakDb = prisma,
+): Promise<void> {
   const date = todayKey();
-  await prisma.studyDay.upsert({
+  await db.studyDay.upsert({
     where: { userId_date: { userId, date } },
     create: { userId, date },
     update: {},
@@ -60,12 +65,19 @@ export interface StreakInfo {
 }
 
 /** 计算某用户的连续学习天数。 */
-export async function computeStreak(userId: string): Promise<StreakInfo> {
-  const days = await prisma.studyDay.findMany({
+export async function computeStreak(
+  userId: string,
+  db: StreakDb = prisma,
+): Promise<StreakInfo> {
+  const days = await db.studyDay.findMany({
     where: { userId },
     select: { date: true },
   });
   const dates = new Set(days.map((d) => d.date));
+  const lastDate = days.reduce<string | null>(
+    (latest, day) => (!latest || day.date > latest ? day.date : latest),
+    null,
+  );
   const today = todayKey();
   const yesterday = offsetDay(today, -1);
 
@@ -75,26 +87,25 @@ export async function computeStreak(userId: string): Promise<StreakInfo> {
   } else if (dates.has(yesterday)) {
     cursor = yesterday;
   } else {
-    return { count: 0, studiedToday: false, lastDate: null };
+    return { count: 0, studiedToday: false, lastDate };
   }
 
   let count = 0;
-  let last = cursor;
   while (dates.has(cursor)) {
     count++;
-    last = cursor;
     cursor = offsetDay(cursor, -1);
   }
-  return { count, studiedToday: dates.has(today), lastDate: last };
+  return { count, studiedToday: dates.has(today), lastDate };
 }
 
 /** 取某用户最近 n 天的打卡日期（按日期升序），供打卡日历展示。 */
 export async function fetchRecentStudyDays(
   userId: string,
   n: number,
+  db: StreakDb = prisma,
 ): Promise<string[]> {
   const since = offsetDay(todayKey(), -(n - 1));
-  const rows = await prisma.studyDay.findMany({
+  const rows = await db.studyDay.findMany({
     where: { userId, date: { gte: since } },
     select: { date: true },
     orderBy: { date: "asc" },

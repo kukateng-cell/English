@@ -4,6 +4,7 @@ import { useState } from "react";
 import Modal from "./Modal";
 import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
 import { useLocale } from "@/components/LocaleProvider";
+import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 
 export interface UserFormData {
   email: string;
@@ -67,12 +68,12 @@ export default function UserFormModal({
       setError("账号不能为空");
       return;
     }
-    if (!isEdit && password.length < 6) {
-      setError("密码至少 6 位");
+    if (!isEdit && password.length < MIN_PASSWORD_LENGTH) {
+      setError(`密码至少 ${MIN_PASSWORD_LENGTH} 位`);
       return;
     }
-    if (isEdit && password && password.length < 6) {
-      setError("新密码至少 6 位");
+    if (isEdit && password && password.length < MIN_PASSWORD_LENGTH) {
+      setError(`新密码至少 ${MIN_PASSWORD_LENGTH} 位`);
       return;
     }
 
@@ -170,7 +171,9 @@ export default function UserFormModal({
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={isEdit ? "••••••" : tc("至少 6 位")}
+            placeholder={
+              isEdit ? "••••••••" : tc(`至少 ${MIN_PASSWORD_LENGTH} 位`)
+            }
             className={inputClass}
           />
         </div>

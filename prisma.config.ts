@@ -17,10 +17,14 @@ export default defineConfig({
 
   // The datasource connection string is provided here (not in schema.prisma),
   // read from the environment. Prisma 7 requires this.
-  // db push / migrate / seed 必须用 Session pooler（MIGRATE_URL，5432端口）——
+  // db push / migrate 必须用 Session pooler（MIGRATE_URL，5432端口）——
   // Transaction pooler（DATABASE_URL，6543）是 PgBouncer 事务模式，不支持 DDL，会卡死。
   // 运行时（src/lib/prisma.ts）才用 6543 的 DATABASE_URL。
   datasource: {
-    url: process.env.MIGRATE_URL ?? process.env.DATABASE_URL,
+    // generate / build 不应持有生产 DDL 凭证。占位 URL 只让这些离线命令载入
+    // config；npm run db:deploy 会先强制检查 MIGRATE_URL，绝不回退 DATABASE_URL。
+    url:
+      process.env.MIGRATE_URL ??
+      "postgresql://invalid:invalid@localhost:5432/invalid",
   },
 });

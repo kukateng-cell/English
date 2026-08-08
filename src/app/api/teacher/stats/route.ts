@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { MASTERED_MIN_INTERVAL, isMasteredByInterval } from "@/lib/mastered";
+import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 import { todayStartUtc } from "@/lib/streak";
 
 export async function GET() {
@@ -57,7 +57,8 @@ export async function GET() {
     const byLevel = wordsByLevel.map((l) => ({
       level: l.level,
       mastered: masteredByLevel.get(l.level) ?? 0,
-      total: l._count,
+      // 分子是全班 student-word 数，分母亦须乘学生数，比例才不会超过 100%。
+      total: l._count * students.length,
     }));
 
     // ── 5. 今日活跃学生数（当天有 lastReviewedAt 的学生） ──
@@ -85,36 +86,34 @@ export async function GET() {
         : 0;
 
     // ── 7. 最近活跃学生（最近有复习记录的） ──
-    const recentReviews = await prisma.review.findMany({
+    const recentUsers = await prisma.review.groupBy({
+      by: ["userId"],
       where: {
         user: { role: ROLES.STUDENT },
         lastReviewedAt: { not: null },
       },
-      select: {
-        user: { select: { name: true, email: true } },
-        interval: true,
-      },
-      orderBy: { lastReviewedAt: "desc" },
-      take: 30,
+      _max: { lastReviewedAt: true },
+      orderBy: { _max: { lastReviewedAt: "desc" } },
+      take: 10,
     });
+    const recentIds = recentUsers.map((r) => r.userId);
+    const recentProfiles = await prisma.user.findMany({
+      where: { id: { in: recentIds } },
+      select: { id: true, name: true, email: true },
+    });
+    const profileById = new Map(recentProfiles.map((u) => [u.id, u]));
 
-    const recentMap = new Map<string, { name: string | null; email: string; mastered: number }>();
-    for (const r of recentReviews) {
-      const key = r.user.email;
-      if (!recentMap.has(key)) {
-        recentMap.set(key, { name: r.user.name, email: r.user.email, mastered: 0 });
-      }
-      if (isMasteredByInterval(r.interval)) recentMap.get(key)!.mastered++;
-    }
-
-    const recentActivity = [...recentMap.values()]
-      .slice(0, 10)
-      .map((s) => ({
-        name: s.name || s.email,
-        email: s.email,
+    const recentActivity = recentIds.flatMap((userId) => {
+      const user = profileById.get(userId);
+      if (!user) return [];
+      const mastered = masteredByUser.get(userId) ?? 0;
+      return [{
+        name: user.name || user.email,
+        email: user.email,
         level: "—",
-        progress: totalWords > 0 ? Math.round((s.mastered / totalWords) * 100) : 0,
-      }));
+        progress: totalWords > 0 ? Math.round((mastered / totalWords) * 100) : 0,
+      }];
+    });
 
     return NextResponse.json({
       totalStudents: students.length,

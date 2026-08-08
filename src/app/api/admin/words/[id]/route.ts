@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { normalizeLevelOrNull } from "@/lib/units";
+import { isLevel, normalizeLevel } from "@/lib/units";
 
 function toArray(v: unknown): string[] {
   if (Array.isArray(v)) {
@@ -53,11 +53,11 @@ export async function PATCH(
         return NextResponse.json({ error: "释义不能为空" }, { status: 400 });
       data.definition = definition;
     }
-    {
-      const lvl = normalizeLevelOrNull(body.level);
-      if (lvl) {
-        data.level = lvl;
+    if (body.level !== undefined) {
+      if (!isLevel(body.level)) {
+        return NextResponse.json({ error: "级别无效" }, { status: 400 });
       }
+      data.level = normalizeLevel(body.level);
     }
     if (typeof body.phonetic === "string")
       data.phonetic = body.phonetic.trim() || null;
@@ -85,7 +85,7 @@ export async function PATCH(
         definition: true,
         level: true,
         category: true,
-        _count: { select: { reviews: true } },
+        _count: { select: { reviewEvents: true } },
       },
     });
 
@@ -96,9 +96,21 @@ export async function PATCH(
       definition: word.definition,
       level: word.level,
       category: word.category,
-      reviewCount: word._count.reviews,
+      reviewCount: word._count.reviewEvents,
     });
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json({ error: "该单词已存在" }, { status: 409 });
+    }
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      return NextResponse.json({ error: "单词不存在" }, { status: 404 });
+    }
     return NextResponse.json({ error: "更新单词失败" }, { status: 500 });
   }
 }
@@ -114,7 +126,13 @@ export async function DELETE(
     const { id } = await params;
     await prisma.word.delete({ where: { id } });
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      return NextResponse.json({ error: "单词不存在" }, { status: 404 });
+    }
     return NextResponse.json({ error: "删除单词失败" }, { status: 500 });
   }
 }

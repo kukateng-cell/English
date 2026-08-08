@@ -13,36 +13,38 @@ datasource db {
 
 // ── 用户（账号+密码登录） ──
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String?
-  role         Role     @default(STUDENT)
+  id                 String            @id @default(cuid())
+  email              String            @unique
+  passwordHash       String
+  name               String?
+  role               Role              @default(STUDENT)
   // 角色变更令牌版本号：管理员修改用户角色时 +1，
   // jwt 回调据此在下次请求时刷新缓存的角色（实时生效机制）。
-  tokenVersion Int      @default(0)
+  tokenVersion       Int               @default(0)
   // 首次登入強制改密碼：seed 的學生帳號預設 true，重設密碼後設 false。
-  mustChangePassword Boolean @default(true)
-  createdAt    DateTime @default(now())
-  reviews      Review[]
-  studyDays    StudyDay[]
-  achievements UserAchievement[]
+  mustChangePassword Boolean           @default(true)
+  createdAt          DateTime          @default(now())
+  reviews            Review[]
+  reviewEvents       ReviewEvent[]
+  studyDays          StudyDay[]
+  achievements       UserAchievement[]
 }
 
 // ── 单词（来自 word list.md + ECDICT） ──
 model Word {
-  id         String   @id @default(cuid())
-  term       String   @unique
-  phonetic   String?
-  pos        String?
-  definition String
-  level      Level            // A1 / A2 / B1 / B2
-  category   String?          // 主题（Family / Colors ...）
-  examples   Json?            // 例句数组 [{"en":"...","zh":"..."}]
-  synonyms   String[]         // 近义词
-  antonyms   String[]         // 反义词
-  imageUrl   String?          // 助记图
-  reviews    Review[]
+  id           String        @id @default(cuid())
+  term         String        @unique
+  phonetic     String?
+  pos          String?
+  definition   String
+  level        Level // A1 / A2 / B1 / B2
+  category     String? // 主题（Family / Colors ...）
+  examples     Json? // 例句数组 [{"en":"...","zh":"..."}]
+  synonyms     String[] // 近义词
+  antonyms     String[] // 反义词
+  imageUrl     String? // 助记图
+  reviews      Review[]
+  reviewEvents ReviewEvent[]
 
   @@index([level])
   @@index([category])
@@ -50,20 +52,45 @@ model Word {
 
 // ── 学习记录（每用户每词一份 SM-2 状态） ──
 model Review {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
   wordId         String
-  easeFactor     Float    @default(2.5)
-  interval       Int      @default(0)
-  repetitions    Int      @default(0)
+  easeFactor     Float     @default(2.5)
+  interval       Int       @default(0)
+  repetitions    Int       @default(0)
   nextReviewDate DateTime
   lastReviewedAt DateTime?
-  totalReviews   Int      @default(0)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  word           Word     @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  totalReviews   Int       @default(0)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word           Word      @relation(fields: [wordId], references: [id], onDelete: Cascade)
 
   @@unique([userId, wordId])
   @@index([userId, nextReviewDate])
+}
+
+// ── 学习评测事件（每次提交一条，兼作幂等日志） ──
+// operationId 由客户端为一次答题生成，并按用户唯一。服务端在 Serializable
+// transaction 内先查此表，确保响应丢失后的重试不会重复推进 SM-2。
+model ReviewEvent {
+  id                String   @id @default(cuid())
+  operationId       String
+  userId            String
+  submittedWordId   String
+  wordId            String?
+  // 删除词库项目时仍保留审计／统计；以下快照不依赖当前 Word 行。
+  wordTerm          String
+  wordLevel         Level
+  quality           Int
+  newlyUnlockedKeys String[] @default([])
+  // 迁移前只有累计次数、没有逐次时间；这类回填不可进入日／周时间桶。
+  isHistorical      Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word              Word?    @relation(fields: [wordId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, operationId])
+  @@index([userId, createdAt])
+  @@index([wordId])
 }
 
 enum Level {

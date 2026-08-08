@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 
 interface ModalProps {
@@ -17,16 +17,51 @@ interface ModalProps {
  */
 export default function Modal({ open, onClose, title, children }: ModalProps) {
   const { tc } = useLocale();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
   useEffect(() => {
     if (!open) return;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    const focusableSelector =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(focusableSelector),
+      );
+      if (focusable.length === 0) {
+        e.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
+    const focusTimer = window.setTimeout(() => {
+      const first = dialogRef.current?.querySelector<HTMLElement>(focusableSelector);
+      (first ?? dialogRef.current)?.focus();
+    }, 0);
     return () => {
+      window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
+      previouslyFocusedRef.current?.focus();
     };
   }, [open, onClose]);
 
@@ -41,6 +76,11 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
           onClick={onClose}
         >
           <motion.div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            tabIndex={-1}
             initial={{ y: "100%", opacity: 0.5 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: "100%", opacity: 0.5 }}
@@ -51,7 +91,10 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
             {/* handle bar */}
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]" />
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-[18px] font-bold tracking-[-0.02em] text-[#17213C] dark:text-[#E2E8F0]">
+              <h2
+                id={titleId}
+                className="text-[18px] font-bold tracking-[-0.02em] text-[#17213C] dark:text-[#E2E8F0]"
+              >
                 {title}
               </h2>
               <button
