@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest, NextProxy } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { ROLES, DEFAULT_ROLE, type Role } from "@/lib/roles";
+import { ROLES, DEFAULT_ROLE, homePathFor, type Role } from "@/lib/roles";
 
 /**
  * 路由级角色保护（纵深防御，与各 API 内的 requireRole 互为补充）。
@@ -74,25 +74,18 @@ const proxy: NextProxy = async (req: NextRequest) => {
 
   // admin 区：仅 ADMIN
   if (isAdminArea && role !== ROLES.ADMIN) {
-    return deny(req, isApi, homeOf(role));
+    return deny(req, isApi, homePathFor(role));
   }
 
   // teacher 区：TEACHER 或 ADMIN
   if (isTeacherArea && role !== ROLES.TEACHER && role !== ROLES.ADMIN) {
-    return deny(req, isApi, homeOf(role));
+    return deny(req, isApi, homePathFor(role));
   }
 
   return NextResponse.next();
 };
 
 export default proxy;
-
-/** 根据角色返回「它该去」的首页，用于越权访问时的重定向目标。 */
-function homeOf(role: Role): string {
-  if (role === ROLES.ADMIN) return "/admin";
-  if (role === ROLES.TEACHER) return "/teacher";
-  return "/study";
-}
 
 /** 页面请求 → 重定向；API 请求 → 返回 JSON 错误。 */
 function deny(req: NextRequest, isApi: boolean, redirectTo: string): NextResponse {

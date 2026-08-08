@@ -32,7 +32,7 @@ export type { Role } from "@/generated/prisma";
 
 /**
  * 依角色回傳「它該去的首頁路徑」，用於越權存取時的重導向目標。
- * 與 src/proxy.ts 的 homeOf() 邏輯一致，集中在此供 Layout / RSC 共用。
+ * 唯一真相源，供 proxy.ts / Layout / RSC 共用。
  */
 export function homePathFor(role: Role): string {
   if (role === ROLES.ADMIN) return "/admin";
