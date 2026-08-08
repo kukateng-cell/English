@@ -1,9 +1,10 @@
 export type SwipeDirection = -1 | 1;
+export type SwipePointerType = "mouse" | "pen" | "touch";
 
-const PROJECTION_SECONDS = 0.16;
-const DISTANCE_RATIO = 0.22;
-const MIN_DISTANCE = 72;
-const MAX_DISTANCE = 112;
+const DISTANCE_RATIO = 0.24;
+const MIN_DISTANCE = 88;
+const MAX_DISTANCE = 128;
+const MAX_PROJECTED_VELOCITY = 1_800;
 const MAX_RELEASE_VELOCITY = 2_400;
 export const OFFSCREEN_MARGIN = 40;
 export const VISUAL_COMPLETION_SLACK = 12;
@@ -27,14 +28,31 @@ export function decideSwipe(
   offsetX: number,
   velocityX: number,
   cardWidth: number,
+  pointerType: SwipePointerType = "mouse",
 ): SwipeDecision {
   const safeWidth = Number.isFinite(cardWidth) && cardWidth > 0 ? cardWidth : 400;
   const threshold = clamp(safeWidth * DISTANCE_RATIO, MIN_DISTANCE, MAX_DISTANCE);
-  const projectedX = offsetX + velocityX * PROJECTION_SECONDS;
+  const gesture =
+    pointerType === "touch"
+      ? { minimumOffset: 24, minimumVelocity: 650, projectionSeconds: 0.14 }
+      : pointerType === "pen"
+        ? { minimumOffset: 32, minimumVelocity: 750, projectionSeconds: 0.12 }
+        : { minimumOffset: 44, minimumVelocity: 850, projectionSeconds: 0.1 };
+  const projectedVelocity = clamp(
+    velocityX,
+    -MAX_PROJECTED_VELOCITY,
+    MAX_PROJECTED_VELOCITY,
+  );
+  const projectedX = offsetX + projectedVelocity * gesture.projectionSeconds;
   const direction: SwipeDirection = projectedX < 0 ? -1 : 1;
+  const dismissedByDistance = Math.abs(offsetX) >= threshold;
+  const dismissedByFlick =
+    Math.abs(offsetX) >= gesture.minimumOffset &&
+    Math.abs(velocityX) >= gesture.minimumVelocity &&
+    Math.abs(projectedX) >= threshold;
 
   return {
-    dismiss: Math.abs(projectedX) >= threshold,
+    dismiss: dismissedByDistance || dismissedByFlick,
     direction,
     projectedX,
     threshold,

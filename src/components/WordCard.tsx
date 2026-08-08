@@ -7,7 +7,7 @@ import {
   useTransform,
 } from "framer-motion";
 import type { AnimationPlaybackControls } from "framer-motion";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
 import {
@@ -16,6 +16,7 @@ import {
   launchVelocity,
   offscreenTarget,
   type SwipeDirection,
+  type SwipePointerType,
 } from "@/lib/swipe-motion";
 
 interface WordCardProps {
@@ -42,7 +43,6 @@ export default function WordCard({
   const activeAnimationRef = useRef<AnimationPlaybackControls | null>(null);
   const mountedRef = useRef(true);
   const dismissingRef = useRef(false);
-  const [dismissing, setDismissing] = useState(false);
   const rotate = useTransform(x, [-300, 0, 300], [-10, 0, 10]);
   const opacityLeft = useTransform(
     x,
@@ -104,29 +104,37 @@ export default function WordCard({
     if (!card) return;
 
     dismissingRef.current = true;
-    setDismissing(true);
     activeAnimationRef.current?.stop();
-
-    const rect = card.getBoundingClientRect();
-    const target = offscreenTarget(
-      direction,
-      x.get(),
-      rect.left,
-      rect.right,
-      window.innerWidth,
-    );
-    const animation = animate(x, target, {
-      type: "spring",
-      velocity: launchVelocity(velocityX, direction),
-      stiffness: 150,
-      damping: 20,
-      mass: 0.9,
-      restSpeed: 120,
-      restDelta: 8,
-    });
-    activeAnimationRef.current = animation;
+    // Keep the drag feature mounted during release. Imperatively block another
+    // pointer gesture without a React render, then let Motion finish tearing
+    // down the current drag call stack before the spring takes ownership of x.
+    card.style.pointerEvents = "none";
+    let animation: AnimationPlaybackControls | null = null;
+    let committed = false;
 
     try {
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      if (!mountedRef.current || !card.isConnected) return;
+
+      const rect = card.getBoundingClientRect();
+      const target = offscreenTarget(
+        direction,
+        x.get(),
+        rect.left,
+        rect.right,
+        window.innerWidth,
+      );
+      animation = animate(x, target, {
+        type: "spring",
+        velocity: launchVelocity(velocityX, direction),
+        stiffness: 150,
+        damping: 20,
+        mass: 0.9,
+        restSpeed: 120,
+        restDelta: 8,
+      });
+      activeAnimationRef.current = animation;
+
       let unsubscribe = () => {};
       const clearedViewport = new Promise<void>((resolve) => {
         const checkPosition = (latest: number) => {
@@ -144,23 +152,47 @@ export default function WordCard({
       ]);
       unsubscribe();
       animation.stop();
-      if (mountedRef.current) callback();
+      if (mountedRef.current) {
+        committed = true;
+        callback();
+      }
     } catch {
       // Stopping an animation during unmount is expected; never commit the swipe.
     } finally {
-      if (activeAnimationRef.current === animation) {
+      if (animation && activeAnimationRef.current === animation) {
         activeAnimationRef.current = null;
+      }
+      if (!committed && card.isConnected) {
+        card.style.pointerEvents = "";
+        dismissingRef.current = false;
       }
     }
   };
 
+  const pointerTypeOf = (
+    event: MouseEvent | TouchEvent | PointerEvent,
+  ): SwipePointerType => {
+    if ("pointerType" in event) {
+      if (event.pointerType === "touch" || event.pointerType === "pen") {
+        return event.pointerType;
+      }
+      return "mouse";
+    }
+    return "touches" in event ? "touch" : "mouse";
+  };
+
   const handleDragEnd = (
-    _: unknown,
+    event: MouseEvent | TouchEvent | PointerEvent,
     info: { offset: { x: number }; velocity: { x: number } }
   ) => {
     if (disabled || dismissingRef.current) return;
     const cardWidth = cardRef.current?.offsetWidth ?? 400;
-    const decision = decideSwipe(x.get(), info.velocity.x, cardWidth);
+    const decision = decideSwipe(
+      x.get(),
+      info.velocity.x,
+      cardWidth,
+      pointerTypeOf(event),
+    );
     if (!decision.dismiss) {
       returnToCentre(info.velocity.x);
       return;
@@ -199,7 +231,7 @@ export default function WordCard({
 
       <motion.div
         ref={cardRef}
-        drag={disabled || dismissing ? false : "x"}
+        drag={disabled ? false : "x"}
         dragMomentum={false}
         onDragStart={stopReturnAnimation}
         onDragEnd={handleDragEnd}
@@ -236,7 +268,7 @@ export default function WordCard({
         {/* 底部按钮区域 */}
         <div className="absolute bottom-5 flex w-full items-center justify-between px-5">
           <button
-            disabled={disabled || dismissing}
+            disabled={disabled}
             onClick={(e) => {
               e.stopPropagation();
               handleButtonSwipe(-1, onSwipeLeft);
@@ -246,7 +278,7 @@ export default function WordCard({
             ← {tc("不认识")}
           </button>
           <button
-            disabled={disabled || dismissing}
+            disabled={disabled}
             onClick={(e) => {
               e.stopPropagation();
               handleButtonSwipe(1, onSwipeRight);

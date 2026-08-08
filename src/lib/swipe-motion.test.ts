@@ -7,14 +7,22 @@ import {
   offscreenTarget,
 } from "./swipe-motion";
 
-test("swipe projection accepts a short fast flick but rejects a hesitant drag", () => {
-  assert.equal(decideSwipe(32, 520, 400).dismiss, true);
-  assert.equal(decideSwipe(58, 40, 400).dismiss, false);
+test("mouse swipe requires meaningful physical movement before velocity counts", () => {
+  assert.equal(decideSwipe(12, 2_000, 416, "mouse").dismiss, false);
+  assert.equal(decideSwipe(43, 2_000, 416, "mouse").dismiss, false);
+  assert.equal(decideSwipe(44, 900, 416, "mouse").dismiss, true);
+  assert.equal(decideSwipe(99, 0, 416, "mouse").dismiss, false);
+  assert.equal(decideSwipe(100, 0, 416, "mouse").dismiss, true);
+});
+
+test("touch keeps a shorter intentional flick without accepting tiny jitter", () => {
+  assert.equal(decideSwipe(20, 1_400, 360, "touch").dismiss, false);
+  assert.equal(decideSwipe(24, 700, 360, "touch").dismiss, true);
 });
 
 test("swipe direction follows the projected release path", () => {
-  assert.equal(decideSwipe(100, -1_500, 400).direction, -1);
-  assert.equal(decideSwipe(-100, 1_500, 400).direction, 1);
+  assert.equal(decideSwipe(100, -1_500, 400, "mouse").direction, -1);
+  assert.equal(decideSwipe(-100, 1_500, 400, "mouse").direction, 1);
 });
 
 test("offscreen targets move the whole card beyond either viewport edge", () => {
