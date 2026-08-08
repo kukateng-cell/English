@@ -75,6 +75,21 @@ interface PoolWord {
 /** 当前词处在哪一步：先认字评估，随即立刻测试。 */
 type WordStep = "assess" | "quiz";
 
+const STUDY_BUILD_LABEL = "PREARMED-P4 · 0808";
+
+function StudyBuildBadge() {
+  return (
+    <div
+      data-testid="study-build-badge"
+      className="mt-1 flex items-center justify-center gap-1.5 rounded-full bg-[#7C3AED] px-2.5 py-1 text-[10px] font-bold tracking-[0.08em] text-white shadow-[0_3px_10px_rgba(124,58,237,0.28)]"
+      title="目前載入的學習介面版本"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-[#A7F3D0]" />
+      最新手勢版 {STUDY_BUILD_LABEL}
+    </div>
+  );
+}
+
 /** 洗牌 */
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -1141,9 +1156,12 @@ export default function StudyPage() {
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </Link>
-          <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
-            {tc("📝 测试中")}
-          </span>
+          <div className="flex flex-col items-center">
+            <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+              {tc("📝 测试中")}
+            </span>
+            <StudyBuildBadge />
+          </div>
           <div className="flex items-center gap-2">
             {streak && <StreakBadge streak={streak} />}
             <LogoutButton />
@@ -1340,6 +1358,7 @@ export default function StudyPage() {
           <span className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
             {tc("今日学习 · 认识这个单词吗？")}
           </span>
+          <StudyBuildBadge />
         </div>
 
         <div className="flex items-center gap-2">

@@ -18,9 +18,7 @@ import { useLocale } from "@/components/LocaleProvider";
 import {
   decideSwipe,
   estimateSwipeVelocity,
-  hasClearedViewport,
   launchVelocity,
-  offscreenTarget,
   type SwipeDirection,
   type SwipePointerType,
   type SwipePointerSample,
@@ -36,6 +34,10 @@ interface WordCardProps {
 
 const SWIPE_LABEL_THRESHOLD = 76;
 const BUTTON_LAUNCH_VELOCITY = 720;
+const RELEASE_EASING = "cubic-bezier(0.22, 0.15, 0.25, 1)";
+const RELEASE_DURATION_MS = 320;
+const RETURN_EASING = "cubic-bezier(0.22, 0.72, 0.25, 1)";
+const RETURN_MOTION_EASING = [0.22, 0.72, 0.25, 1] as const;
 
 interface ActivePointerDrag {
   pointerId: number;
@@ -43,6 +45,11 @@ interface ActivePointerDrag {
   startPointerX: number;
   startCardX: number;
   samples: SwipePointerSample[];
+}
+
+interface PreparedReleaseAnimations {
+  left: Animation;
+  right: Animation;
 }
 
 export default function WordCard({
@@ -55,7 +62,9 @@ export default function WordCard({
   const { tc } = useLocale();
   const x = useMotionValue(0);
   const cardRef = useRef<HTMLDivElement>(null);
-  const activeAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const activeMotionAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const activeVisualAnimationRef = useRef<Animation | null>(null);
+  const preparedReleaseRef = useRef<PreparedReleaseAnimations | null>(null);
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
   const mountedRef = useRef(true);
   const dismissingRef = useRef(false);
@@ -75,36 +84,121 @@ export default function WordCard({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      activeAnimationRef.current?.stop();
+      activeMotionAnimationRef.current?.stop();
+      activeVisualAnimationRef.current?.cancel();
+      preparedReleaseRef.current?.left.cancel();
+      preparedReleaseRef.current?.right.cancel();
     };
   }, []);
 
-  const stopReturnAnimation = () => {
-    if (dismissingRef.current) return;
-    activeAnimationRef.current?.stop();
-    activeAnimationRef.current = null;
+  const visualX = (card: HTMLElement) => {
+    const transform = getComputedStyle(card).transform;
+    if (transform === "none") return 0;
+    try {
+      return new DOMMatrixReadOnly(transform).m41;
+    } catch {
+      return x.get();
+    }
   };
 
-  const returnToCentre = (velocityX: number) => {
-    const animation = animate(x, 0, {
-      type: "spring",
-      velocity: Math.max(-2_400, Math.min(2_400, velocityX)),
-      stiffness: 480,
-      damping: 38,
-      mass: 0.85,
-      restSpeed: 18,
-      restDelta: 0.5,
+  const cancelPreparedRelease = () => {
+    preparedReleaseRef.current?.left.cancel();
+    preparedReleaseRef.current?.right.cancel();
+    preparedReleaseRef.current = null;
+  };
+
+  const createPreparedRelease = (
+    card: HTMLElement,
+    direction: SwipeDirection,
+  ) => {
+    const rect = card.getBoundingClientRect();
+    const travel =
+      direction > 0
+        ? window.innerWidth + 40 - rect.left
+        : rect.right + 40;
+    const animation = card.animate(
+      [
+        { transform: "translate3d(0px, 0, 0) rotate(0deg)" },
+        {
+          transform: `translate3d(${direction * travel}px, 0, 0) rotate(${direction * 12}deg)`,
+        },
+      ],
+      {
+        duration: RELEASE_DURATION_MS,
+        easing: RELEASE_EASING,
+        fill: "forwards",
+        composite: "add",
+      },
+    );
+    animation.pause();
+    animation.currentTime = 0;
+    return animation;
+  };
+
+  const prepareReleaseAnimations = (card: HTMLElement) => {
+    cancelPreparedRelease();
+    preparedReleaseRef.current = {
+      left: createPreparedRelease(card, -1),
+      right: createPreparedRelease(card, 1),
+    };
+  };
+
+  const stopReturnAnimation = () => {
+    if (dismissingRef.current) return;
+    const card = cardRef.current;
+    const animation = activeVisualAnimationRef.current;
+    const currentVisualX = card && animation ? visualX(card) : x.get();
+    activeMotionAnimationRef.current?.stop();
+    activeMotionAnimationRef.current = null;
+    animation?.cancel();
+    activeVisualAnimationRef.current = null;
+    cancelPreparedRelease();
+    x.set(currentVisualX);
+  };
+
+  const returnToCentre = () => {
+    const card = cardRef.current;
+    if (!card) return;
+    stopReturnAnimation();
+
+    const distance = Math.abs(x.get());
+    const durationMs = Math.max(180, Math.min(280, 170 + distance * 0.75));
+    const visualAnimation = card.animate(
+      [
+        { transform: getComputedStyle(card).transform },
+        { transform: "translate3d(0px, 0, 0) rotate(0deg)" },
+      ],
+      {
+        duration: durationMs,
+        easing: RETURN_EASING,
+        fill: "forwards",
+      },
+    );
+    const motionAnimation = animate(x, 0, {
+      duration: durationMs / 1_000,
+      ease: RETURN_MOTION_EASING,
     });
-    activeAnimationRef.current = animation;
-    void animation.finished.then(
+    activeVisualAnimationRef.current = visualAnimation;
+    activeMotionAnimationRef.current = motionAnimation;
+
+    void visualAnimation.finished.then(
       () => {
-        if (activeAnimationRef.current === animation) {
-          activeAnimationRef.current = null;
+        if (activeVisualAnimationRef.current === visualAnimation) {
+          x.set(0);
+          motionAnimation.stop();
+          visualAnimation.cancel();
+          activeVisualAnimationRef.current = null;
+          if (activeMotionAnimationRef.current === motionAnimation) {
+            activeMotionAnimationRef.current = null;
+          }
         }
       },
       () => {
-        if (activeAnimationRef.current === animation) {
-          activeAnimationRef.current = null;
+        if (activeVisualAnimationRef.current === visualAnimation) {
+          activeVisualAnimationRef.current = null;
+        }
+        if (activeMotionAnimationRef.current === motionAnimation) {
+          activeMotionAnimationRef.current = null;
         }
       },
     );
@@ -118,54 +212,36 @@ export default function WordCard({
     if (disabled || dismissingRef.current) return;
     const card = cardRef.current;
     if (!card) return;
+    const prepared = preparedReleaseRef.current;
+    preparedReleaseRef.current = null;
 
     dismissingRef.current = true;
-    activeAnimationRef.current?.stop();
-    // Pointer movement is owned by this component, so the release spring can
-    // take over the same motion value immediately without a drag teardown race.
+    activeMotionAnimationRef.current?.stop();
+    activeMotionAnimationRef.current = null;
+    activeVisualAnimationRef.current?.cancel();
+    activeVisualAnimationRef.current = null;
+    // Pointer-down already created and paused both compositor tracks. Release
+    // only plays the selected track, avoiding the first-frame commit delay that
+    // occurs when a Web Animation is constructed inside pointer-up.
     card.style.pointerEvents = "none";
-    let animation: AnimationPlaybackControls | null = null;
+    let visualAnimation: Animation | null = null;
     let committed = false;
 
     try {
       if (!mountedRef.current || !card.isConnected) return;
-
-      const rect = card.getBoundingClientRect();
-      const target = offscreenTarget(
-        direction,
-        x.get(),
-        rect.left,
-        rect.right,
-        window.innerWidth,
+      const speed = Math.abs(launchVelocity(velocityX, direction));
+      visualAnimation =
+        direction < 0
+          ? (prepared?.left ?? createPreparedRelease(card, -1))
+          : (prepared?.right ?? createPreparedRelease(card, 1));
+      const unusedAnimation = direction < 0 ? prepared?.right : prepared?.left;
+      unusedAnimation?.cancel();
+      visualAnimation.updatePlaybackRate(
+        Math.max(0.9, Math.min(1.45, 0.9 + speed / 4_800)),
       );
-      animation = animate(x, target, {
-        type: "spring",
-        velocity: launchVelocity(velocityX, direction),
-        stiffness: 150,
-        damping: 20,
-        mass: 0.9,
-        restSpeed: 120,
-        restDelta: 8,
-      });
-      activeAnimationRef.current = animation;
-
-      let unsubscribe = () => {};
-      const clearedViewport = new Promise<void>((resolve) => {
-        const checkPosition = (latest: number) => {
-          if (hasClearedViewport(direction, latest, target)) resolve();
-        };
-        unsubscribe = x.on("change", checkPosition);
-        checkPosition(x.get());
-      });
-      await Promise.race([
-        clearedViewport,
-        animation.finished.then(
-          () => undefined,
-          () => undefined,
-        ),
-      ]);
-      unsubscribe();
-      animation.stop();
+      activeVisualAnimationRef.current = visualAnimation;
+      visualAnimation.play();
+      await visualAnimation.finished;
       if (mountedRef.current) {
         committed = true;
         callback();
@@ -173,8 +249,9 @@ export default function WordCard({
     } catch {
       // Stopping an animation during unmount is expected; never commit the swipe.
     } finally {
-      if (animation && activeAnimationRef.current === animation) {
-        activeAnimationRef.current = null;
+      if (visualAnimation && activeVisualAnimationRef.current === visualAnimation) {
+        if (!committed) visualAnimation.cancel();
+        activeVisualAnimationRef.current = null;
       }
       if (!committed && card.isConnected) {
         card.style.pointerEvents = "";
@@ -205,6 +282,7 @@ export default function WordCard({
     if ((event.target as HTMLElement).closest("button")) return;
 
     stopReturnAnimation();
+    prepareReleaseAnimations(event.currentTarget);
     const now = performance.now();
     activeDragRef.current = {
       pointerId: event.pointerId,
@@ -251,7 +329,7 @@ export default function WordCard({
     }
 
     if (cancelled) {
-      returnToCentre(0);
+      returnToCentre();
       return;
     }
 
@@ -266,7 +344,7 @@ export default function WordCard({
       // A rejected gesture should visibly snap back at once. Carrying a noisy
       // mouse velocity into this spring makes a tiny drag travel farther away
       // for a frame or two before returning, which feels like a false swipe.
-      returnToCentre(0);
+      returnToCentre();
       return;
     }
     const callback = decision.direction < 0 ? onSwipeLeft : onSwipeRight;
