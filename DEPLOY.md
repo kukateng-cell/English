@@ -190,6 +190,7 @@ git push
    | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
    | `SEED_TEST_STUDENT` | `0` | 生产不可自动建立本地测试学生 |
    | `REQUIRE_STUDY_OPERATION_ID` | 默认严格模式（可不设置） | 新客户端必须带 operationId；仅受控 rollout 才可临时设为 `0` |
+   | `NEXT_PUBLIC_GESTURE_DEBUG` | `0` | 仅排查手势 timing 时临时设为 `1`；生产保持关闭 |
 
    > `DATABASE_URL` / `NEXTAUTH_*` 按需要勾选环境；`MIGRATE_URL` 不可放进 Vercel。
 

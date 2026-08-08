@@ -7,6 +7,7 @@ import {
   hasClearedViewport,
   launchVelocity,
   offscreenTarget,
+  sampleDismissalTrajectory,
   springSettled,
 } from "./swipe-motion";
 
@@ -73,22 +74,24 @@ test("visual completion resolves near the offscreen target on both sides", () =>
   assert.equal(hasClearedViewport(-1, -788, -800), true);
 });
 
-test("the first release spring step immediately moves toward its target", () => {
-  const state = advanceSpring(
-    { position: 120, velocity: 0 },
-    860,
-    1 / 60,
+test("dismissal trajectory starts immediately and stays monotonic", () => {
+  const positions = sampleDismissalTrajectory(
+    740,
+    0,
     { stiffness: 260, damping: 30, mass: 0.75 },
-  );
+  ).map((state) => state.position);
 
-  assert.ok(state.position > 120);
-  assert.ok(state.velocity > 0);
-  assert.equal(springSettled(state, 860, 80, 6), false);
+  assert.ok(positions.length > 2);
+  assert.ok(positions[1] > positions[0]);
+  assert.equal(positions.at(-1), 740);
+  for (let index = 1; index < positions.length; index++) {
+    assert.ok(positions[index] >= positions[index - 1]);
+  }
 });
 
-test("the release spring converges without an unbounded frame step", () => {
-  let state = { position: 120, velocity: 0 };
+test("offline spring sampling reaches its exact target", () => {
   const target = 860;
+  let state = { position: 120, velocity: 0 };
   for (let index = 0; index < 180; index++) {
     state = advanceSpring(
       state,

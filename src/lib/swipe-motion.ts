@@ -28,8 +28,9 @@ export interface SpringConfig {
 
 /**
  * Advance a one-dimensional damped spring with small bounded substeps. The
- * bounded integration keeps a delayed frame from destabilising the spring,
- * while the caller can still write the first step synchronously at release.
+ * bounded integration keeps a delayed fallback frame from destabilising the
+ * spring. Release trajectories are sampled before they are handed to WAAPI,
+ * so the main-thread clamp is never used to drive the visible flight.
  */
 export function advanceSpring(
   state: SpringState,
@@ -52,6 +53,100 @@ export function advanceSpring(
   }
 
   return { position, velocity };
+}
+
+const TRAJECTORY_STEP_SECONDS = 1 / 120;
+const TRAJECTORY_MAX_SECONDS = 1.2;
+const MIN_RELEASE_SPEED = 1_200;
+
+/**
+ * Sample a spring into deterministic keyframe positions. This is deliberately
+ * an offline calculation: the returned points can be handed to a compositor
+ * animation instead of asking the main thread to integrate every release
+ * frame.
+ */
+export function sampleSpringTrajectory(
+  initialState: SpringState,
+  target: number,
+  config: SpringConfig,
+  restSpeed: number,
+  restDelta: number,
+  options: {
+    stepSeconds?: number;
+    maxSeconds?: number;
+    monotonicDirection?: SwipeDirection;
+  } = {},
+) {
+  const stepSeconds = Math.min(
+    Math.max(options.stepSeconds ?? TRAJECTORY_STEP_SECONDS, 1 / 240),
+    0.064,
+  );
+  const maxSteps = Math.max(
+    1,
+    Math.ceil(
+      Math.min(options.maxSeconds ?? TRAJECTORY_MAX_SECONDS, 2) /
+        stepSeconds,
+    ),
+  );
+  const samples: SpringState[] = [{ ...initialState }];
+  let state = { ...initialState };
+
+  for (let index = 0; index < maxSteps; index++) {
+    let next = advanceSpring(state, target, stepSeconds, config);
+    if (options.monotonicDirection) {
+      if (options.monotonicDirection > 0) {
+        next = {
+          ...next,
+          position: Math.max(next.position, state.position),
+        };
+      } else {
+        next = {
+          ...next,
+          position: Math.min(next.position, state.position),
+        };
+      }
+    }
+
+    const reachedTarget =
+      options.monotonicDirection === 1
+        ? next.position >= target
+        : options.monotonicDirection === -1
+          ? next.position <= target
+          : springSettled(next, target, restSpeed, restDelta);
+    if (reachedTarget || springSettled(next, target, restSpeed, restDelta)) {
+      samples.push({ position: target, velocity: 0 });
+      return samples;
+    }
+
+    samples.push(next);
+    state = next;
+  }
+
+  samples.push({ position: target, velocity: 0 });
+  return samples;
+}
+
+/**
+ * Build a one-direction dismissal path. A stationary release still receives
+ * a minimum departure velocity, so crossing the swipe threshold and pausing
+ * cannot leave the card visually parked before it starts its flight.
+ */
+export function sampleDismissalTrajectory(
+  distance: number,
+  releaseVelocity: number,
+  config: SpringConfig,
+) {
+  const safeDistance = Math.max(0, Math.abs(distance));
+  if (safeDistance === 0) return [{ position: 0, velocity: 0 }];
+  const initialVelocity = Math.max(MIN_RELEASE_SPEED, Math.abs(releaseVelocity));
+  return sampleSpringTrajectory(
+    { position: 0, velocity: initialVelocity },
+    safeDistance,
+    config,
+    80,
+    6,
+    { monotonicDirection: 1 },
+  );
 }
 
 export function springSettled(
