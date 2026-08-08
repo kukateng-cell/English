@@ -460,19 +460,24 @@ export async function POST(req: Request) {
   if (!wordId || wordId.length > 128) {
     return NextResponse.json({ error: "wordId 无效" }, { status: 400 });
   }
-  const requireOperationId = process.env.REQUIRE_STUDY_OPERATION_ID !== "0";
+  const requireStrictStudySubmission =
+    process.env.REQUIRE_STUDY_OPERATION_ID !== "0";
   if (
     (suppliedOperationId &&
       !/^[A-Za-z0-9:_-]{8,200}$/.test(suppliedOperationId)) ||
-    (!suppliedOperationId && requireOperationId)
+    (!suppliedOperationId && requireStrictStudySubmission)
   ) {
     return NextResponse.json({ error: "operationId 无效" }, { status: 400 });
   }
+  const suppliedStudySession = Boolean(studySessionId || nonce);
+  const validStudySession =
+    studySessionId.length >= 8 &&
+    studySessionId.length <= 128 &&
+    nonce.length >= 8 &&
+    nonce.length <= 128;
   if (
-    studySessionId.length < 8 ||
-    studySessionId.length > 128 ||
-    nonce.length < 8 ||
-    nonce.length > 128
+    (suppliedStudySession && !validStudySession) ||
+    (requireStrictStudySubmission && !validStudySession)
   ) {
     return NextResponse.json({ error: "学习 session 无效或已过期" }, { status: 400 });
   }
@@ -507,7 +512,8 @@ export async function POST(req: Request) {
   }
 
   // 新客户端必须提供稳定 UUID，走严格 exactly-once。REQUIRE_STUDY_OPERATION_ID=0
-  // 只供短暂 rollout 兼容旧 tab；正常环境默认拒绝没有 operationId 的请求。
+  // 只供短暂 rollout 兼容旧 tab；兼容期内旧 tab 也暂时可省略 session/nonce，
+  // 完成旧 tab 排空后应恢复默认严格模式。
   const legacyReplayAfter = suppliedOperationId
     ? undefined
     : new Date(Date.now() - 10 * 60_000);

@@ -1,12 +1,10 @@
 "use client";
 
 import {
-  animate,
   motion,
   useMotionValue,
   useTransform,
 } from "framer-motion";
-import type { AnimationPlaybackControls } from "framer-motion";
 import {
   useEffect,
   useRef,
@@ -16,12 +14,14 @@ import {
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
 import {
+  advanceSpring,
   decideSwipe,
   estimateSwipeVelocity,
   hasClearedViewport,
   launchVelocity,
   offscreenTarget,
   OFFSCREEN_MARGIN,
+  springSettled,
   type SwipeDirection,
   type SwipePointerType,
   type SwipePointerSample,
@@ -55,6 +55,88 @@ interface CardGeometry {
   viewportWidth: number;
 }
 
+interface ActiveSpringAnimation {
+  stop: () => void;
+}
+
+interface SpringAnimationOptions {
+  state: { position: number; velocity: number };
+  target: number;
+  config: { stiffness: number; damping: number; mass: number };
+  restSpeed: number;
+  restDelta: number;
+  onUpdate: (state: { position: number; velocity: number }) => void;
+  onComplete: () => void;
+}
+
+const RETURN_SPRING_CONFIG = {
+  stiffness: 500,
+  damping: 42,
+  mass: 0.75,
+};
+const RELEASE_SPRING_CONFIG = {
+  stiffness: 260,
+  damping: 30,
+  mass: 0.75,
+};
+
+function writeCardTransform(card: HTMLElement, position: number) {
+  const rotation = Math.max(-10, Math.min(10, position / 30));
+  card.style.transform = `translate3d(${position}px, 0, 0) rotate(${rotation}deg)`;
+}
+
+function startSpringAnimation({
+  state: initialState,
+  target,
+  config,
+  restSpeed,
+  restDelta,
+  onUpdate,
+  onComplete,
+}: SpringAnimationOptions): ActiveSpringAnimation {
+  let state = initialState;
+  let lastTimestamp = performance.now();
+  let frameId: number | null = null;
+  let stopped = false;
+
+  const finish = () => {
+    if (stopped) return;
+    stopped = true;
+    if (frameId !== null) cancelAnimationFrame(frameId);
+    state = { position: target, velocity: 0 };
+    onUpdate(state);
+    onComplete();
+  };
+
+  const tick = (timestamp: number) => {
+    if (stopped) return;
+    const deltaSeconds = Math.min(
+      Math.max(timestamp - lastTimestamp, 0),
+      64,
+    ) / 1_000;
+    lastTimestamp = timestamp;
+    state = advanceSpring(state, target, deltaSeconds, config);
+
+    if (springSettled(state, target, restSpeed, restDelta)) {
+      finish();
+      return;
+    }
+
+    onUpdate(state);
+    if (stopped) return;
+    frameId = requestAnimationFrame(tick);
+  };
+
+  frameId = requestAnimationFrame(tick);
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      if (frameId !== null) cancelAnimationFrame(frameId);
+    },
+  };
+}
+
 function measureCardGeometry(
   card: HTMLElement,
   currentX: number,
@@ -85,12 +167,11 @@ export default function WordCard({
   const { tc } = useLocale();
   const x = useMotionValue(0);
   const cardRef = useRef<HTMLDivElement>(null);
-  const activeMotionAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const activeMotionAnimationRef = useRef<ActiveSpringAnimation | null>(null);
   const geometryRef = useRef<CardGeometry | null>(null);
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
   const mountedRef = useRef(true);
   const dismissingRef = useRef(false);
-  const rotate = useTransform(x, [-300, 0, 300], [-10, 0, 10]);
   const opacityLeft = useTransform(
     x,
     [-200, -SWIPE_LABEL_THRESHOLD, 0],
@@ -105,6 +186,10 @@ export default function WordCard({
   useEffect(() => {
     mountedRef.current = true;
     const card = cardRef.current;
+    const unsubscribeTransform = card
+      ? x.on("change", (latest) => writeCardTransform(card, latest))
+      : () => {};
+    if (card) writeCardTransform(card, x.get());
 
     const updateGeometry = () => {
       if (!card) return;
@@ -134,6 +219,7 @@ export default function WordCard({
       mountedRef.current = false;
       activeMotionAnimationRef.current?.stop();
       activeDragRef.current = null;
+      unsubscribeTransform();
       resizeObserver?.disconnect();
       window.removeEventListener("resize", handleViewportResize);
     };
@@ -154,29 +240,34 @@ export default function WordCard({
     if (!cardRef.current || dismissingRef.current) return;
     stopActiveAnimation();
 
-    const motionAnimation = animate(x, 0, {
-      type: "spring",
-      velocity: 0,
-      stiffness: 500,
-      damping: 42,
-      mass: 0.75,
+    const firstState = advanceSpring(
+      { position: x.get(), velocity: 0 },
+      0,
+      1 / 60,
+      RETURN_SPRING_CONFIG,
+    );
+    // Commit the first spring step synchronously. This removes the visible
+    // handoff gap before the next requestAnimationFrame callback can run.
+    x.set(firstState.position);
+    if (springSettled(firstState, 0, 18, 0.5)) {
+      x.set(0);
+      return;
+    }
+
+    const springAnimation = startSpringAnimation({
+      state: firstState,
+      target: 0,
+      config: RETURN_SPRING_CONFIG,
       restSpeed: 18,
       restDelta: 0.5,
+      onUpdate: ({ position }) => x.set(position),
+      onComplete: () => {
+        if (activeMotionAnimationRef.current === springAnimation) {
+          activeMotionAnimationRef.current = null;
+        }
+      },
     });
-    activeMotionAnimationRef.current = motionAnimation;
-
-    void motionAnimation.finished.then(
-      () => {
-        if (activeMotionAnimationRef.current === motionAnimation) {
-          activeMotionAnimationRef.current = null;
-        }
-      },
-      () => {
-        if (activeMotionAnimationRef.current === motionAnimation) {
-          activeMotionAnimationRef.current = null;
-        }
-      },
-    );
+    activeMotionAnimationRef.current = springAnimation;
   };
 
   const flyOff = (
@@ -206,46 +297,55 @@ export default function WordCard({
       geometry.viewportWidth,
       OFFSCREEN_MARGIN,
     );
-    const motionAnimation = animate(x, targetX, {
-      type: "spring",
-      velocity: launchVelocity(velocityX, direction),
-      stiffness: 260,
-      damping: 30,
-      mass: 0.75,
-      restSpeed: 80,
-      restDelta: 6,
-    });
-    activeMotionAnimationRef.current = motionAnimation;
     let committed = false;
-    let unsubscribe = () => {};
-
-    const resetAfterFailure = () => {
-      unsubscribe();
-      if (activeMotionAnimationRef.current !== motionAnimation) return;
-      activeMotionAnimationRef.current = null;
-      if (!committed && card.isConnected) {
-        card.style.pointerEvents = "";
-        dismissingRef.current = false;
-      }
-    };
+    let springAnimation: ActiveSpringAnimation | null = null;
 
     const commit = () => {
       if (committed) return;
       committed = true;
-      unsubscribe();
-      motionAnimation.stop();
-      if (activeMotionAnimationRef.current === motionAnimation) {
+      springAnimation?.stop();
+      if (activeMotionAnimationRef.current === springAnimation) {
         activeMotionAnimationRef.current = null;
       }
       if (mountedRef.current) callback();
     };
 
-    unsubscribe = x.on("change", (latest) => {
-      if (hasClearedViewport(direction, latest, targetX)) commit();
-    });
+    if (hasClearedViewport(direction, currentX, targetX)) {
+      commit();
+      return;
+    }
 
-    if (hasClearedViewport(direction, x.get(), targetX)) commit();
-    void motionAnimation.finished.then(commit, resetAfterFailure);
+    const firstState = advanceSpring(
+      {
+        position: currentX,
+        velocity: launchVelocity(velocityX, direction),
+      },
+      targetX,
+      1 / 60,
+      RELEASE_SPRING_CONFIG,
+    );
+    // Do not wait for Motion's own JS frame driver to produce the first
+    // release frame. The pointerup handler commits one spring step now, then
+    // the same MotionValue is continued by the single RAF loop below.
+    x.set(firstState.position);
+    if (hasClearedViewport(direction, firstState.position, targetX)) {
+      commit();
+      return;
+    }
+
+    springAnimation = startSpringAnimation({
+      state: firstState,
+      target: targetX,
+      config: RELEASE_SPRING_CONFIG,
+      restSpeed: 80,
+      restDelta: 6,
+      onUpdate: ({ position }) => {
+        x.set(position);
+        if (hasClearedViewport(direction, position, targetX)) commit();
+      },
+      onComplete: commit,
+    });
+    activeMotionAnimationRef.current = springAnimation;
   };
 
   const pointerTypeOf = (pointerType: string): SwipePointerType => {
@@ -377,14 +477,14 @@ export default function WordCard({
         </motion.span>
       </div>
 
-      <motion.div
+      <div
         ref={cardRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={(event) => finishPointerDrag(event, false)}
         onPointerCancel={(event) => finishPointerDrag(event, true)}
         onLostPointerCapture={(event) => finishPointerDrag(event, true)}
-        style={{ x, rotate, touchAction: "pan-y" }}
+        style={{ touchAction: "pan-y" }}
         className="relative z-10 mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] [will-change:transform] active:cursor-grabbing dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
       >
         {/* 单词 */}
@@ -436,7 +536,7 @@ export default function WordCard({
             {tc("认识")} ✓
           </button>
         </div>
-      </motion.div>
+      </div>
 
       {children}
     </div>

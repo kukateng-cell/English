@@ -17,7 +17,7 @@ export interface PendingReview {
   ts: number;
   /** 已尝试提交次数（只供 UI/排查；绝不因超过次数而静默丢弃）。 */
   attempts: number;
-  /** 永久 4xx 会转入 blocked，停止自动重送但保留给用户查看／清除。 */
+  /** 永久 4xx（session 失效除外）会转入 blocked，停止自动重送但保留给用户查看／清除。 */
   status: "pending" | "blocked";
   lastError?: string;
   /** 暂时性错误的下一次允许提交时间，避免 429/5xx 时连续轰炸服务端。 */
@@ -44,6 +44,7 @@ const LEGACY_QUEUE_KEY = "study:review-queue";
 const VERSION = 4;
 const MAX_FLUSH_BATCH = 20;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
+const SESSION_REAUTH_ERROR = "学习 session 无效或已过期";
 
 interface StoredQueue {
   version: number;
@@ -330,11 +331,34 @@ export function attachStudySessionCredentials(
   studySessionId: string,
   nonces: Record<string, string>,
 ): number {
-  const assignedWords = new Set<string>();
-  for (const item of loadPendingReviews(userId)) {
+  const pending = loadPendingReviews(userId);
+  // Reserve words that already have a credential in this session before
+  // binding legacy rows. Otherwise an older credential-less row can steal the
+  // nonce from a newer answer that was just enqueued by the current page.
+  const assignedWords = new Set(
+    pending
+      .filter(
+        (item) =>
+          item.status === "pending" &&
+          item.studySessionId === studySessionId &&
+          Boolean(item.nonce),
+      )
+      .map((item) => item.wordId),
+  );
+  for (const item of pending) {
     if (item.status !== "pending") continue;
     const nonce = nonces[item.wordId];
     if (!nonce) continue;
+    // A session-invalid response clears only the nonce, leaving the rejected
+    // session id as a tombstone. Do not immediately rebind it to the same
+    // expired session; the next fresh GET will provide a different id.
+    if (
+      item.studySessionId === studySessionId &&
+      !item.nonce &&
+      item.lastError === SESSION_REAUTH_ERROR
+    ) {
+      continue;
+    }
     // A session issues one nonce per word. Rebind only one legacy operation
     // per word; later repeated operations wait for a fresh session instead of
     // racing on, or reusing, the same one-time nonce.
@@ -361,7 +385,8 @@ export function attachStudySessionCredentials(
  * - 成功（HTTP 2xx）：从队列移除，并通过 onDone 回传最新 streak / 成就。
  * - 网络错误（fetch throw）：判定为断网，立即停止本轮，剩余条目原样保留。
  * - 429/408/5xx：标记失败、设置退避时间并立即停止本轮，避免继续轰炸服务端。
- * - 其他非 2xx：永久 4xx 转 blocked；可恢复错误保留并按指数退避重试。
+ * - 其他非 2xx：永久 4xx 转 blocked；session 失效会清除旧 nonce，等待新 session；
+ *   其他可恢复错误保留并按指数退避重试。
  *
  * @returns flush 后仍留在队列里的条数。
  */
@@ -383,7 +408,12 @@ async function flushPendingReviewsUnlocked(
   const succeededOperations = new Set<string>();
   const failedOperations = new Map<
     string,
-    { permanent: boolean; message?: string; nextAttemptAt?: number }
+    {
+      permanent: boolean;
+      message?: string;
+      nextAttemptAt?: number;
+      clearSessionNonce?: boolean;
+    }
   >();
   let networkDown = false;
 
@@ -437,19 +467,24 @@ async function flushPendingReviewsUnlocked(
           typeof payload?.error === "string"
             ? payload.error.slice(0, 200)
             : `HTTP ${res.status}`;
+        const sessionRejected =
+          res.status === 403 && message === SESSION_REAUTH_ERROR;
         const permanent =
           res.status >= 400 &&
           res.status < 500 &&
-          ![401, 408, 422, 429].includes(res.status);
+          ![401, 408, 422, 429].includes(res.status) &&
+          !sessionRejected;
         const stopBatch =
           res.status === 401 ||
           res.status === 408 ||
           res.status === 422 ||
           res.status === 429 ||
+          sessionRejected ||
           res.status >= 500;
         failedOperations.set(item.operationId, {
           permanent,
           message,
+          clearSessionNonce: sessionRejected,
           nextAttemptAt: permanent
             ? undefined
             : Date.now() + backoffMs(item, retryAfterMs(res)),
@@ -488,7 +523,11 @@ async function flushPendingReviewsUnlocked(
       attempts: item.attempts + 1,
       status: failure.permanent ? "blocked" : item.status,
       lastError: failure.message ?? item.lastError,
-      nextAttemptAt: failure.permanent ? undefined : failure.nextAttemptAt,
+      nextAttemptAt:
+        failure.permanent || failure.clearSessionNonce
+          ? undefined
+          : failure.nextAttemptAt,
+      nonce: failure.clearSessionNonce ? undefined : item.nonce,
     });
   }
   return pendingReviewCount(userId);

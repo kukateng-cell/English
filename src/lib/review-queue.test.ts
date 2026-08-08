@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  attachStudySessionCredentials,
   enqueuePendingReview,
   flushPendingReviews,
   loadPendingReviews,
@@ -45,6 +46,30 @@ test("outbox is user scoped and preserves repeated reviews of one word", () => {
     loadPendingReviews("user-a").map((item) => item.operationId),
     ["operation-a1", "operation-a2"],
   );
+});
+
+test("legacy binding cannot steal a nonce already owned by a current answer", () => {
+  installStorage();
+  enqueuePendingReview("user-a", "legacy-a1", "word-1", 3);
+  enqueuePendingReview(
+    "user-a",
+    "current-a1",
+    "word-1",
+    5,
+    { studySessionId: "session-current", nonce: "nonce-current" },
+  );
+
+  attachStudySessionCredentials("user-a", "session-current", {
+    "word-1": "nonce-current",
+  });
+
+  const rows = loadPendingReviews("user-a");
+  const legacy = rows.find((row) => row.operationId === "legacy-a1");
+  const current = rows.find((row) => row.operationId === "current-a1");
+  assert.ok(legacy);
+  assert.ok(current);
+  assert.equal(legacy.nonce, undefined);
+  assert.equal(current.nonce, "nonce-current");
 });
 
 test("enqueue fails visibly when durable browser storage is unavailable", () => {
@@ -184,6 +209,38 @@ test("legacy outbox rows stay pending until a server nonce is attached", async (
     assert.equal(calls, 0);
     assert.equal(pendingReviewCount("user-a"), 1);
     assert.equal(loadPendingReviews("user-a")[0].status, "pending");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("expired session credentials stay pending until a fresh session is loaded", async () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-expired",
+    nonce: "nonce-expired",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  try {
+    await flushPendingReviews("user-a");
+    assert.equal(pendingReviewCount("user-a"), 1);
+    assert.equal(blockedReviewCount("user-a"), 0);
+    assert.equal(loadPendingReviews("user-a")[0].nonce, undefined);
+
+    attachStudySessionCredentials("user-a", "session-expired", {
+      "word-1": "nonce-still-expired",
+    });
+    assert.equal(loadPendingReviews("user-a")[0].nonce, undefined);
+
+    attachStudySessionCredentials("user-a", "session-fresh", {
+      "word-1": "nonce-fresh",
+    });
+    assert.equal(loadPendingReviews("user-a")[0].nonce, "nonce-fresh");
   } finally {
     globalThis.fetch = originalFetch;
   }

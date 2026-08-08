@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  advanceSpring,
   decideSwipe,
   estimateSwipeVelocity,
   hasClearedViewport,
   launchVelocity,
   offscreenTarget,
+  springSettled,
 } from "./swipe-motion";
 
 test("mouse swipe requires meaningful physical movement before velocity counts", () => {
@@ -69,4 +71,33 @@ test("visual completion resolves near the offscreen target on both sides", () =>
   assert.equal(hasClearedViewport(1, 788, 800), true);
   assert.equal(hasClearedViewport(-1, -787, -800), false);
   assert.equal(hasClearedViewport(-1, -788, -800), true);
+});
+
+test("the first release spring step immediately moves toward its target", () => {
+  const state = advanceSpring(
+    { position: 120, velocity: 0 },
+    860,
+    1 / 60,
+    { stiffness: 260, damping: 30, mass: 0.75 },
+  );
+
+  assert.ok(state.position > 120);
+  assert.ok(state.velocity > 0);
+  assert.equal(springSettled(state, 860, 80, 6), false);
+});
+
+test("the release spring converges without an unbounded frame step", () => {
+  let state = { position: 120, velocity: 0 };
+  const target = 860;
+  for (let index = 0; index < 180; index++) {
+    state = advanceSpring(
+      state,
+      target,
+      1 / 60,
+      { stiffness: 260, damping: 30, mass: 0.75 },
+    );
+  }
+
+  assert.equal(springSettled(state, target, 80, 6), true);
+  assert.ok(Math.abs(state.position - target) <= 6);
 });

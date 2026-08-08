@@ -15,6 +15,57 @@ const VELOCITY_WINDOW_MS = 100;
 export const OFFSCREEN_MARGIN = 40;
 export const VISUAL_COMPLETION_SLACK = 12;
 
+export interface SpringState {
+  position: number;
+  velocity: number;
+}
+
+export interface SpringConfig {
+  stiffness: number;
+  damping: number;
+  mass: number;
+}
+
+/**
+ * Advance a one-dimensional damped spring with small bounded substeps. The
+ * bounded integration keeps a delayed frame from destabilising the spring,
+ * while the caller can still write the first step synchronously at release.
+ */
+export function advanceSpring(
+  state: SpringState,
+  target: number,
+  deltaSeconds: number,
+  config: SpringConfig,
+): SpringState {
+  const elapsed = Math.min(Math.max(deltaSeconds, 0), 0.064);
+  const substeps = Math.max(1, Math.ceil(elapsed / 0.008));
+  const step = elapsed / substeps;
+  let position = state.position;
+  let velocity = state.velocity;
+
+  for (let index = 0; index < substeps; index++) {
+    const acceleration =
+      ((target - position) * config.stiffness - velocity * config.damping) /
+      config.mass;
+    velocity += acceleration * step;
+    position += velocity * step;
+  }
+
+  return { position, velocity };
+}
+
+export function springSettled(
+  state: SpringState,
+  target: number,
+  restSpeed: number,
+  restDelta: number,
+) {
+  return (
+    Math.abs(state.velocity) <= restSpeed &&
+    Math.abs(target - state.position) <= restDelta
+  );
+}
+
 export interface SwipeDecision {
   dismiss: boolean;
   direction: SwipeDirection;

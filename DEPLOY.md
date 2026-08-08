@@ -211,8 +211,10 @@ Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 
 本次 `ReviewEvent` 迁移采用 expand/contract bridge：数据库 trigger 会捕捉仍在运行
 的旧版本写入，迁移结束亦会再核对补齐 snapshot gap；`eventKind` 明确区分真实
 `REVIEW`、`LEGACY_BRIDGE` 与 `HISTORICAL_BACKFILL`，不再用 `quality=-1` 表示语义。
-新版学习页还会取得短期 `StudySession` 及每词一次性 nonce；API 不接受没有有效
-session/nonce 的成绩提交。旧页面必须 reload 后才能继续提交，避免客户端任意伪造
+新版学习页还会取得短期 `StudySession` 及每词一次性 nonce；严格模式下 API 不接受
+没有有效 session/nonce 的成绩提交。两阶段 rollout 可暂时设置
+`REQUIRE_STUDY_OPERATION_ID=0`，让旧 tab（没有 operationId/session/nonce）安全排空；
+确认旧 tab 已离线后移除该变量或设为 `1`，恢复严格模式，避免长期允许客户端任意伪造
 quality 或重复推进 SM-2。
 
 ### 4.2 修正 NEXTAUTH_URL（重要）
