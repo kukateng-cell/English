@@ -80,6 +80,8 @@ interface StudySessionInfo {
   nonces: Record<string, string>;
 }
 
+const CARD_MOTION_BUILD = "card-motion-2026.08.09";
+
 /** 当前词处在哪一步：先认字评估，随即立刻测试。 */
 type WordStep = "assess" | "quiz";
 
@@ -1373,6 +1375,19 @@ export default function StudyPage() {
         <div className="flex items-center gap-2">
           {streak && <StreakBadge streak={streak} />}
           <LogoutButton />
+        </div>
+      </div>
+
+      <div className="mx-auto mb-3 flex w-full max-w-md justify-center px-4">
+        <div
+          data-testid="card-motion-build-badge"
+          className="inline-flex items-center gap-2 rounded-full border border-[#BBF7D0] bg-[#F0FDF4] px-3 py-1 text-[11px] font-semibold tracking-wide text-[#15803D] dark:border-[#166534] dark:bg-[#052E16] dark:text-[#86EFAC]"
+        >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 rounded-full bg-[#22C55E] shadow-[0_0_0_3px_rgba(34,197,94,0.14)]"
+          />
+          {tc("最新卡牌流畅度修正版")} · {CARD_MOTION_BUILD}
         </div>
       </div>
 

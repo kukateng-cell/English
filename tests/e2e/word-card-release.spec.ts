@@ -174,6 +174,9 @@ declare global {
 test("release handoff stays continuous", async ({ page }, testInfo) => {
   const touch = testInfo.project.name === "touch";
   await signIn(page);
+  await expect(page.getByTestId("card-motion-build-badge")).toContainText(
+    "card-motion-2026.08.09",
+  );
 
   for (const scenario of scenarios) {
     const result = await dispatchGesture(page, scenario, touch);
