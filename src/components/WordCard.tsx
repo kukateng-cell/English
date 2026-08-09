@@ -4,16 +4,26 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
 import {
+  summarizeCardMotionProbe,
+  type CardMotionProbeEventType,
+  type CardMotionProbeFrame,
+  type CardMotionProbeReport,
+} from "@/lib/card-motion-probe";
+import {
   boundedReleaseVelocity,
   decideSwipe,
   dismissalDuration,
+  dismissalLaunchVelocity,
   estimatePointerVelocity,
   offscreenTarget,
+  returnLaunchVelocity,
   sampleDismissTrajectory,
   sampleReturnTrajectory,
   updateRenderedDragMotion,
@@ -35,6 +45,15 @@ const SWIPE_LABEL_THRESHOLD = 76;
 const BUTTON_LAUNCH_VELOCITY = 720;
 const POINTER_SAMPLE_CAPACITY = 32;
 const RETURN_MAX_SECONDS = 0.8;
+const CARD_MOTION_BUILD = "card-motion-2026.08.09-r4";
+
+declare global {
+  interface Window {
+    __cardMotionProbeEnabled?: boolean;
+    __cardMotionProbe?: CardMotionProbeFrame[];
+    __cardMotionProbeReport?: CardMotionProbeReport;
+  }
+}
 
 interface ActivePointerDrag {
   pointerId: number;
@@ -53,6 +72,12 @@ interface CardGeometry {
   baseLeft: number;
   baseRight: number;
   viewportWidth: number;
+}
+
+interface PointerReleaseProbe {
+  releasePosition: number;
+  sampledVelocity: number;
+  renderedVelocity: number;
 }
 
 type MotionMode = "idle" | "drag" | "dismiss" | "return";
@@ -114,7 +139,7 @@ function recordPointerSample(
   position: number,
   time: number,
 ) {
-  if (!Number.isFinite(position) || !Number.isFinite(time)) return;
+  if (!Number.isFinite(position) || !Number.isFinite(time)) return false;
   const previous = samples[samples.length - 1];
   if (
     previous &&
@@ -122,13 +147,48 @@ function recordPointerSample(
     time - previous.time >= 0 &&
     time - previous.time <= 4
   ) {
-    return;
+    return false;
   }
   if (previous && previous.time === time) {
     time += 0.01;
   }
   samples.push({ position, time });
   if (samples.length > POINTER_SAMPLE_CAPACITY) samples.shift();
+  return true;
+}
+
+function recordCardProbe(
+  type: CardMotionProbeEventType,
+  data: Omit<CardMotionProbeFrame, "type" | "time"> = {},
+) {
+  if (!window.__cardMotionProbeEnabled) return;
+  const frames = window.__cardMotionProbe ?? [];
+  frames.push({ type, time: performance.now(), ...data });
+  if (frames.length > 1_000) frames.shift();
+  window.__cardMotionProbe = frames;
+  const report = window.__cardMotionProbeReport;
+  if (
+    type === "pointerup-end" ||
+    (type === "raf" && report?.secondFramePosition === undefined)
+  ) {
+    window.__cardMotionProbeReport = summarizeCardMotionProbe(frames);
+  }
+}
+
+function resetCardProbe() {
+  if (!window.__cardMotionProbeEnabled) return;
+  window.__cardMotionProbe = [];
+  window.__cardMotionProbeReport = summarizeCardMotionProbe([]);
+  recordCardProbe("gesture-start");
+}
+
+function subscribeCardProbeLocation(onStoreChange: () => void) {
+  window.addEventListener("popstate", onStoreChange);
+  return () => window.removeEventListener("popstate", onStoreChange);
+}
+
+function cardProbeSnapshot() {
+  return new URLSearchParams(window.location.search).has("cardProbe");
 }
 
 function cardRotation(position: number) {
@@ -188,6 +248,14 @@ export default function WordCard({
   disabled,
 }: WordCardProps) {
   const { tc } = useLocale();
+  const probeEnabled = useSyncExternalStore(
+    subscribeCardProbeLocation,
+    cardProbeSnapshot,
+    () => false,
+  );
+  const [probeCopyState, setProbeCopyState] = useState<
+    "idle" | "copied" | "failed"
+  >("idle");
   const dragLayerRef = useRef<HTMLDivElement>(null);
   const leftLabelRef = useRef<HTMLSpanElement>(null);
   const rightLabelRef = useRef<HTMLSpanElement>(null);
@@ -198,6 +266,7 @@ export default function WordCard({
   const dragXRef = useRef(0);
   const motionFrameRef = useRef<number | null>(null);
   const motionTickRef = useRef<(timestamp: number) => void>(() => {});
+  const previousProbeRafTimeRef = useRef<number | null>(null);
   const motionStateRef = useRef<MotionState>({
     mode: "idle",
     position: 0,
@@ -223,6 +292,36 @@ export default function WordCard({
   useEffect(() => {
     interactionPropsRef.current = { disabled, onSwipeLeft, onSwipeRight };
   }, [disabled, onSwipeLeft, onSwipeRight]);
+
+  useEffect(() => {
+    window.__cardMotionProbeEnabled = probeEnabled;
+    if (probeEnabled) {
+      window.__cardMotionProbe = [];
+      window.__cardMotionProbeReport = summarizeCardMotionProbe([]);
+    }
+    return () => {
+      window.__cardMotionProbeEnabled = false;
+    };
+  }, [probeEnabled]);
+
+  const copyProbeReport = useCallback(async () => {
+    const frames = window.__cardMotionProbe ?? [];
+    const report = summarizeCardMotionProbe(frames);
+    window.__cardMotionProbeReport = report;
+    const payload = {
+      build: CARD_MOTION_BUILD,
+      userAgent: navigator.userAgent,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      report,
+      frames,
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setProbeCopyState("copied");
+    } catch {
+      setProbeCopyState("failed");
+    }
+  }, []);
 
   const writeCurrentDragFrame = useCallback((position: number) => {
     const dragLayer = dragLayerRef.current;
@@ -353,11 +452,23 @@ export default function WordCard({
         position: next.position,
         velocity: next.velocity,
       });
+      recordCardProbe("raf", {
+        x: next.position,
+        velocity: next.velocity,
+        mode: motion.mode,
+        frameGap:
+          previousProbeRafTimeRef.current === null
+            ? undefined
+            : now - previousProbeRafTimeRef.current,
+      });
+      previousProbeRafTimeRef.current = now;
 
       const complete =
         motion.mode === "dismiss"
           ? elapsedSeconds >= motion.duration
-          : (Math.abs(next.position) <= 0.5 &&
+          : (motion.releaseStartPosition > 0 && next.position <= 0) ||
+            (motion.releaseStartPosition < 0 && next.position >= 0) ||
+            (Math.abs(next.position) <= 0.5 &&
               Math.abs(next.velocity) <= 18) ||
             elapsedSeconds >= RETURN_MAX_SECONDS;
       if (complete) {
@@ -397,12 +508,18 @@ export default function WordCard({
       motion.direction = direction;
       motion.onComplete = onComplete;
       motion.stationarySeconds = 0;
+      previousProbeRafTimeRef.current = null;
       traceGesture("release-handoff", {
         phase: mode,
         direction: direction ?? "return",
         releasePosition,
         releaseVelocity,
         durationMs: duration * 1_000,
+      });
+      recordCardProbe("release-start", {
+        x: releasePosition,
+        velocity: releaseVelocity,
+        mode,
       });
       scheduleMotionFrame();
     },
@@ -433,7 +550,7 @@ export default function WordCard({
       beginReleaseMotion(
         "return",
         0,
-        boundedReleaseVelocity(motion.velocity),
+        returnLaunchVelocity(position, motion.velocity),
         RETURN_MAX_SECONDS,
         null,
         null,
@@ -484,20 +601,20 @@ export default function WordCard({
         return;
       }
 
-      const releaseVelocity = boundedReleaseVelocity(velocityX);
-      const duration = dismissalDuration(remainingDistance, releaseVelocity);
+      const launchVelocity = dismissalLaunchVelocity(velocityX, direction);
+      const duration = dismissalDuration(remainingDistance, launchVelocity);
       traceGesture("flight-animation-start", {
         direction,
         releasePosition: currentX,
         remainingDistance,
         releaseVelocity: velocityX,
-        departureVelocity: releaseVelocity,
+        departureVelocity: launchVelocity,
         durationMs: duration * 1_000,
       });
       beginReleaseMotion(
         "dismiss",
         targetX,
-        releaseVelocity,
+        launchVelocity,
         duration,
         direction,
         commit,
@@ -553,6 +670,7 @@ export default function WordCard({
 
       const geometry = cacheGeometry();
       if (!geometry) return;
+      resetCardProbe();
       const captureGeneration = captureGenerationRef.current + 1;
       captureGenerationRef.current = captureGeneration;
       const motion = motionStateRef.current;
@@ -604,20 +722,24 @@ export default function WordCard({
       const latest = coalesced[coalesced.length - 1] ?? event;
       const receivedAt = performance.now();
       for (const sample of coalesced) {
-        recordPointerSample(
+        const added = recordPointerSample(
           drag.samples,
           sample.clientX,
           pointerSampleTime(sample, receivedAt, event.timeStamp),
         );
+        if (!added) recordCardProbe("duplicate-sample", { x: sample.clientX });
       }
       drag.latestPointerX = latest.clientX;
       scheduleMotionFrame();
       if (event.cancelable) event.preventDefault();
     };
 
-    const finishPointerDrag = (event: PointerEvent, cancelled: boolean) => {
+    const finishPointerDrag = (
+      event: PointerEvent,
+      cancelled: boolean,
+    ): PointerReleaseProbe | null => {
       const drag = activeDragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (!drag || drag.pointerId !== event.pointerId) return null;
       const motion = motionStateRef.current;
       const releaseTime = performance.now();
       const releaseSampleTime = releaseTime;
@@ -667,10 +789,15 @@ export default function WordCard({
       if (activeCaptureGenerationRef.current === drag.captureGeneration) {
         activeCaptureGenerationRef.current = null;
       }
+      const probeResult = {
+        releasePosition: releaseMotion.position,
+        sampledVelocity,
+        renderedVelocity: releaseMotion.velocity,
+      };
 
       if (cancelled) {
         returnToCentre();
-        return;
+        return probeResult;
       }
 
       const velocityX = sampledVelocity;
@@ -682,17 +809,24 @@ export default function WordCard({
       );
       if (!decision.dismiss) {
         returnToCentre();
-        return;
+        return probeResult;
       }
       const callback =
         decision.direction < 0
           ? interactionPropsRef.current.onSwipeLeft
           : interactionPropsRef.current.onSwipeRight;
       startFlight(decision.direction, velocityX, callback, drag.geometry);
+      return probeResult;
     };
 
     const handlePointerUp = (event: PointerEvent) => {
-      finishPointerDrag(event, false);
+      recordCardProbe("pointerup-start", { x: event.clientX });
+      const result = finishPointerDrag(event, false);
+      recordCardProbe("pointerup-end", {
+        x: result?.releasePosition,
+        velocity: result?.sampledVelocity,
+        renderedVelocity: result?.renderedVelocity,
+      });
     };
     const handlePointerCancel = (event: PointerEvent) => {
       finishPointerDrag(event, true);
@@ -712,11 +846,35 @@ export default function WordCard({
       finishPointerDrag(event, true);
     };
 
+    const moveEventName =
+      "onpointerrawupdate" in window ? "pointerrawupdate" : "pointermove";
+    const handleProbeMove = (event: PointerEvent) => {
+      recordCardProbe(
+        event.type === "pointerrawupdate" ? "pointerrawupdate" : "pointermove",
+        { x: event.clientX },
+      );
+    };
+    const probeMoveListener = handleProbeMove as EventListener;
+    const longTaskObserver =
+      window.__cardMotionProbeEnabled &&
+      typeof PerformanceObserver !== "undefined" &&
+      PerformanceObserver.supportedEntryTypes.includes("longtask")
+        ? new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              recordCardProbe("longtask", { duration: entry.duration });
+            }
+          })
+        : null;
+    longTaskObserver?.observe({ entryTypes: ["longtask"] });
+
     const listenerOptions = { passive: false };
     const moveListener = handlePointerMove as EventListener;
     dragLayer.addEventListener("pointerdown", handlePointerDown, listenerOptions);
-    dragLayer.addEventListener("pointerrawupdate", moveListener, listenerOptions);
-    dragLayer.addEventListener("pointermove", moveListener, listenerOptions);
+    dragLayer.addEventListener(moveEventName, moveListener, listenerOptions);
+    if (window.__cardMotionProbeEnabled) {
+      dragLayer.addEventListener("pointerrawupdate", probeMoveListener);
+      dragLayer.addEventListener("pointermove", probeMoveListener);
+    }
     dragLayer.addEventListener("pointerup", handlePointerUp, listenerOptions);
     dragLayer.addEventListener("pointercancel", handlePointerCancel, listenerOptions);
     dragLayer.addEventListener(
@@ -745,10 +903,12 @@ export default function WordCard({
       activeCaptureGenerationRef.current = null;
       activeDragRef.current = null;
       resizeObserver?.disconnect();
+      longTaskObserver?.disconnect();
       window.removeEventListener("resize", updateGeometry);
       dragLayer.removeEventListener("pointerdown", handlePointerDown);
-      dragLayer.removeEventListener("pointerrawupdate", moveListener);
-      dragLayer.removeEventListener("pointermove", moveListener);
+      dragLayer.removeEventListener(moveEventName, moveListener);
+      dragLayer.removeEventListener("pointerrawupdate", probeMoveListener);
+      dragLayer.removeEventListener("pointermove", probeMoveListener);
       dragLayer.removeEventListener("pointerup", handlePointerUp);
       dragLayer.removeEventListener("pointercancel", handlePointerCancel);
       dragLayer.removeEventListener(
@@ -869,6 +1029,21 @@ export default function WordCard({
           </div>
         </div>
       </div>
+
+      {probeEnabled && (
+        <button
+          type="button"
+          data-testid="card-motion-probe-copy"
+          onClick={copyProbeReport}
+          className="fixed bottom-20 left-4 z-[70] rounded-xl border border-[#93C5FD] bg-[#EFF6FF] px-3 py-2 text-xs font-semibold text-[#1D4ED8] shadow-lg dark:border-[#1D4ED8] dark:bg-[#172554] dark:text-[#BFDBFE]"
+        >
+          {probeCopyState === "copied"
+            ? "已複製卡牌診斷"
+            : probeCopyState === "failed"
+              ? "複製失敗，請用 Console"
+              : `複製卡牌診斷 · ${CARD_MOTION_BUILD}`}
+        </button>
+      )}
 
       {children}
     </div>

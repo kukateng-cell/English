@@ -11,6 +11,10 @@ const DRAG_VELOCITY_DECAY_RATE = 24;
 const STATIONARY_GRACE_SECONDS = 1 / 60;
 const POSITION_EPSILON = 0.01;
 const POINTER_VELOCITY_WINDOW_MS = 70;
+const MIN_DISMISS_LAUNCH_SPEED = 1_200;
+const MIN_RETURN_LAUNCH_SPEED = 220;
+const MAX_RETURN_LAUNCH_SPEED = 700;
+const RETURN_POSITION_SPEED_FACTOR = 18;
 export const OFFSCREEN_MARGIN = 40;
 
 export interface SpringState {
@@ -96,6 +100,42 @@ export function offscreenTarget(
 export function boundedReleaseVelocity(velocityX: number) {
   if (!Number.isFinite(velocityX)) return 0;
   return clamp(velocityX, -MAX_RELEASE_VELOCITY, MAX_RELEASE_VELOCITY);
+}
+
+/** Start a committed dismissal moving outward even after a stationary hold. */
+export function dismissalLaunchVelocity(
+  releaseVelocity: number,
+  direction: SwipeDirection,
+) {
+  const outwardSpeed = Math.max(
+    0,
+    boundedReleaseVelocity(releaseVelocity) * direction,
+  );
+  return direction * Math.max(outwardSpeed, MIN_DISMISS_LAUNCH_SPEED);
+}
+
+/**
+ * A rejected swipe should react towards the centre immediately. Deliberately
+ * replace stationary or outward momentum with a perceptible inward launch.
+ */
+export function returnLaunchVelocity(
+  position: number,
+  releaseVelocity: number,
+) {
+  if (!Number.isFinite(position) || Math.abs(position) < POSITION_EPSILON) {
+    return 0;
+  }
+  const directionToCentre: SwipeDirection = position > 0 ? -1 : 1;
+  const inwardSpeed = Math.max(
+    0,
+    boundedReleaseVelocity(releaseVelocity) * directionToCentre,
+  );
+  const minimumSpeed = clamp(
+    Math.abs(position) * RETURN_POSITION_SPEED_FACTOR,
+    MIN_RETURN_LAUNCH_SPEED,
+    MAX_RETURN_LAUNCH_SPEED,
+  );
+  return directionToCentre * Math.max(inwardSpeed, minimumSpeed);
 }
 
 /**

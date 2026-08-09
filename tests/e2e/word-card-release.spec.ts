@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { CardMotionProbeReport } from "../../src/lib/card-motion-probe";
 
 type GestureScenario = {
   name:
@@ -80,9 +81,12 @@ async function dispatchGesture(
     | "synthetic-mouse"
     | "synthetic-touch",
 ) {
-  await page.goto(`/study?gesture=${scenario.name}`);
+  await page.goto(`/study?gesture=${scenario.name}&cardProbe=1`);
   const card = page.locator('[data-testid="word-card-drag-layer"]');
   await card.waitFor();
+  await expect(page.getByTestId("card-motion-probe-copy")).toContainText(
+    "card-motion-2026.08.09-r4",
+  );
   await page.evaluate(() => {
     window.__wordCardGestureTrace = [];
     window.__wordCardPaintTrace = [];
@@ -152,6 +156,9 @@ async function dispatchGesture(
     await client.detach();
   } else if (input === "synthetic-touch" || input === "synthetic-mouse") {
     const pointerType = input === "synthetic-touch" ? "touch" : "mouse";
+    const moveEventType = await page.evaluate(() =>
+      "onpointerrawupdate" in window ? "pointerrawupdate" : "pointermove",
+    );
     await page.evaluate(() => {
       const card = document.querySelector<HTMLElement>(
         '[data-testid="word-card-drag-layer"]',
@@ -187,7 +194,7 @@ async function dispatchGesture(
     if (scenario.preHoldMs) await page.waitForTimeout(scenario.preHoldMs);
     for (let step = 1; step <= scenario.steps; step++) {
       await dispatch(
-        "pointermove",
+        moveEventType,
         start.x + (scenario.distance * step) / scenario.steps,
       );
       if (step < scenario.steps) {
@@ -237,6 +244,7 @@ async function dispatchGesture(
       frames: trace
         .filter((entry) => entry.name === "release-frame")
         .slice(0, 3),
+      probeReport: window.__cardMotionProbeReport,
     };
   });
 }
@@ -248,6 +256,7 @@ declare global {
     >;
     __wordCardPaintTrace?: Array<{ timestamp: number; position: number }>;
     __wordCardPaintSamplerActive?: boolean;
+    __cardMotionProbeReport?: CardMotionProbeReport;
   }
 }
 
@@ -259,7 +268,7 @@ function median(values: number[]) {
     : sorted[middle];
 }
 
-test("release velocity stays continuous", async ({ page }, testInfo) => {
+test("release response starts immediately", async ({ page }, testInfo) => {
   const touch = testInfo.project.name.startsWith("mobile-");
   const input = touch
     ? testInfo.project.name === "mobile-chromium"
@@ -270,7 +279,7 @@ test("release velocity stays continuous", async ({ page }, testInfo) => {
       : "mouse";
   await signIn(page);
   await expect(page.getByTestId("card-motion-build-badge")).toContainText(
-    "card-motion-2026.08.09-r3",
+    "card-motion-2026.08.09-r4",
   );
 
   for (const scenario of scenarios) {
@@ -280,6 +289,15 @@ test("release velocity stays continuous", async ({ page }, testInfo) => {
     expect(result.pointerup).toBeTruthy();
     expect(result.handoff).toBeTruthy();
     expect(result.frames).toHaveLength(3);
+    expect(result.probeReport).toBeTruthy();
+    expect(Number(result.probeReport?.pointerupHandlerDuration)).toBeLessThan(8);
+    expect(Number(result.probeReport?.firstReleaseRafDelay)).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(
+      Number(result.probeReport?.pointerRawUpdateCount) +
+        Number(result.probeReport?.pointerMoveCount),
+    ).toBeGreaterThan(0);
 
     const handoffTimestamp = Number(result.handoff?.timestamp);
     const preHandoffPaints = result.paintFrames.filter(
@@ -323,12 +341,11 @@ test("release velocity stays continuous", async ({ page }, testInfo) => {
     if (scenario.expected === "dismiss-right") {
       expect(result.handoff?.direction).toBe(1);
       const releaseVelocity = Math.abs(Number(result.handoff?.releaseVelocity));
-      if (releaseVelocity > 100) {
-        const speedRatio =
-          Math.abs(Number(result.frames[0].velocity)) / releaseVelocity;
-        expect(speedRatio).toBeGreaterThan(0.55);
-        expect(speedRatio).toBeLessThan(1.8);
-      }
+      expect(releaseVelocity).toBeGreaterThanOrEqual(1_200);
+      const speedRatio =
+        Math.abs(Number(result.frames[0].velocity)) / releaseVelocity;
+      expect(speedRatio).toBeGreaterThan(0.55);
+      expect(speedRatio).toBeLessThan(1.8);
       expect(Number(result.frames[0].position)).toBeGreaterThan(
         Number(result.pointerup?.releasePosition),
       );
@@ -340,9 +357,15 @@ test("release velocity stays continuous", async ({ page }, testInfo) => {
       );
     } else {
       expect(result.handoff?.direction).toBe("return");
-      expect(Number(result.handoff?.releaseVelocity)).toBeCloseTo(
-        Number(result.pointerup?.releaseVelocity),
-        5,
+      expect(
+        Number(result.handoff?.releaseVelocity) *
+          Number(result.handoff?.releasePosition),
+      ).toBeLessThan(0);
+      expect(Math.abs(Number(result.handoff?.releaseVelocity))).toBeGreaterThanOrEqual(
+        220,
+      );
+      expect(Math.abs(Number(result.frames[0].position))).toBeLessThan(
+        Math.abs(Number(result.handoff?.releasePosition)),
       );
     }
 

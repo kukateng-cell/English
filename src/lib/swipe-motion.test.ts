@@ -4,8 +4,10 @@ import {
   boundedReleaseVelocity,
   decideSwipe,
   dismissalDuration,
+  dismissalLaunchVelocity,
   estimatePointerVelocity,
   offscreenTarget,
+  returnLaunchVelocity,
   sampleDismissTrajectory,
   sampleReturnTrajectory,
   updateRenderedDragMotion,
@@ -129,6 +131,20 @@ test("release velocity keeps its direction while remaining bounded", () => {
   assert.equal(boundedReleaseVelocity(-9_000), -2_400);
 });
 
+test("committed dismissal always launches outward perceptibly", () => {
+  assert.equal(dismissalLaunchVelocity(0, 1), 1_200);
+  assert.equal(dismissalLaunchVelocity(600, 1), 1_200);
+  assert.equal(dismissalLaunchVelocity(-900, 1), 1_200);
+  assert.equal(dismissalLaunchVelocity(-1_800, -1), -1_800);
+});
+
+test("rejected swipe launches immediately towards centre", () => {
+  assert.equal(returnLaunchVelocity(5, 0), -220);
+  assert.equal(returnLaunchVelocity(20, 600), -360);
+  assert.equal(returnLaunchVelocity(-80, -600), 700);
+  assert.equal(returnLaunchVelocity(80, -900), -900);
+});
+
 test("pointer regression estimates recent velocity independent of rAF", () => {
   const samples = [
     { position: 0, time: 940 },
@@ -182,6 +198,23 @@ test("dismissal frame displacement does not jump after release", () => {
 
   assert.ok(firstDisplacement > 0);
   assert.ok(secondDisplacement / firstDisplacement < 2.5);
+});
+
+test("stationary release moves perceptibly on the first 120 Hz frame", () => {
+  const dismissVelocity = dismissalLaunchVelocity(0, 1);
+  const dismissDuration = dismissalDuration(380, dismissVelocity);
+  const dismissed = sampleDismissTrajectory(
+    120,
+    dismissVelocity,
+    500,
+    1 / 120,
+    dismissDuration,
+  );
+  const returnVelocity = returnLaunchVelocity(5, 0);
+  const returned = sampleReturnTrajectory(5, returnVelocity, 1 / 120);
+
+  assert.ok(dismissed.position - 120 > 1);
+  assert.ok(5 - returned.position > 1);
 });
 
 test("closed-form return preserves initial velocity and settles", () => {
