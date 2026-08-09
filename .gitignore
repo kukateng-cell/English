@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -47,4 +49,3 @@ next-env.d.ts
 # prisma (Prisma 7) — generated client lives in src/generated
 /src/generated
 .env
-

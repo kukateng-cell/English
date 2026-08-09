@@ -8,6 +8,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "test": "node --import tsx --test src/lib/*.test.ts",
+    "test:e2e:card-motion": "playwright test tests/e2e/word-card-release.spec.ts",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:migrations": "node scripts/check-migrations-fresh.mjs",
     "test:migration-checksums": "node scripts/check-migration-checksums.mjs",
@@ -36,6 +37,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

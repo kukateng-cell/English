@@ -32,6 +32,11 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
       MIGRATE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
       NEXTAUTH_SECRET: ci-placeholder-secret
+      NEXTAUTH_URL: http://127.0.0.1:3100
+      INITIAL_ADMIN_PASSWORD: CiAdminPlaceholder!2026
+      SEED_TEST_STUDENT: "1"
+      TEST_STUDENT_USERNAME: __test_student__ci_card_motion
+      TEST_STUDENT_PASSWORD: CiCardMotion!2026
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,6 +64,15 @@ jobs:
 
       - name: Run review ledger and concurrency checks
         run: npm run test:db
+
+      - name: Seed the card-motion test account and words
+        run: npm run seed
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify mouse and touch card release motion
+        run: npm run test:e2e:card-motion
 
   migrate-and-deploy:
     name: Migrate database, then trigger Vercel
