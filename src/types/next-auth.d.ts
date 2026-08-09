@@ -12,6 +12,8 @@ declare module "next-auth" {
       role: Role;
       // 首次登入強制改密碼标记：true 时前端需引导用户到 /reset-password。
       mustChangePassword?: boolean;
+      authenticatedAt?: number;
+      authUnavailable?: boolean;
     };
   }
 
@@ -19,6 +21,8 @@ declare module "next-auth" {
     role?: Role;
     tokenVersion?: number;
     mustChangePassword?: boolean;
+    authenticatedAt?: number;
+    authUnavailable?: boolean;
   }
 }
 
@@ -31,5 +35,7 @@ declare module "next-auth/jwt" {
     tokenVersion?: number;
     // 首次登入強制改密碼标记：每次请求都从 DB 刷新，重设后立即生效。
     mustChangePassword?: boolean;
+    authenticatedAt?: number;
+    authUnavailable?: boolean;
   }
 }

@@ -284,6 +284,40 @@ export function aggregateAllLevels(
     if (new Date(r.nextReviewDate) <= now) s.due += 1;
   }
 
+  return buildLevelAggregations(levels, agg);
+}
+
+export interface UnitStatRow {
+  level: string;
+  category: string | null;
+  total: number;
+  learned: number;
+  mastered: number;
+  due: number;
+}
+
+/** Build unlock/progress output from rows already aggregated by PostgreSQL. */
+export function aggregateUnitStatRows(rows: UnitStatRow[]): LevelAggregation[] {
+  const levels = [...new Set(rows.map((row) => row.level))].sort(levelCompare);
+  const agg = new Map<string, Map<string, UnitStat>>();
+  for (const row of rows) {
+    const category = row.category ?? "未分类";
+    const level = agg.get(row.level) ?? new Map<string, UnitStat>();
+    level.set(category, {
+      total: row.total,
+      learned: row.learned,
+      mastered: row.mastered,
+      due: row.due,
+    });
+    agg.set(row.level, level);
+  }
+  return buildLevelAggregations(levels, agg);
+}
+
+function buildLevelAggregations(
+  levels: string[],
+  agg: Map<string, Map<string, UnitStat>>,
+): LevelAggregation[] {
   // 给 computeUnlocks 准备有序统计结构
   const stats: LeveledUnitStats = {};
   for (const lvl of levels) {

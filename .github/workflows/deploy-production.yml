@@ -104,14 +104,22 @@ jobs:
       - name: Verify required production secrets
         env:
           MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          STUDY_OPERATION_ID_COMPAT_UNTIL: ${{ secrets.STUDY_OPERATION_ID_COMPAT_UNTIL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           test -n "$MIGRATE_URL" || { echo "::error::Missing production MIGRATE_URL"; exit 1; }
+          test -n "$UPSTASH_REDIS_REST_URL" || { echo "::error::Missing production UPSTASH_REDIS_REST_URL"; exit 1; }
+          test -n "$UPSTASH_REDIS_REST_TOKEN" || { echo "::error::Missing production UPSTASH_REDIS_REST_TOKEN"; exit 1; }
+          test -n "$CRON_SECRET" || { echo "::error::Missing production CRON_SECRET"; exit 1; }
           test -n "$VERCEL_TOKEN" || { echo "::error::Missing VERCEL_TOKEN"; exit 1; }
           test -n "$VERCEL_ORG_ID" || { echo "::error::Missing VERCEL_ORG_ID"; exit 1; }
           test -n "$VERCEL_PROJECT_ID" || { echo "::error::Missing VERCEL_PROJECT_ID"; exit 1; }
+          npm run check:production-config
 
       - name: Verify application
         run: |

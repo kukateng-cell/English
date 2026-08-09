@@ -214,33 +214,46 @@ test("legacy outbox rows stay pending until a server nonce is attached", async (
   }
 });
 
-test("expired session credentials stay pending until a fresh session is loaded", async () => {
+test("expired session credentials are reauthorized and retried once", async () => {
   installStorage();
   enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
     studySessionId: "session-expired",
     nonce: "nonce-expired",
   });
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
+  const requests: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    requests.push(url);
+    if (requests.length === 1) {
+      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url === "/api/study/credentials") {
+      return new Response(
+        JSON.stringify({
+          studySession: {
+            id: "session-fresh",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            nonces: { "word-1": "nonce-fresh" },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response("{}", { status: 200 });
+  };
   try {
     await flushPendingReviews("user-a");
-    assert.equal(pendingReviewCount("user-a"), 1);
+    assert.equal(pendingReviewCount("user-a"), 0);
     assert.equal(blockedReviewCount("user-a"), 0);
-    assert.equal(loadPendingReviews("user-a")[0].nonce, undefined);
-
-    attachStudySessionCredentials("user-a", "session-expired", {
-      "word-1": "nonce-still-expired",
-    });
-    assert.equal(loadPendingReviews("user-a")[0].nonce, undefined);
-
-    attachStudySessionCredentials("user-a", "session-fresh", {
-      "word-1": "nonce-fresh",
-    });
-    assert.equal(loadPendingReviews("user-a")[0].nonce, "nonce-fresh");
+    assert.deepEqual(requests, [
+      "/api/study",
+      "/api/study/credentials",
+      "/api/study",
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -26,6 +26,7 @@
  *
  * 本地开发：未配置 UPSTASH_REDIS_REST_URL / TOKEN 时，自动降级为
  *  单实例内存滑动窗口（语义一致，仅限本地/单副本，会打印一次警告）。
+ * Vercel production 缺少任一变量时会直接拒绝启动，避免多实例静默降级。
  */
 
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
@@ -170,6 +171,17 @@ function createMemoryBackend(max: number, windowMs: number): {
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
+if (Boolean(UPSTASH_URL) !== Boolean(UPSTASH_TOKEN)) {
+  throw new Error(
+    "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together",
+  );
+}
+if (process.env.VERCEL_ENV === "production" && !UPSTASH_URL) {
+  throw new Error(
+    "Production requires the distributed Upstash rate-limit backend",
+  );
+}
+
 /** 内存回退模式下，所有桶的「清空」函数集合（仅供测试）。 */
 const memoryResets: Array<() => void> = [];
 
@@ -275,8 +287,9 @@ function normalizeAccount(account: string): string {
 /**
  * 检查当前请求是否被允许尝试登录，并消费一个令牌。
  *
- * 策略：先消费严格「账号」维度，再消费较宽「IP」预认证维度；任一耗尽即拒绝。
- * 先查账号是为了在账号已被限流时不额外消耗 IP 维度的配额。
+ * 策略：先消费「IP」预认证维度，再消费严格「账号」维度；任一耗尽即拒绝。
+ * IP 已被封锁时绝不触碰账号桶，防止攻击者借一个 blocked IP 批量耗尽其他
+ * 学生账号的登录配额。
  *
  * 注意：本函数「会」消费令牌（即使是合法用户登录也计 1 次）。
  * 这是「每分钟最多 5 次尝试」的直接实现，并能保护后续 bcrypt 计算不被滥用。
@@ -288,21 +301,21 @@ export async function checkLimit(
   ip: string,
 ): Promise<LimitResult> {
   try {
-    const r1 = await accountBackend.limit(normalizeAccount(account));
-    if (!r1.ok) {
+    const ipResult = await ipBackend.limit(ip);
+    if (!ipResult.ok) {
       return {
         ok: false,
-        retryAfterSec: toRetryAfterSec(r1.reset),
-        dimension: "account",
+        retryAfterSec: toRetryAfterSec(ipResult.reset),
+        dimension: "ip",
       };
     }
 
-    const r2 = await ipBackend.limit(ip);
-    if (!r2.ok) {
+    const accountResult = await accountBackend.limit(normalizeAccount(account));
+    if (!accountResult.ok) {
       return {
         ok: false,
-        retryAfterSec: toRetryAfterSec(r2.reset),
-        dimension: "ip",
+        retryAfterSec: toRetryAfterSec(accountResult.reset),
+        dimension: "account",
       };
     }
 

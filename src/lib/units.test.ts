@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeUnlocks, isLevel, unitCategoryToStorage } from "./units";
+import {
+  aggregateUnitStatRows,
+  computeUnlocks,
+  isLevel,
+  unitCategoryToStorage,
+} from "./units";
 
 const stat = (mastered: number) => ({
   total: 10,
@@ -37,4 +42,28 @@ test("strict level predicate rejects mutation typos", () => {
 test("the 未分类 route label maps back to a null database category", () => {
   assert.equal(unitCategoryToStorage("未分类"), null);
   assert.equal(unitCategoryToStorage("Family"), "Family");
+});
+
+test("database-aggregated unit rows retain unlock semantics", () => {
+  const result = aggregateUnitStatRows([
+    {
+      level: "A1",
+      category: "one",
+      total: 10,
+      learned: 9,
+      mastered: 8,
+      due: 2,
+    },
+    {
+      level: "A1",
+      category: "two",
+      total: 10,
+      learned: 0,
+      mastered: 0,
+      due: 0,
+    },
+  ]);
+  assert.equal(result[0].units[0].completed, true);
+  assert.equal(result[0].units[1].unlocked, true);
+  assert.equal(result[0].units[0].due, 2);
 });

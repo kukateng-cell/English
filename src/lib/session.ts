@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma";
 export async function getSessionUserId(): Promise<string | null> {
   const session = await getServerSession(authOptions);
   if (!session?.user) return null;
+  if (session.user.authUnavailable) throw new Error("AUTH_BACKEND_UNAVAILABLE");
   return (session.user as { id: string }).id;
 }
 
@@ -17,6 +18,7 @@ export async function requireAuth(): Promise<string> {
 export async function getSessionRole(): Promise<Role | null> {
   const session = await getServerSession(authOptions);
   if (!session?.user) return null;
+  if (session.user.authUnavailable) throw new Error("AUTH_BACKEND_UNAVAILABLE");
   return (session.user as { role: Role }).role;
 }
 
@@ -34,6 +36,7 @@ export async function getCurrentUser(): Promise<{
 } | null> {
   const session = await getServerSession(authOptions);
   if (!session?.user) return null;
+  if (session.user.authUnavailable) throw new Error("AUTH_BACKEND_UNAVAILABLE");
   return {
     id: (session.user as { id: string }).id,
     role: (session.user as { role: Role }).role,
@@ -46,8 +49,8 @@ export async function getCurrentUser(): Promise<{
  *  - ok=false：未通过，status 为 401(未登录) 或 403(角色不足)，附带 message
  */
 export type AuthResult =
-  | { ok: true; userId: string; role: Role }
-  | { ok: false; status: 401 | 403; message: string };
+  | { ok: true; userId: string; role: Role; authenticatedAt?: number }
+  | { ok: false; status: 401 | 403 | 503; message: string };
 
 /** 要求已登录（任意角色）。 */
 export async function requireUser(): Promise<AuthResult> {
@@ -55,9 +58,21 @@ export async function requireUser(): Promise<AuthResult> {
   if (!session?.user) {
     return { ok: false, status: 401, message: "Unauthorized" };
   }
+  if (session.user.authUnavailable) {
+    return {
+      ok: false,
+      status: 503,
+      message: "认证服务暂时不可用，请稍后重试",
+    };
+  }
   const userId = (session.user as { id: string }).id;
   const role = (session.user as { role: Role }).role;
-  return { ok: true, userId, role };
+  return {
+    ok: true,
+    userId,
+    role,
+    authenticatedAt: session.user.authenticatedAt,
+  };
 }
 
 /** 要求登录用户属于指定角色之一（用于管理端 / 教师端 API）。 */
@@ -66,11 +81,22 @@ export async function requireRole(...allowed: Role[]): Promise<AuthResult> {
   if (!session?.user) {
     return { ok: false, status: 401, message: "Unauthorized" };
   }
+  if (session.user.authUnavailable) {
+    return {
+      ok: false,
+      status: 503,
+      message: "认证服务暂时不可用，请稍后重试",
+    };
+  }
   const userId = (session.user as { id: string }).id;
   const role = (session.user as { role: Role }).role;
   if (!allowed.includes(role)) {
     return { ok: false, status: 403, message: "Forbidden" };
   }
-  return { ok: true, userId, role };
+  return {
+    ok: true,
+    userId,
+    role,
+    authenticatedAt: session.user.authenticatedAt,
+  };
 }
-

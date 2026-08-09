@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma, Prisma, type Word } from "@/lib/prisma";
+import { requireUser } from "@/lib/session";
 import {
   updateSM2,
   gestureToQuality,
@@ -10,8 +9,6 @@ import {
   type Quality,
 } from "@/lib/sm2";
 import {
-  aggregateAllLevels,
-  levelCompare,
   normalizeLevel,
   unitCategoryToStorage,
 } from "@/lib/units";
@@ -20,8 +17,15 @@ import {
   achievementsForKeys,
   checkAchievements,
 } from "@/lib/achievements";
-import { checkStudyRate } from "@/lib/study-limiter";
+import { checkStudyQueueRate, checkStudyRate } from "@/lib/study-limiter";
 import { MAX_STUDY_SESSION_WORDS } from "@/lib/study-session";
+import {
+  issueStudySession,
+  serializeStudySession,
+} from "@/lib/study-session-server";
+import { getClientIp } from "@/lib/login-limiter";
+import { legacyOperationIdCompatibilityEndsAt } from "@/lib/production-config";
+import { fetchUnitProgress } from "@/lib/unit-progress-server";
 
 /**
  * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
@@ -51,44 +55,12 @@ function shuffle<T>(arr: T[]): T[] {
  */
 async function computeUnlockInfo(
   userId: string,
-  db: Pick<Prisma.TransactionClient, "word" | "review"> = prisma,
+  db: Pick<Prisma.TransactionClient, "$queryRaw"> = prisma,
 ): Promise<{
   unitUnlock: Record<string, boolean>;
   unlockedKeys: Set<string>;
 }> {
-  // 一次 groupBy 同时拿到「存在的级别」与「每个单元的总词数」，
-  // 替代原先「distinct level + findMany 全部 words」的全表扫描。
-  const unitTotalsRows = await db.word.groupBy({
-    by: ["level", "category"],
-    _count: { _all: true },
-  });
-  const levels = [
-    ...new Set(unitTotalsRows.map((r) => r.level as string)),
-  ].sort(levelCompare);
-
-  const unitTotals = unitTotalsRows.map((r) => ({
-    level: r.level as string,
-    category: r.category,
-    total: r._count._all,
-  }));
-
-  // 当前用户 Review（select 一并带 word 的 level / category），按单元聚合。
-  const reviewRows = await db.review.findMany({
-    where: { userId },
-    select: {
-      repetitions: true,
-      nextReviewDate: true,
-      word: { select: { level: true, category: true } },
-    },
-  });
-  const reviews = reviewRows.map((r) => ({
-    repetitions: r.repetitions,
-    nextReviewDate: r.nextReviewDate,
-    level: r.word.level as string,
-    category: r.word.category,
-  }));
-
-  const aggregations = aggregateAllLevels(levels, unitTotals, reviews, new Date());
+  const aggregations = await fetchUnitProgress(userId, db);
 
   const unitUnlock: Record<string, boolean> = {};
   const unlockedKeys = new Set<string>();
@@ -123,11 +95,25 @@ function unlockedCategoryFilters(unlockedKeys: Set<string>) {
  *   排序：未学 → 到期待复习 → 已排期（未到期），把需要关注的词放在前面。
  */
 export async function GET(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-  const userId = (session.user as { id: string }).id;
+  const userId = auth.userId;
+
+  const queueRate = await checkStudyQueueRate(
+    userId,
+    getClientIp(req.headers),
+  );
+  if (!queueRate.ok) {
+    return NextResponse.json(
+      { error: "学习队列载入过于频繁，请稍后再试" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(queueRate.retryAfterSec ?? 60) },
+      },
+    );
+  }
 
   const url = new URL(req.url);
   const category = url.searchParams.get("category");
@@ -332,13 +318,6 @@ export async function GET(req: Request) {
       .slice(0, 20);
 
     // 2. 取新词（没有 Review 记录的单词）
-    const reviewedWordIds = (
-      await prisma.review.findMany({
-        where: { userId },
-        select: { wordId: true },
-      })
-    ).map((r) => r.wordId);
-
     // 新词只从已解锁单元中引入，避免绕过闯关解锁直接学习后续单元。
     // 查询直接下推到 DB：按已解锁的 (level, category) 组合过滤，避免全表拉取
     // 数千个未复习词再在内存过滤。category 为 null 的单词按 "未分类" 记键，
@@ -347,13 +326,14 @@ export async function GET(req: Request) {
     if (unlockedCats.length > 0) {
       const newWordsRaw = await prisma.word.findMany({
         where: {
-          id: { notIn: reviewedWordIds },
+          reviews: { none: { userId } },
           OR: unlockedCats.map((c) => ({
             level: c.level,
             category: c.category,
           })),
         },
         orderBy: { term: "asc" },
+        take: 100,
       });
       // 已解锁单元内随机抽 5 个，让每次学习的新词批次更有变化。
       newWords = shuffle(newWordsRaw).slice(0, 5);
@@ -389,6 +369,7 @@ export async function GET(req: Request) {
         OR: unlockedCats,
       },
       select: { id: true, term: true, definition: true },
+      take: 200,
     });
     pool = shuffle(candidates).slice(0, 40);
   }
@@ -396,29 +377,9 @@ export async function GET(req: Request) {
   // 连续学习天数：随队列一起返回，前端用于展示 🔥 打卡徽章。
   const streak = await computeStreak(userId);
 
-  // 每次取队列都发出一个短期 session；只有 session 内的词和一次性 nonce
-  // 才能提交 quality，避免客户端任意伪造 wordId/quality 批量推进成绩。
-  const expiresAt = new Date(Date.now() + 30 * 60_000);
-  await prisma.studySession.deleteMany({
-    where: { userId, expiresAt: { lt: new Date() } },
-  });
-  const studySession = await prisma.studySession.create({
-    data: {
-      userId,
-      expiresAt,
-      items: {
-        create: [...new Set(queueWordIds)].map((wordId) => ({
-          wordId,
-          nonce: randomUUID(),
-        })),
-      },
-    },
-    select: {
-      id: true,
-      expiresAt: true,
-      items: { select: { wordId: true, nonce: true } },
-    },
-  });
+  // 空队列不建立数据库 rows；相同且未使用的队列复用 session。建立新 session
+  // 时会在 Serializable transaction 内把每位用户的有效 session 硬限制为 2 个。
+  const studySession = await issueStudySession(userId, queueWordIds);
 
   return NextResponse.json({
     queue,
@@ -428,23 +389,17 @@ export async function GET(req: Request) {
     category,
     streak,
     resumedSession,
-    studySession: {
-      id: studySession.id,
-      expiresAt: studySession.expiresAt,
-      nonces: Object.fromEntries(
-        studySession.items.map((item) => [item.wordId, item.nonce]),
-      ),
-    },
+    studySession: serializeStudySession(studySession),
   });
 }
 
 /** POST /api/study — 提交一次学习结果（认字评估手势 或 测试 quality） */
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-  const userId = (session.user as { id: string }).id;
+  const userId = auth.userId;
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -460,25 +415,24 @@ export async function POST(req: Request) {
   if (!wordId || wordId.length > 128) {
     return NextResponse.json({ error: "wordId 无效" }, { status: 400 });
   }
-  const requireStrictStudySubmission =
-    process.env.REQUIRE_STUDY_OPERATION_ID !== "0";
+  const compatibilityEndsAt = legacyOperationIdCompatibilityEndsAt(
+    process.env.STUDY_OPERATION_ID_COMPAT_UNTIL,
+  );
+  const allowLegacyOperationId =
+    !suppliedOperationId && compatibilityEndsAt !== null;
   if (
     (suppliedOperationId &&
       !/^[A-Za-z0-9:_-]{8,200}$/.test(suppliedOperationId)) ||
-    (!suppliedOperationId && requireStrictStudySubmission)
+    (!suppliedOperationId && !allowLegacyOperationId)
   ) {
     return NextResponse.json({ error: "operationId 无效" }, { status: 400 });
   }
-  const suppliedStudySession = Boolean(studySessionId || nonce);
   const validStudySession =
     studySessionId.length >= 8 &&
     studySessionId.length <= 128 &&
     nonce.length >= 8 &&
     nonce.length <= 128;
-  if (
-    (suppliedStudySession && !validStudySession) ||
-    (requireStrictStudySubmission && !validStudySession)
-  ) {
+  if (!validStudySession) {
     return NextResponse.json({ error: "学习 session 无效或已过期" }, { status: 400 });
   }
 
@@ -511,9 +465,15 @@ export async function POST(req: Request) {
     quality = gestureToQuality(input.gesture);
   }
 
-  // 新客户端必须提供稳定 UUID，走严格 exactly-once。REQUIRE_STUDY_OPERATION_ID=0
-  // 只供短暂 rollout 兼容旧 tab；兼容期内旧 tab 也暂时可省略 session/nonce，
-  // 完成旧 tab 排空后应恢复默认严格模式。
+  // Session/nonce authorization 永远开启。兼容窗口最多只允许 server 暂时代为
+  // 生成 operation ID，而且必须有 30 分钟内自动失效的绝对截止时间。
+  if (!suppliedOperationId) {
+    console.warn(
+      `[study-compat] generated operationId user=${userId} cutoff=${new Date(
+        compatibilityEndsAt!,
+      ).toISOString()}`,
+    );
+  }
   const legacyReplayAfter = suppliedOperationId
     ? undefined
     : new Date(Date.now() - 10 * 60_000);

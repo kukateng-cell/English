@@ -533,17 +533,76 @@ async function flushPendingReviewsUnlocked(
   return pendingReviewCount(userId);
 }
 
+async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
+  const wordIds = [
+    ...new Set(
+      loadPendingReviews(userId)
+        .filter(
+          (item) =>
+            item.status === "pending" &&
+            !item.nonce &&
+            item.lastError === SESSION_REAUTH_ERROR,
+        )
+        .map((item) => item.wordId),
+    ),
+  ].slice(0, MAX_FLUSH_BATCH);
+  if (wordIds.length === 0) return false;
+
+  try {
+    const response = await fetch("/api/study/credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ wordIds }),
+    });
+    if (!response.ok) return false;
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          studySession?: {
+            id?: unknown;
+            nonces?: unknown;
+          } | null;
+        }
+      | null;
+    const session = payload?.studySession;
+    if (
+      !session ||
+      typeof session.id !== "string" ||
+      typeof session.nonces !== "object" ||
+      session.nonces === null ||
+      Array.isArray(session.nonces)
+    ) {
+      return false;
+    }
+    const nonces = Object.fromEntries(
+      Object.entries(session.nonces).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+    attachStudySessionCredentials(userId, session.id, nonces);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const localFlushes = new Map<string, Promise<number>>();
 
 export async function flushPendingReviews(
   userId: string,
   onDone?: (wordId: string, data: StudyPostResult) => void,
 ): Promise<number> {
+  const run = async () => {
+    const remaining = await flushPendingReviewsUnlocked(userId, onDone);
+    if (!(await reauthorizeRejectedReviews(userId))) return remaining;
+    // Exactly one automatic retry after obtaining a fresh server credential.
+    // A second rejection stays pending until the next explicit flush cycle.
+    return flushPendingReviewsUnlocked(userId, onDone);
+  };
   // 多个页面生命周期事件／浏览器分页面可同时触发 flush。Web Locks 可用时
   // 将同一用户的 flush 串行化；服务端 operationId 幂等仍是最后防线。
   if (typeof navigator !== "undefined" && navigator.locks) {
     return navigator.locks.request(`study-review-queue:${userId}`, () =>
-      flushPendingReviewsUnlocked(userId, onDone),
+      run(),
     );
   }
   // Safari/older browsers without Web Locks still need a page-level mutex;
@@ -551,7 +610,6 @@ export async function flushPendingReviews(
   // Every explicit call is chained: an item enqueued while the active scan is
   // in-flight is therefore picked up by the trailing scan instead of waiting 30s.
   const active = localFlushes.get(userId);
-  const run = () => flushPendingReviewsUnlocked(userId, onDone);
   const queued = active ? active.catch(() => 0).then(run) : run();
   const tracked = queued.finally(() => {
     if (localFlushes.get(userId) === tracked) localFlushes.delete(userId);

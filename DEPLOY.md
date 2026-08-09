@@ -24,13 +24,13 @@ flowchart TD
 
 ## 两个数据库连接串（重要）
 
-Prisma 在两种场景用不同的连接方式，所以需要**两个环境变量**。
-> ⚠️ 新版 Supabase 项目只有 **pooler 域名**（`aws-0-<region>.pooler.supabase.com`），旧的 `db.<REF>.supabase.co` 直连域名已不分配（连接会 `ENOTFOUND`）。所以 migrate/seed 也走 pooler 的 **5432（Session pooler）**，而不是直连。
+Prisma 在两种场景用不同的连接方式，所以需要**两个环境变量**。Direct endpoint
+通常只提供 IPv6；执行 migration 的 runner 无 IPv6 时，才改用 5432 Session pooler。
 
 | 环境变量 | 连接类型 | 端口 | 用在哪 | 为什么 |
 |----------|---------|------|--------|--------|
-| `DATABASE_URL` | **Transaction pooler**（PgBouncer 事务模式） | 6543 | `src/lib/prisma.ts`（运行时） | serverless 短连接多，pooler 复用连接，避免耗尽 |
-| `MIGRATE_URL`  | **Session pooler**（同一个 pooler 域名，5432） | 5432 | `prisma.config.ts` / `seed.ts`（migrate / seed） | Transaction pooler（6543）不支持 DDL / prepared statements，跑 `migrate deploy` / seed 会卡死；**Session pooler（5432，带 `?pgbouncer=true`）支持 DDL** |
+| `DATABASE_URL` | **Transaction pooler**（加 `?pgbouncer=true`） | 6543 | `src/lib/prisma.ts`（运行时） | serverless 短连接；transaction mode 不支持 prepared statements |
+| `MIGRATE_URL`  | **Direct connection（优先）／Session pooler（后备）** | 5432 | migrate / seed | 两者支持 prepared statements 与 DDL；Session URL 不加 `pgbouncer=true` |
 
 两者用户名都是 `postgres.<REF>` 格式（pooler 要求）。运行时只读取
 `DATABASE_URL`；迁移与 seed 必须显式提供 `MIGRATE_URL`，两者不会互相回退，
@@ -52,19 +52,21 @@ Prisma 在两种场景用不同的连接方式，所以需要**两个环境变�
    - 切到 **Transaction pooler** → 格式类似：
 
      ```text
-     postgresql://postgres.[REF]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres
+     postgresql://postgres.[REF]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres?pgbouncer=true
      ```
 
      把 `[YOUR-PASSWORD]` 换成第 2 步设的密码 → 这就是 **`DATABASE_URL`**
-   - 切到 **Session pooler**（同一个 pooler 域名，端口换成 **5432**，并加 `?pgbouncer=true`）→ 格式类似：
+   - migration 优先复制 **Direct connection**。若 runner 只有 IPv4，切到
+     **Session pooler**（同一个 pooler 域名，端口 **5432**）→ 格式类似：
 
      ```text
-     postgresql://postgres.[REF]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:5432/postgres?pgbouncer=true
+     postgresql://postgres.[REF]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:5432/postgres
      ```
 
      同样替换密码 → 这就是 **`MIGRATE_URL`**（migrate / seed 用）
 
-   > ⚠️ 不要再用旧的 **Direct connection**（`db.[REF].supabase.co:5432`）。新版 Supabase 项目不分配该域名，连接会 `ENOTFOUND` 失败。migrate / seed 统一走 Session pooler（5432）即可。
+   > Direct connection 最适合 migration，但通常需要 IPv6；出现网络不可达时才使用
+   > Session pooler。不要将 6543 transaction URL 用作 migration。
 
 > 💡 `[REF]` 是项目的短 ID（如 `abcdwxyz...`），在 Settings → General → Reference ID 能看到。
 
@@ -78,9 +80,9 @@ Prisma 在两种场景用不同的连接方式，所以需要**两个环境变�
 
 ```bash
 # 粘贴第 1 步拿到的两个连接串（记得替换密码）
-DATABASE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase.com:6543/postgres"
-# migrate / seed 用 Session pooler（5432，必须带 ?pgbouncer=true）
-MIGRATE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase.com:5432/postgres?pgbouncer=true"
+DATABASE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase.com:6543/postgres?pgbouncer=true"
+# IPv4-only 示例；能使用 Direct connection 时优先填 Direct URL
+MIGRATE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase.com:5432/postgres"
 
 # NextAuth
 NEXTAUTH_SECRET="用下面命令生成的随机串"
@@ -189,7 +191,10 @@ git push
    | `NEXTAUTH_URL` | `https://你的应用名.vercel.app` | 部署后 Vercel 会给你域名；**首次可先留空或填预计域名，部署拿到真实域名后再回来改** |
    | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
    | `SEED_TEST_STUDENT` | `0` | 生产不可自动建立本地测试学生 |
-   | `REQUIRE_STUDY_OPERATION_ID` | 默认严格模式（可不设置） | 新客户端必须带 operationId；仅受控 rollout 才可临时设为 `0` |
+   | `UPSTASH_REDIS_REST_URL/TOKEN` | Upstash REST credentials | production 必填，所有 limiter 共用分布式计数 |
+   | `CRON_SECRET` | 至少 16 字符随机值 | 保护每日 expired StudySession cleanup endpoint |
+   | `DATABASE_POOL_MAX` | `3` | 每个 serverless instance 最多 3 条 runtime 连接 |
+   | `STUDY_OPERATION_ID_COMPAT_UNTIL` | 默认留空 | 只可填未来 30 分钟内的绝对 ISO 截止时间 |
 
    > `DATABASE_URL` / `NEXTAUTH_*` 按需要勾选环境；`MIGRATE_URL` 不可放进 Vercel。
 
@@ -211,11 +216,14 @@ Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 
 本次 `ReviewEvent` 迁移采用 expand/contract bridge：数据库 trigger 会捕捉仍在运行
 的旧版本写入，迁移结束亦会再核对补齐 snapshot gap；`eventKind` 明确区分真实
 `REVIEW`、`LEGACY_BRIDGE` 与 `HISTORICAL_BACKFILL`，不再用 `quality=-1` 表示语义。
-新版学习页还会取得短期 `StudySession` 及每词一次性 nonce；严格模式下 API 不接受
-没有有效 session/nonce 的成绩提交。两阶段 rollout 可暂时设置
-`REQUIRE_STUDY_OPERATION_ID=0`，让旧 tab（没有 operationId/session/nonce）安全排空；
-确认旧 tab 已离线后移除该变量或设为 `1`，恢复严格模式，避免长期允许客户端任意伪造
-quality 或重复推进 SM-2。
+新版学习页会取得短期 `StudySession` 及每词一次性 nonce；session/nonce authorization
+永远开启。受控 rollout 若只欠 operationId，可把 `STUDY_OPERATION_ID_COMPAT_UNTIL`
+设为未来不超过 30 分钟的 ISO 时间；server 只代为生成 operationId，截止后自动恢复严格。
+
+首次大型 ledger backfill 前，workflow 会输出预计 event rows 与 database size；超过
+100,000 rows 默认中止，必须先制定分批／监控／回滚方案。旧 writer 全部离线至少
+30 分钟后，手动运行 **Contract legacy review ledger bridge** workflow，并输入
+`REMOVE_LEGACY_BRIDGE`，才会移除 compatibility trigger。
 
 ### 4.2 修正 NEXTAUTH_URL（重要）
 
@@ -245,7 +253,10 @@ quality 或重复推进 SM-2。
 
 ### Q: 为什么要两个连接串（DATABASE_URL + MIGRATE_URL）？
 
-Vercel 是 serverless，每个请求可能新建数据库连接。**Transaction pooler（6543）** 复用连接，适合 serverless 运行时（但它是 PgBouncer 事务模式，不支持 DDL / prepared statements）。**Session pooler（5432）** 支持完整 DDL，所以 migrate / seed 走它（`MIGRATE_URL`）。两者都是同一个 pooler 域名，只是端口不同；旧版 Supabase 的 `db.<REF>` 直连域名已不可用。
+Vercel 是 serverless，每个 instance 都有自己的 driver pool。本项目明确把 pool 限为
+3，并设 5 秒连接 timeout。6543 transaction pooler 适合 runtime，但 URL 必须加
+`pgbouncer=true`；migration 优先 Direct connection，IPv4-only runner 使用 5432
+Session pooler，而且 Session URL 不加 `pgbouncer=true`。
 
 ### Q: 以后改了 schema 怎么同步到 Supabase？
 

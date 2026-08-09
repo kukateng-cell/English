@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
+import { requireUser } from "@/lib/session";
+import { normalizeLevel } from "@/lib/units";
+import { fetchUnitProgress } from "@/lib/unit-progress-server";
 
 // normalizeLevel（级别规范化）已统一到 @/lib/units（见 LEVELS / LevelCode）。
 
@@ -27,57 +26,19 @@ import { aggregateAllLevels, levelCompare, normalizeLevel } from "@/lib/units";
  * 解锁规则见 src/lib/units.ts。
  */
 export async function GET(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-  const userId = (session.user as { id: string }).id;
+  const userId = auth.userId;
 
   const url = new URL(req.url);
   const requestedLevel = normalizeLevel(url.searchParams.get("level"));
 
-  // 一次 groupBy 同时拿到「存在的级别」与「每个 (level, category) 单元的总词数」，
-  // 替代原先「distinct level + findMany 全部 words」的全表扫描。
-  const unitTotalsRows = await prisma.word.groupBy({
-    by: ["level", "category"],
-    _count: { _all: true },
-  });
-  const availableLevels = [
-    ...new Set(unitTotalsRows.map((r) => r.level as string)),
-  ].sort(levelCompare);
-
-  const unitTotals = unitTotalsRows.map((r) => ({
-    level: r.level as string,
-    category: r.category,
-    total: r._count._all,
-  }));
-
-  // 当前用户全部 Review 记录（select 一并带上所属单词的 level / category，
-  // 以便按单元聚合 learned/mastered/due，无需再读全表 Word）。
-  const reviewRows = await prisma.review.findMany({
-    where: { userId },
-    select: {
-      repetitions: true,
-      nextReviewDate: true,
-      word: { select: { level: true, category: true } },
-    },
-  });
-  const reviews = reviewRows.map((r) => ({
-    repetitions: r.repetitions,
-    nextReviewDate: r.nextReviewDate,
-    level: r.word.level as string,
-    category: r.word.category,
-  }));
-
-  const now = new Date();
-
-  // 一次性聚合所有级别，并计算解锁状态
-  const aggregations = aggregateAllLevels(
-    availableLevels,
-    unitTotals,
-    reviews,
-    now,
-  );
+  // PostgreSQL directly aggregates totals/learned/mastered/due per unit;
+  // Node receives one row per unit instead of the user's entire review set.
+  const aggregations = await fetchUnitProgress(userId);
+  const availableLevels = aggregations.map((aggregation) => aggregation.level);
 
   // 找到当前请求的级别（若不存在则回退到第一个可用级别）
   let current =

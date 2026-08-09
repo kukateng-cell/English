@@ -86,6 +86,8 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role as Role;
         token.tokenVersion = user.tokenVersion as number;
         token.mustChangePassword = user.mustChangePassword as boolean;
+        token.authenticatedAt = Date.now();
+        token.authUnavailable = false;
         return token;
       }
 
@@ -98,12 +100,22 @@ export const authOptions: NextAuthOptions = {
       // 前端 useSession / 服务端 getServerSession 随之视为未登录。
       const userId = token.id as string | undefined;
       if (userId) {
-        // 会话有效性是安全判断：DB 无法验证时必须 fail-closed，不能继续信任
-        // 可能已被删除、降权或改密撤销的 30 天旧 JWT。
-        const dbUser = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { role: true, tokenVersion: true, mustChangePassword: true },
-        });
+        // 会话有效性是安全判断：DB 无法验证时保留 cookie，但把会话标成
+        // unavailable；受保护 API 会返回 503，既不误登出也不会继续授权。
+        let dbUser;
+        try {
+          dbUser = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true, tokenVersion: true, mustChangePassword: true },
+          });
+        } catch (error) {
+          // A transient database outage is not proof that the account was
+          // deleted or revoked. Preserve the JWT, mark it unavailable, and let
+          // protected APIs return 503 until a later request can verify it.
+          console.error("[auth] session validation database unavailable", error);
+          token.authUnavailable = true;
+          return token;
+        }
         if (!dbUser) {
           // 用户已被删除 → 会话失效。
           throw new Error("SESSION_INVALIDATED");
@@ -119,6 +131,7 @@ export const authOptions: NextAuthOptions = {
         // mustChangePassword 可能被用户自己（重设密码）或管理员修改，
         // 每次都从 DB 刷新，确保重设密码后立即生效。
         token.mustChangePassword = dbUser.mustChangePassword;
+        token.authUnavailable = false;
       }
       return token;
     },
@@ -128,6 +141,10 @@ export const authOptions: NextAuthOptions = {
         (session.user as { role: Role }).role = token.role as Role;
         (session.user as { mustChangePassword: boolean }).mustChangePassword =
           token.mustChangePassword as boolean;
+        (session.user as { authenticatedAt?: number }).authenticatedAt =
+          token.authenticatedAt as number | undefined;
+        (session.user as { authUnavailable?: boolean }).authUnavailable =
+          token.authUnavailable === true;
       }
       return session;
     },

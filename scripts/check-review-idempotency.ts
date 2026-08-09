@@ -6,6 +6,7 @@ dotenv.config({ path: ".env.local" });
 async function main() {
   const { prisma } = await import("../src/lib/prisma");
   const { applyReviewEvent } = await import("../src/app/api/study/route");
+  const { issueStudySession } = await import("../src/lib/study-session-server");
   const suffix = randomUUID();
   let userId: string | null = null;
   let wordId: string | null = null;
@@ -102,6 +103,7 @@ async function main() {
     const studySession = await prisma.studySession.create({
       data: {
         userId,
+        queueFingerprint: `integration-${suffix}`,
         expiresAt: new Date(Date.now() + 60_000),
         items: {
           create: { wordId: sessionWordId, nonce: submissionNonce },
@@ -140,6 +142,25 @@ async function main() {
         nonce: submissionNonce,
       }),
     );
+
+    const emptySession = await issueStudySession(userId, []);
+    const boundedSessionA = await issueStudySession(userId, [wordId]);
+    const reusedSessionA = await issueStudySession(userId, [wordId]);
+    const boundedSessionB = await issueStudySession(userId, [sessionWordId]);
+    const activeSessionCount = await prisma.studySession.count({
+      where: { userId, expiresAt: { gt: new Date() } },
+    });
+    if (
+      emptySession !== null ||
+      !boundedSessionA ||
+      boundedSessionA.id !== reusedSessionA?.id ||
+      !boundedSessionB ||
+      activeSessionCount > 2
+    ) {
+      throw new Error(
+        `study session reuse/cap failed: active=${activeSessionCount}`,
+      );
+    }
 
     const legacyReplayAfter = new Date(Date.now() - 10 * 60_000);
     const legacyFirst = await applyReviewEvent({

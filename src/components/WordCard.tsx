@@ -201,6 +201,7 @@ export default function WordCard({
     direction: null,
     onComplete: null,
   });
+  const reducedMotionRef = useRef(false);
   const mountedRef = useRef(true);
   const dismissingRef = useRef(false);
   const interactionPropsRef = useRef({
@@ -319,6 +320,14 @@ export default function WordCard({
 
       if (motion.mode !== "dismiss" && motion.mode !== "return") return;
       if (motion.releaseStartedAt === null) return;
+
+      if (reducedMotionRef.current) {
+        motion.position = motion.mode === "dismiss" ? motion.target : 0;
+        motion.velocity = 0;
+        writeCurrentDragFrame(motion.position);
+        completeReleaseMotion();
+        return;
+      }
 
       const wallElapsedMs = Math.max(now - motion.releaseStartedAt, 0);
       const refreshIntervalMs = estimateFrameInterval(
@@ -494,6 +503,17 @@ export default function WordCard({
     },
     [startFlight],
   );
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => {
+      reducedMotionRef.current = preference.matches;
+    };
+    updatePreference();
+    preference.addEventListener("change", updatePreference);
+    return () => preference.removeEventListener("change", updatePreference);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;

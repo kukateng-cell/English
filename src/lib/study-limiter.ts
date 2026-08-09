@@ -2,8 +2,12 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
 const MAX_EVENTS_PER_MINUTE = 90;
+const MAX_QUEUE_LOADS_PER_USER_PER_MINUTE = 60;
+const MAX_QUEUE_LOADS_PER_IP_PER_MINUTE = 120;
 const WINDOW_MS = 60_000;
 const localEvents = new Map<string, number[]>();
+const localQueueUsers = new Map<string, number[]>();
+const localQueueIps = new Map<string, number[]>();
 
 const redis =
   process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
@@ -20,6 +24,50 @@ const distributedLimiter = redis
       prefix: "study-user",
     })
   : null;
+
+const distributedQueueUserLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(
+        MAX_QUEUE_LOADS_PER_USER_PER_MINUTE,
+        "1 m",
+      ),
+      prefix: "study-queue-user",
+    })
+  : null;
+
+const distributedQueueIpLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(
+        MAX_QUEUE_LOADS_PER_IP_PER_MINUTE,
+        "1 m",
+      ),
+      prefix: "study-queue-ip",
+    })
+  : null;
+
+function consumeLocalWindow(
+  buckets: Map<string, number[]>,
+  key: string,
+  maximum: number,
+): { ok: boolean; retryAfterSec?: number } {
+  const cutoff = Date.now() - WINDOW_MS;
+  const active = (buckets.get(key) ?? []).filter((ts) => ts > cutoff);
+  if (active.length >= maximum) {
+    buckets.set(key, active);
+    return {
+      ok: false,
+      retryAfterSec: Math.max(
+        1,
+        Math.ceil((active[0] + WINDOW_MS - Date.now()) / 1000),
+      ),
+    };
+  }
+  active.push(Date.now());
+  buckets.set(key, active);
+  return { ok: true };
+}
 
 export async function checkStudyRate(userId: string): Promise<{
   ok: boolean;
@@ -39,21 +87,7 @@ export async function checkStudyRate(userId: string): Promise<{
           };
     }
 
-    const cutoff = Date.now() - WINDOW_MS;
-    const active = (localEvents.get(userId) ?? []).filter((ts) => ts > cutoff);
-    if (active.length >= MAX_EVENTS_PER_MINUTE) {
-      localEvents.set(userId, active);
-      return {
-        ok: false,
-        retryAfterSec: Math.max(
-          1,
-          Math.ceil((active[0] + WINDOW_MS - Date.now()) / 1000),
-        ),
-      };
-    }
-    active.push(Date.now());
-    localEvents.set(userId, active);
-    return { ok: true };
+    return consumeLocalWindow(localEvents, userId, MAX_EVENTS_PER_MINUTE);
   } catch (error) {
     // 学习提交本身有认证、授权与幂等保护；限流后端短暂故障时保留可用性。
     console.error("[study-limiter] backend unavailable; allowing request", error);
@@ -61,6 +95,61 @@ export async function checkStudyRate(userId: string): Promise<{
   }
 }
 
+export async function checkStudyQueueRate(
+  userId: string,
+  ip: string,
+): Promise<{ ok: boolean; retryAfterSec?: number; dimension?: "user" | "ip" }> {
+  try {
+    if (distributedQueueIpLimiter && distributedQueueUserLimiter) {
+      const ipResult = await distributedQueueIpLimiter.limit(ip);
+      if (!ipResult.success) {
+        return {
+          ok: false,
+          dimension: "ip",
+          retryAfterSec: Math.max(
+            1,
+            Math.ceil((ipResult.reset - Date.now()) / 1000),
+          ),
+        };
+      }
+      const userResult = await distributedQueueUserLimiter.limit(userId);
+      return userResult.success
+        ? { ok: true }
+        : {
+            ok: false,
+            dimension: "user",
+            retryAfterSec: Math.max(
+              1,
+              Math.ceil((userResult.reset - Date.now()) / 1000),
+            ),
+          };
+    }
+
+    const ipResult = consumeLocalWindow(
+      localQueueIps,
+      ip,
+      MAX_QUEUE_LOADS_PER_IP_PER_MINUTE,
+    );
+    if (!ipResult.ok) return { ...ipResult, dimension: "ip" };
+    const userResult = consumeLocalWindow(
+      localQueueUsers,
+      userId,
+      MAX_QUEUE_LOADS_PER_USER_PER_MINUTE,
+    );
+    return userResult.ok
+      ? { ok: true }
+      : { ...userResult, dimension: "user" };
+  } catch (error) {
+    console.error(
+      "[study-queue-limiter] backend unavailable; allowing request",
+      error,
+    );
+    return { ok: true };
+  }
+}
+
 export function resetStudyLimiterForTests(): void {
   localEvents.clear();
+  localQueueUsers.clear();
+  localQueueIps.clear();
 }

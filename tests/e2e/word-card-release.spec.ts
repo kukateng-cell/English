@@ -16,6 +16,17 @@ type InputMode =
   | "synthetic-mouse"
   | "synthetic-touch";
 
+function inputForProject(projectName: string): InputMode {
+  const touch = projectName.startsWith("mobile-");
+  return touch
+    ? projectName === "mobile-chromium"
+      ? "chromium-touch"
+      : "synthetic-touch"
+    : projectName === "desktop-firefox"
+      ? "synthetic-mouse"
+      : "mouse";
+}
+
 const scenarios: GestureScenario[] = [
   {
     name: "fast-flick",
@@ -145,6 +156,8 @@ async function dispatchGesture(
   scenario: GestureScenario,
   input: InputMode,
 ) {
+  // Reload each scenario so a dismissed card cannot transition the page into
+  // its quiz phase while the next release gesture is being prepared.
   await page.goto("/study");
   const card = page.locator('[data-testid="word-card-drag-layer"]');
   await card.waitFor();
@@ -286,14 +299,7 @@ async function collectReleaseFrames(page: Page, releasePosition: number) {
 test("release motion changes the visible card on the next paint", async ({
   page,
 }, testInfo) => {
-  const touch = testInfo.project.name.startsWith("mobile-");
-  const input: InputMode = touch
-    ? testInfo.project.name === "mobile-chromium"
-      ? "chromium-touch"
-      : "synthetic-touch"
-    : testInfo.project.name === "desktop-firefox"
-      ? "synthetic-mouse"
-      : "mouse";
+  const input = inputForProject(testInfo.project.name);
   await signIn(page);
 
   for (const scenario of scenarios) {
@@ -323,4 +329,19 @@ test("release motion changes the visible card on the next paint", async ({
       }
     });
   }
+});
+
+test("reduced motion returns directly without spring frames", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await signIn(page);
+  const scenario = scenarios.find((item) => item.name === "outward-return")!;
+  const result = await dispatchGesture(
+    page,
+    scenario,
+    inputForProject(testInfo.project.name),
+  );
+  expect(Math.abs(result.frames[0].position)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(result.frames[1].position)).toBeLessThanOrEqual(0.5);
 });

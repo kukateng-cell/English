@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { todayStartUtc } from "@/lib/streak";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
@@ -27,11 +26,11 @@ import { MASTERED_REPETITIONS } from "@/lib/units";
  *     供排行榜 / 教师端使用，不变。
  */
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-  const userId = (session.user as { id: string }).id;
+  const userId = auth.userId;
 
   const todayStart = todayStartUtc();
   const [

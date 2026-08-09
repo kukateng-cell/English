@@ -30,6 +30,8 @@ You can start editing the page in `src/app/`. The page auto-updates as you edit 
 | `NEXTAUTH_URL` | ✅ | 应用根 URL（本地为 `http://localhost:3000`） |
 | `UPSTASH_REDIS_REST_URL` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST URL |
 | `UPSTASH_REDIS_REST_TOKEN` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST Token |
+| `CRON_SECRET` | ⚠️ 生产必填 | Vercel StudySession cleanup cron 的 Bearer secret |
+| `DATABASE_POOL_MAX` | 否 | 每个 serverless instance 的 pg pool 上限，默认 3 |
 
 ### 登录限流（Upstash Redis）
 
@@ -38,8 +40,8 @@ You can start editing the page in `src/app/`. The page auto-updates as you edit 
 账号桶负责防暴力破解；较宽的 IP 桶只作预认证防洪，避免同一校园/NAT 下正常集体登录被误封。
 分布式存储确保 Serverless / 多实例（如 Vercel）部署下计数共享、无法被绕过。
 
-**未配置** `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` 时，会自动降级为
-**单实例内存限流**（仅适合本地开发，多副本下计数不共享、可被绕过，启动时会打印一条警告）。
+本地未配置时会降级为单实例内存限流；Vercel production 未配置则直接拒绝
+build／启动，避免多副本下静默使用可绕过的 limiter。
 
 配置步骤：
 

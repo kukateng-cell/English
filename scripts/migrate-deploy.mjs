@@ -22,9 +22,25 @@ const audit = spawnSync(
 if (audit.error) throw audit.error;
 if (audit.status !== 0) process.exit(audit.status ?? 1);
 
+const preflight = spawnSync(
+  process.execPath,
+  ["scripts/check-production-migration-safety.mjs"],
+  {
+    stdio: "inherit",
+    env: process.env,
+  },
+);
+if (preflight.error) throw preflight.error;
+if (preflight.status !== 0) process.exit(preflight.status ?? 1);
+
 const result = spawnSync(command, ["prisma", "migrate", "deploy"], {
   stdio: "inherit",
-  env: process.env,
+  env: {
+    ...process.env,
+    PGOPTIONS:
+      process.env.PGOPTIONS ??
+      "-c lock_timeout=10s -c statement_timeout=30min",
+  },
 });
 
 if (result.error) throw result.error;

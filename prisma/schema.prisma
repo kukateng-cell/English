@@ -27,6 +27,7 @@ model User {
   reviews            Review[]
   reviewEvents       ReviewEvent[]
   studySessions      StudySession[]
+  securityEvents     SecurityEvent[]
   studyDays          StudyDay[]
   achievements       UserAchievement[]
 }
@@ -110,17 +111,24 @@ enum ReviewEventKind {
   HISTORICAL_BACKFILL
 }
 
+enum SecurityEventType {
+  PASSWORD_CHANGED
+}
+
 // Server-issued study session. A client can only submit a scored answer for a
 // word that belongs to a live session and has an unused nonce.
 model StudySession {
-  id        String             @id @default(cuid())
-  userId    String
-  expiresAt DateTime
-  createdAt DateTime           @default(now())
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items     StudySessionItem[]
+  id               String             @id @default(cuid())
+  userId           String
+  queueFingerprint String
+  expiresAt        DateTime
+  createdAt        DateTime           @default(now())
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items            StudySessionItem[]
 
   @@index([userId, expiresAt])
+  @@index([userId, queueFingerprint, expiresAt])
+  @@index([expiresAt])
 }
 
 model StudySessionItem {
@@ -134,6 +142,18 @@ model StudySessionItem {
 
   @@unique([sessionId, wordId])
   @@index([sessionId, usedAt])
+}
+
+model SecurityEvent {
+  id        String            @id @default(cuid())
+  userId    String
+  eventType SecurityEventType
+  ipHash    String?
+  createdAt DateTime          @default(now())
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([eventType, createdAt])
 }
 
 // ── 学习打卡（每日一条） ──

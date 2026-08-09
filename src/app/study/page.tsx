@@ -569,6 +569,21 @@ export default function StudyPage() {
     };
   }, [status, userId, flushedUserId, studySession, flushPending]);
 
+  // Refresh the server-issued nonce set before its 30-minute expiry. Reloading
+  // through the existing checkpoint-aware GET keeps the current queue/order and
+  // lets pending outbox rows bind to fresh credentials without a page reload.
+  useEffect(() => {
+    if (!studySession) return;
+    const expiresAt = Date.parse(studySession.expiresAt);
+    if (!Number.isFinite(expiresAt)) return;
+    const delay = Math.max(0, expiresAt - Date.now() - 60_000);
+    const timer = window.setTimeout(
+      () => setReloadKey((value) => value + 1),
+      Math.min(delay, 2_147_000_000),
+    );
+    return () => window.clearTimeout(timer);
+  }, [studySession]);
+
   /**
    * 尝试用本地存档点恢复进度。返回是否成功恢复。
    * 仅在刚从服务端拉取到队列后调用一次：用队列重建 WordFull，

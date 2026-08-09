@@ -1,0 +1,38 @@
+name: Contract legacy review ledger bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type REMOVE_LEGACY_BRIDGE after all old writers are gone
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require current main and explicit confirmation
+        run: |
+          test "${{ inputs.confirmation }}" = "REMOVE_LEGACY_BRIDGE" || { echo "::error::Confirmation mismatch"; exit 1; }
+          test "$GITHUB_REF" = "refs/heads/main" || { echo "::error::Contract must run from main"; exit 1; }
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "::error::Checkout is not current main"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: Remove bridge only after a quiet 30-minute window
+        env:
+          MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
+        run: npm run contract:review-ledger -- --apply
