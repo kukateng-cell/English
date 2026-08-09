@@ -28,9 +28,9 @@ export interface SpringConfig {
 
 /**
  * Advance a one-dimensional damped spring with small bounded substeps. The
- * bounded integration keeps a delayed fallback frame from destabilising the
- * spring. Release trajectories are sampled before they are handed to WAAPI,
- * so the main-thread clamp is never used to drive the visible flight.
+ * bounded integration keeps a delayed animation frame from destabilising the
+ * spring. The same integrator is used for drag release, return, and flight so
+ * all phases can share one motion owner.
  */
 export function advanceSpring(
   state: SpringState,
@@ -58,12 +58,12 @@ export function advanceSpring(
 const TRAJECTORY_STEP_SECONDS = 1 / 120;
 const TRAJECTORY_MAX_SECONDS = 1.2;
 const MIN_RELEASE_SPEED = 1_200;
+export const SPRING_HANDOFF_STEP_SECONDS = 1 / 120;
 
 /**
- * Sample a spring into deterministic keyframe positions. This is deliberately
- * an offline calculation: the returned points can be handed to a compositor
- * animation instead of asking the main thread to integrate every release
- * frame.
+ * Sample a spring into deterministic positions for math callers and legacy
+ * trajectory tests. The card component uses advanceSpring directly so a
+ * release never has to construct a new keyframe animation.
  */
 export function sampleSpringTrajectory(
   initialState: SpringState,
@@ -265,6 +265,21 @@ export function launchVelocity(
     MAX_RELEASE_VELOCITY,
   );
   return directionalSpeed * direction;
+}
+
+/**
+ * Keep only the part of a release velocity that is already travelling toward
+ * the centre. An outward velocity must not make a return spring briefly move
+ * farther away before it starts coming back.
+ */
+export function inwardVelocity(position: number, velocityX: number) {
+  if (!Number.isFinite(position) || !Number.isFinite(velocityX) || position === 0) {
+    return 0;
+  }
+  const safeVelocity = clamp(velocityX, -MAX_RELEASE_VELOCITY, MAX_RELEASE_VELOCITY);
+  return position > 0
+    ? Math.min(safeVelocity, 0)
+    : Math.max(safeVelocity, 0);
 }
 
 /**

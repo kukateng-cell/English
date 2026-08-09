@@ -9,15 +9,17 @@ import {
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
 import {
+  advanceSpring,
   decideSwipe,
   estimateSwipeVelocity,
   hasClearedViewport,
+  inwardVelocity,
   launchVelocity,
   offscreenTarget,
-  sampleDismissalTrajectory,
-  sampleSpringTrajectory,
+  springSettled,
   OFFSCREEN_MARGIN,
-  type SpringState,
+  SPRING_HANDOFF_STEP_SECONDS,
+  type SpringConfig,
   type SwipeDirection,
   type SwipePointerType,
   type SwipePointerSample,
@@ -44,11 +46,11 @@ interface PointerSampleBuffer {
 
 interface ActivePointerDrag {
   pointerId: number;
+  captureGeneration: number;
   pointerType: SwipePointerType;
   startPointerX: number;
   startDragX: number;
   latestPointerX: number;
-  latestPointerTime: number;
   cardWidth: number;
   geometry: CardGeometry;
   samples: PointerSampleBuffer;
@@ -61,9 +63,17 @@ interface CardGeometry {
   viewportWidth: number;
 }
 
-interface ActiveAnimation {
-  stop: () => void;
-  currentPosition?: () => number;
+type MotionMode = "idle" | "drag" | "spring";
+
+interface MotionState {
+  mode: MotionMode;
+  position: number;
+  velocity: number;
+  target: number;
+  lastTime: number | null;
+  springConfig: SpringConfig | null;
+  direction: SwipeDirection | null;
+  onComplete: (() => void) | null;
 }
 
 const RETURN_SPRING_CONFIG = {
@@ -159,122 +169,14 @@ function rightLabelOpacity(position: number) {
 }
 
 function writeDragFrame(
-  dragLayer: HTMLElement,
+  card: HTMLElement,
   leftLabel: HTMLElement | null,
   rightLabel: HTMLElement | null,
   position: number,
 ) {
-  dragLayer.style.transform = cardTransform(position);
+  card.style.transform = cardTransform(position);
   if (leftLabel) leftLabel.style.opacity = String(leftLabelOpacity(position));
   if (rightLabel) rightLabel.style.opacity = String(rightLabelOpacity(position));
-}
-
-function readTransformX(element: HTMLElement, fallback: number) {
-  const transform = getComputedStyle(element).transform;
-  if (!transform || transform === "none") return fallback;
-  if (typeof DOMMatrixReadOnly !== "undefined") {
-    const matrix = new DOMMatrixReadOnly(transform);
-    return Number.isFinite(matrix.m41) ? matrix.m41 : fallback;
-  }
-  const match = transform.match(/^matrix\(([^)]+)\)$/);
-  if (!match) return fallback;
-  const values = match[1].split(",").map(Number);
-  return Number.isFinite(values[4]) ? values[4] : fallback;
-}
-
-interface KeyframeAnimationOptions {
-  element: HTMLElement;
-  positions: number[];
-  durationMs: number;
-  transformForPosition: (position: number) => string;
-  renderFallback: (position: number) => void;
-  onFinish: () => void;
-  cancelOnFinish?: boolean;
-}
-
-/**
- * Prefer a compositor-eligible transform animation. The fallback exists for
- * older browsers without Element.animate; modern release gestures never use
- * a main-thread spring loop after pointerup.
- */
-function startKeyframeAnimation({
-  element,
-  positions,
-  durationMs,
-  transformForPosition,
-  renderFallback,
-  onFinish,
-  cancelOnFinish = false,
-}: KeyframeAnimationOptions): ActiveAnimation {
-  if (positions.length < 2) {
-    renderFallback(positions[0] ?? 0);
-    onFinish();
-    return { stop: () => {} };
-  }
-
-  if (typeof element.animate === "function") {
-    const animation = element.animate(
-      positions.map((position) => ({
-        transform: transformForPosition(position),
-      })),
-      {
-        duration: durationMs,
-        easing: "linear",
-        fill: "forwards",
-      },
-    );
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      onFinish();
-      if (cancelOnFinish) animation.cancel();
-    };
-    void animation.finished.then(finish, () => undefined);
-    return {
-      stop: () => {
-        if (settled) return;
-        settled = true;
-        animation.cancel();
-      },
-      currentPosition: () => readTransformX(element, positions[0]),
-    };
-  }
-
-  let stopped = false;
-  let frameId: number | null = null;
-  const startedAt = performance.now();
-  let currentPosition = positions[0];
-  const tick = (timestamp: number) => {
-    if (stopped) return;
-    const progress = Math.min(
-      1,
-      Math.max(0, (timestamp - startedAt) / Math.max(durationMs, 1)),
-    );
-    const scaled = progress * (positions.length - 1);
-    const index = Math.min(positions.length - 2, Math.floor(scaled));
-    const localProgress = scaled - index;
-    currentPosition =
-      positions[index] +
-      (positions[index + 1] - positions[index]) * localProgress;
-    renderFallback(currentPosition);
-    if (progress >= 1) {
-      stopped = true;
-      frameId = null;
-      onFinish();
-      return;
-    }
-    frameId = requestAnimationFrame(tick);
-  };
-  frameId = requestAnimationFrame(tick);
-  return {
-    stop: () => {
-      stopped = true;
-      if (frameId !== null) cancelAnimationFrame(frameId);
-      frameId = null;
-    },
-    currentPosition: () => currentPosition,
-  };
 }
 
 function measureCardGeometry(
@@ -295,10 +197,6 @@ function measureCardGeometry(
   };
 }
 
-function positionSamplesToNumbers(samples: SpringState[]) {
-  return samples.map((sample) => sample.position);
-}
-
 export default function WordCard({
   word,
   onSwipeLeft,
@@ -307,16 +205,27 @@ export default function WordCard({
   disabled,
 }: WordCardProps) {
   const { tc } = useLocale();
-  const flightLayerRef = useRef<HTMLDivElement>(null);
   const dragLayerRef = useRef<HTMLDivElement>(null);
   const leftLabelRef = useRef<HTMLSpanElement>(null);
   const rightLabelRef = useRef<HTMLSpanElement>(null);
-  const activeAnimationRef = useRef<ActiveAnimation | null>(null);
   const geometryRef = useRef<CardGeometry | null>(null);
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
+  const captureGenerationRef = useRef(0);
+  const activeCaptureGenerationRef = useRef<number | null>(null);
   const dragXRef = useRef(0);
-  const dragRenderFrameRef = useRef<number | null>(null);
-  const lastDragRenderTimeRef = useRef<number | null>(null);
+  const dragFrameRequestedRef = useRef(false);
+  const motionFrameRef = useRef<number | null>(null);
+  const motionTickRef = useRef<(timestamp: number) => void>(() => {});
+  const motionStateRef = useRef<MotionState>({
+    mode: "idle",
+    position: 0,
+    velocity: 0,
+    target: 0,
+    lastTime: null,
+    springConfig: null,
+    direction: null,
+    onComplete: null,
+  });
   const mountedRef = useRef(true);
   const dismissingRef = useRef(false);
   const interactionPropsRef = useRef({
@@ -329,17 +238,11 @@ export default function WordCard({
     interactionPropsRef.current = { disabled, onSwipeLeft, onSwipeRight };
   }, [disabled, onSwipeLeft, onSwipeRight]);
 
-  const stopScheduledDragRender = useCallback(() => {
-    if (dragRenderFrameRef.current !== null) {
-      cancelAnimationFrame(dragRenderFrameRef.current);
-      dragRenderFrameRef.current = null;
-    }
-  }, []);
-
   const writeCurrentDragFrame = useCallback((position: number) => {
     const dragLayer = dragLayerRef.current;
     if (!dragLayer) return;
     dragXRef.current = position;
+    motionStateRef.current.position = position;
     writeDragFrame(
       dragLayer,
       leftLabelRef.current,
@@ -348,16 +251,13 @@ export default function WordCard({
     );
   }, []);
 
-  const stopActiveAnimation = useCallback(() => {
-    const animation = activeAnimationRef.current;
-    if (!animation) return;
-    const currentPosition = animation.currentPosition?.();
-    animation.stop();
-    activeAnimationRef.current = null;
-    if (Number.isFinite(currentPosition)) {
-      writeCurrentDragFrame(currentPosition!);
-    }
-  }, [writeCurrentDragFrame]);
+  const scheduleMotionFrame = useCallback(() => {
+    if (motionFrameRef.current !== null) return;
+    motionFrameRef.current = requestAnimationFrame((timestamp) => {
+      motionFrameRef.current = null;
+      motionTickRef.current(timestamp);
+    });
+  }, []);
 
   const cacheGeometry = useCallback((): CardGeometry | null => {
     const dragLayer = dragLayerRef.current;
@@ -371,42 +271,176 @@ export default function WordCard({
     return geometry;
   }, []);
 
-  const returnToCentre = useCallback(() => {
-    if (dismissingRef.current) return;
-    const dragLayer = dragLayerRef.current;
-    if (!dragLayer) return;
-    stopActiveAnimation();
-    const samples = sampleSpringTrajectory(
-      { position: dragXRef.current, velocity: 0 },
-      0,
-      RETURN_SPRING_CONFIG,
-      18,
-      0.5,
-      { monotonicDirection: dragXRef.current < 0 ? 1 : -1 },
-    );
-    const positions = positionSamplesToNumbers(samples);
-    if (positions.length < 2 || Math.abs(dragXRef.current) < 0.5) {
-      writeCurrentDragFrame(0);
-      return;
-    }
+  const completeSpring = useCallback(() => {
+    const motion = motionStateRef.current;
+    const onComplete = motion.onComplete;
+    motion.mode = "idle";
+    motion.velocity = 0;
+    motion.lastTime = null;
+    motion.springConfig = null;
+    motion.direction = null;
+    motion.onComplete = null;
+    if (onComplete && mountedRef.current) onComplete();
+  }, []);
 
-    let returnAnimation: ActiveAnimation | null = null;
-    returnAnimation = startKeyframeAnimation({
-      element: dragLayer,
-      positions,
-      durationMs: (positions.length - 1) * (1_000 / 120),
-      transformForPosition: cardTransform,
-      renderFallback: writeCurrentDragFrame,
-      onFinish: () => {
-        writeCurrentDragFrame(0);
-        if (activeAnimationRef.current === returnAnimation) {
-          activeAnimationRef.current = null;
+  const renderMotionFrame = useCallback(
+    (timestamp: number) => {
+      const motion = motionStateRef.current;
+
+      if (motion.mode === "drag") {
+        const drag = activeDragRef.current;
+        if (!drag) {
+          motion.mode = "idle";
+          motion.velocity = 0;
+          motion.lastTime = null;
+          return;
         }
-      },
-      cancelOnFinish: true,
-    });
-    activeAnimationRef.current = returnAnimation;
-  }, [stopActiveAnimation, writeCurrentDragFrame]);
+        const position =
+          drag.startDragX + drag.latestPointerX - drag.startPointerX;
+        dragFrameRequestedRef.current = false;
+        motion.position = position;
+        motion.velocity = 0;
+        writeCurrentDragFrame(position);
+        traceGesture("drag-render", { position });
+        if (dragFrameRequestedRef.current) scheduleMotionFrame();
+        return;
+      }
+
+      if (motion.mode !== "spring") return;
+
+      const deltaSeconds =
+        motion.lastTime === null
+          ? 0
+          : Math.min(Math.max((timestamp - motion.lastTime) / 1_000, 0), 0.032);
+      motion.lastTime = timestamp;
+      const next = advanceSpring(
+        { position: motion.position, velocity: motion.velocity },
+        motion.target,
+        deltaSeconds,
+        motion.springConfig ?? RETURN_SPRING_CONFIG,
+      );
+      motion.position = next.position;
+      motion.velocity = next.velocity;
+      writeCurrentDragFrame(next.position);
+
+      if (
+        motion.direction !== null &&
+        hasClearedViewport(motion.direction, next.position, motion.target)
+      ) {
+        completeSpring();
+        return;
+      }
+
+      if (
+        springSettled(
+          next,
+          motion.target,
+          motion.direction === null ? 18 : 80,
+          motion.direction === null ? 0.5 : 12,
+        )
+      ) {
+        motion.position = motion.target;
+        motion.velocity = 0;
+        writeCurrentDragFrame(motion.target);
+        completeSpring();
+        return;
+      }
+
+      scheduleMotionFrame();
+    },
+    [completeSpring, scheduleMotionFrame, writeCurrentDragFrame],
+  );
+
+  const beginSpring = useCallback(
+    (
+      target: number,
+      velocity: number,
+      springConfig: SpringConfig,
+      direction: SwipeDirection | null,
+      onComplete: (() => void) | null,
+    ) => {
+      const motion = motionStateRef.current;
+      const initialPosition = motion.position;
+      const handoffTime = performance.now();
+      motion.mode = "spring";
+      motion.target = target;
+      motion.velocity = velocity;
+      motion.springConfig = springConfig;
+      motion.direction = direction;
+      motion.onComplete = onComplete;
+
+      // Advance synchronously in the pointerup task. The next paint therefore
+      // cannot show the exact release pose twice while the spring takes over.
+      const next = advanceSpring(
+        { position: initialPosition, velocity },
+        target,
+        SPRING_HANDOFF_STEP_SECONDS,
+        springConfig,
+      );
+      motion.position = next.position;
+      motion.velocity = next.velocity;
+      // The state has already advanced by one fixed handoff step. Anchor the
+      // next RAF after that simulated time so it does not double-count it.
+      motion.lastTime =
+        handoffTime + SPRING_HANDOFF_STEP_SECONDS * 1_000;
+      writeCurrentDragFrame(next.position);
+      traceGesture("spring-handoff", {
+        direction: direction ?? "return",
+        releasePosition: initialPosition,
+        releaseVelocity: velocity,
+        firstPosition: next.position,
+      });
+
+      if (
+        (direction !== null &&
+          hasClearedViewport(direction, next.position, target)) ||
+        springSettled(
+          next,
+          target,
+          direction === null ? 18 : 80,
+          direction === null ? 0.5 : 12,
+        )
+      ) {
+        if (direction === null) {
+          motion.position = target;
+          motion.velocity = 0;
+          writeCurrentDragFrame(target);
+        }
+        completeSpring();
+        return;
+      }
+
+      scheduleMotionFrame();
+    },
+    [completeSpring, scheduleMotionFrame, writeCurrentDragFrame],
+  );
+
+  const returnToCentre = useCallback(
+    (releaseVelocity = 0) => {
+      if (dismissingRef.current) return;
+      const position = motionStateRef.current.position;
+      if (Math.abs(position) < 0.5) {
+        const motion = motionStateRef.current;
+        motion.mode = "idle";
+        motion.velocity = 0;
+        motion.lastTime = null;
+        motion.springConfig = null;
+        motion.direction = null;
+        motion.onComplete = null;
+        writeCurrentDragFrame(0);
+        return;
+      }
+
+      beginSpring(
+        0,
+        inwardVelocity(position, releaseVelocity),
+        RETURN_SPRING_CONFIG,
+        null,
+        null,
+      );
+    },
+    [beginSpring, writeCurrentDragFrame],
+  );
 
   const startFlight = useCallback(
     (
@@ -417,16 +451,13 @@ export default function WordCard({
     ) => {
       const { disabled: isDisabled } = interactionPropsRef.current;
       if (isDisabled || dismissingRef.current) return;
-      const flightLayer = flightLayerRef.current;
       const dragLayer = dragLayerRef.current;
-      if (!flightLayer || !dragLayer) return;
+      if (!dragLayer) return;
       const geometry = geometryOverride ?? geometryRef.current ?? cacheGeometry();
       if (!geometry) return;
 
       dismissingRef.current = true;
-      stopActiveAnimation();
-      stopScheduledDragRender();
-      const currentX = dragXRef.current;
+      const currentX = motionStateRef.current.position;
       const targetX = offscreenTarget(
         direction,
         currentX,
@@ -437,7 +468,6 @@ export default function WordCard({
       );
       const remainingDistance = Math.abs(targetX - currentX);
       let committed = false;
-      let flightAnimation: ActiveAnimation | null = null;
 
       const commit = () => {
         if (committed) return;
@@ -446,9 +476,6 @@ export default function WordCard({
           direction,
           releasePosition: currentX,
         });
-        if (activeAnimationRef.current === flightAnimation) {
-          activeAnimationRef.current = null;
-        }
         if (mountedRef.current) callback();
       };
 
@@ -457,47 +484,22 @@ export default function WordCard({
         return;
       }
 
-      // The inner drag layer is frozen at the exact release position. The
-      // outer layer starts at zero and owns the whole remaining flight, so
-      // the first composited flight frame is exactly the release frame.
-      flightLayer.style.transform = "translate3d(0px, 0, 0)";
-      const directionalVelocity = launchVelocity(velocityX, direction) * direction;
-      const trajectory = sampleDismissalTrajectory(
-        remainingDistance,
-        directionalVelocity,
-        RELEASE_SPRING_CONFIG,
-      );
-      const positions = positionSamplesToNumbers(trajectory);
+      const directionalVelocity = launchVelocity(velocityX, direction);
       traceGesture("flight-animation-start", {
         direction,
         releasePosition: currentX,
         remainingDistance,
         releaseVelocity: velocityX,
-        keyframes: positions.length,
       });
-      flightAnimation = startKeyframeAnimation({
-        element: flightLayer,
-        positions,
-        durationMs: (positions.length - 1) * (1_000 / 120),
-        transformForPosition: (position) =>
-          `translate3d(${position * direction}px, 0, 0)`,
-        renderFallback: (position) => {
-          flightLayer.style.transform = `translate3d(${position * direction}px, 0, 0)`;
-        },
-        onFinish: commit,
-      });
-      activeAnimationRef.current = flightAnimation;
-      requestAnimationFrame(() => {
-        traceGesture("flight-first-frame", {
-          flightPosition: readTransformX(flightLayer, 0),
-          releaseToFrameMs:
-            lastDragRenderTimeRef.current === null
-              ? undefined
-              : performance.now() - lastDragRenderTimeRef.current,
-        });
-      });
+      beginSpring(
+        targetX,
+        directionalVelocity,
+        RELEASE_SPRING_CONFIG,
+        direction,
+        commit,
+      );
     },
-    [cacheGeometry, stopActiveAnimation, stopScheduledDragRender],
+    [beginSpring, cacheGeometry],
   );
 
   const handleButtonSwipe = useCallback(
@@ -509,9 +511,10 @@ export default function WordCard({
 
   useEffect(() => {
     mountedRef.current = true;
-    const flightLayer = flightLayerRef.current;
     const dragLayer = dragLayerRef.current;
-    if (!flightLayer || !dragLayer) return;
+    const motionState = motionStateRef.current;
+    motionTickRef.current = renderMotionFrame;
+    if (!dragLayer) return;
 
     const updateGeometry = () => {
       const geometry = measureCardGeometry(
@@ -526,7 +529,6 @@ export default function WordCard({
       }
     };
 
-    flightLayer.style.transform = "translate3d(0px, 0, 0)";
     writeCurrentDragFrame(0);
     updateGeometry();
 
@@ -537,22 +539,6 @@ export default function WordCard({
     resizeObserver?.observe(dragLayer);
     window.addEventListener("resize", updateGeometry);
 
-    const renderDragFrame = (timestamp: number) => {
-      dragRenderFrameRef.current = null;
-      const drag = activeDragRef.current;
-      if (!drag) return;
-      const position =
-        drag.startDragX + drag.latestPointerX - drag.startPointerX;
-      writeCurrentDragFrame(position);
-      lastDragRenderTimeRef.current = timestamp;
-      traceGesture("drag-render", { position });
-    };
-
-    const scheduleDragRender = () => {
-      if (dragRenderFrameRef.current !== null) return;
-      dragRenderFrameRef.current = requestAnimationFrame(renderDragFrame);
-    };
-
     const handlePointerDown = (event: PointerEvent) => {
       const { disabled: isDisabled } = interactionPropsRef.current;
       if (isDisabled || dismissingRef.current || activeDragRef.current) return;
@@ -561,23 +547,35 @@ export default function WordCard({
         return;
       }
 
-      stopActiveAnimation();
       const geometry = cacheGeometry();
       if (!geometry) return;
+      const captureGeneration = captureGenerationRef.current + 1;
+      captureGenerationRef.current = captureGeneration;
+      const motion = motionStateRef.current;
+      motion.mode = "drag";
+      motion.position = dragXRef.current;
+      motion.velocity = 0;
+      motion.target = motion.position;
+      motion.lastTime = null;
+      motion.springConfig = null;
+      motion.direction = null;
+      motion.onComplete = null;
+      dragFrameRequestedRef.current = false;
       const now = pointerSampleTime(event);
       const samples = createSampleBuffer();
       recordPointerSample(samples, event.clientX, now);
       activeDragRef.current = {
         pointerId: event.pointerId,
+        captureGeneration,
         pointerType: pointerTypeOf(event.pointerType),
         startPointerX: event.clientX,
         startDragX: dragXRef.current,
         latestPointerX: event.clientX,
-        latestPointerTime: now,
         cardWidth: geometry.width,
         geometry,
         samples,
       };
+      activeCaptureGenerationRef.current = captureGeneration;
       dragLayer.setPointerCapture(event.pointerId);
       event.preventDefault();
       traceGesture("pointerdown", {
@@ -594,21 +592,19 @@ export default function WordCard({
       for (const sample of coalesced) {
         const time = pointerSampleTime(sample);
         recordPointerSample(drag.samples, sample.clientX, time);
-        drag.latestPointerTime = time;
       }
       drag.latestPointerX = latest.clientX;
-      scheduleDragRender();
+      dragFrameRequestedRef.current = true;
+      scheduleMotionFrame();
       event.preventDefault();
     };
 
     const finishPointerDrag = (event: PointerEvent, cancelled: boolean) => {
       const drag = activeDragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
-      stopScheduledDragRender();
       const releaseTime = pointerSampleTime(event);
       if (!cancelled) {
         drag.latestPointerX = event.clientX;
-        drag.latestPointerTime = releaseTime;
         recordPointerSample(drag.samples, event.clientX, releaseTime);
         const releaseX =
           drag.startDragX + event.clientX - drag.startPointerX;
@@ -621,6 +617,9 @@ export default function WordCard({
         traceGesture("pointercancel", { position: dragXRef.current });
       }
       activeDragRef.current = null;
+      if (activeCaptureGenerationRef.current === drag.captureGeneration) {
+        activeCaptureGenerationRef.current = null;
+      }
 
       if (cancelled) {
         returnToCentre();
@@ -638,7 +637,7 @@ export default function WordCard({
         drag.pointerType,
       );
       if (!decision.dismiss) {
-        returnToCentre();
+        returnToCentre(velocityX);
         return;
       }
       const callback =
@@ -655,6 +654,17 @@ export default function WordCard({
       finishPointerDrag(event, true);
     };
     const handleLostPointerCapture = (event: PointerEvent) => {
+      const drag = activeDragRef.current;
+      if (
+        !drag ||
+        drag.pointerId !== event.pointerId ||
+        drag.captureGeneration !== activeCaptureGenerationRef.current
+      ) {
+        return;
+      }
+      // A late lost-capture event from the previous gesture must not cancel a
+      // new gesture that has already re-captured the same mouse pointer.
+      if (dragLayer.hasPointerCapture(event.pointerId)) return;
       finishPointerDrag(event, true);
     };
 
@@ -674,9 +684,19 @@ export default function WordCard({
 
     return () => {
       mountedRef.current = false;
-      stopScheduledDragRender();
-      activeAnimationRef.current?.stop();
-      activeAnimationRef.current = null;
+      if (motionFrameRef.current !== null) {
+        cancelAnimationFrame(motionFrameRef.current);
+        motionFrameRef.current = null;
+      }
+      motionTickRef.current = () => {};
+      motionState.mode = "idle";
+      motionState.velocity = 0;
+      motionState.lastTime = null;
+      motionState.springConfig = null;
+      motionState.direction = null;
+      motionState.onComplete = null;
+      dragFrameRequestedRef.current = false;
+      activeCaptureGenerationRef.current = null;
       activeDragRef.current = null;
       resizeObserver?.disconnect();
       window.removeEventListener("resize", updateGeometry);
@@ -691,10 +711,10 @@ export default function WordCard({
     };
   }, [
     cacheGeometry,
+    renderMotionFrame,
     returnToCentre,
+    scheduleMotionFrame,
     startFlight,
-    stopActiveAnimation,
-    stopScheduledDragRender,
     writeCurrentDragFrame,
   ]);
 
@@ -725,13 +745,13 @@ export default function WordCard({
       </div>
 
       <div
-        ref={flightLayerRef}
         data-testid="word-card-flight-layer"
-        className="relative z-10 w-full [will-change:transform]"
+        className="relative z-10 w-full"
       >
         <div
           ref={dragLayerRef}
           data-testid="word-card-drag-layer"
+          data-motion-owner="single-raf"
           style={{ touchAction: "pan-y" }}
           className="relative mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] [will-change:transform] active:cursor-grabbing dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(38,65,140,0.3)]"
         >

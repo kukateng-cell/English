@@ -5,6 +5,7 @@ import {
   decideSwipe,
   estimateSwipeVelocity,
   hasClearedViewport,
+  inwardVelocity,
   launchVelocity,
   offscreenTarget,
   sampleDismissalTrajectory,
@@ -65,6 +66,27 @@ test("launch velocity preserves only velocity aimed at the chosen edge", () => {
   assert.equal(launchVelocity(900, 1), 900);
   assert.equal(launchVelocity(-900, 1), 0);
   assert.equal(launchVelocity(-9_000, -1), -2_400);
+});
+
+test("return velocity preserves only motion already aimed at centre", () => {
+  assert.equal(inwardVelocity(120, -480), -480);
+  assert.equal(inwardVelocity(120, 480), 0);
+  assert.equal(inwardVelocity(-120, 480), 480);
+  assert.equal(inwardVelocity(-120, -480), 0);
+  assert.equal(inwardVelocity(120, -9_000), -2_400);
+});
+
+test("spring handoff advances on the release task instead of repeating the pose", () => {
+  const release = { position: 120, velocity: 0 };
+  const first = advanceSpring(
+    release,
+    0,
+    1 / 120,
+    { stiffness: 500, damping: 42, mass: 0.75 },
+  );
+
+  assert.ok(first.position < release.position);
+  assert.notEqual(first.position, release.position);
 });
 
 test("visual completion resolves near the offscreen target on both sides", () => {
