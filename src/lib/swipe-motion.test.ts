@@ -1,14 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  advanceSpring,
   boundedReleaseVelocity,
   decideSwipe,
-  dismissalVelocity,
-  hasClearedViewport,
+  dismissalDuration,
+  estimatePointerVelocity,
   offscreenTarget,
-  returnSpringVelocity,
-  springSettled,
+  sampleDismissTrajectory,
+  sampleReturnTrajectory,
   updateRenderedDragMotion,
 } from "./swipe-motion";
 
@@ -130,41 +129,66 @@ test("release velocity keeps its direction while remaining bounded", () => {
   assert.equal(boundedReleaseVelocity(-9_000), -2_400);
 });
 
-test("return spring attenuates only outward release velocity", () => {
-  assert.equal(returnSpringVelocity(120, 480), 168);
-  assert.equal(returnSpringVelocity(-120, -480), -168);
-  assert.equal(returnSpringVelocity(120, -480), -480);
-  assert.equal(returnSpringVelocity(-120, 480), 480);
-  assert.equal(returnSpringVelocity(120, 9_000), 840);
+test("pointer regression estimates recent velocity independent of rAF", () => {
+  const samples = [
+    { position: 0, time: 940 },
+    { position: 16, time: 956 },
+    { position: 32, time: 972 },
+    { position: 48, time: 988 },
+    { position: 60, time: 1_000 },
+  ];
+  const velocity = estimatePointerVelocity(samples, 1_000);
+  const shiftedVelocity = estimatePointerVelocity(
+    samples.map((sample) => ({ ...sample, time: sample.time + 7 })),
+    1_007,
+  );
+  assert.ok(Math.abs(velocity - 1_000) < 1);
+  assert.ok(Math.abs(shiftedVelocity - velocity) < 0.001);
 });
 
-test("dismissal adds a distance-aware minimum departure speed", () => {
-  assert.equal(dismissalVelocity(0, 1, 320), 1_000);
-  assert.equal(dismissalVelocity(0, -1, 320), -1_000);
-  assert.equal(dismissalVelocity(-500, 1, 320), 1_000);
-  assert.equal(dismissalVelocity(1_500, 1, 320), 1_500);
-  assert.equal(dismissalVelocity(0, 1, 1_000), 1_800);
+test("pointer regression decays to zero after a stationary hold", () => {
+  assert.equal(
+    estimatePointerVelocity(
+      [
+        { position: 0, time: 850 },
+        { position: 70, time: 900 },
+        { position: 70, time: 1_000 },
+      ],
+      1_000,
+    ),
+    0,
+  );
 });
 
-test("visual completion resolves near the offscreen target on both sides", () => {
-  assert.equal(hasClearedViewport(1, 787, 800), false);
-  assert.equal(hasClearedViewport(1, 788, 800), true);
-  assert.equal(hasClearedViewport(-1, -787, -800), false);
-  assert.equal(hasClearedViewport(-1, -788, -800), true);
+test("dismissal duration remains bounded across distances and speeds", () => {
+  assert.equal(dismissalDuration(100, 2_400), 0.18);
+  assert.equal(dismissalDuration(300, 1_000), 0.3);
+  assert.equal(dismissalDuration(1_000, 0), 0.32);
 });
 
-test("runtime spring integration reaches its target", () => {
-  const target = 860;
-  let state = { position: 120, velocity: 0 };
-  for (let index = 0; index < 180; index++) {
-    state = advanceSpring(
-      state,
-      target,
-      1 / 60,
-      { stiffness: 260, damping: 30, mass: 0.75 },
-    );
-  }
+test("dismissal trajectory matches release velocity and offscreen target", () => {
+  const start = sampleDismissTrajectory(120, 900, 860, 0, 0.32);
+  const finish = sampleDismissTrajectory(120, 900, 860, 0.32, 0.32);
 
-  assert.equal(springSettled(state, target, 80, 6), true);
-  assert.ok(Math.abs(state.position - target) <= 6);
+  assert.deepEqual(start, { position: 120, velocity: 900 });
+  assert.deepEqual(finish, { position: 860, velocity: 0 });
+});
+
+test("dismissal frame displacement does not jump after release", () => {
+  const first = sampleDismissTrajectory(120, 900, 860, 1 / 60, 0.32);
+  const second = sampleDismissTrajectory(120, 900, 860, 2 / 60, 0.32);
+  const firstDisplacement = first.position - 120;
+  const secondDisplacement = second.position - first.position;
+
+  assert.ok(firstDisplacement > 0);
+  assert.ok(secondDisplacement / firstDisplacement < 2.5);
+});
+
+test("closed-form return preserves initial velocity and settles", () => {
+  const start = sampleReturnTrajectory(80, 600, 0);
+  const finish = sampleReturnTrajectory(80, 600, 0.8);
+
+  assert.deepEqual(start, { position: 80, velocity: 600 });
+  assert.ok(Math.abs(finish.position) < 0.01);
+  assert.ok(Math.abs(finish.velocity) < 0.2);
 });

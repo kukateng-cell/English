@@ -9,18 +9,17 @@ import {
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
 import {
-  advanceSpring,
   boundedReleaseVelocity,
   decideSwipe,
-  dismissalVelocity,
-  hasClearedViewport,
+  dismissalDuration,
+  estimatePointerVelocity,
   offscreenTarget,
-  returnSpringVelocity,
-  springSettled,
+  sampleDismissTrajectory,
+  sampleReturnTrajectory,
   updateRenderedDragMotion,
   OFFSCREEN_MARGIN,
-  type SpringConfig,
   type SwipeDirection,
+  type SwipePointerSample,
   type SwipePointerType,
 } from "@/lib/swipe-motion";
 
@@ -34,7 +33,8 @@ interface WordCardProps {
 
 const SWIPE_LABEL_THRESHOLD = 76;
 const BUTTON_LAUNCH_VELOCITY = 720;
-const SPRING_PREVIEW_STEP_SECONDS = 1 / 240;
+const POINTER_SAMPLE_CAPACITY = 32;
+const RETURN_MAX_SECONDS = 0.8;
 
 interface ActivePointerDrag {
   pointerId: number;
@@ -45,6 +45,7 @@ interface ActivePointerDrag {
   latestPointerX: number;
   cardWidth: number;
   geometry: CardGeometry;
+  samples: SwipePointerSample[];
 }
 
 interface CardGeometry {
@@ -54,7 +55,7 @@ interface CardGeometry {
   viewportWidth: number;
 }
 
-type MotionMode = "idle" | "drag" | "spring";
+type MotionMode = "idle" | "drag" | "dismiss" | "return";
 
 interface MotionState {
   mode: MotionMode;
@@ -63,21 +64,13 @@ interface MotionState {
   target: number;
   lastTime: number | null;
   stationarySeconds: number;
-  springConfig: SpringConfig | null;
+  releaseStartedAt: number | null;
+  releaseStartPosition: number;
+  releaseStartVelocity: number;
+  duration: number;
   direction: SwipeDirection | null;
   onComplete: (() => void) | null;
 }
-
-const RETURN_SPRING_CONFIG = {
-  stiffness: 500,
-  damping: 42,
-  mass: 0.75,
-};
-const RELEASE_SPRING_CONFIG = {
-  stiffness: 260,
-  damping: 30,
-  mass: 0.75,
-};
 
 const GESTURE_DEBUG = process.env.NEXT_PUBLIC_GESTURE_DEBUG === "1";
 
@@ -103,6 +96,39 @@ function traceGesture(
 function pointerTypeOf(pointerType: string): SwipePointerType {
   if (pointerType === "touch" || pointerType === "pen") return pointerType;
   return "mouse";
+}
+
+function pointerSampleTime(
+  event: Pick<PointerEvent, "timeStamp">,
+  receivedAt: number,
+  referenceTimeStamp: number,
+) {
+  const relativeTime = event.timeStamp - referenceTimeStamp;
+  return Number.isFinite(relativeTime) && Math.abs(relativeTime) <= 1_000
+    ? receivedAt + relativeTime
+    : receivedAt;
+}
+
+function recordPointerSample(
+  samples: SwipePointerSample[],
+  position: number,
+  time: number,
+) {
+  if (!Number.isFinite(position) || !Number.isFinite(time)) return;
+  const previous = samples[samples.length - 1];
+  if (
+    previous &&
+    previous.position === position &&
+    time - previous.time >= 0 &&
+    time - previous.time <= 4
+  ) {
+    return;
+  }
+  if (previous && previous.time === time) {
+    time += 0.01;
+  }
+  samples.push({ position, time });
+  if (samples.length > POINTER_SAMPLE_CAPACITY) samples.shift();
 }
 
 function cardRotation(position: number) {
@@ -179,7 +205,10 @@ export default function WordCard({
     target: 0,
     lastTime: null,
     stationarySeconds: 0,
-    springConfig: null,
+    releaseStartedAt: null,
+    releaseStartPosition: 0,
+    releaseStartVelocity: 0,
+    duration: 0,
     direction: null,
     onComplete: null,
   });
@@ -228,14 +257,17 @@ export default function WordCard({
     return geometry;
   }, []);
 
-  const completeSpring = useCallback(() => {
+  const completeReleaseMotion = useCallback(() => {
     const motion = motionStateRef.current;
     const onComplete = motion.onComplete;
     motion.mode = "idle";
     motion.velocity = 0;
     motion.lastTime = null;
     motion.stationarySeconds = 0;
-    motion.springConfig = null;
+    motion.releaseStartedAt = null;
+    motion.releaseStartPosition = motion.position;
+    motion.releaseStartVelocity = 0;
+    motion.duration = 0;
     motion.direction = null;
     motion.onComplete = null;
     if (onComplete && mountedRef.current) onComplete();
@@ -282,66 +314,71 @@ export default function WordCard({
         return;
       }
 
-      if (motion.mode !== "spring") return;
+      if (motion.mode !== "dismiss" && motion.mode !== "return") return;
+      if (motion.releaseStartedAt === null) return;
 
-      const elapsedMs =
-        motion.lastTime === null ? 0 : Math.max(now - motion.lastTime, 0);
-      const deltaSeconds = Math.min(elapsedMs / 1_000, 0.032);
-      motion.lastTime = now;
-      if (deltaSeconds <= 0) {
+      const elapsedSeconds = Math.max(
+        (now - motion.releaseStartedAt) / 1_000,
+        0,
+      );
+      if (elapsedSeconds <= 0) {
         scheduleMotionFrame();
         return;
       }
-      const next = advanceSpring(
-        { position: motion.position, velocity: motion.velocity },
-        motion.target,
-        deltaSeconds,
-        motion.springConfig ?? RETURN_SPRING_CONFIG,
-      );
+      const frameDeltaMs =
+        motion.lastTime === null ? 0 : Math.max(now - motion.lastTime, 0);
+      const next =
+        motion.mode === "dismiss"
+          ? sampleDismissTrajectory(
+              motion.releaseStartPosition,
+              motion.releaseStartVelocity,
+              motion.target,
+              elapsedSeconds,
+              motion.duration,
+            )
+          : sampleReturnTrajectory(
+              motion.releaseStartPosition,
+              motion.releaseStartVelocity,
+              elapsedSeconds,
+            );
       motion.position = next.position;
       motion.velocity = next.velocity;
+      motion.lastTime = now;
       writeCurrentDragFrame(next.position);
-      traceGesture("spring-frame", {
+      traceGesture("release-frame", {
+        phase: motion.mode,
         direction: motion.direction ?? "return",
-        deltaMs: deltaSeconds * 1_000,
-        elapsedMs,
+        elapsedMs: elapsedSeconds * 1_000,
+        frameDeltaMs,
         position: next.position,
         velocity: next.velocity,
       });
 
-      if (
-        motion.direction !== null &&
-        hasClearedViewport(motion.direction, next.position, motion.target)
-      ) {
-        completeSpring();
-        return;
-      }
-
-      if (
-        springSettled(
-          next,
-          motion.target,
-          motion.direction === null ? 18 : 80,
-          motion.direction === null ? 0.5 : 12,
-        )
-      ) {
-        motion.position = motion.target;
+      const complete =
+        motion.mode === "dismiss"
+          ? elapsedSeconds >= motion.duration
+          : (Math.abs(next.position) <= 0.5 &&
+              Math.abs(next.velocity) <= 18) ||
+            elapsedSeconds >= RETURN_MAX_SECONDS;
+      if (complete) {
+        motion.position = motion.mode === "dismiss" ? motion.target : 0;
         motion.velocity = 0;
-        writeCurrentDragFrame(motion.target);
-        completeSpring();
+        writeCurrentDragFrame(motion.position);
+        completeReleaseMotion();
         return;
       }
 
       scheduleMotionFrame();
     },
-    [completeSpring, scheduleMotionFrame, writeCurrentDragFrame],
+    [completeReleaseMotion, scheduleMotionFrame, writeCurrentDragFrame],
   );
 
-  const beginSpring = useCallback(
+  const beginReleaseMotion = useCallback(
     (
+      mode: "dismiss" | "return",
       target: number,
       velocity: number,
-      springConfig: SpringConfig,
+      duration: number,
       direction: SwipeDirection | null,
       onComplete: (() => void) | null,
     ) => {
@@ -349,34 +386,27 @@ export default function WordCard({
       const now = performance.now();
       const releasePosition = motion.position;
       const releaseVelocity = boundedReleaseVelocity(velocity);
-      motion.mode = "spring";
+      motion.mode = mode;
       motion.target = target;
       motion.velocity = releaseVelocity;
-      motion.springConfig = springConfig;
+      motion.releaseStartedAt = now;
+      motion.releaseStartPosition = releasePosition;
+      motion.releaseStartVelocity = releaseVelocity;
+      motion.duration = duration;
+      motion.lastTime = now;
       motion.direction = direction;
       motion.onComplete = onComplete;
       motion.stationarySeconds = 0;
-
-      const preview = advanceSpring(
-        { position: releasePosition, velocity: releaseVelocity },
-        target,
-        SPRING_PREVIEW_STEP_SECONDS,
-        springConfig,
-      );
-      motion.position = preview.position;
-      motion.velocity = preview.velocity;
-      motion.lastTime = now;
-      writeCurrentDragFrame(preview.position);
-      traceGesture("spring-handoff", {
+      traceGesture("release-handoff", {
+        phase: mode,
         direction: direction ?? "return",
         releasePosition,
         releaseVelocity,
-        previewPosition: preview.position,
-        previewVelocity: preview.velocity,
+        durationMs: duration * 1_000,
       });
       scheduleMotionFrame();
     },
-    [scheduleMotionFrame, writeCurrentDragFrame],
+    [scheduleMotionFrame],
   );
 
   const returnToCentre = useCallback(
@@ -390,22 +420,26 @@ export default function WordCard({
         motion.velocity = 0;
         motion.lastTime = null;
         motion.stationarySeconds = 0;
-        motion.springConfig = null;
+        motion.releaseStartedAt = null;
+        motion.releaseStartPosition = 0;
+        motion.releaseStartVelocity = 0;
+        motion.duration = 0;
         motion.direction = null;
         motion.onComplete = null;
         writeCurrentDragFrame(0);
         return;
       }
 
-      beginSpring(
+      beginReleaseMotion(
+        "return",
         0,
-        returnSpringVelocity(position, motion.velocity),
-        RETURN_SPRING_CONFIG,
+        boundedReleaseVelocity(motion.velocity),
+        RETURN_MAX_SECONDS,
         null,
         null,
       );
     },
-    [beginSpring, writeCurrentDragFrame],
+    [beginReleaseMotion, writeCurrentDragFrame],
   );
 
   const startFlight = useCallback(
@@ -445,32 +479,31 @@ export default function WordCard({
         if (mountedRef.current) callback();
       };
 
-      if (hasClearedViewport(direction, currentX, targetX)) {
+      if (remainingDistance <= 0) {
         commit();
         return;
       }
 
-      const directionalVelocity = dismissalVelocity(
-        velocityX,
-        direction,
-        remainingDistance,
-      );
+      const releaseVelocity = boundedReleaseVelocity(velocityX);
+      const duration = dismissalDuration(remainingDistance, releaseVelocity);
       traceGesture("flight-animation-start", {
         direction,
         releasePosition: currentX,
         remainingDistance,
         releaseVelocity: velocityX,
-        departureVelocity: directionalVelocity,
+        departureVelocity: releaseVelocity,
+        durationMs: duration * 1_000,
       });
-      beginSpring(
+      beginReleaseMotion(
+        "dismiss",
         targetX,
-        directionalVelocity,
-        RELEASE_SPRING_CONFIG,
+        releaseVelocity,
+        duration,
         direction,
         commit,
       );
     },
-    [beginSpring, cacheGeometry],
+    [beginReleaseMotion, cacheGeometry],
   );
 
   const handleButtonSwipe = useCallback(
@@ -529,9 +562,19 @@ export default function WordCard({
       motion.target = motion.position;
       motion.lastTime = performance.now();
       motion.stationarySeconds = 0;
-      motion.springConfig = null;
+      motion.releaseStartedAt = null;
+      motion.releaseStartPosition = motion.position;
+      motion.releaseStartVelocity = 0;
+      motion.duration = 0;
       motion.direction = null;
       motion.onComplete = null;
+      const samples: SwipePointerSample[] = [];
+      const receivedAt = performance.now();
+      recordPointerSample(
+        samples,
+        event.clientX,
+        pointerSampleTime(event, receivedAt, event.timeStamp),
+      );
       activeDragRef.current = {
         pointerId: event.pointerId,
         captureGeneration,
@@ -541,6 +584,7 @@ export default function WordCard({
         latestPointerX: event.clientX,
         cardWidth: geometry.width,
         geometry,
+        samples,
       };
       activeCaptureGenerationRef.current = captureGeneration;
       dragLayer.setPointerCapture(event.pointerId);
@@ -555,8 +599,17 @@ export default function WordCard({
     const handlePointerMove = (event: PointerEvent) => {
       const drag = activeDragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
-      const coalesced = event.getCoalescedEvents?.() ?? [event];
+      const coalescedEvents = event.getCoalescedEvents?.() ?? [];
+      const coalesced = coalescedEvents.length > 0 ? coalescedEvents : [event];
       const latest = coalesced[coalesced.length - 1] ?? event;
+      const receivedAt = performance.now();
+      for (const sample of coalesced) {
+        recordPointerSample(
+          drag.samples,
+          sample.clientX,
+          pointerSampleTime(sample, receivedAt, event.timeStamp),
+        );
+      }
       drag.latestPointerX = latest.clientX;
       scheduleMotionFrame();
       if (event.cancelable) event.preventDefault();
@@ -567,7 +620,15 @@ export default function WordCard({
       if (!drag || drag.pointerId !== event.pointerId) return;
       const motion = motionStateRef.current;
       const releaseTime = performance.now();
-      if (!cancelled) drag.latestPointerX = event.clientX;
+      const releaseSampleTime = releaseTime;
+      if (!cancelled) {
+        drag.latestPointerX = event.clientX;
+        recordPointerSample(drag.samples, event.clientX, releaseSampleTime);
+      }
+      const velocitySampleTime = Math.max(
+        releaseSampleTime,
+        drag.samples[drag.samples.length - 1]?.time ?? releaseSampleTime,
+      );
       const releaseX =
         drag.startDragX + drag.latestPointerX - drag.startPointerX;
       const releaseMotion = updateRenderedDragMotion(
@@ -584,17 +645,22 @@ export default function WordCard({
       motion.velocity = releaseMotion.velocity;
       motion.lastTime = releaseMotion.lastTime;
       motion.stationarySeconds = releaseMotion.stationarySeconds;
+      const sampledVelocity = cancelled
+        ? releaseMotion.velocity
+        : estimatePointerVelocity(drag.samples, velocitySampleTime);
+      motion.velocity = sampledVelocity;
       writeCurrentDragFrame(releaseMotion.position);
       if (!cancelled) {
         traceGesture("pointerup-handler-entry", {
           releasePosition: releaseMotion.position,
-          releaseVelocity: releaseMotion.velocity,
+          releaseVelocity: sampledVelocity,
+          renderedVelocity: releaseMotion.velocity,
           releaseEventTime: releaseTime,
         });
       } else {
         traceGesture("pointercancel", {
           position: releaseMotion.position,
-          velocity: releaseMotion.velocity,
+          velocity: sampledVelocity,
         });
       }
       activeDragRef.current = null;
@@ -607,7 +673,7 @@ export default function WordCard({
         return;
       }
 
-      const velocityX = boundedReleaseVelocity(motion.velocity);
+      const velocityX = sampledVelocity;
       const decision = decideSwipe(
         dragXRef.current,
         velocityX,
@@ -646,12 +712,11 @@ export default function WordCard({
       finishPointerDrag(event, true);
     };
 
-    const moveEventName =
-      "onpointerrawupdate" in window ? "pointerrawupdate" : "pointermove";
     const listenerOptions = { passive: false };
     const moveListener = handlePointerMove as EventListener;
     dragLayer.addEventListener("pointerdown", handlePointerDown, listenerOptions);
-    dragLayer.addEventListener(moveEventName, moveListener, listenerOptions);
+    dragLayer.addEventListener("pointerrawupdate", moveListener, listenerOptions);
+    dragLayer.addEventListener("pointermove", moveListener, listenerOptions);
     dragLayer.addEventListener("pointerup", handlePointerUp, listenerOptions);
     dragLayer.addEventListener("pointercancel", handlePointerCancel, listenerOptions);
     dragLayer.addEventListener(
@@ -671,7 +736,10 @@ export default function WordCard({
       motionState.velocity = 0;
       motionState.lastTime = null;
       motionState.stationarySeconds = 0;
-      motionState.springConfig = null;
+      motionState.releaseStartedAt = null;
+      motionState.releaseStartPosition = motionState.position;
+      motionState.releaseStartVelocity = 0;
+      motionState.duration = 0;
       motionState.direction = null;
       motionState.onComplete = null;
       activeCaptureGenerationRef.current = null;
@@ -679,7 +747,8 @@ export default function WordCard({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", updateGeometry);
       dragLayer.removeEventListener("pointerdown", handlePointerDown);
-      dragLayer.removeEventListener(moveEventName, moveListener);
+      dragLayer.removeEventListener("pointerrawupdate", moveListener);
+      dragLayer.removeEventListener("pointermove", moveListener);
       dragLayer.removeEventListener("pointerup", handlePointerUp);
       dragLayer.removeEventListener("pointercancel", handlePointerCancel);
       dragLayer.removeEventListener(

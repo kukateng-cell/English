@@ -6,26 +6,16 @@ const MIN_DISTANCE = 104;
 const MAX_DISTANCE = 144;
 const MAX_PROJECTED_VELOCITY = 1_800;
 const MAX_RELEASE_VELOCITY = 2_400;
-const MIN_DISMISS_SPEED = 900;
-const MAX_DISMISS_SPEED = 1_800;
-const DISMISS_TARGET_SECONDS = 0.32;
 const DRAG_VELOCITY_BLEND = 0.65;
 const DRAG_VELOCITY_DECAY_RATE = 24;
 const STATIONARY_GRACE_SECONDS = 1 / 60;
 const POSITION_EPSILON = 0.01;
-const OUTWARD_RETURN_VELOCITY_SCALE = 0.35;
+const POINTER_VELOCITY_WINDOW_MS = 70;
 export const OFFSCREEN_MARGIN = 40;
-export const VISUAL_COMPLETION_SLACK = 12;
 
 export interface SpringState {
   position: number;
   velocity: number;
-}
-
-export interface SpringConfig {
-  stiffness: number;
-  damping: number;
-  mass: number;
 }
 
 export interface RenderedDragMotion extends SpringState {
@@ -33,45 +23,9 @@ export interface RenderedDragMotion extends SpringState {
   stationarySeconds: number;
 }
 
-/**
- * Advance a one-dimensional damped spring with small bounded substeps. The
- * bounded integration keeps a delayed animation frame from destabilising the
- * spring. The same integrator is used for drag release, return, and flight so
- * all phases can share one motion owner.
- */
-export function advanceSpring(
-  state: SpringState,
-  target: number,
-  deltaSeconds: number,
-  config: SpringConfig,
-): SpringState {
-  const elapsed = Math.min(Math.max(deltaSeconds, 0), 0.064);
-  const substeps = Math.max(1, Math.ceil(elapsed / 0.008));
-  const step = elapsed / substeps;
-  let position = state.position;
-  let velocity = state.velocity;
-
-  for (let index = 0; index < substeps; index++) {
-    const acceleration =
-      ((target - position) * config.stiffness - velocity * config.damping) /
-      config.mass;
-    velocity += acceleration * step;
-    position += velocity * step;
-  }
-
-  return { position, velocity };
-}
-
-export function springSettled(
-  state: SpringState,
-  target: number,
-  restSpeed: number,
-  restDelta: number,
-) {
-  return (
-    Math.abs(state.velocity) <= restSpeed &&
-    Math.abs(target - state.position) <= restDelta
-  );
+export interface SwipePointerSample {
+  position: number;
+  time: number;
 }
 
 export interface SwipeDecision {
@@ -145,15 +99,49 @@ export function boundedReleaseVelocity(velocityX: number) {
 }
 
 /**
- * Keep inward return momentum intact, but shorten the outward coast before
- * the spring turns back towards the centre.
+ * Estimate pointer velocity from the most recent raw/coalesced samples. A
+ * weighted linear regression is stable across rAF phases and naturally falls
+ * to zero when the pointer has been stationary for longer than the window.
  */
-export function returnSpringVelocity(position: number, releaseVelocity: number) {
-  const velocity = boundedReleaseVelocity(releaseVelocity);
-  if (!Number.isFinite(position)) return velocity;
-  return position * velocity > 0
-    ? velocity * OUTWARD_RETURN_VELOCITY_SCALE
-    : velocity;
+export function estimatePointerVelocity(
+  samples: SwipePointerSample[],
+  releaseTime: number,
+) {
+  const recent = samples
+    .filter(
+      (sample) =>
+        Number.isFinite(sample.position) &&
+        Number.isFinite(sample.time) &&
+        sample.time <= releaseTime &&
+        sample.time >= releaseTime - POINTER_VELOCITY_WINDOW_MS,
+    )
+    .sort((left, right) => left.time - right.time);
+  if (recent.length < 2) return 0;
+
+  const startTime = recent[0].time;
+  const span = Math.max(releaseTime - startTime, 1);
+  let weightTotal = 0;
+  let meanTime = 0;
+  let meanPosition = 0;
+  for (const sample of recent) {
+    const weight = 1 + (sample.time - startTime) / span;
+    weightTotal += weight;
+    meanTime += sample.time * weight;
+    meanPosition += sample.position * weight;
+  }
+  meanTime /= weightTotal;
+  meanPosition /= weightTotal;
+
+  let covariance = 0;
+  let variance = 0;
+  for (const sample of recent) {
+    const weight = 1 + (sample.time - startTime) / span;
+    const timeDelta = sample.time - meanTime;
+    covariance += weight * timeDelta * (sample.position - meanPosition);
+    variance += weight * timeDelta * timeDelta;
+  }
+  if (variance <= 0) return 0;
+  return boundedReleaseVelocity((covariance / variance) * 1_000);
 }
 
 /**
@@ -218,41 +206,65 @@ export function updateRenderedDragMotion(
   };
 }
 
-/**
- * Keep outward release velocity, but guarantee that a distance-dismissed card
- * has enough departure speed to leave in roughly one third of a second.
- */
-export function dismissalVelocity(
-  releaseVelocity: number,
-  direction: SwipeDirection,
-  remainingDistance: number,
-) {
-  const distance = Math.max(0, Math.abs(remainingDistance));
-  if (distance === 0) return 0;
-  const minimumSpeed = clamp(
-    distance / DISMISS_TARGET_SECONDS,
-    MIN_DISMISS_SPEED,
-    MAX_DISMISS_SPEED,
-  );
-  const towardSpeed = Math.max(
-    0,
-    boundedReleaseVelocity(releaseVelocity) * direction,
-  );
-  return direction * Math.max(towardSpeed, minimumSpeed);
+export function dismissalDuration(distance: number, releaseVelocity: number) {
+  const safeDistance = Math.max(0, Math.abs(distance));
+  const speed = Math.max(Math.abs(boundedReleaseVelocity(releaseVelocity)), 1_000);
+  return clamp(safeDistance / speed, 0.18, 0.32);
 }
 
 /**
- * Springs approach their target asymptotically. Resolve once the card has
- * crossed the still-offscreen visual threshold instead of waiting for an
- * invisible mathematical tail.
+ * Cubic Hermite dismissal with exact start position/velocity and a zero-speed
+ * offscreen endpoint. Sampling by absolute elapsed time makes delayed frames
+ * catch up instead of slowing the whole animation.
  */
-export function hasClearedViewport(
-  direction: SwipeDirection,
-  currentX: number,
-  targetX: number,
-  slack = VISUAL_COMPLETION_SLACK,
-) {
-  return direction > 0
-    ? currentX >= targetX - slack
-    : currentX <= targetX + slack;
+export function sampleDismissTrajectory(
+  startPosition: number,
+  startVelocity: number,
+  target: number,
+  elapsedSeconds: number,
+  durationSeconds: number,
+): SpringState {
+  const duration = Math.max(durationSeconds, 0.001);
+  const progress = clamp(elapsedSeconds / duration, 0, 1);
+  const progress2 = progress * progress;
+  const progress3 = progress2 * progress;
+  const h00 = 2 * progress3 - 3 * progress2 + 1;
+  const h10 = progress3 - 2 * progress2 + progress;
+  const h01 = -2 * progress3 + 3 * progress2;
+  const velocity = boundedReleaseVelocity(startVelocity);
+  const position =
+    h00 * startPosition + h10 * velocity * duration + h01 * target;
+
+  const dh00 = 6 * progress2 - 6 * progress;
+  const dh10 = 3 * progress2 - 4 * progress + 1;
+  const dh01 = -6 * progress2 + 6 * progress;
+  const sampledVelocity =
+    (dh00 * startPosition +
+      dh10 * velocity * duration +
+      dh01 * target) /
+    duration;
+  return {
+    position: progress >= 1 ? target : position,
+    velocity: progress >= 1 ? 0 : sampledVelocity,
+  };
+}
+
+/** Closed-form critically damped spring returning to zero. */
+export function sampleReturnTrajectory(
+  startPosition: number,
+  startVelocity: number,
+  elapsedSeconds: number,
+  omega = 20,
+): SpringState {
+  const elapsed = Math.max(elapsedSeconds, 0);
+  const safeOmega = Math.max(omega, 0.001);
+  const velocity = boundedReleaseVelocity(startVelocity);
+  const coefficient = velocity + safeOmega * startPosition;
+  const decay = Math.exp(-safeOmega * elapsed);
+  const position = (startPosition + coefficient * elapsed) * decay;
+  const sampledVelocity =
+    (coefficient -
+      safeOmega * (startPosition + coefficient * elapsed)) *
+    decay;
+  return { position, velocity: sampledVelocity };
 }
