@@ -59,7 +59,8 @@ declare global {
   interface Window {
     __wordCardPaintTrace?: Array<{ timestamp: number; position: number }>;
     __wordCardPaintSamplerActive?: boolean;
-    __wordCardReleaseAt?: number;
+    __wordCardPaintSamplerError?: string;
+    __wordCardReleaseObserved?: boolean;
   }
 }
 
@@ -84,22 +85,53 @@ async function signIn(page: Page) {
 async function startPaintSampler(page: Page) {
   await page.evaluate(() => {
     window.__wordCardPaintTrace = [];
+    window.__wordCardPaintSamplerError = undefined;
+    window.__wordCardReleaseObserved = false;
+
+    const horizontalTranslation = (transform: string) => {
+      if (transform === "none") return 0;
+      const openingParenthesis = transform.indexOf("(");
+      if (openingParenthesis < 0 || !transform.endsWith(")")) {
+        throw new Error(`Unexpected computed transform: ${transform}`);
+      }
+      const values = transform
+        .slice(openingParenthesis + 1, -1)
+        .split(",")
+        .map((value) => Number(value.trim()));
+      const position = transform.startsWith("matrix3d(")
+        ? values[12]
+        : transform.startsWith("matrix(")
+          ? values[4]
+          : undefined;
+      if (position === undefined || !Number.isFinite(position)) {
+        throw new Error(`Cannot read x translation from: ${transform}`);
+      }
+      return position;
+    };
+
     const sample = (timestamp: number) => {
-      const card = document.querySelector<HTMLElement>(
-        '[data-testid="word-card-drag-layer"]',
-      );
-      if (card) {
-        const transform = getComputedStyle(card).transform;
-        const position =
-          transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
-        window.__wordCardPaintTrace?.push({ timestamp, position });
+      try {
+        const card = document.querySelector<HTMLElement>(
+          '[data-testid="word-card-drag-layer"]',
+        );
+        if (card) {
+          const position = horizontalTranslation(
+            getComputedStyle(card).transform,
+          );
+          window.__wordCardPaintTrace?.push({ timestamp, position });
+        }
+      } catch (error) {
+        window.__wordCardPaintSamplerError =
+          error instanceof Error ? error.message : String(error);
+        window.__wordCardPaintSamplerActive = false;
+        return;
       }
       if (window.__wordCardPaintSamplerActive) requestAnimationFrame(sample);
     };
     window.addEventListener(
       "pointerup",
       () => {
-        window.__wordCardReleaseAt = performance.now();
+        window.__wordCardReleaseObserved = true;
         window.__wordCardPaintSamplerActive = true;
         requestAnimationFrame(sample);
       },
@@ -217,26 +249,38 @@ async function dispatchGesture(
 }
 
 async function collectReleaseFrames(page: Page, releasePosition: number) {
-  await page.waitForFunction(
-    () => {
-      const releasedAt = window.__wordCardReleaseAt ?? Infinity;
-      return (
-        window.__wordCardPaintTrace?.filter(
-          (frame) => frame.timestamp >= releasedAt,
-        ).length ?? 0
-      ) >= 3;
-    },
-  );
-  return page.evaluate((position) => {
+  try {
+    await page.waitForFunction(
+      () =>
+        Boolean(window.__wordCardPaintSamplerError) ||
+        (window.__wordCardReleaseObserved === true &&
+          (window.__wordCardPaintTrace?.length ?? 0) >= 3),
+      undefined,
+      { timeout: 5_000 },
+    );
+  } catch {
+    const diagnostics = await page.evaluate(() => ({
+      releaseObserved: window.__wordCardReleaseObserved ?? false,
+      frameCount: window.__wordCardPaintTrace?.length ?? 0,
+      samplerError: window.__wordCardPaintSamplerError ?? null,
+    }));
+    throw new Error(
+      `Paint sampler timed out: ${JSON.stringify(diagnostics)}`,
+    );
+  }
+
+  const result = await page.evaluate((position) => {
     window.__wordCardPaintSamplerActive = false;
-    const releasedAt = window.__wordCardReleaseAt ?? Infinity;
     return {
       releasePosition: position,
-      frames: (window.__wordCardPaintTrace ?? []).filter(
-        (frame) => frame.timestamp >= releasedAt,
-      ),
+      frames: window.__wordCardPaintTrace ?? [],
+      samplerError: window.__wordCardPaintSamplerError ?? null,
     };
   }, releasePosition);
+  if (result.samplerError) {
+    throw new Error(`Paint sampler failed: ${result.samplerError}`);
+  }
+  return result;
 }
 
 test("release motion changes the visible card on the next paint", async ({
@@ -253,28 +297,30 @@ test("release motion changes the visible card on the next paint", async ({
   await signIn(page);
 
   for (const scenario of scenarios) {
-    const result = await dispatchGesture(page, scenario, input);
-    const [firstFrame, secondFrame] = result.frames;
-    const firstDisplacement = Math.abs(
-      firstFrame.position - result.releasePosition,
-    );
-    const secondDisplacement = Math.abs(
-      secondFrame.position - firstFrame.position,
-    );
-    expect(firstDisplacement).toBeGreaterThan(0.5);
-    expect(secondDisplacement).toBeGreaterThan(0.5);
-    expect(secondDisplacement / firstDisplacement).toBeLessThan(2.5);
+    await test.step(scenario.name, async () => {
+      const result = await dispatchGesture(page, scenario, input);
+      const [firstFrame, secondFrame] = result.frames;
+      const firstDisplacement = Math.abs(
+        firstFrame.position - result.releasePosition,
+      );
+      const secondDisplacement = Math.abs(
+        secondFrame.position - firstFrame.position,
+      );
+      expect(firstDisplacement).toBeGreaterThan(0.5);
+      expect(secondDisplacement).toBeGreaterThan(0.5);
+      expect(secondDisplacement / firstDisplacement).toBeLessThan(2.5);
 
-    if (scenario.expected === "dismiss-right") {
-      expect(firstFrame.position).toBeGreaterThan(result.releasePosition);
-      expect(secondFrame.position).toBeGreaterThan(firstFrame.position);
-    } else {
-      expect(Math.abs(firstFrame.position)).toBeLessThan(
-        Math.abs(result.releasePosition),
-      );
-      expect(Math.abs(secondFrame.position)).toBeLessThan(
-        Math.abs(firstFrame.position),
-      );
-    }
+      if (scenario.expected === "dismiss-right") {
+        expect(firstFrame.position).toBeGreaterThan(result.releasePosition);
+        expect(secondFrame.position).toBeGreaterThan(firstFrame.position);
+      } else {
+        expect(Math.abs(firstFrame.position)).toBeLessThan(
+          Math.abs(result.releasePosition),
+        );
+        expect(Math.abs(secondFrame.position)).toBeLessThan(
+          Math.abs(firstFrame.position),
+        );
+      }
+    });
   }
 });
