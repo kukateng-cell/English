@@ -22,12 +22,24 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "mouse",
+      name: "desktop-chromium",
       use: { ...devices["Desktop Chrome"] },
     },
     {
-      name: "touch",
+      name: "desktop-firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "desktop-webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
+      name: "mobile-chromium",
       use: { ...devices["Pixel 7"] },
+    },
+    {
+      name: "mobile-webkit",
+      use: { ...devices["iPhone 13"] },
     },
   ],
 });

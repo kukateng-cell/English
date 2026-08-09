@@ -74,14 +74,40 @@ async function signIn(page: Page) {
 async function dispatchGesture(
   page: Page,
   scenario: GestureScenario,
-  touch: boolean,
+  input:
+    | "mouse"
+    | "chromium-touch"
+    | "synthetic-mouse"
+    | "synthetic-touch",
 ) {
   await page.goto(`/study?gesture=${scenario.name}`);
   const card = page.locator('[data-testid="word-card-drag-layer"]');
   await card.waitFor();
   await page.evaluate(() => {
     window.__wordCardGestureTrace = [];
+    window.__wordCardPaintTrace = [];
+    window.__wordCardPaintSamplerActive = true;
+    const sample = (timestamp: number) => {
+      const card = document.querySelector<HTMLElement>(
+        '[data-testid="word-card-drag-layer"]',
+      );
+      if (card) {
+        const transform = getComputedStyle(card).transform;
+        const values = transform.match(/^matrix(3d)?\((.+)\)$/)?.[2]
+          ?.split(",")
+          .map(Number);
+        const position = values
+          ? transform.startsWith("matrix3d")
+            ? values[12]
+            : values[4]
+          : 0;
+        window.__wordCardPaintTrace?.push({ timestamp, position });
+      }
+      if (window.__wordCardPaintSamplerActive) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
   });
+  await page.waitForFunction(() => (window.__wordCardPaintTrace?.length ?? 0) >= 6);
 
   const box = await card.boundingBox();
   if (!box) throw new Error("Card bounding box is unavailable");
@@ -90,7 +116,7 @@ async function dispatchGesture(
     y: box.y + box.height * 0.25,
   };
 
-  if (touch) {
+  if (input === "chromium-touch") {
     const client = await page.context().newCDPSession(page);
     const points = (x: number) => [
       {
@@ -122,6 +148,50 @@ async function dispatchGesture(
       touchPoints: [],
     });
     await client.detach();
+  } else if (input === "synthetic-touch" || input === "synthetic-mouse") {
+    const pointerType = input === "synthetic-touch" ? "touch" : "mouse";
+    await page.evaluate(() => {
+      const card = document.querySelector<HTMLElement>(
+        '[data-testid="word-card-drag-layer"]',
+      );
+      if (!card) throw new Error("Card is unavailable");
+      card.setPointerCapture = () => {};
+      card.hasPointerCapture = () => true;
+    });
+    const dispatch = (type: string, x: number) =>
+      page.evaluate(
+        ({ type, x, y, pointerType }) => {
+          const card = document.querySelector<HTMLElement>(
+            '[data-testid="word-card-drag-layer"]',
+          );
+          if (!card) throw new Error("Card is unavailable");
+          card.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              pointerId: 1,
+              pointerType,
+              isPrimary: true,
+              button: 0,
+              buttons: type === "pointerup" ? 0 : 1,
+              clientX: x,
+              clientY: y,
+            }),
+          );
+        },
+        { type, x, y: start.y, pointerType },
+      );
+    await dispatch("pointerdown", start.x);
+    if (scenario.preHoldMs) await page.waitForTimeout(scenario.preHoldMs);
+    for (let step = 1; step <= scenario.steps; step++) {
+      await dispatch(
+        "pointermove",
+        start.x + (scenario.distance * step) / scenario.steps,
+      );
+      await page.waitForTimeout(scenario.delayMs);
+    }
+    if (scenario.holdMs) await page.waitForTimeout(scenario.holdMs);
+    await dispatch("pointerup", start.x + scenario.distance);
   } else {
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
@@ -145,6 +215,7 @@ async function dispatchGesture(
   );
 
   return page.evaluate(() => {
+    window.__wordCardPaintSamplerActive = false;
     const trace = window.__wordCardGestureTrace ?? [];
     return {
       owner: document
@@ -156,6 +227,7 @@ async function dispatchGesture(
       ),
       handoff: trace.find((entry) => entry.name === "spring-handoff"),
       dragFrames: trace.filter((entry) => entry.name === "drag-render"),
+      paintFrames: window.__wordCardPaintTrace ?? [],
       frames: trace
         .filter((entry) => entry.name === "spring-frame")
         .slice(0, 3),
@@ -168,23 +240,77 @@ declare global {
     __wordCardGestureTrace?: Array<
       Record<string, number | string | boolean | undefined>
     >;
+    __wordCardPaintTrace?: Array<{ timestamp: number; position: number }>;
+    __wordCardPaintSamplerActive?: boolean;
   }
 }
 
+function median(values: number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
 test("release handoff stays continuous", async ({ page }, testInfo) => {
-  const touch = testInfo.project.name === "touch";
+  const touch = testInfo.project.name.startsWith("mobile-");
+  const input = touch
+    ? testInfo.project.name === "mobile-chromium"
+      ? "chromium-touch"
+      : "synthetic-touch"
+    : testInfo.project.name === "desktop-firefox"
+      ? "synthetic-mouse"
+      : "mouse";
   await signIn(page);
   await expect(page.getByTestId("card-motion-build-badge")).toContainText(
-    "card-motion-2026.08.09",
+    "card-motion-2026.08.09-r2",
   );
 
   for (const scenario of scenarios) {
-    const result = await dispatchGesture(page, scenario, touch);
+    const result = await dispatchGesture(page, scenario, input);
     expect(result.owner).toBe("single-raf");
     expect(result.pointerdown?.pointerType).toBe(touch ? "touch" : "mouse");
     expect(result.pointerup).toBeTruthy();
     expect(result.handoff).toBeTruthy();
     expect(result.frames).toHaveLength(3);
+
+    const handoffTimestamp = Number(result.handoff?.timestamp);
+    const pointerupTimestamp = Number(result.pointerup?.timestamp);
+    const preHandoffPaints = result.paintFrames.filter(
+      (frame) => frame.timestamp < handoffTimestamp,
+    );
+    const refreshIntervals = preHandoffPaints
+      .slice(-8)
+      .slice(1)
+      .map(
+        (frame, index) =>
+          frame.timestamp - preHandoffPaints.slice(-8)[index].timestamp,
+      )
+      .filter((interval) => interval > 0);
+    const medianFrameInterval = median(refreshIntervals);
+    const handoffToFirstFrameMs =
+      Number(result.frames[0].timestamp) - handoffTimestamp;
+    expect(handoffToFirstFrameMs).toBeLessThanOrEqual(
+      medianFrameInterval * 1.5,
+    );
+
+    const firstPaintAfterRelease = result.paintFrames.find(
+      (frame) => frame.timestamp > pointerupTimestamp,
+    );
+    expect(firstPaintAfterRelease).toBeTruthy();
+    expect(
+      Math.abs(
+        Number(firstPaintAfterRelease?.position) -
+          Number(result.pointerup?.releasePosition),
+      ),
+    ).toBeGreaterThan(0.01);
+    expect(
+      Math.abs(
+        Number(result.handoff?.previewPosition) -
+          Number(result.handoff?.releasePosition),
+      ),
+    ).toBeGreaterThan(0.01);
 
     if (scenario.name === "held-late-flick") {
       expect(
@@ -221,8 +347,9 @@ test("release handoff stays continuous", async ({ page }, testInfo) => {
     } else {
       expect(result.handoff?.direction).toBe("return");
       expect(Number(result.pointerup?.releaseVelocity)).toBeGreaterThan(0);
-      expect(result.handoff?.releaseVelocity).toBe(
-        result.pointerup?.releaseVelocity,
+      expect(Number(result.handoff?.releaseVelocity)).toBeCloseTo(
+        Number(result.pointerup?.releaseVelocity) * 0.35,
+        5,
       );
     }
   }

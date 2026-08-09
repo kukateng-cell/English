@@ -13,6 +13,7 @@ const DRAG_VELOCITY_BLEND = 0.65;
 const DRAG_VELOCITY_DECAY_RATE = 24;
 const STATIONARY_GRACE_SECONDS = 1 / 60;
 const POSITION_EPSILON = 0.01;
+const OUTWARD_RETURN_VELOCITY_SCALE = 0.35;
 export const OFFSCREEN_MARGIN = 40;
 export const VISUAL_COMPLETION_SLACK = 12;
 
@@ -141,6 +142,18 @@ export function offscreenTarget(
 export function boundedReleaseVelocity(velocityX: number) {
   if (!Number.isFinite(velocityX)) return 0;
   return clamp(velocityX, -MAX_RELEASE_VELOCITY, MAX_RELEASE_VELOCITY);
+}
+
+/**
+ * Keep inward return momentum intact, but shorten the outward coast before
+ * the spring turns back towards the centre.
+ */
+export function returnSpringVelocity(position: number, releaseVelocity: number) {
+  const velocity = boundedReleaseVelocity(releaseVelocity);
+  if (!Number.isFinite(position)) return velocity;
+  return position * velocity > 0
+    ? velocity * OUTWARD_RETURN_VELOCITY_SCALE
+    : velocity;
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   dismissalVelocity,
   hasClearedViewport,
   offscreenTarget,
+  returnSpringVelocity,
   springSettled,
   updateRenderedDragMotion,
 } from "./swipe-motion";
@@ -127,6 +128,14 @@ test("release velocity keeps its direction while remaining bounded", () => {
   assert.equal(boundedReleaseVelocity(-480), -480);
   assert.equal(boundedReleaseVelocity(9_000), 2_400);
   assert.equal(boundedReleaseVelocity(-9_000), -2_400);
+});
+
+test("return spring attenuates only outward release velocity", () => {
+  assert.equal(returnSpringVelocity(120, 480), 168);
+  assert.equal(returnSpringVelocity(-120, -480), -168);
+  assert.equal(returnSpringVelocity(120, -480), -480);
+  assert.equal(returnSpringVelocity(-120, 480), 480);
+  assert.equal(returnSpringVelocity(120, 9_000), 840);
 });
 
 test("dismissal adds a distance-aware minimum departure speed", () => {

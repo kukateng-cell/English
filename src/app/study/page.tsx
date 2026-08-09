@@ -80,7 +80,7 @@ interface StudySessionInfo {
   nonces: Record<string, string>;
 }
 
-const CARD_MOTION_BUILD = "card-motion-2026.08.09";
+const CARD_MOTION_BUILD = "card-motion-2026.08.09-r2";
 
 /** 当前词处在哪一步：先认字评估，随即立刻测试。 */
 type WordStep = "assess" | "quiz";

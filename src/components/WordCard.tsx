@@ -15,6 +15,7 @@ import {
   dismissalVelocity,
   hasClearedViewport,
   offscreenTarget,
+  returnSpringVelocity,
   springSettled,
   updateRenderedDragMotion,
   OFFSCREEN_MARGIN,
@@ -33,6 +34,7 @@ interface WordCardProps {
 
 const SWIPE_LABEL_THRESHOLD = 76;
 const BUTTON_LAUNCH_VELOCITY = 720;
+const SPRING_PREVIEW_STEP_SECONDS = 1 / 240;
 
 interface ActivePointerDrag {
   pointerId: number;
@@ -214,12 +216,6 @@ export default function WordCard({
     });
   }, []);
 
-  const cancelScheduledMotionFrame = useCallback(() => {
-    if (motionFrameRef.current === null) return;
-    cancelAnimationFrame(motionFrameRef.current);
-    motionFrameRef.current = null;
-  }, []);
-
   const cacheGeometry = useCallback((): CardGeometry | null => {
     const dragLayer = dragLayerRef.current;
     if (!dragLayer) return null;
@@ -288,10 +284,9 @@ export default function WordCard({
 
       if (motion.mode !== "spring") return;
 
-      const deltaSeconds =
-        motion.lastTime === null
-          ? 0
-          : Math.min(Math.max((now - motion.lastTime) / 1_000, 0), 0.032);
+      const elapsedMs =
+        motion.lastTime === null ? 0 : Math.max(now - motion.lastTime, 0);
+      const deltaSeconds = Math.min(elapsedMs / 1_000, 0.032);
       motion.lastTime = now;
       if (deltaSeconds <= 0) {
         scheduleMotionFrame();
@@ -309,6 +304,7 @@ export default function WordCard({
       traceGesture("spring-frame", {
         direction: motion.direction ?? "return",
         deltaMs: deltaSeconds * 1_000,
+        elapsedMs,
         position: next.position,
         velocity: next.velocity,
       });
@@ -350,22 +346,37 @@ export default function WordCard({
       onComplete: (() => void) | null,
     ) => {
       const motion = motionStateRef.current;
-      cancelScheduledMotionFrame();
+      const now = performance.now();
+      const releasePosition = motion.position;
+      const releaseVelocity = boundedReleaseVelocity(velocity);
       motion.mode = "spring";
       motion.target = target;
-      motion.velocity = boundedReleaseVelocity(velocity);
-      motion.lastTime = performance.now();
+      motion.velocity = releaseVelocity;
       motion.springConfig = springConfig;
       motion.direction = direction;
       motion.onComplete = onComplete;
+      motion.stationarySeconds = 0;
+
+      const preview = advanceSpring(
+        { position: releasePosition, velocity: releaseVelocity },
+        target,
+        SPRING_PREVIEW_STEP_SECONDS,
+        springConfig,
+      );
+      motion.position = preview.position;
+      motion.velocity = preview.velocity;
+      motion.lastTime = now;
+      writeCurrentDragFrame(preview.position);
       traceGesture("spring-handoff", {
         direction: direction ?? "return",
-        releasePosition: motion.position,
-        releaseVelocity: motion.velocity,
+        releasePosition,
+        releaseVelocity,
+        previewPosition: preview.position,
+        previewVelocity: preview.velocity,
       });
       scheduleMotionFrame();
     },
-    [cancelScheduledMotionFrame, scheduleMotionFrame],
+    [scheduleMotionFrame, writeCurrentDragFrame],
   );
 
   const returnToCentre = useCallback(
@@ -388,7 +399,7 @@ export default function WordCard({
 
       beginSpring(
         0,
-        boundedReleaseVelocity(motion.velocity),
+        returnSpringVelocity(position, motion.velocity),
         RETURN_SPRING_CONFIG,
         null,
         null,
