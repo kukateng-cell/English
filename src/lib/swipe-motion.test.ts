@@ -5,9 +5,11 @@ import {
   decideSwipe,
   dismissalDuration,
   dismissalLaunchVelocity,
+  estimateFrameInterval,
   estimatePointerVelocity,
   offscreenTarget,
   returnLaunchVelocity,
+  releaseTimelineLead,
   sampleDismissTrajectory,
   sampleReturnTrajectory,
   updateRenderedDragMotion,
@@ -131,6 +133,14 @@ test("release velocity keeps its direction while remaining bounded", () => {
   assert.equal(boundedReleaseVelocity(-9_000), -2_400);
 });
 
+test("release timeline aligns a near-paint pointerup to one display frame", () => {
+  const refreshInterval = estimateFrameInterval([16, 17, 16, 17, 16, 18]);
+  const lead = releaseTimelineLead(2, refreshInterval);
+
+  assert.equal(refreshInterval, 16.5);
+  assert.equal(lead, 14.5);
+});
+
 test("committed dismissal always launches outward perceptibly", () => {
   assert.equal(dismissalLaunchVelocity(0, 1), 1_200);
   assert.equal(dismissalLaunchVelocity(600, 1), 1_200);
@@ -215,6 +225,34 @@ test("stationary release moves perceptibly on the first 120 Hz frame", () => {
 
   assert.ok(dismissed.position - 120 > 1);
   assert.ok(5 - returned.position > 1);
+});
+
+test("phase-aligned dismissal avoids a tiny first visible frame", () => {
+  const start = 328;
+  const target = 983;
+  const velocity = dismissalLaunchVelocity(0, 1);
+  const duration = dismissalDuration(target - start, velocity);
+  const refreshInterval = estimateFrameInterval([16, 17, 16, 17]);
+  const lead = releaseTimelineLead(2, refreshInterval);
+  const first = sampleDismissTrajectory(
+    start,
+    velocity,
+    target,
+    (2 + lead) / 1_000,
+    duration,
+  );
+  const second = sampleDismissTrajectory(
+    start,
+    velocity,
+    target,
+    (18 + lead) / 1_000,
+    duration,
+  );
+  const firstDisplacement = first.position - start;
+  const secondDisplacement = second.position - first.position;
+
+  assert.ok(firstDisplacement > 15);
+  assert.ok(secondDisplacement / firstDisplacement < 2.5);
 });
 
 test("closed-form return preserves initial velocity and settles", () => {

@@ -15,6 +15,7 @@ const MIN_DISMISS_LAUNCH_SPEED = 1_200;
 const MIN_RETURN_LAUNCH_SPEED = 220;
 const MAX_RETURN_LAUNCH_SPEED = 700;
 const RETURN_POSITION_SPEED_FACTOR = 18;
+const DEFAULT_FRAME_INTERVAL_MS = 1_000 / 60;
 export const OFFSCREEN_MARGIN = 40;
 
 export interface SpringState {
@@ -41,6 +42,38 @@ export interface SwipeDecision {
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+
+export function estimateFrameInterval(frameIntervals: number[]) {
+  const recent = frameIntervals
+    .filter((interval) => Number.isFinite(interval) && interval >= 4 && interval <= 40)
+    .slice(-8)
+    .sort((left, right) => left - right);
+  if (recent.length === 0) return DEFAULT_FRAME_INTERVAL_MS;
+  const middle = Math.floor(recent.length / 2);
+  return recent.length % 2 === 0
+    ? (recent[middle - 1] + recent[middle]) / 2
+    : recent[middle];
+}
+
+/**
+ * Align release sampling with the display cadence. If pointerup lands just
+ * before a paint, the first rAF samples one visible frame of motion instead
+ * of exposing a tiny sub-frame displacement for a full refresh interval.
+ */
+export function releaseTimelineLead(
+  firstRafDelayMs: number,
+  refreshIntervalMs: number,
+) {
+  const wallDelay = Math.max(0, Number.isFinite(firstRafDelayMs) ? firstRafDelayMs : 0);
+  const frameInterval = clamp(
+    Number.isFinite(refreshIntervalMs)
+      ? refreshIntervalMs
+      : DEFAULT_FRAME_INTERVAL_MS,
+    4,
+    40,
+  );
+  return Math.max(0, frameInterval - wallDelay);
+}
 
 /**
  * Predict where the gesture is heading instead of treating distance and
