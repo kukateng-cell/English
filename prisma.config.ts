@@ -12,7 +12,8 @@ export default defineConfig({
 
   // Where generated migrations live
   migrations: {
-    path: path.join("prisma", "migrations"),
+    path:
+      process.env.PRISMA_MIGRATIONS_PATH ?? path.join("prisma", "migrations"),
   },
 
   // The datasource connection string is provided here (not in schema.prisma),

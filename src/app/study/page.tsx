@@ -5,7 +5,9 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import WordCard from "@/components/WordCard";
+import WordCard, {
+  type WordCardMotionProbe,
+} from "@/components/WordCard";
 import HelpPanel from "@/components/HelpPanel";
 import SpeechRateControl from "@/components/SpeechRateControl";
 import QuizCard, {
@@ -25,12 +27,14 @@ import {
   loadCheckpoint,
   saveCheckpoint,
   clearCheckpoint,
+  updateCheckpointStudySession,
 } from "@/lib/checkpoint";
 import {
   enqueuePendingReview,
   attachStudySessionCredentials,
   finalizeLegacyCredentialClaims,
   flushPendingReviews,
+  rebindStudySessionCredentials,
   pendingReviewCount,
   blockedReviewCount,
   blockedReviewMessage,
@@ -377,6 +381,9 @@ export default function StudyPage() {
   const [streak, setStreak] = useState<StreakInfo | null>(null);
   // 当前服务端发出的词目／nonce 清单；quality 提交必须从这里取凭证。
   const [studySession, setStudySession] = useState<StudySessionInfo | null>(null);
+  const [cardProbeEnabled, setCardProbeEnabled] = useState(false);
+  const [cardMotionProbe, setCardMotionProbe] =
+    useState<WordCardMotionProbe | null>(null);
   // 本次学习中新解锁的成就（POST 返回，用于即时弹提示）
   const [newAchievements, setNewAchievements] = useState<AchievementDef[]>([]);
   // 「下一个单元」按钮的加载态（完成画面用）
@@ -390,6 +397,62 @@ export default function StudyPage() {
   const [flushedUserId, setFlushedUserId] = useState<string | null>(null);
   // 防止并发 flush（多次重试同时跑会重复提交同一批评测）
   const isFlushingRef = useRef(false);
+  const isRotatingSessionRef = useRef(false);
+  const performanceProbeRef = useRef({
+    longTaskDurationMs: 0,
+    eventObserverDurationMs: 0,
+  });
+
+  useEffect(() => {
+    const enabled = new URLSearchParams(window.location.search).get("cardProbe") === "1";
+    const enableTimer = window.setTimeout(() => setCardProbeEnabled(enabled), 0);
+    if (!enabled || typeof PerformanceObserver === "undefined") return;
+
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.entryType === "longtask") {
+          performanceProbeRef.current.longTaskDurationMs += entry.duration;
+        } else if (entry.entryType === "event") {
+          performanceProbeRef.current.eventObserverDurationMs = Math.max(
+            performanceProbeRef.current.eventObserverDurationMs,
+            entry.duration,
+          );
+        }
+      }
+      setCardMotionProbe((previous) =>
+        previous
+          ? {
+              ...previous,
+              longTaskDurationMs: performanceProbeRef.current.longTaskDurationMs,
+              eventObserverDurationMs:
+                performanceProbeRef.current.eventObserverDurationMs,
+            }
+          : previous,
+      );
+    });
+    try {
+      observer.observe({ type: "longtask", buffered: true });
+      observer.observe({
+        type: "event",
+        buffered: true,
+        durationThreshold: 16,
+      } as PerformanceObserverInit);
+    } catch {
+      observer.disconnect();
+    }
+    return () => {
+      window.clearTimeout(enableTimer);
+      observer.disconnect();
+    };
+  }, []);
+
+  const recordCardMotionProbe = useCallback((probe: WordCardMotionProbe) => {
+    setCardMotionProbe({
+      ...probe,
+      longTaskDurationMs: performanceProbeRef.current.longTaskDurationMs,
+      eventObserverDurationMs: performanceProbeRef.current.eventObserverDurationMs,
+    });
+  }, []);
 
   const refreshSyncCounts = useCallback(() => {
     if (!userId) return;
@@ -503,17 +566,20 @@ export default function StudyPage() {
   // 把本地缓冲的待提交评测尽量同步到服务端。
   // flushPendingReviews 成功提交一条即回传最新 streak / 成就，与即时提交一致。
   const flushPending = useCallback(async () => {
-    if (!userId || !studySession) return;
+    if (!userId) return;
     if (isFlushingRef.current) return;
     isFlushingRef.current = true;
     try {
-      attachStudySessionCredentials(
-        userId,
-        studySession.id,
-        studySession.nonces,
-      );
-      finalizeLegacyCredentialClaims(userId);
-      // 空队列时 flushPendingReviews 会立即返回 0（不发任何请求）。
+      if (studySession) {
+        attachStudySessionCredentials(
+          userId,
+          studySession.id,
+          studySession.nonces,
+        );
+        finalizeLegacyCredentialClaims(userId);
+      }
+      // Current queue may be empty; durable rows already carry their own
+      // credentials (or provenance for reauthorization), so they still flush.
       // 这里的 setState 都在 await 之后，避免在 effect 中同步调用 setState。
       const remaining = await flushPendingReviews(userId, (_id, data) => {
         if (data?.streak) setStreak(data.streak as StreakInfo);
@@ -551,8 +617,7 @@ export default function StudyPage() {
   useEffect(() => {
     if (
       status !== "authenticated" ||
-      flushedUserId !== userId ||
-      !studySession
+      flushedUserId !== userId
     ) return;
     const onOnline = () => void flushPending();
     const onVisible = () => {
@@ -569,22 +634,71 @@ export default function StudyPage() {
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
     };
-  }, [status, userId, flushedUserId, studySession, flushPending]);
+  }, [status, userId, flushedUserId, flushPending]);
 
-  // Refresh the server-issued nonce set before its 30-minute expiry. Reloading
-  // through the existing checkpoint-aware GET keeps the current queue/order and
-  // lets pending outbox rows bind to fresh credentials without a page reload.
+  const rotateStudySession = useCallback(async () => {
+    if (!userId || !studySession || isRotatingSessionRef.current) return;
+    isRotatingSessionRef.current = true;
+    try {
+      const checkpoint = loadCheckpoint(userId, getUnitKey());
+      const queueIds = checkpoint?.queueSignature ?? queue.map((item) => item.word.id);
+      if (!canResumeStudySession(queueIds)) {
+        setError("学习队列无法安全续期，请重新载入页面");
+        return;
+      }
+      const response = await fetch("/api/study/session/rotate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          previousSessionId: studySession.id,
+          queueIds,
+          rotationKey: `rotate-${studySession.id}`,
+        }),
+      });
+      if (!response.ok) {
+        setError(await responseErrorMessage(response));
+        return;
+      }
+      const payload = (await response.json()) as {
+        studySession?: StudySessionInfo | null;
+      };
+      const nextSession = payload.studySession;
+      if (!nextSession) {
+        setError("学习 session 续期失败，请重新载入页面");
+        return;
+      }
+      if (checkpoint) {
+        updateCheckpointStudySession(userId, getUnitKey(), nextSession.id);
+      }
+      rebindStudySessionCredentials(
+        userId,
+        studySession.id,
+        nextSession.id,
+        nextSession.nonces,
+      );
+      setStudySession(nextSession);
+    } catch (error) {
+      setError(networkErrorMessage(error));
+    } finally {
+      isRotatingSessionRef.current = false;
+    }
+  }, [userId, studySession, queue]);
+
+  // Rotate the server-issued nonce set while the old session is still live.
+  // The rotation endpoint preserves queue order and has response-loss idempotency.
   useEffect(() => {
     if (!studySession) return;
     const expiresAt = Date.parse(studySession.expiresAt);
     if (!Number.isFinite(expiresAt)) return;
-    const delay = Math.max(0, expiresAt - Date.now() - 60_000);
+    const delay = Math.max(0, expiresAt - Date.now() - 5 * 60_000);
     const timer = window.setTimeout(
-      () => setReloadKey((value) => value + 1),
+      () => {
+        void flushPending().then(() => rotateStudySession());
+      },
       Math.min(delay, 2_147_000_000),
     );
     return () => window.clearTimeout(timer);
-  }, [studySession]);
+  }, [studySession, flushPending, rotateStudySession]);
 
   /**
    * 尝试用本地存档点恢复进度。返回是否成功恢复。
@@ -1366,6 +1480,16 @@ export default function StudyPage() {
   return (
     <div className="flex min-h-full flex-col pb-8">
       <ResumeToast visible={showResumedBanner} />
+      {cardProbeEnabled && (
+        <pre
+          data-testid="study-card-probe"
+          className="mx-auto mb-3 w-full max-w-md overflow-auto rounded-xl bg-slate-950 p-3 text-[10px] text-emerald-300"
+        >
+          {cardMotionProbe
+            ? JSON.stringify(cardMotionProbe, null, 2)
+            : "card probe waiting for pointerup"}
+        </pre>
+      )}
       <AchievementToast
         items={newAchievements}
         onClose={() => setNewAchievements([])}
@@ -1448,6 +1572,7 @@ export default function StudyPage() {
             onSwipeLeft={handleSwipeLeft}
             onSwipeRight={handleSwipeRight}
             disabled={helpVisible}
+            onMotionProbe={cardProbeEnabled ? recordCardMotionProbe : undefined}
           />
         </motion.div>
       </div>

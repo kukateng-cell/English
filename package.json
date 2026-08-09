@@ -15,7 +15,8 @@
     "check:production-config": "node --import tsx scripts/check-production-config.ts",
     "lint": "eslint",
     "seed": "npx tsx prisma/seed.ts",
-    "db:deploy": "node scripts/migrate-deploy.mjs"
+    "db:deploy": "node scripts/migrate-deploy.mjs",
+    "db:contract": "node scripts/apply-ledger-contract.mjs"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

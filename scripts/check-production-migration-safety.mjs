@@ -18,10 +18,9 @@ try {
   const relations = await pool.query(`
     SELECT
       to_regclass('"Review"') IS NOT NULL AS "hasReview",
-      to_regclass('"ReviewEvent"') IS NOT NULL AS "hasReviewEvent",
-      to_regclass('"_prisma_migrations"') IS NOT NULL AS "hasMigrations"
+      to_regclass('"ReviewEvent"') IS NOT NULL AS "hasReviewEvent"
   `);
-  const { hasReview, hasReviewEvent, hasMigrations } = relations.rows[0];
+  const { hasReview, hasReviewEvent } = relations.rows[0];
   let estimatedRows = 0;
   if (hasReview && !hasReviewEvent) {
     const estimate = await pool.query(
@@ -42,34 +41,6 @@ try {
     throw new Error(
       `Estimated backfill exceeds ${threshold} rows; plan a batched rollout and set ALLOW_LARGE_REVIEW_BACKFILL=1 only after approval`,
     );
-  }
-
-  if (hasMigrations) {
-    const contract = await pool.query(`
-      SELECT
-        EXISTS (
-          SELECT 1 FROM "_prisma_migrations"
-          WHERE migration_name = '20260808010000_harden_review_event_ledger'
-            AND finished_at IS NOT NULL
-            AND rolled_back_at IS NULL
-        ) AS bridge_installed,
-        EXISTS (
-          SELECT 1 FROM "_prisma_migrations"
-          WHERE migration_name = '20260809019000_atomic_contract_legacy_review_bridge'
-            AND finished_at IS NOT NULL
-            AND rolled_back_at IS NULL
-        ) AS applied
-    `);
-    const state = contract.rows[0];
-    if (
-      state.bridge_installed &&
-      !state.applied &&
-      process.env.CONFIRM_LEDGER_BRIDGE_CONTRACT !== "REMOVE_LEGACY_BRIDGE"
-    ) {
-      throw new Error(
-        "Ledger bridge contract is pending on a database with the old-writer bridge; run the explicitly confirmed contract workflow before normal deployment",
-      );
-    }
   }
 } finally {
   await pool.end();

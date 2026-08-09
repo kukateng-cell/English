@@ -399,6 +399,36 @@ export function attachStudySessionCredentials(
   return pendingReviewCount(userId);
 }
 
+/** Rebind one pending operation per word when an atomic session rotation returns. */
+export function rebindStudySessionCredentials(
+  userId: string,
+  previousSessionId: string,
+  studySessionId: string,
+  nonces: Record<string, string>,
+): number {
+  const assignedWords = new Set<string>();
+  for (const item of loadPendingReviews(userId)) {
+    if (
+      item.status !== "pending" ||
+      item.studySessionId !== previousSessionId ||
+      !nonces[item.wordId] ||
+      assignedWords.has(item.wordId)
+    ) {
+      continue;
+    }
+    assignedWords.add(item.wordId);
+    writeReviewItem(userId, {
+      ...item,
+      studySessionId,
+      nonce: nonces[item.wordId],
+      credentialState: "valid",
+      lastError: undefined,
+      nextAttemptAt: undefined,
+    });
+  }
+  return pendingReviewCount(userId);
+}
+
 /** After the current server queue had one chance to adopt legacy rows, make
  * every remaining credential-less legacy operation visibly non-retryable. */
 export function finalizeLegacyCredentialClaims(userId: string): number {

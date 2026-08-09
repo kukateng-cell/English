@@ -128,6 +128,8 @@ model StudySession {
   id               String             @id @default(cuid())
   userId           String
   queueFingerprint String
+  // Deterministic client retry key for an atomic near-expiry rotation.
+  rotationKey      String?            @unique
   expiresAt        DateTime
   retiredAt        DateTime?
   createdAt        DateTime           @default(now())

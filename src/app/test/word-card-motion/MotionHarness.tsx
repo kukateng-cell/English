@@ -7,8 +7,10 @@ import WordCard, {
 
 export default function MotionHarness({
   timelineLeadEnabled,
+  immediateReleasePoseEnabled,
 }: {
   timelineLeadEnabled: boolean;
+  immediateReleasePoseEnabled: boolean;
 }) {
   const [callbackCount, setCallbackCount] = useState(0);
   const [callbackDirection, setCallbackDirection] = useState("none");
@@ -34,6 +36,7 @@ export default function MotionHarness({
         onSwipeRight={() => recordCallback("right")}
         onMotionProbe={setProbe}
         timelineLeadEnabled={timelineLeadEnabled}
+        immediateReleasePoseEnabled={immediateReleasePoseEnabled}
       />
     </main>
   );

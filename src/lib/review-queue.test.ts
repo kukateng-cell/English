@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   attachStudySessionCredentials,
+  rebindStudySessionCredentials,
   finalizeLegacyCredentialClaims,
   enqueuePendingReview,
   flushPendingReviews,
@@ -293,6 +294,25 @@ test("only one repeated legacy review can adopt a word nonce", () => {
   const rows = loadPendingReviews("user-a");
   assert.equal(rows.filter((row) => row.credentialState === "valid").length, 1);
   assert.equal(rows.filter((row) => row.status === "blocked").length, 1);
+});
+
+test("rotation rebinds one pending operation per word", () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-old",
+    nonce: "nonce-old",
+  });
+  enqueuePendingReview("user-a", "operation-a2", "word-1", 3, {
+    studySessionId: "session-old",
+    nonce: "nonce-old-2",
+  });
+  rebindStudySessionCredentials("user-a", "session-old", "session-new", {
+    "word-1": "nonce-new",
+  });
+  const rows = loadPendingReviews("user-a");
+  assert.equal(rows[0].studySessionId, "session-new");
+  assert.equal(rows[0].nonce, "nonce-new");
+  assert.equal(rows[1].studySessionId, "session-old");
 });
 
 for (const [status, error] of [

@@ -10,6 +10,9 @@ async function main() {
     issueStudySession,
     renewStudySessionCredentials,
     reuseStudySessionForResume,
+    cleanupExpiredStudySessions,
+    STUDY_SESSION_RETENTION_MS,
+    rotateStudySession,
   } = await import("../src/lib/study-session-server");
   const suffix = randomUUID();
   let userId: string | null = null;
@@ -210,6 +213,37 @@ async function main() {
       boundedSessionB.id,
       [{ operationId: renewalOperation, wordId: sessionWord.id }],
     );
+    const renewedReplay = await renewStudySessionCredentials(
+      user.id,
+      boundedSessionB.id,
+      [{ operationId: renewalOperation, wordId: sessionWord.id }],
+    );
+    if (
+      renewedReplay.id !== renewedSession.id ||
+      renewedReplay.items[0]?.nonce !== renewedSession.items[0]?.nonce
+    ) {
+      throw new Error("credential renewal replay did not return the original result");
+    }
+    const rotationSource = await issueStudySession(userId, [word.id, sessionWord.id]);
+    if (!rotationSource) throw new Error("expected rotation source session");
+    const rotatedSession = await rotateStudySession(
+      user.id,
+      rotationSource.id,
+      [word.id, sessionWord.id],
+      `rotation-${suffix}`,
+    );
+    const rotatedReplay = await rotateStudySession(
+      user.id,
+      rotationSource.id,
+      [word.id, sessionWord.id],
+      `rotation-${suffix}`,
+    );
+    if (
+      rotatedReplay.id !== rotatedSession.id ||
+      rotatedReplay.items[0]?.nonce !== rotatedSession.items[0]?.nonce
+    ) {
+      throw new Error("study session rotation replay did not return the original result");
+    }
     const renewedOldItem = await prisma.studySessionItem.findUniqueOrThrow({
       where: {
         sessionId_wordId: {
@@ -402,6 +436,27 @@ async function main() {
       preservedSecurityEvent.actorUserId !== userId
     ) {
       throw new Error("deleting an audit subject removed event provenance");
+    }
+    const retentionOld = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `retention-old-${suffix}`,
+        expiresAt: new Date(Date.now() - STUDY_SESSION_RETENTION_MS - 1_000),
+      },
+    });
+    const retentionRecent = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `retention-recent-${suffix}`,
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+    await cleanupExpiredStudySessions(new Date(), 100);
+    if (
+      (await prisma.studySession.findUnique({ where: { id: retentionOld.id } })) !== null ||
+      (await prisma.studySession.findUnique({ where: { id: retentionRecent.id } })) === null
+    ) {
+      throw new Error("study session retention window was not enforced");
     }
     console.log("Review ledger/idempotency/concurrency check passed");
   } finally {

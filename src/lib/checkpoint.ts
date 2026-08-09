@@ -202,6 +202,25 @@ export function saveCheckpoint(
   }
 }
 
+/** Update only the server provenance after an atomic session rotation. */
+export function updateCheckpointStudySession(
+  userId: string,
+  unitKey: string,
+  studySessionId: string,
+): boolean {
+  const checkpoint = loadCheckpoint(userId, unitKey);
+  if (!checkpoint) return false;
+  const data = { ...checkpoint } as Record<string, unknown>;
+  delete data.version;
+  delete data.ownerId;
+  delete data.ts;
+  return saveCheckpoint(
+    userId,
+    unitKey,
+    { ...data, studySessionId } as Omit<Checkpoint, "version" | "ts" | "ownerId">,
+  );
+}
+
 /** 清除某个上下文的存档点（完成 / 重新开始时调用）。 */
 export function clearCheckpoint(userId: string, unitKey: string): void {
   if (typeof window === "undefined") return;

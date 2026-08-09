@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
-import { ROLES, DEFAULT_ROLE, isRole, type Role } from "@/lib/roles";
+import { ROLES, isRole, type Role } from "@/lib/roles";
 import { passwordPolicyError } from "@/lib/password-policy";
 import { getClientIp } from "@/lib/login-limiter";
 import {
@@ -65,7 +65,10 @@ export async function POST(req: Request) {
     const email = String(body.email ?? "").toLowerCase().trim();
     const password = String(body.password ?? "");
     const name = body.name ? String(body.name).trim() : null;
-    const role: Role = isRole(body.role) ? body.role : DEFAULT_ROLE;
+    if (!isRole(body.role)) {
+      return NextResponse.json({ error: "角色无效" }, { status: 400 });
+    }
+    const role: Role = body.role;
 
     if (!email) return NextResponse.json({ error: "账号不能为空" }, { status: 400 });
     const policyError = passwordPolicyError(password);
@@ -80,7 +83,13 @@ export async function POST(req: Request) {
     // data 类型由 Prisma.UserCreateInput 自动校验；回传值由 select 自动推断。
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
-        data: { email, passwordHash, name, role },
+        data: {
+          email,
+          passwordHash,
+          name,
+          role,
+          mustChangePassword: role === ROLES.STUDENT,
+        },
         select: USER_SELECT,
       });
       await tx.securityEvent.create({

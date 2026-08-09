@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadCheckpoint, saveCheckpoint } from "./checkpoint";
+import {
+  loadCheckpoint,
+  saveCheckpoint,
+  updateCheckpointStudySession,
+} from "./checkpoint";
 
 test("checkpoint is user scoped and retains an unfinished quiz", () => {
   const data = new Map<string, string>();
@@ -92,4 +96,37 @@ test("malformed current-version checkpoints are rejected without throwing", () =
     data.set(key, JSON.stringify(inconsistent));
     assert.equal(loadCheckpoint("user-a", "global"), null);
   }
+});
+
+test("checkpoint provenance can rotate without changing learning progress", () => {
+  const data = new Map<string, string>();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => data.get(key) ?? null,
+        setItem: (key: string, value: string) => data.set(key, value),
+        removeItem: (key: string) => data.delete(key),
+      },
+    },
+  });
+  saveCheckpoint("user-a", "global", {
+    phase: "assess",
+    unitKey: "global",
+    queueSignature: ["word-1"],
+    studySessionId: "session-old",
+    currentIndex: 0,
+    knownWordIds: [],
+    unknownWordIds: [],
+    quizStats: { correct: 0, wrong: 0 },
+    quizTargetId: null,
+    quizWrongCount: 0,
+    pendingQuizIds: [],
+  });
+  assert.equal(
+    updateCheckpointStudySession("user-a", "global", "session-new"),
+    true,
+  );
+  assert.equal(loadCheckpoint("user-a", "global")?.studySessionId, "session-new");
+  assert.equal(loadCheckpoint("user-a", "global")?.currentIndex, 0);
 });

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import dotenv from "dotenv";
 import pg from "pg";
 
@@ -30,18 +31,21 @@ try {
          FROM ${quoteIdentifier(schema)}."_prisma_migrations"
         WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
     );
+    const migrationRoots = ["prisma/migrations", "prisma/contract-migrations"];
     const local = new Map(
-      readdirSync("prisma/migrations", { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => {
-          const sql = readFileSync(
-            `prisma/migrations/${entry.name}/migration.sql`,
-          );
-          return [
-            entry.name,
-            createHash("sha256").update(sql).digest("hex"),
-          ];
-        }),
+      migrationRoots.flatMap((root) =>
+        readdirSync(root, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => {
+            const sql = readFileSync(
+              path.join(root, entry.name, "migration.sql"),
+            );
+            return [
+              entry.name,
+              createHash("sha256").update(sql).digest("hex"),
+            ];
+          }),
+      ),
     );
     const mismatches = applied.rows.flatMap((row) => {
       const checksum = local.get(row.migration_name);

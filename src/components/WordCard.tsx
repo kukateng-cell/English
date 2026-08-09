@@ -35,8 +35,29 @@ export interface WordCardMotionProbe {
   timelineLeadMs: number;
   releasePosition: number;
   releaseVelocity: number;
+  releasePreviewApplied: boolean;
+  releasePreviewAt: number | null;
+  releasePreviewPosition: number | null;
+  releasePreviewVelocity: number | null;
   firstFramePosition: number;
   firstFrameVelocity: number;
+  frameCount: number;
+  pointerupStartedAt: number | null;
+  pointerupEndedAt: number | null;
+  lastDragRafAt: number | null;
+  firstReleaseRafAt: number | null;
+  secondReleaseRafAt: number | null;
+  thirdReleaseRafAt: number | null;
+  lastDragPosition: number;
+  secondFramePosition: number | null;
+  thirdFramePosition: number | null;
+  secondFrameVelocity: number | null;
+  thirdFrameVelocity: number | null;
+  firstReleaseRafDelayMs: number | null;
+  eventProcessingDurationMs: number | null;
+  frameGapMs: number | null;
+  longTaskDurationMs?: number;
+  eventObserverDurationMs?: number;
 }
 
 interface WordCardProps {
@@ -49,6 +70,8 @@ interface WordCardProps {
   onMotionProbe?: (probe: WordCardMotionProbe) => void;
   /** A/B switch used only by the isolated motion harness. */
   timelineLeadEnabled?: boolean;
+  /** Write the first absolute-time release pose in the pointerup task. */
+  immediateReleasePoseEnabled?: boolean;
 }
 
 const SWIPE_LABEL_THRESHOLD = 76;
@@ -93,6 +116,17 @@ interface MotionState {
   direction: SwipeDirection | null;
   onComplete: (() => void) | null;
   probeEmitted: boolean;
+  releaseFrameCount: number;
+  releaseFrameTimes: number[];
+  releaseFramePositions: number[];
+  releaseFrameVelocities: number[];
+  lastDragRafAt: number | null;
+  pointerupStartedAt: number | null;
+  pointerupEndedAt: number | null;
+  releasePreviewAt: number | null;
+  releasePreviewPosition: number | null;
+  releasePreviewVelocity: number | null;
+  releasePreviewApplied: boolean;
 }
 
 function pointerTypeOf(pointerType: string): SwipePointerType {
@@ -190,6 +224,7 @@ export default function WordCard({
   disabled,
   onMotionProbe,
   timelineLeadEnabled = true,
+  immediateReleasePoseEnabled = true,
 }: WordCardProps) {
   const { tc } = useLocale();
   const dragLayerRef = useRef<HTMLDivElement>(null);
@@ -220,6 +255,17 @@ export default function WordCard({
     direction: null,
     onComplete: null,
     probeEmitted: false,
+    releaseFrameCount: 0,
+    releaseFrameTimes: [],
+    releaseFramePositions: [],
+    releaseFrameVelocities: [],
+    lastDragRafAt: null,
+    pointerupStartedAt: null,
+    pointerupEndedAt: null,
+    releasePreviewAt: null,
+    releasePreviewPosition: null,
+    releasePreviewVelocity: null,
+    releasePreviewApplied: false,
   });
   const reducedMotionRef = useRef(false);
   const mountedRef = useRef(true);
@@ -230,6 +276,7 @@ export default function WordCard({
     onSwipeRight,
     onMotionProbe,
     timelineLeadEnabled,
+    immediateReleasePoseEnabled,
   });
 
   useEffect(() => {
@@ -239,6 +286,7 @@ export default function WordCard({
       onSwipeRight,
       onMotionProbe,
       timelineLeadEnabled,
+      immediateReleasePoseEnabled,
     };
   }, [
     disabled,
@@ -246,6 +294,7 @@ export default function WordCard({
     onSwipeRight,
     onMotionProbe,
     timelineLeadEnabled,
+    immediateReleasePoseEnabled,
   ]);
 
   const writeCurrentDragFrame = useCallback((position: number) => {
@@ -347,6 +396,7 @@ export default function WordCard({
         motion.velocity = next.velocity;
         motion.lastTime = next.lastTime;
         motion.stationarySeconds = next.stationarySeconds;
+        motion.lastDragRafAt = now;
         writeCurrentDragFrame(next.position);
         scheduleMotionFrame();
         return;
@@ -355,25 +405,65 @@ export default function WordCard({
       if (motion.mode !== "dismiss" && motion.mode !== "return") return;
       if (motion.releaseStartedAt === null) return;
 
+      const emitProbe = (
+        wallElapsedMs: number,
+        refreshIntervalMs: number,
+        timelineLeadMs: number,
+        reducedMotion: boolean,
+      ) => {
+        motion.releaseFrameCount += 1;
+        motion.releaseFrameTimes.push(now);
+        motion.releaseFramePositions.push(motion.position);
+        motion.releaseFrameVelocities.push(motion.velocity);
+        const firstReleaseRafAt = motion.releaseFrameTimes[0] ?? null;
+        const firstReleaseRafDelayMs =
+          firstReleaseRafAt !== null && motion.pointerupEndedAt !== null
+            ? Math.max(firstReleaseRafAt - motion.pointerupEndedAt, 0)
+            : null;
+        interactionPropsRef.current.onMotionProbe?.({
+          mode: motion.mode === "dismiss" ? "dismiss" : "return",
+          reducedMotion,
+          wallElapsedMs,
+          estimatedRefreshIntervalMs: refreshIntervalMs,
+          timelineLeadMs,
+          releasePosition: motion.releaseStartPosition,
+          releaseVelocity: motion.releaseStartVelocity,
+          releasePreviewApplied: motion.releasePreviewApplied,
+          releasePreviewAt: motion.releasePreviewAt,
+          releasePreviewPosition: motion.releasePreviewPosition,
+          releasePreviewVelocity: motion.releasePreviewVelocity,
+          firstFramePosition: motion.releaseFramePositions[0] ?? motion.position,
+          firstFrameVelocity: motion.releaseFrameVelocities[0] ?? motion.velocity,
+          frameCount: motion.releaseFrameCount,
+          pointerupStartedAt: motion.pointerupStartedAt,
+          pointerupEndedAt: motion.pointerupEndedAt,
+          lastDragRafAt: motion.lastDragRafAt,
+          firstReleaseRafAt,
+          secondReleaseRafAt: motion.releaseFrameTimes[1] ?? null,
+          thirdReleaseRafAt: motion.releaseFrameTimes[2] ?? null,
+          lastDragPosition: motion.releaseStartPosition,
+          secondFramePosition: motion.releaseFramePositions[1] ?? null,
+          thirdFramePosition: motion.releaseFramePositions[2] ?? null,
+          secondFrameVelocity: motion.releaseFrameVelocities[1] ?? null,
+          thirdFrameVelocity: motion.releaseFrameVelocities[2] ?? null,
+          firstReleaseRafDelayMs,
+          eventProcessingDurationMs:
+            motion.pointerupStartedAt !== null && motion.pointerupEndedAt !== null
+              ? Math.max(motion.pointerupEndedAt - motion.pointerupStartedAt, 0)
+              : null,
+          frameGapMs: firstReleaseRafDelayMs,
+        });
+      };
+
       if (reducedMotionRef.current) {
         motion.position = motion.mode === "dismiss" ? motion.target : 0;
         motion.velocity = 0;
-        if (!motion.probeEmitted) {
-          motion.probeEmitted = true;
-          interactionPropsRef.current.onMotionProbe?.({
-            mode: motion.mode,
-            reducedMotion: true,
-            wallElapsedMs: Math.max(now - motion.releaseStartedAt, 0),
-            estimatedRefreshIntervalMs: estimateFrameInterval(
-              recentFrameIntervalsRef.current,
-            ),
-            timelineLeadMs: 0,
-            releasePosition: motion.releaseStartPosition,
-            releaseVelocity: motion.releaseStartVelocity,
-            firstFramePosition: motion.position,
-            firstFrameVelocity: 0,
-          });
-        }
+        emitProbe(
+          Math.max(now - motion.releaseStartedAt, 0),
+          estimateFrameInterval(recentFrameIntervalsRef.current),
+          0,
+          true,
+        );
         writeCurrentDragFrame(motion.position);
         completeReleaseMotion();
         return;
@@ -405,23 +495,15 @@ export default function WordCard({
               motion.releaseStartVelocity,
               elapsedSeconds,
             );
-      if (!motion.probeEmitted) {
-        motion.probeEmitted = true;
-        interactionPropsRef.current.onMotionProbe?.({
-          mode: motion.mode,
-          reducedMotion: false,
-          wallElapsedMs,
-          estimatedRefreshIntervalMs: refreshIntervalMs,
-          timelineLeadMs: motion.releaseTimelineLeadMs,
-          releasePosition: motion.releaseStartPosition,
-          releaseVelocity: motion.releaseStartVelocity,
-          firstFramePosition: next.position,
-          firstFrameVelocity: next.velocity,
-        });
-      }
       motion.position = next.position;
       motion.velocity = next.velocity;
       motion.lastTime = now;
+      emitProbe(
+        wallElapsedMs,
+        refreshIntervalMs,
+        motion.releaseTimelineLeadMs ?? 0,
+        false,
+      );
       writeCurrentDragFrame(next.position);
 
       const complete =
@@ -471,9 +553,47 @@ export default function WordCard({
       motion.onComplete = onComplete;
       motion.stationarySeconds = 0;
       motion.probeEmitted = false;
+      motion.releaseFrameCount = 0;
+      motion.releaseFrameTimes = [];
+      motion.releaseFramePositions = [];
+      motion.releaseFrameVelocities = [];
+      motion.releasePreviewAt = null;
+      motion.releasePreviewPosition = null;
+      motion.releasePreviewVelocity = null;
+      motion.releasePreviewApplied = false;
+      if (
+        interactionPropsRef.current.immediateReleasePoseEnabled &&
+        !reducedMotionRef.current
+      ) {
+        const refreshIntervalMs = estimateFrameInterval(
+          recentFrameIntervalsRef.current,
+        );
+        const preview =
+          mode === "dismiss"
+            ? sampleDismissTrajectory(
+                releasePosition,
+                releaseVelocity,
+                target,
+                refreshIntervalMs / 1_000,
+                duration,
+              )
+            : sampleReturnTrajectory(
+                releasePosition,
+                releaseVelocity,
+                refreshIntervalMs / 1_000,
+              );
+        motion.position = preview.position;
+        motion.velocity = preview.velocity;
+        motion.releaseTimelineLeadMs = 0;
+        motion.releasePreviewAt = performance.now();
+        motion.releasePreviewPosition = preview.position;
+        motion.releasePreviewVelocity = preview.velocity;
+        motion.releasePreviewApplied = true;
+        writeCurrentDragFrame(preview.position);
+      }
       scheduleMotionFrame();
     },
-    [scheduleMotionFrame],
+    [scheduleMotionFrame, writeCurrentDragFrame],
   );
 
   const returnToCentre = useCallback(
@@ -647,6 +767,12 @@ export default function WordCard({
       motion.direction = null;
       motion.onComplete = null;
       motion.probeEmitted = false;
+      motion.pointerupStartedAt = null;
+      motion.pointerupEndedAt = null;
+      motion.releasePreviewAt = null;
+      motion.releasePreviewPosition = null;
+      motion.releasePreviewVelocity = null;
+      motion.releasePreviewApplied = false;
       const samples: SwipePointerSample[] = [];
       const receivedAt = performance.now();
       recordPointerSample(
@@ -697,6 +823,7 @@ export default function WordCard({
       const drag = activeDragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
       const motion = motionStateRef.current;
+      motion.pointerupStartedAt = performance.now();
       const releaseTime = performance.now();
       const releaseSampleTime = releaseTime;
       if (!cancelled) {
@@ -734,6 +861,7 @@ export default function WordCard({
       }
       if (cancelled) {
         returnToCentre();
+        motion.pointerupEndedAt = performance.now();
         return;
       }
 
@@ -746,6 +874,7 @@ export default function WordCard({
       );
       if (!decision.dismiss) {
         returnToCentre();
+        motion.pointerupEndedAt = performance.now();
         return;
       }
       const callback =
@@ -753,6 +882,7 @@ export default function WordCard({
           ? interactionPropsRef.current.onSwipeLeft
           : interactionPropsRef.current.onSwipeRight;
       startFlight(decision.direction, velocityX, callback, drag.geometry);
+      motion.pointerupEndedAt = performance.now();
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -813,6 +943,17 @@ export default function WordCard({
       motionState.direction = null;
       motionState.onComplete = null;
       motionState.probeEmitted = false;
+      motionState.releaseFrameCount = 0;
+      motionState.releaseFrameTimes = [];
+      motionState.releaseFramePositions = [];
+      motionState.releaseFrameVelocities = [];
+      motionState.lastDragRafAt = null;
+      motionState.pointerupStartedAt = null;
+      motionState.pointerupEndedAt = null;
+      motionState.releasePreviewAt = null;
+      motionState.releasePreviewPosition = null;
+      motionState.releasePreviewVelocity = null;
+      motionState.releasePreviewApplied = false;
       activeCaptureGenerationRef.current = null;
       activeDragRef.current = null;
       resizeObserver?.disconnect();

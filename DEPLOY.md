@@ -123,7 +123,8 @@ npx prisma migrate deploy
 npm run db:deploy
 ```
 
-这会用 `MIGRATE_URL`（Session pooler，5432）连 Supabase，按顺序执行 `prisma/migrations/` 里的全部迁移。
+这会用 `MIGRATE_URL`（Session pooler，5432）连 Supabase，按顺序执行
+`prisma/migrations/` 里的 expand migrations；legacy ledger contract 是之后独立运行的发布步骤。
 完成后去 Supabase → **Table Editor** 应该能看到 `User` / `Word` / `Review` / `ReviewEvent` 等表，以及 `Level` / `Role` 两个 enum。
 
 > ⚠️ **不要用 `npx prisma db push` 建表**。`db push` 只改表结构、不写迁移历史，会让 `_prisma_migrations` 与真实库结构脱节（本项目早期就是因此出现过 migration 重复 / `migrate status` 不一致等问题）。新环境一律用 `migrate deploy`，保证迁移历史可由空库重放。
@@ -227,9 +228,11 @@ Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 
 首次大型 ledger backfill 前，workflow 会输出预计 event rows 与 database size；超过
 100,000 rows 默认中止，必须先制定分批／监控／回滚方案。旧 writer 全部离线至少
 30 分钟后，手动运行 **Contract legacy review ledger bridge** workflow，并输入
-`REMOVE_LEGACY_BRIDGE`。workflow 会套用正式 Prisma contract migration；migration
+`REMOVE_LEGACY_BRIDGE`。这个 workflow 与 application expand release 分开，
+会套用 `prisma/contract-migrations/` 中的正式 Prisma contract migrations；migration
 若发现最近 30 分钟仍有 `LEGACY_BRIDGE` event 会直接拒绝，成功后 trigger/function
-的移除亦会完整记录在 `_prisma_migrations`。
+的移除亦会完整记录在 `_prisma_migrations`。普通 `npm run db:deploy` 永远不会提前
+移除旧 writer bridge。
 
 ### 4.2 修正 NEXTAUTH_URL（重要）
 
