@@ -37,6 +37,8 @@ export interface Checkpoint {
    * 视为过期，直接丢弃存档从头开始。
    */
   queueSignature: string[];
+  /** Server provenance for resumeIds; raw word IDs are never accepted alone. */
+  studySessionId: string;
 
   /**
    * 下一个要学习的词下标。恢复时始终从该词的「认字评估」步开始，
@@ -60,7 +62,7 @@ export interface Checkpoint {
   pendingQuizIds: string[];
 }
 
-const VERSION = 4;
+const VERSION = 5;
 const PREFIX = "study:checkpoint:";
 
 function keyFor(userId: string, unitKey: string): string {
@@ -101,6 +103,8 @@ function isCheckpoint(
     !Number.isInteger(data.currentIndex) ||
     (data.currentIndex as number) < 0 ||
     !isWordIdArray(data.queueSignature) ||
+    typeof data.studySessionId !== "string" ||
+    !/^[A-Za-z0-9_-]{8,128}$/.test(data.studySessionId) ||
     new Set(data.queueSignature).size !== data.queueSignature.length ||
     (data.currentIndex as number) > data.queueSignature.length ||
     !isWordIdArray(data.knownWordIds) ||

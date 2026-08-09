@@ -18,14 +18,22 @@ import {
   checkAchievements,
 } from "@/lib/achievements";
 import { checkStudyQueueRate, checkStudyRate } from "@/lib/study-limiter";
-import { MAX_STUDY_SESSION_WORDS } from "@/lib/study-session";
+import {
+  canReuseResumeSession,
+  MAX_STUDY_SESSION_WORDS,
+} from "@/lib/study-session";
 import {
   issueStudySession,
+  reuseStudySessionForResume,
   serializeStudySession,
 } from "@/lib/study-session-server";
 import { getClientIp } from "@/lib/login-limiter";
 import { legacyOperationIdCompatibilityEndsAt } from "@/lib/production-config";
 import { fetchUnitProgress } from "@/lib/unit-progress-server";
+import {
+  isRetryableTransactionConflict,
+  waitForTransactionRetry,
+} from "@/lib/transaction-retry";
 
 /**
  * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
@@ -122,18 +130,41 @@ export async function GET(req: Request) {
   // 单元列表把数据库 NULL category 显示为「未分类」；查询时必须映射回 NULL。
   const unitCategoryValue = unitCategoryToStorage(category);
   const resumeRaw = url.searchParams.get("resumeIds");
+  const resumeSessionIdRaw = url.searchParams.get("resumeSessionId");
   let resumeIds: string[] | null = null;
-  if (resumeRaw !== null) {
-    const parsed = resumeRaw.split(",").filter(Boolean);
+  let resumeSourceSessionId: string | null = null;
+  if (resumeRaw !== null || resumeSessionIdRaw !== null) {
+    const parsed = resumeRaw?.split(",").filter(Boolean) ?? [];
     if (
+      resumeRaw === null ||
+      resumeSessionIdRaw === null ||
+      !/^[A-Za-z0-9_-]{8,128}$/.test(resumeSessionIdRaw) ||
       parsed.length === 0 ||
       parsed.length > MAX_STUDY_SESSION_WORDS ||
       new Set(parsed).size !== parsed.length ||
       parsed.some((id) => id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id))
     ) {
-      return NextResponse.json({ error: "resumeIds 无效" }, { status: 400 });
+      return NextResponse.json({ error: "恢复凭证无效" }, { status: 400 });
     }
-    resumeIds = parsed;
+    const previousSession = await prisma.studySession.findFirst({
+      where: { id: resumeSessionIdRaw, userId },
+      select: {
+        expiresAt: true,
+        retiredAt: true,
+        items: {
+          select: {
+            wordId: true,
+            usedAt: true,
+            renewedAt: true,
+            operationId: true,
+          },
+        },
+      },
+    });
+    if (canReuseResumeSession(previousSession, parsed)) {
+      resumeIds = parsed;
+      resumeSourceSessionId = resumeSessionIdRaw;
+    }
   }
 
   // 计算解锁状态：单元模式用于拦截被锁单元；全局模式用于过滤新词来源。
@@ -377,9 +408,22 @@ export async function GET(req: Request) {
   // 连续学习天数：随队列一起返回，前端用于展示 🔥 打卡徽章。
   const streak = await computeStreak(userId);
 
-  // 空队列不建立数据库 rows；相同且未使用的队列复用 session。建立新 session
-  // 时会在 Serializable transaction 内把每位用户的有效 session 硬限制为 2 个。
-  const studySession = await issueStudySession(userId, queueWordIds);
+  // Resume may only reuse the exact locked source; it must never mint a fresh
+  // unbound session after a concurrent submission consumed that source.
+  const studySession =
+    resumedSession && resumeSourceSessionId
+      ? await reuseStudySessionForResume(
+          userId,
+          resumeSourceSessionId,
+          queueWordIds,
+        )
+      : await issueStudySession(userId, queueWordIds);
+  if (resumedSession && !studySession) {
+    return NextResponse.json(
+      { error: "恢复 session 已改变，请重新载入学习队列" },
+      { status: 409 },
+    );
+  }
 
   return NextResponse.json({
     queue,
@@ -694,13 +738,21 @@ export async function applyReviewEvent(input: {
                   wordId: input.wordId,
                 },
               },
-              include: { session: { select: { userId: true, expiresAt: true } } },
+              include: {
+                session: {
+                  select: { userId: true, expiresAt: true, retiredAt: true },
+                },
+              },
             });
             if (
               !sessionItem ||
               sessionItem.session.userId !== input.userId ||
               sessionItem.nonce !== input.nonce ||
-              sessionItem.session.expiresAt <= new Date()
+              sessionItem.session.expiresAt <= new Date() ||
+              sessionItem.session.retiredAt !== null ||
+              sessionItem.renewedAt !== null ||
+              (sessionItem.operationId !== null &&
+                sessionItem.operationId !== input.operationId)
             ) {
               throw new StudyRequestError(403, "学习 session 无效或已过期");
             }
@@ -781,9 +833,11 @@ export async function applyReviewEvent(input: {
       );
     } catch (error) {
       const retryable =
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === "P2034" || error.code === "P2002");
+        isRetryableTransactionConflict(error) ||
+        (error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002");
       if (!retryable || attempt === MAX_TRANSACTION_ATTEMPTS) throw error;
+      await waitForTransactionRetry(attempt - 1);
     }
   }
   throw new Error("Review transaction retry exhausted");

@@ -27,7 +27,8 @@ model User {
   reviews            Review[]
   reviewEvents       ReviewEvent[]
   studySessions      StudySession[]
-  securityEvents     SecurityEvent[]
+  securityEventsAsActor   SecurityEvent[] @relation("SecurityEventActor")
+  securityEventsAsSubject SecurityEvent[] @relation("SecurityEventSubject")
   studyDays          StudyDay[]
   achievements       UserAchievement[]
 }
@@ -113,6 +114,12 @@ enum ReviewEventKind {
 
 enum SecurityEventType {
   PASSWORD_CHANGED
+  PASSWORD_RESET_BY_ADMIN
+  ROLE_CHANGED
+  USER_DELETED
+  USER_CREATED
+  SESSIONS_REVOKED
+  LAST_ADMIN_PROTECTION_TRIGGERED
 }
 
 // Server-issued study session. A client can only submit a scored answer for a
@@ -122,12 +129,14 @@ model StudySession {
   userId           String
   queueFingerprint String
   expiresAt        DateTime
+  retiredAt        DateTime?
   createdAt        DateTime           @default(now())
   user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   items            StudySessionItem[]
 
   @@index([userId, expiresAt])
   @@index([userId, queueFingerprint, expiresAt])
+  @@index([userId, retiredAt, expiresAt])
   @@index([expiresAt])
 }
 
@@ -137,6 +146,8 @@ model StudySessionItem {
   wordId    String
   nonce     String       @unique
   usedAt    DateTime?
+  renewedAt DateTime?
+  operationId String?
   session   StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   word      Word         @relation(fields: [wordId], references: [id], onDelete: Cascade)
 
@@ -145,15 +156,28 @@ model StudySessionItem {
 }
 
 model SecurityEvent {
-  id        String            @id @default(cuid())
-  userId    String
-  eventType SecurityEventType
-  ipHash    String?
-  createdAt DateTime          @default(now())
-  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String            @id @default(cuid())
+  actorUserId        String?
+  subjectUserId      String?
+  subjectAccountHash String
+  eventType          SecurityEventType
+  ipHash             String?
+  metadata           Json?
+  createdAt          DateTime          @default(now())
+  actor              User?             @relation("SecurityEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  subject            User?             @relation("SecurityEventSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
 
-  @@index([userId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([subjectUserId, createdAt])
   @@index([eventType, createdAt])
+}
+
+// Database-owned environment marker. Seed refuses to write until the caller's
+// declared environment matches this persisted value.
+model DatabaseMetadata {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 // ── 学习打卡（每日一条） ──

@@ -6,7 +6,11 @@ dotenv.config({ path: ".env.local" });
 async function main() {
   const { prisma } = await import("../src/lib/prisma");
   const { applyReviewEvent } = await import("../src/app/api/study/route");
-  const { issueStudySession } = await import("../src/lib/study-session-server");
+  const {
+    issueStudySession,
+    renewStudySessionCredentials,
+    reuseStudySessionForResume,
+  } = await import("../src/lib/study-session-server");
   const suffix = randomUUID();
   let userId: string | null = null;
   let wordId: string | null = null;
@@ -146,19 +150,138 @@ async function main() {
     const emptySession = await issueStudySession(userId, []);
     const boundedSessionA = await issueStudySession(userId, [wordId]);
     const reusedSessionA = await issueStudySession(userId, [wordId]);
+    const resumedSessionA = await reuseStudySessionForResume(
+      user.id,
+      boundedSessionA!.id,
+      [word.id],
+    );
+    if (resumedSessionA?.id !== boundedSessionA?.id) {
+      throw new Error("resume did not reuse the exact source session");
+    }
+    const partialSession = await issueStudySession(userId, [
+      word.id,
+      sessionWord.id,
+    ]);
+    if (!partialSession) throw new Error("expected partial progress session");
+    const partialConsumed = partialSession.items.find(
+      (item) => item.wordId === word.id,
+    );
+    if (!partialConsumed) throw new Error("partial session nonce missing");
+    await prisma.studySessionItem.update({
+      where: {
+        sessionId_wordId: {
+          sessionId: partialSession.id,
+          wordId: word.id,
+        },
+      },
+      data: { usedAt: new Date() },
+    });
+    const resumedPartial = await reuseStudySessionForResume(
+      user.id,
+      partialSession.id,
+      [word.id, sessionWord.id],
+    );
+    if (resumedPartial?.id !== partialSession.id) {
+      throw new Error("partial progress checkpoint could not reuse its source");
+    }
+    const concurrentSessions = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        issueStudySession(user.id, [word.id, sessionWord.id]),
+      ),
+    );
+    const concurrentSessionIds = new Set(
+      concurrentSessions.map((session) => session?.id),
+    );
+    if (
+      concurrentSessionIds.has(undefined) ||
+      concurrentSessionIds.size !== 1
+    ) {
+      throw new Error(
+        `concurrent session issuance did not converge: ${[
+          ...concurrentSessionIds,
+        ].join(",")}`,
+      );
+    }
     const boundedSessionB = await issueStudySession(userId, [sessionWordId]);
+    if (!boundedSessionB) throw new Error("expected a renewable study session");
+    const renewalOperation = `renewal_${randomUUID()}`;
+    const renewedSession = await renewStudySessionCredentials(
+      user.id,
+      boundedSessionB.id,
+      [{ operationId: renewalOperation, wordId: sessionWord.id }],
+    );
+    const renewedOldItem = await prisma.studySessionItem.findUniqueOrThrow({
+      where: {
+        sessionId_wordId: {
+          sessionId: boundedSessionB.id,
+          wordId: sessionWord.id,
+        },
+      },
+    });
+    if (!renewedOldItem.renewedAt) {
+      throw new Error("credential renewal did not retain and mark its provenance");
+    }
+    await assertRejectsConflict(() =>
+      renewStudySessionCredentials(user.id, boundedSessionB.id, [
+        { operationId: `renewal-replay_${randomUUID()}`, wordId: sessionWord.id },
+      ]),
+    );
+    const renewedNonce = renewedSession.items[0]?.nonce;
+    if (!renewedNonce) throw new Error("renewal did not issue a nonce");
+    const strippedBinding = await reuseStudySessionForResume(
+      user.id,
+      renewedSession.id,
+      [sessionWord.id],
+    );
+    if (strippedBinding !== null) {
+      throw new Error("resume stripped an operation-bound credential");
+    }
+    await assertRejectsStatus(() =>
+      applyReviewEvent({
+        userId: user.id,
+        wordId: sessionWord.id,
+        quality: 5,
+        operationId: `wrong-operation_${randomUUID()}`,
+        studySessionId: renewedSession.id,
+        nonce: renewedNonce,
+      }),
+      403,
+    );
+    await applyReviewEvent({
+      userId: user.id,
+      wordId: sessionWord.id,
+      quality: 5,
+      operationId: renewalOperation,
+      studySessionId: renewedSession.id,
+      nonce: renewedNonce,
+    });
+
+    for (let index = 0; index < 7; index++) {
+      await prisma.studySession.create({
+        data: {
+          userId,
+          queueFingerprint: `cap-${suffix}-${index}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+    }
+    await issueStudySession(userId, [wordId, sessionWordId]);
     const activeSessionCount = await prisma.studySession.count({
-      where: { userId, expiresAt: { gt: new Date() } },
+      where: { userId, expiresAt: { gt: new Date() }, retiredAt: null },
+    });
+    const retainedRetiredSessionCount = await prisma.studySession.count({
+      where: { userId, retiredAt: { not: null } },
     });
     if (
       emptySession !== null ||
       !boundedSessionA ||
       boundedSessionA.id !== reusedSessionA?.id ||
       !boundedSessionB ||
-      activeSessionCount > 2
+      activeSessionCount > 6 ||
+      retainedRetiredSessionCount === 0
     ) {
       throw new Error(
-        `study session reuse/cap failed: active=${activeSessionCount}`,
+        `study session reuse/retirement failed: active=${activeSessionCount}, retired=${retainedRetiredSessionCount}`,
       );
     }
 
@@ -212,41 +335,12 @@ async function main() {
       );
     }
 
-    // Simulate an old application instance during an expand/contract rollout:
-    // it only updates Review, so the database bridge must append one ledger row.
-    await prisma.review.update({
-      where: { userId_wordId: { userId, wordId } },
-      data: {
-        totalReviews: { increment: 1 },
-        lastReviewedAt: new Date(),
-      },
-    });
-    const bridgedEvents = await prisma.reviewEvent.count({
-      where: { userId, operationId: { startsWith: "cutover:" } },
-    });
-    if (bridgedEvents !== 1) {
-      throw new Error("legacy rollout bridge did not capture the Review update");
-    }
-    const bridgeRetry = await applyReviewEvent({
-      userId,
-      wordId,
-      quality: 5,
-      operationId: `legacy-v1:${randomUUID()}`,
-      legacyReplayAfter: new Date(Date.now() - 10 * 60_000),
-    });
-    const afterBridgeRetry = await prisma.review.findUniqueOrThrow({
-      where: { userId_wordId: { userId, wordId } },
-    });
-    if (!bridgeRetry.duplicate || afterBridgeRetry.totalReviews !== 5) {
-      throw new Error("old-writer response-loss retry advanced Review twice");
-    }
-
     await prisma.word.delete({ where: { id: wordId } });
     wordId = null;
     const preservedEvents = await prisma.reviewEvent.count({
       where: { userId, wordId: null },
     });
-    if (preservedEvents !== 5) {
+    if (preservedEvents !== 4) {
       throw new Error("deleting a word removed immutable review history");
     }
     const replayAfterDeletion = await applyReviewEvent({
@@ -283,6 +377,32 @@ async function main() {
     if (!replayUnknownTombstone.duplicate) {
       throw new Error("upgraded tombstone retry was not accepted as duplicate");
     }
+
+    const auditSubject = await prisma.user.create({
+      data: {
+        email: `codex-audit-subject-${suffix}`,
+        passwordHash: "not-a-login-account",
+        mustChangePassword: false,
+      },
+    });
+    const securityEvent = await prisma.securityEvent.create({
+      data: {
+        actor: { connect: { id: userId } },
+        subject: { connect: { id: auditSubject.id } },
+        subjectAccountHash: `integration-${suffix}`,
+        eventType: "USER_DELETED",
+      },
+    });
+    await prisma.user.delete({ where: { id: auditSubject.id } });
+    const preservedSecurityEvent = await prisma.securityEvent.findUniqueOrThrow({
+      where: { id: securityEvent.id },
+    });
+    if (
+      preservedSecurityEvent.subjectUserId !== null ||
+      preservedSecurityEvent.actorUserId !== userId
+    ) {
+      throw new Error("deleting an audit subject removed event provenance");
+    }
     console.log("Review ledger/idempotency/concurrency check passed");
   } finally {
     if (userId) await prisma.user.deleteMany({ where: { id: userId } });
@@ -293,6 +413,13 @@ async function main() {
 }
 
 async function assertRejectsConflict(fn: () => Promise<unknown>) {
+  return assertRejectsStatus(fn, 409);
+}
+
+async function assertRejectsStatus(
+  fn: () => Promise<unknown>,
+  expectedStatus: number,
+) {
   try {
     await fn();
   } catch (error) {
@@ -300,13 +427,13 @@ async function assertRejectsConflict(fn: () => Promise<unknown>) {
       typeof error === "object" &&
       error !== null &&
       "status" in error &&
-      error.status === 409
+      error.status === expectedStatus
     ) {
       return;
     }
     throw error;
   }
-  throw new Error("mismatched idempotency payload did not return a conflict");
+  throw new Error(`operation did not return expected status ${expectedStatus}`);
 }
 
 void main().catch((error) => {

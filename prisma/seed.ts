@@ -12,12 +12,9 @@ import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient, type Level } from "../src/generated/prisma";
+import { Prisma, PrismaClient, type Level } from "../src/generated/prisma";
 import { ROLES } from "../src/lib/roles";
-import {
-  MAX_PASSWORD_LENGTH,
-  MIN_PASSWORD_LENGTH,
-} from "../src/lib/password-policy";
+import { passwordPolicyError } from "../src/lib/password-policy";
 
 // seed 是独立脚本（tsx 运行），不会自动读环境变量，手动加载 .env.local。
 dotenv.config({ path: ".env.local" });
@@ -38,75 +35,155 @@ const WORD_LIST_PATH = fileURLToPath(
 
 // ── 学生账号预生成 ──
 // 账号由老师统一发放给学生，不做自助注册。
-// 格式：student01..studentNN，统一默认密码（首次登入強制修改）。
+// 格式：student01..studentNN，每个账号独立临时密码（首次登入强制修改）。
 const STUDENT_COUNT = 40;
+type DatabaseEnvironment = "development" | "test" | "production";
 
-/**
- * 解析学生预设密码：优先读环境变量 SEED_STUDENT_DEFAULT_PASSWORD，
- * 未设置时自动产生一组强随机密码并打印到控制台（避免密码进入版本库）。
- *
- * 安全要求：绝不在代码里硬编码默认密码。返回 { password, fromEnv }。
- */
-function resolveStudentPassword(): { password: string; fromEnv: boolean } {
-  const fromEnv = process.env.SEED_STUDENT_DEFAULT_PASSWORD;
+async function requireDatabaseEnvironment(): Promise<DatabaseEnvironment> {
+  const declared = process.env.DATABASE_ENVIRONMENT;
   if (
-    fromEnv &&
-    fromEnv.trim().length >= MIN_PASSWORD_LENGTH &&
-    fromEnv.trim().length <= MAX_PASSWORD_LENGTH
+    declared !== "development" &&
+    declared !== "test" &&
+    declared !== "production"
   ) {
-    return { password: fromEnv.trim(), fromEnv: true };
+    throw new Error(
+      "执行 seed 必须把 DATABASE_ENVIRONMENT 显式设为 development、test 或 production。",
+    );
   }
-  // 未提供或强度不足：生成 24 字节 base64 随机密码（~192 bit 熵）。
-  const generated = randomBytes(24).toString("base64");
-  console.warn(
-    "⚠️  SEED_STUDENT_DEFAULT_PASSWORD 未设置或长度 < 8，已自动生成强随机密码。\n" +
-      "   请妥善记录下方密码并分发给学生；首次登入后会强制要求修改。\n" +
-      "   建议：在 .env.local 中设置 SEED_STUDENT_DEFAULT_PASSWORD 以便复用。",
+
+  return prisma.$transaction(
+    async (tx) => {
+      const row = await tx.databaseMetadata.findUnique({
+        where: { key: "environment" },
+      });
+      const persisted = row?.value ?? "unclassified";
+      if (persisted === "unclassified") {
+        if (process.env.CONFIRM_DATABASE_ENVIRONMENT !== declared) {
+          throw new Error(
+            `数据库尚未分类。请确认目标后同时设置 CONFIRM_DATABASE_ENVIRONMENT=${declared}。`,
+          );
+        }
+        const claimed = await tx.databaseMetadata.updateMany({
+          where: { key: "environment", value: "unclassified" },
+          data: { value: declared },
+        });
+        if (claimed.count === 1) return declared;
+        const winner = await tx.databaseMetadata.findUnique({
+          where: { key: "environment" },
+        });
+        if (winner?.value === declared) return declared;
+        throw new Error(
+          `数据库已被另一进程标记为 ${winner?.value ?? "unknown"}；已拒绝 seed。`,
+        );
+      }
+      if (persisted !== declared) {
+        throw new Error(
+          `数据库环境标记为 ${persisted}，但 DATABASE_ENVIRONMENT=${declared}；已拒绝 seed。`,
+        );
+      }
+      return declared;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
-  return { password: generated, fromEnv: false };
 }
 
 async function seedStudents() {
-  const { password: studentPassword, fromEnv } = resolveStudentPassword();
-  const hash = await bcrypt.hash(studentPassword, 12);
   let created = 0;
+  let rotated = 0;
   let existed = 0;
+  console.log("One-time temporary student credentials (store securely now):");
   for (let i = 1; i <= STUDENT_COUNT; i++) {
     const account = `student${String(i).padStart(2, "0")}`; // student01, student02, ...
+    const credentialMarkerKey = `studentTemporaryCredential:${account}`;
     const existing = await prisma.user.findUnique({ where: { email: account } });
-    if (existing) {
+    const credentialMarker = await prisma.databaseMetadata.findUnique({
+      where: { key: credentialMarkerKey },
+    });
+    if (
+      existing &&
+      (existing.role !== ROLES.STUDENT ||
+        !existing.mustChangePassword ||
+        credentialMarker !== null)
+    ) {
+      if (
+        existing.role === ROLES.STUDENT &&
+        !existing.mustChangePassword &&
+        credentialMarker === null
+      ) {
+        await prisma.databaseMetadata.create({
+          data: { key: credentialMarkerKey, value: "claimed-or-managed" },
+        });
+      }
       existed++;
       continue;
     }
-    await prisma.user.create({
-      data: {
-        email: account,
-        passwordHash: hash,
-        name: `学生 ${i}`,
-        // 首次登入強制改密碼：学生用此预设密码登入后会被引导到 /reset-password。
-        mustChangePassword: true,
-      },
-    });
-    created++;
+    const temporaryPassword = randomBytes(18).toString("base64url");
+    const policyError = passwordPolicyError(temporaryPassword);
+    if (policyError) throw new Error(policyError);
+    const hash = await bcrypt.hash(temporaryPassword, 12);
+    if (existing) {
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.user.updateMany({
+          where: {
+            id: existing.id,
+            role: ROLES.STUDENT,
+            mustChangePassword: true,
+            tokenVersion: existing.tokenVersion,
+          },
+          data: { passwordHash: hash, tokenVersion: { increment: 1 } },
+        });
+        if (updated.count !== 1) {
+          throw new Error(`${account} 已被并发修改，请重新执行 seed。`);
+        }
+        await tx.databaseMetadata.upsert({
+          where: { key: credentialMarkerKey },
+          create: { key: credentialMarkerKey, value: "issued-v1" },
+          update: { value: "reissued-after-account-recreation-v1" },
+        });
+      });
+      rotated++;
+    } else {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            email: account,
+            passwordHash: hash,
+            name: `学生 ${i}`,
+            mustChangePassword: true,
+          },
+        });
+        await tx.databaseMetadata.upsert({
+          where: { key: credentialMarkerKey },
+          create: { key: credentialMarkerKey, value: "issued-v1" },
+          update: { value: "reissued-after-account-recreation-v1" },
+        });
+      });
+      created++;
+    }
+    // Emit immediately after this account commits. A later failure cannot
+    // leave already-created accounts with passwords that were never shown.
+    console.log(`${account}\t${temporaryPassword}`);
   }
   const last = `student${String(STUDENT_COUNT).padStart(2, "0")}`;
-  const source = fromEnv ? "(来自 SEED_STUDENT_DEFAULT_PASSWORD)" : "(自动生成)";
   console.log(
-    `Students: ${created} created, ${existed} already exist | ` +
-      `account: student01..${last} | password ${source}: ${studentPassword}`,
+    `Students: ${created} created, ${rotated} unclaimed rotated, ${existed} unchanged | ` +
+      `account: student01..${last}`,
   );
 }
 
 // ── 本地测试学生 ──
 // 与批量 student01..40 的「首次登入预设密码」分开：测试学生视为已经完成改密，
 // mustChangePassword=false，可直接进入学习页。必须显式 opt-in，生产默认不创建。
-async function seedTestStudent(username: string, password: string) {
-  if (
-    process.env.NODE_ENV === "production" ||
-    process.env.VERCEL_ENV === "production"
-  ) {
+async function seedTestStudent(
+  username: string,
+  password: string,
+  databaseEnvironment: DatabaseEnvironment,
+) {
+  if (databaseEnvironment === "production") {
     throw new Error("生产环境禁止建立本地测试学生账号。");
   }
+  const policyError = passwordPolicyError(password);
+  if (policyError) throw new Error(policyError);
   const hash = await bcrypt.hash(password, 12);
   const existing = await prisma.user.findUnique({
     where: { email: username },
@@ -135,6 +212,8 @@ async function seedTestStudent(username: string, password: string) {
 // 初始密码必须来自环境变量 INITIAL_ADMIN_PASSWORD，严禁硬编码（安全审计要求）。
 // 账号已存在时仅校正角色，绝不覆盖密码；角色变化会撤销旧 JWT。
 async function seedRoles(password: string) {
+  const policyError = passwordPolicyError(password);
+  if (policyError) throw new Error(`INITIAL_ADMIN_PASSWORD：${policyError}`);
   const hash = await bcrypt.hash(password, 12);
 
   const ensureRole = async (
@@ -176,16 +255,12 @@ async function seedRoles(password: string) {
 }
 
 async function main() {
+  const databaseEnvironment = await requireDatabaseEnvironment();
   // 初始密码必须由环境变量提供，严禁硬编码（安全审计要求）。
   const initialPassword = process.env.INITIAL_ADMIN_PASSWORD;
-  if (
-    !initialPassword ||
-    initialPassword.length < MIN_PASSWORD_LENGTH ||
-    initialPassword.length > MAX_PASSWORD_LENGTH
-  ) {
-    throw new Error(
-      `INITIAL_ADMIN_PASSWORD 必须为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`,
-    );
+  const initialPasswordError = passwordPolicyError(initialPassword ?? "");
+  if (!initialPassword || initialPasswordError) {
+    throw new Error(`INITIAL_ADMIN_PASSWORD：${initialPasswordError}`);
   }
 
   // 读文件（Node.js 兼容）
@@ -363,15 +438,11 @@ async function main() {
         "TEST_STUDENT_USERNAME 必须使用保留前缀 __test_student__，避免误用现有账号。",
       );
     }
-    if (
-      testPassword.length < MIN_PASSWORD_LENGTH ||
-      testPassword.length > MAX_PASSWORD_LENGTH
-    ) {
-      throw new Error(
-        `SEED_TEST_STUDENT=1 时，TEST_STUDENT_PASSWORD 必须为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`,
-      );
+    const testPasswordError = passwordPolicyError(testPassword);
+    if (testPasswordError) {
+      throw new Error(`TEST_STUDENT_PASSWORD：${testPasswordError}`);
     }
-    await seedTestStudent(testUsername, testPassword);
+    await seedTestStudent(testUsername, testPassword, databaseEnvironment);
   }
 
   await prisma.$disconnect();

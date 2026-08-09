@@ -3,10 +3,12 @@ import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES, DEFAULT_ROLE, isRole, type Role } from "@/lib/roles";
+import { passwordPolicyError } from "@/lib/password-policy";
+import { getClientIp } from "@/lib/login-limiter";
 import {
-  MAX_PASSWORD_LENGTH,
-  MIN_PASSWORD_LENGTH,
-} from "@/lib/password-policy";
+  hasRecentAuthentication,
+  securityEventData,
+} from "@/lib/security-events";
 
 /**
  * 用户查询统一用到的字段。给 select 显式声明 Prisma.UserSelect 类型，
@@ -49,6 +51,12 @@ export async function GET() {
 export async function POST(req: Request) {
   const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+  if (!hasRecentAuthentication(auth.authenticatedAt)) {
+    return NextResponse.json(
+      { error: "创建用户前必须重新登录" },
+      { status: 401 },
+    );
+  }
 
   try {
     const body = await req.json().catch(() => null);
@@ -60,22 +68,32 @@ export async function POST(req: Request) {
     const role: Role = isRole(body.role) ? body.role : DEFAULT_ROLE;
 
     if (!email) return NextResponse.json({ error: "账号不能为空" }, { status: 400 });
-    if (password.length < MIN_PASSWORD_LENGTH)
-      return NextResponse.json(
-        { error: `密码至少 ${MIN_PASSWORD_LENGTH} 位` },
-        { status: 400 },
-      );
-    if (password.length > MAX_PASSWORD_LENGTH)
-      return NextResponse.json({ error: "密码过长" }, { status: 400 });
+    const policyError = passwordPolicyError(password);
+    if (policyError) {
+      return NextResponse.json({ error: policyError }, { status: 400 });
+    }
 
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) return NextResponse.json({ error: "该账号已存在" }, { status: 409 });
 
     const passwordHash = await bcrypt.hash(password, 12);
     // data 类型由 Prisma.UserCreateInput 自动校验；回传值由 select 自动推断。
-    const user = await prisma.user.create({
-      data: { email, passwordHash, name, role },
-      select: USER_SELECT,
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { email, passwordHash, name, role },
+        select: USER_SELECT,
+      });
+      await tx.securityEvent.create({
+        data: securityEventData({
+          actorUserId: auth.userId,
+          subjectUserId: created.id,
+          subjectAccount: created.email,
+          eventType: "USER_CREATED",
+          ip: getClientIp(req.headers),
+          metadata: { role: created.role },
+        }),
+      });
+      return created;
     });
 
     return NextResponse.json(

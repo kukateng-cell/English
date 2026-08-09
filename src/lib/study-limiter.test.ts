@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   checkStudyQueueRate,
+  checkStudyCredentialRate,
   checkStudyRate,
   resetStudyLimiterForTests,
 } from "./study-limiter";
@@ -13,6 +14,20 @@ test("study event limiter is scoped per authenticated user", async () => {
   }
   assert.equal((await checkStudyRate("user-a")).ok, false);
   assert.equal((await checkStudyRate("user-b")).ok, true);
+  resetStudyLimiterForTests();
+});
+
+test("study credential renewal is capped per authenticated user", async () => {
+  resetStudyLimiterForTests();
+  for (let index = 0; index < 30; index++) {
+    assert.equal(
+      (await checkStudyCredentialRate("user-a", `203.0.113.${index}`)).ok,
+      true,
+    );
+  }
+  const blocked = await checkStudyCredentialRate("user-a", "203.0.113.99");
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.dimension, "user");
   resetStudyLimiterForTests();
 });
 

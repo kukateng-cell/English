@@ -14,31 +14,59 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
+    command: "npm run start -- --hostname 127.0.0.1 --port 3100",
     url: "http://127.0.0.1:3100/login",
     reuseExistingServer: false,
     timeout: 120_000,
   },
   projects: [
     {
-      name: "desktop-chromium",
+      name: "auth-setup",
+      testMatch: /auth\.setup\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
-      name: "desktop-firefox",
+      name: "desktop-chromium-motion",
+      testMatch: /word-card-release\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "desktop-firefox-synthetic-pointer-motion",
+      testMatch: /word-card-release\.spec\.ts/,
       use: { ...devices["Desktop Firefox"] },
     },
     {
-      name: "desktop-webkit",
+      name: "desktop-webkit-motion",
+      testMatch: /word-card-release\.spec\.ts/,
       use: { ...devices["Desktop Safari"] },
     },
     {
-      name: "mobile-chromium",
+      name: "mobile-chromium-emulation",
+      testMatch: /word-card-release\.spec\.ts/,
       use: { ...devices["Pixel 7"] },
     },
     {
-      name: "mobile-webkit",
+      name: "mobile-webkit-synthetic-pointer-emulation",
+      testMatch: /word-card-release\.spec\.ts/,
       use: { ...devices["iPhone 13"] },
+    },
+    {
+      name: "study-integration-chromium",
+      testMatch: /study-workflow\.spec\.ts/,
+      dependencies: ["auth-setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test-results/.auth/student.json",
+      },
+    },
+    {
+      name: "study-integration-webkit",
+      testMatch: /study-workflow\.spec\.ts/,
+      dependencies: ["auth-setup"],
+      use: {
+        ...devices["Desktop Safari"],
+        storageState: "test-results/.auth/student.json",
+      },
     },
   ],
 });

@@ -4,10 +4,14 @@ import { Redis } from "@upstash/redis";
 const MAX_EVENTS_PER_MINUTE = 90;
 const MAX_QUEUE_LOADS_PER_USER_PER_MINUTE = 60;
 const MAX_QUEUE_LOADS_PER_IP_PER_MINUTE = 120;
+const MAX_CREDENTIAL_RENEWALS_PER_USER_PER_MINUTE = 30;
+const MAX_CREDENTIAL_RENEWALS_PER_IP_PER_MINUTE = 120;
 const WINDOW_MS = 60_000;
 const localEvents = new Map<string, number[]>();
 const localQueueUsers = new Map<string, number[]>();
 const localQueueIps = new Map<string, number[]>();
+const localCredentialUsers = new Map<string, number[]>();
+const localCredentialIps = new Map<string, number[]>();
 
 const redis =
   process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
@@ -44,6 +48,28 @@ const distributedQueueIpLimiter = redis
         "1 m",
       ),
       prefix: "study-queue-ip",
+    })
+  : null;
+
+const distributedCredentialUserLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(
+        MAX_CREDENTIAL_RENEWALS_PER_USER_PER_MINUTE,
+        "1 m",
+      ),
+      prefix: "study-credentials-user",
+    })
+  : null;
+
+const distributedCredentialIpLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(
+        MAX_CREDENTIAL_RENEWALS_PER_IP_PER_MINUTE,
+        "1 m",
+      ),
+      prefix: "study-credentials-ip",
     })
   : null;
 
@@ -148,8 +174,62 @@ export async function checkStudyQueueRate(
   }
 }
 
+export async function checkStudyCredentialRate(
+  userId: string,
+  ip: string,
+): Promise<{ ok: boolean; retryAfterSec?: number; dimension?: "user" | "ip" }> {
+  try {
+    if (distributedCredentialIpLimiter && distributedCredentialUserLimiter) {
+      const ipResult = await distributedCredentialIpLimiter.limit(ip);
+      if (!ipResult.success) {
+        return {
+          ok: false,
+          dimension: "ip",
+          retryAfterSec: Math.max(
+            1,
+            Math.ceil((ipResult.reset - Date.now()) / 1000),
+          ),
+        };
+      }
+      const userResult = await distributedCredentialUserLimiter.limit(userId);
+      return userResult.success
+        ? { ok: true }
+        : {
+            ok: false,
+            dimension: "user",
+            retryAfterSec: Math.max(
+              1,
+              Math.ceil((userResult.reset - Date.now()) / 1000),
+            ),
+          };
+    }
+    const ipResult = consumeLocalWindow(
+      localCredentialIps,
+      ip,
+      MAX_CREDENTIAL_RENEWALS_PER_IP_PER_MINUTE,
+    );
+    if (!ipResult.ok) return { ...ipResult, dimension: "ip" };
+    const userResult = consumeLocalWindow(
+      localCredentialUsers,
+      userId,
+      MAX_CREDENTIAL_RENEWALS_PER_USER_PER_MINUTE,
+    );
+    return userResult.ok
+      ? { ok: true }
+      : { ...userResult, dimension: "user" };
+  } catch (error) {
+    console.error(
+      "[study-credential-limiter] backend unavailable; allowing request",
+      error,
+    );
+    return { ok: true };
+  }
+}
+
 export function resetStudyLimiterForTests(): void {
   localEvents.clear();
   localQueueUsers.clear();
   localQueueIps.clear();
+  localCredentialUsers.clear();
+  localCredentialIps.clear();
 }

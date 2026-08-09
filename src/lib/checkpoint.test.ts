@@ -19,6 +19,7 @@ test("checkpoint is user scoped and retains an unfinished quiz", () => {
     phase: "quiz",
     unitKey: "global",
     queueSignature: ["word-2", "word-1"],
+    studySessionId: "session-12345678",
     currentIndex: 0,
     knownWordIds: ["word-2"],
     unknownWordIds: [],
@@ -49,7 +50,7 @@ test("malformed current-version checkpoints are rejected without throwing", () =
   });
   const key = "study:checkpoint:user-a:global";
   const base = {
-    version: 4,
+    version: 5,
     ownerId: "user-a",
     unitKey: "global",
     ts: Date.now(),
@@ -61,6 +62,7 @@ test("malformed current-version checkpoints are rejected without throwing", () =
     quizTargetId: null,
     quizWrongCount: 0,
     pendingQuizIds: [],
+    studySessionId: "session-12345678",
   };
 
   for (const queueSignature of [null, "word-1", ["dup", "dup"], ["bad,id"]]) {

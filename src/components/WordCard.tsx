@@ -27,12 +27,28 @@ import {
   type SwipePointerType,
 } from "@/lib/swipe-motion";
 
+export interface WordCardMotionProbe {
+  mode: "dismiss" | "return";
+  reducedMotion: boolean;
+  wallElapsedMs: number;
+  estimatedRefreshIntervalMs: number;
+  timelineLeadMs: number;
+  releasePosition: number;
+  releaseVelocity: number;
+  firstFramePosition: number;
+  firstFrameVelocity: number;
+}
+
 interface WordCardProps {
   word: { term: string; phonetic?: string | null };
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
   children?: ReactNode;
   disabled?: boolean;
+  /** Test-harness instrumentation; production callers leave this unset. */
+  onMotionProbe?: (probe: WordCardMotionProbe) => void;
+  /** A/B switch used only by the isolated motion harness. */
+  timelineLeadEnabled?: boolean;
 }
 
 const SWIPE_LABEL_THRESHOLD = 76;
@@ -76,6 +92,7 @@ interface MotionState {
   duration: number;
   direction: SwipeDirection | null;
   onComplete: (() => void) | null;
+  probeEmitted: boolean;
 }
 
 function pointerTypeOf(pointerType: string): SwipePointerType {
@@ -171,6 +188,8 @@ export default function WordCard({
   onSwipeRight,
   children,
   disabled,
+  onMotionProbe,
+  timelineLeadEnabled = true,
 }: WordCardProps) {
   const { tc } = useLocale();
   const dragLayerRef = useRef<HTMLDivElement>(null);
@@ -200,6 +219,7 @@ export default function WordCard({
     duration: 0,
     direction: null,
     onComplete: null,
+    probeEmitted: false,
   });
   const reducedMotionRef = useRef(false);
   const mountedRef = useRef(true);
@@ -208,11 +228,25 @@ export default function WordCard({
     disabled,
     onSwipeLeft,
     onSwipeRight,
+    onMotionProbe,
+    timelineLeadEnabled,
   });
 
   useEffect(() => {
-    interactionPropsRef.current = { disabled, onSwipeLeft, onSwipeRight };
-  }, [disabled, onSwipeLeft, onSwipeRight]);
+    interactionPropsRef.current = {
+      disabled,
+      onSwipeLeft,
+      onSwipeRight,
+      onMotionProbe,
+      timelineLeadEnabled,
+    };
+  }, [
+    disabled,
+    onSwipeLeft,
+    onSwipeRight,
+    onMotionProbe,
+    timelineLeadEnabled,
+  ]);
 
   const writeCurrentDragFrame = useCallback((position: number) => {
     const dragLayer = dragLayerRef.current;
@@ -324,6 +358,22 @@ export default function WordCard({
       if (reducedMotionRef.current) {
         motion.position = motion.mode === "dismiss" ? motion.target : 0;
         motion.velocity = 0;
+        if (!motion.probeEmitted) {
+          motion.probeEmitted = true;
+          interactionPropsRef.current.onMotionProbe?.({
+            mode: motion.mode,
+            reducedMotion: true,
+            wallElapsedMs: Math.max(now - motion.releaseStartedAt, 0),
+            estimatedRefreshIntervalMs: estimateFrameInterval(
+              recentFrameIntervalsRef.current,
+            ),
+            timelineLeadMs: 0,
+            releasePosition: motion.releaseStartPosition,
+            releaseVelocity: motion.releaseStartVelocity,
+            firstFramePosition: motion.position,
+            firstFrameVelocity: 0,
+          });
+        }
         writeCurrentDragFrame(motion.position);
         completeReleaseMotion();
         return;
@@ -334,10 +384,10 @@ export default function WordCard({
         recentFrameIntervalsRef.current,
       );
       if (motion.releaseTimelineLeadMs === null) {
-        motion.releaseTimelineLeadMs = releaseTimelineLead(
-          wallElapsedMs,
-          refreshIntervalMs,
-        );
+        motion.releaseTimelineLeadMs = interactionPropsRef.current
+          .timelineLeadEnabled
+          ? releaseTimelineLead(wallElapsedMs, refreshIntervalMs)
+          : 0;
       }
       const timelineElapsedMs = wallElapsedMs + motion.releaseTimelineLeadMs;
       const elapsedSeconds = timelineElapsedMs / 1_000;
@@ -355,6 +405,20 @@ export default function WordCard({
               motion.releaseStartVelocity,
               elapsedSeconds,
             );
+      if (!motion.probeEmitted) {
+        motion.probeEmitted = true;
+        interactionPropsRef.current.onMotionProbe?.({
+          mode: motion.mode,
+          reducedMotion: false,
+          wallElapsedMs,
+          estimatedRefreshIntervalMs: refreshIntervalMs,
+          timelineLeadMs: motion.releaseTimelineLeadMs,
+          releasePosition: motion.releaseStartPosition,
+          releaseVelocity: motion.releaseStartVelocity,
+          firstFramePosition: next.position,
+          firstFrameVelocity: next.velocity,
+        });
+      }
       motion.position = next.position;
       motion.velocity = next.velocity;
       motion.lastTime = now;
@@ -406,6 +470,7 @@ export default function WordCard({
       motion.direction = direction;
       motion.onComplete = onComplete;
       motion.stationarySeconds = 0;
+      motion.probeEmitted = false;
       scheduleMotionFrame();
     },
     [scheduleMotionFrame],
@@ -429,6 +494,7 @@ export default function WordCard({
         motion.duration = 0;
         motion.direction = null;
         motion.onComplete = null;
+        motion.probeEmitted = false;
         writeCurrentDragFrame(0);
         return;
       }
@@ -580,6 +646,7 @@ export default function WordCard({
       motion.duration = 0;
       motion.direction = null;
       motion.onComplete = null;
+      motion.probeEmitted = false;
       const samples: SwipePointerSample[] = [];
       const receivedAt = performance.now();
       recordPointerSample(
@@ -745,6 +812,7 @@ export default function WordCard({
       motionState.duration = 0;
       motionState.direction = null;
       motionState.onComplete = null;
+      motionState.probeEmitted = false;
       activeCaptureGenerationRef.current = null;
       activeDragRef.current = null;
       resizeObserver?.disconnect();

@@ -19,10 +19,10 @@ type InputMode =
 function inputForProject(projectName: string): InputMode {
   const touch = projectName.startsWith("mobile-");
   return touch
-    ? projectName === "mobile-chromium"
+    ? projectName === "mobile-chromium-emulation"
       ? "chromium-touch"
       : "synthetic-touch"
-    : projectName === "desktop-firefox"
+    : projectName.startsWith("desktop-firefox")
       ? "synthetic-mouse"
       : "mouse";
 }
@@ -73,24 +73,6 @@ declare global {
     __wordCardPaintSamplerError?: string;
     __wordCardReleaseObserved?: boolean;
   }
-}
-
-async function signIn(page: Page) {
-  const username = process.env.TEST_STUDENT_USERNAME;
-  const password = process.env.TEST_STUDENT_PASSWORD;
-  if (!username || !password) {
-    throw new Error(
-      "TEST_STUDENT_USERNAME and TEST_STUDENT_PASSWORD are required",
-    );
-  }
-
-  await page.goto("/study");
-  if (page.url().includes("/login")) {
-    await page.getByRole("textbox", { name: "賬號 (如 student01)" }).fill(username);
-    await page.getByRole("textbox", { name: "密碼" }).fill(password);
-    await page.getByRole("button", { name: "登錄" }).click();
-  }
-  await page.locator('[data-testid="word-card-drag-layer"]').waitFor();
 }
 
 async function startPaintSampler(page: Page) {
@@ -155,13 +137,15 @@ async function dispatchGesture(
   page: Page,
   scenario: GestureScenario,
   input: InputMode,
+  collectFrames = true,
+  path = "/test/word-card-motion",
 ) {
-  // Reload each scenario so a dismissed card cannot transition the page into
-  // its quiz phase while the next release gesture is being prepared.
-  await page.goto("/study");
+  // Reload each scenario because a completed dismissal intentionally leaves
+  // this isolated card offscreen. The callback never unmounts the component.
+  await page.goto(path);
   const card = page.locator('[data-testid="word-card-drag-layer"]');
   await card.waitFor();
-  await startPaintSampler(page);
+  if (collectFrames) await startPaintSampler(page);
 
   const box = await card.boundingBox();
   if (!box) throw new Error("Card bounding box is unavailable");
@@ -193,7 +177,9 @@ async function dispatchGesture(
       touchPoints: [],
     });
     await client.detach();
-    return collectReleaseFrames(page, scenario.distance);
+    return collectFrames
+      ? collectReleaseFrames(page, scenario.distance)
+      : { releasePosition: scenario.distance, frames: [], samplerError: null };
   }
 
   if (input === "synthetic-touch" || input === "synthetic-mouse") {
@@ -243,7 +229,9 @@ async function dispatchGesture(
     }
     if (scenario.holdMs) await page.waitForTimeout(scenario.holdMs);
     await dispatch("pointerup", start.x + scenario.distance);
-    return collectReleaseFrames(page, scenario.distance);
+    return collectFrames
+      ? collectReleaseFrames(page, scenario.distance)
+      : { releasePosition: scenario.distance, frames: [], samplerError: null };
   }
 
   await page.mouse.move(start.x, start.y);
@@ -258,7 +246,9 @@ async function dispatchGesture(
   }
   if (scenario.holdMs) await page.waitForTimeout(scenario.holdMs);
   await page.mouse.up();
-  return collectReleaseFrames(page, scenario.distance);
+  return collectFrames
+    ? collectReleaseFrames(page, scenario.distance)
+    : { releasePosition: scenario.distance, frames: [], samplerError: null };
 }
 
 async function collectReleaseFrames(page: Page, releasePosition: number) {
@@ -296,52 +286,95 @@ async function collectReleaseFrames(page: Page, releasePosition: number) {
   return result;
 }
 
-test("release motion changes the visible card on the next paint", async ({
-  page,
-}, testInfo) => {
-  const input = inputForProject(testInfo.project.name);
-  await signIn(page);
+for (const scenario of scenarios) {
+  test(`release motion changes on the next paint: ${scenario.name}`, async ({
+    page,
+  }, testInfo) => {
+    const input = inputForProject(testInfo.project.name);
+    const result = await dispatchGesture(page, scenario, input);
+    const [firstFrame, secondFrame] = result.frames;
+    const firstDisplacement = Math.abs(
+      firstFrame.position - result.releasePosition,
+    );
+    const secondDisplacement = Math.abs(
+      secondFrame.position - firstFrame.position,
+    );
+    expect(firstDisplacement).toBeGreaterThan(0.5);
+    expect(secondDisplacement).toBeGreaterThan(0.5);
+    expect(secondDisplacement / firstDisplacement).toBeLessThan(2.5);
+    await expect(page.getByTestId("motion-probe")).not.toHaveText("none");
 
-  for (const scenario of scenarios) {
-    await test.step(scenario.name, async () => {
-      const result = await dispatchGesture(page, scenario, input);
-      const [firstFrame, secondFrame] = result.frames;
-      const firstDisplacement = Math.abs(
-        firstFrame.position - result.releasePosition,
+    if (scenario.expected === "dismiss-right") {
+      expect(firstFrame.position).toBeGreaterThan(result.releasePosition);
+      expect(secondFrame.position).toBeGreaterThan(firstFrame.position);
+      await expect(page.getByTestId("callback-count")).toHaveText("1");
+      await expect(page.getByTestId("callback-direction")).toHaveText("right");
+    } else {
+      expect(Math.abs(firstFrame.position)).toBeLessThan(
+        Math.abs(result.releasePosition),
       );
-      const secondDisplacement = Math.abs(
-        secondFrame.position - firstFrame.position,
+      expect(Math.abs(secondFrame.position)).toBeLessThan(
+        Math.abs(firstFrame.position),
       );
-      expect(firstDisplacement).toBeGreaterThan(0.5);
-      expect(secondDisplacement).toBeGreaterThan(0.5);
-      expect(secondDisplacement / firstDisplacement).toBeLessThan(2.5);
-
-      if (scenario.expected === "dismiss-right") {
-        expect(firstFrame.position).toBeGreaterThan(result.releasePosition);
-        expect(secondFrame.position).toBeGreaterThan(firstFrame.position);
-      } else {
-        expect(Math.abs(firstFrame.position)).toBeLessThan(
-          Math.abs(result.releasePosition),
-        );
-        expect(Math.abs(secondFrame.position)).toBeLessThan(
-          Math.abs(firstFrame.position),
-        );
-      }
-    });
-  }
-});
+      await expect(page.getByTestId("callback-count")).toHaveText("0");
+    }
+  });
+}
 
 test("reduced motion returns directly without spring frames", async ({
   page,
 }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await signIn(page);
   const scenario = scenarios.find((item) => item.name === "outward-return")!;
-  const result = await dispatchGesture(
+  await dispatchGesture(
     page,
     scenario,
     inputForProject(testInfo.project.name),
+    false,
   );
-  expect(Math.abs(result.frames[0].position)).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(result.frames[1].position)).toBeLessThanOrEqual(0.5);
+  await expect(page.getByTestId("motion-probe")).toContainText(
+    '"reducedMotion":true',
+  );
+  await expect(page.getByTestId("callback-count")).toHaveText("0");
+  await expect(page.locator('[data-testid="word-card-drag-layer"]')).toHaveCSS(
+    "transform",
+    /matrix\(1, 0, 0, 1, 0, 0\)|none/,
+  );
+});
+
+test("reduced motion dismissal snaps and invokes its callback once", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const scenario = scenarios.find((item) => item.name === "fast-flick")!;
+  await dispatchGesture(
+    page,
+    scenario,
+    inputForProject(testInfo.project.name),
+    false,
+  );
+  await expect(page.getByTestId("motion-probe")).toContainText(
+    '"mode":"dismiss"',
+  );
+  await expect(page.getByTestId("motion-probe")).toContainText(
+    '"reducedMotion":true',
+  );
+  await expect(page.getByTestId("callback-count")).toHaveText("1");
+  await expect(page.getByTestId("callback-direction")).toHaveText("right");
+});
+
+test("timeline lead can be disabled for an A/B diagnostic", async ({
+  page,
+}, testInfo) => {
+  await dispatchGesture(
+    page,
+    scenarios[0],
+    inputForProject(testInfo.project.name),
+    false,
+    "/test/word-card-motion?timelineLead=0",
+  );
+  await expect(page.getByTestId("motion-probe")).toContainText(
+    '"timelineLeadMs":0',
+  );
+  await expect(page.getByTestId("callback-count")).toHaveText("1");
 });

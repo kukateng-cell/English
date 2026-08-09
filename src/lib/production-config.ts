@@ -26,6 +26,12 @@ export function productionConfigurationErrors(
   if (!env.CRON_SECRET || env.CRON_SECRET.length < 16) {
     errors.push("CRON_SECRET must contain at least 16 characters");
   }
+  if (
+    !env.SECURITY_AUDIT_HASH_SECRET ||
+    env.SECURITY_AUDIT_HASH_SECRET.length < 32
+  ) {
+    errors.push("SECURITY_AUDIT_HASH_SECRET must contain at least 32 characters");
+  }
   if (env.REQUIRE_STUDY_OPERATION_ID === "0") {
     errors.push("REQUIRE_STUDY_OPERATION_ID=0 is no longer permitted");
   }

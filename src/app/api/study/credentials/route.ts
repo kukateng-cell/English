@@ -1,39 +1,78 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { canResumeStudySession } from "@/lib/study-session";
 import {
-  issueStudySession,
+  renewStudySessionCredentials,
   serializeStudySession,
+  StudyCredentialRenewalError,
 } from "@/lib/study-session-server";
+import { checkStudyCredentialRate } from "@/lib/study-limiter";
+import { getClientIp } from "@/lib/login-limiter";
+
+const ID_PATTERN = /^[A-Za-z0-9:_-]{8,200}$/;
 
 export async function POST(req: Request) {
   const auth = await requireUser();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-  const body = (await req.json().catch(() => null)) as
-    | { wordIds?: unknown }
-    | null;
-  if (!body || !canResumeStudySession(body.wordIds)) {
-    return NextResponse.json({ error: "wordIds 无效" }, { status: 400 });
-  }
-
-  // Reauthorize a durable outbox even after the old expired session has been
-  // removed by maintenance. The normal POST path still enforces the user's
-  // current unit unlock state before creating a first Review.
-  const existingWords = await prisma.word.findMany({
-    where: { id: { in: body.wordIds } },
-    select: { id: true },
-  });
-  const existingIds = new Set(existingWords.map((word) => word.id));
-  if (body.wordIds.some((wordId) => !existingIds.has(wordId))) {
+  const rate = await checkStudyCredentialRate(
+    auth.userId,
+    getClientIp(req.headers),
+  );
+  if (!rate.ok) {
     return NextResponse.json(
-      { error: "包含不存在的单词" },
-      { status: 404 },
+      { error: "学习凭证续期过于频繁，请稍后再试" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSec ?? 60) },
+      },
     );
   }
-
-  const studySession = await issueStudySession(auth.userId, body.wordIds);
-  return NextResponse.json({ studySession: serializeStudySession(studySession) });
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const previousSessionId =
+    typeof body?.previousSessionId === "string"
+      ? body.previousSessionId.trim()
+      : "";
+  const operations = Array.isArray(body?.operations) ? body.operations : [];
+  if (
+    !ID_PATTERN.test(previousSessionId) ||
+    operations.length === 0 ||
+    operations.length > 20 ||
+    operations.some((value) => {
+      if (typeof value !== "object" || value === null) return true;
+      const row = value as Record<string, unknown>;
+      return (
+        typeof row.operationId !== "string" ||
+        !ID_PATTERN.test(row.operationId) ||
+        typeof row.wordId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(row.wordId)
+      );
+    })
+  ) {
+    return NextResponse.json({ error: "续期请求无效" }, { status: 400 });
+  }
+  try {
+    const typedOperations = operations as Array<{
+      operationId: string;
+      wordId: string;
+    }>;
+    const studySession = await renewStudySessionCredentials(
+      auth.userId,
+      previousSessionId,
+      typedOperations,
+    );
+    const serialized = serializeStudySession(studySession)!;
+    return NextResponse.json({
+      studySession: serialized,
+      credentials: typedOperations.map((operation) => ({
+        ...operation,
+        nonce: serialized.nonces[operation.wordId],
+      })),
+    });
+  } catch (error) {
+    if (error instanceof StudyCredentialRenewalError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 }

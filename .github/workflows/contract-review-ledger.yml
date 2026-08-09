@@ -32,7 +32,8 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - name: Remove bridge only after a quiet 30-minute window
+      - name: Apply the confirmed formal contract migration
         env:
           MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
-        run: npm run contract:review-ledger -- --apply
+          CONFIRM_LEDGER_BRIDGE_CONTRACT: ${{ inputs.confirmation }}
+        run: npm run db:deploy

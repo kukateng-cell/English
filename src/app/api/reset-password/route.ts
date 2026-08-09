@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createHmac } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
@@ -9,10 +8,11 @@ import {
   recordPasswordChangeFailure,
   resetPasswordChangeUserLimit,
 } from "@/lib/password-change-limiter";
+import { passwordPolicyError } from "@/lib/password-policy";
 import {
-  MAX_PASSWORD_LENGTH,
-  MIN_PASSWORD_LENGTH,
-} from "@/lib/password-policy";
+  hasRecentAuthentication,
+  securityEventData,
+} from "@/lib/security-events";
 
 /**
  * 首次登入 / 主动修改密码。
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   }
   if (
     auth.role !== "STUDENT" &&
-    (!auth.authenticatedAt || Date.now() - auth.authenticatedAt > 15 * 60_000)
+    !hasRecentAuthentication(auth.authenticatedAt)
   ) {
     return NextResponse.json(
       { error: "高权限账号修改密码前必须重新登录" },
@@ -53,17 +53,12 @@ export async function POST(req: Request) {
   if (typeof currentPassword !== "string" || !currentPassword) {
     return NextResponse.json({ error: "请输入当前密码" }, { status: 400 });
   }
-  if (
-    typeof newPassword !== "string" ||
-    newPassword.length < MIN_PASSWORD_LENGTH
-  ) {
-    return NextResponse.json(
-      { error: `新密码至少 ${MIN_PASSWORD_LENGTH} 个字符` },
-      { status: 400 },
-    );
+  if (typeof newPassword !== "string") {
+    return NextResponse.json({ error: "请输入新密码" }, { status: 400 });
   }
-  if (newPassword.length > MAX_PASSWORD_LENGTH) {
-    return NextResponse.json({ error: "新密码过长" }, { status: 400 });
+  const policyError = passwordPolicyError(newPassword);
+  if (policyError) {
+    return NextResponse.json({ error: policyError }, { status: 400 });
   }
 
   const ip = getClientIp(req.headers);
@@ -80,12 +75,15 @@ export async function POST(req: Request) {
 
   const user = await prisma.user.findUnique({
     where: { id: auth.userId },
-    select: { passwordHash: true, tokenVersion: true },
+    select: { email: true, passwordHash: true, tokenVersion: true },
   });
   if (!user) {
     return NextResponse.json({ error: "用户不存在" }, { status: 404 });
   }
 
+  // Existing hashes may predate the 72-byte policy. Permit their current
+  // password only for this authenticated migration path; every new hash below
+  // has already passed passwordPolicyError/bcrypt.truncates.
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!valid) {
     const retryAfterSec = await recordPasswordChangeFailure(auth.userId);
@@ -109,12 +107,6 @@ export async function POST(req: Request) {
   }
 
   const newHash = await bcrypt.hash(newPassword, 12);
-  const ipHash = createHmac(
-    "sha256",
-    process.env.NEXTAUTH_SECRET ?? "development-only-secret",
-  )
-    .update(ip)
-    .digest("hex");
   const updated = await prisma.$transaction(async (tx) => {
     const result = await tx.user.updateMany({
       // 比较并交换：bcrypt 验证后如管理员／教师已重设密码，旧请求不可覆盖新值。
@@ -133,11 +125,23 @@ export async function POST(req: Request) {
     });
     if (result.count === 1) {
       await tx.securityEvent.create({
-        data: {
-          userId: auth.userId,
+        data: securityEventData({
+          actorUserId: auth.userId,
+          subjectUserId: auth.userId,
+          subjectAccount: user.email,
           eventType: "PASSWORD_CHANGED",
-          ipHash,
-        },
+          ip,
+        }),
+      });
+      await tx.securityEvent.create({
+        data: securityEventData({
+          actorUserId: auth.userId,
+          subjectUserId: auth.userId,
+          subjectAccount: user.email,
+          eventType: "SESSIONS_REVOKED",
+          ip,
+          metadata: { reason: "password_changed" },
+        }),
       });
     }
     return result.count;

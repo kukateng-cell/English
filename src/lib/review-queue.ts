@@ -25,6 +25,7 @@ export interface PendingReview {
   /** 由 GET /api/study 发出的 server-side submission credentials。 */
   studySessionId?: string;
   nonce?: string;
+  credentialState: "valid" | "expired" | "legacy-claimed" | "blocked";
 }
 
 export interface ReviewSubmissionCredentials {
@@ -41,7 +42,7 @@ export interface StudyPostResult {
 const QUEUE_PREFIX = "study:review-queue:";
 const ITEM_PREFIX = "study:review-item:";
 const LEGACY_QUEUE_KEY = "study:review-queue";
-const VERSION = 4;
+const VERSION = 5;
 const MAX_FLUSH_BATCH = 20;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
 const SESSION_REAUTH_ERROR = "学习 session 无效或已过期";
@@ -64,7 +65,12 @@ function isPendingReview(x: unknown): x is PendingReview {
     (r.status === undefined || r.status === "pending" || r.status === "blocked") &&
     (r.nextAttemptAt === undefined || typeof r.nextAttemptAt === "number") &&
     (r.studySessionId === undefined || typeof r.studySessionId === "string") &&
-    (r.nonce === undefined || typeof r.nonce === "string")
+    (r.nonce === undefined || typeof r.nonce === "string") &&
+    (r.credentialState === undefined ||
+      r.credentialState === "valid" ||
+      r.credentialState === "expired" ||
+      r.credentialState === "legacy-claimed" ||
+      r.credentialState === "blocked")
   );
 }
 
@@ -100,6 +106,18 @@ function normalizePendingReview(
     studySessionId:
       typeof row.studySessionId === "string" ? row.studySessionId : undefined,
     nonce: typeof row.nonce === "string" ? row.nonce : undefined,
+    credentialState:
+      row.status === "blocked"
+        ? "blocked"
+        : row.credentialState === "valid" ||
+            row.credentialState === "expired" ||
+            row.credentialState === "legacy-claimed"
+          ? row.credentialState
+          : row.studySessionId && row.nonce
+            ? "valid"
+            : row.studySessionId
+              ? "expired"
+              : "legacy-claimed",
   };
 }
 
@@ -134,6 +152,7 @@ export function loadPendingReviews(userId: string): PendingReview[] {
         const parsed = JSON.parse(raw) as Partial<StoredQueue>;
         if (
           parsed.version === VERSION ||
+          parsed.version === 4 ||
           parsed.version === 3 ||
           parsed.version === 2
         ) {
@@ -313,6 +332,7 @@ export function enqueuePendingReview(
     nextAttemptAt: undefined,
     studySessionId: credentials?.studySessionId,
     nonce: credentials?.nonce,
+    credentialState: credentials ? "valid" : "legacy-claimed",
   };
   if (!writeReviewItem(userId, item)) {
     throw new Error("REVIEW_QUEUE_STORAGE_UNAVAILABLE");
@@ -346,7 +366,7 @@ export function attachStudySessionCredentials(
       .map((item) => item.wordId),
   );
   for (const item of pending) {
-    if (item.status !== "pending") continue;
+    if (item.status !== "pending" || item.credentialState !== "legacy-claimed") continue;
     const nonce = nonces[item.wordId];
     if (!nonce) continue;
     // A session-invalid response clears only the nonce, leaving the rejected
@@ -371,11 +391,30 @@ export function attachStudySessionCredentials(
       ...item,
       studySessionId,
       nonce,
+      credentialState: "valid",
       nextAttemptAt: undefined,
       lastError: undefined,
     });
   }
   return pendingReviewCount(userId);
+}
+
+/** After the current server queue had one chance to adopt legacy rows, make
+ * every remaining credential-less legacy operation visibly non-retryable. */
+export function finalizeLegacyCredentialClaims(userId: string): number {
+  for (const item of loadPendingReviews(userId)) {
+    if (item.status !== "pending" || item.credentialState !== "legacy-claimed") {
+      continue;
+    }
+    writeReviewItem(userId, {
+      ...item,
+      status: "blocked",
+      credentialState: "blocked",
+      lastError: "旧版待同步记录缺少服务器来源凭证，无法安全恢复",
+      nextAttemptAt: undefined,
+    });
+  }
+  return blockedReviewCount(userId);
 }
 
 /**
@@ -522,6 +561,11 @@ async function flushPendingReviewsUnlocked(
       ...item,
       attempts: item.attempts + 1,
       status: failure.permanent ? "blocked" : item.status,
+      credentialState: failure.permanent
+        ? "blocked"
+        : failure.clearSessionNonce
+          ? "expired"
+          : item.credentialState,
       lastError: failure.message ?? item.lastError,
       nextAttemptAt:
         failure.permanent || failure.clearSessionNonce
@@ -534,51 +578,111 @@ async function flushPendingReviewsUnlocked(
 }
 
 async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
-  const wordIds = [
-    ...new Set(
-      loadPendingReviews(userId)
-        .filter(
-          (item) =>
-            item.status === "pending" &&
-            !item.nonce &&
-            item.lastError === SESSION_REAUTH_ERROR,
-        )
-        .map((item) => item.wordId),
-    ),
-  ].slice(0, MAX_FLUSH_BATCH);
-  if (wordIds.length === 0) return false;
+  const candidates = loadPendingReviews(userId).filter(
+    (item) =>
+      item.status === "pending" &&
+      item.credentialState === "expired" &&
+      Boolean(item.studySessionId) &&
+      !item.nonce,
+  );
+  const previousSessionId = candidates[0]?.studySessionId;
+  if (!previousSessionId) return false;
+  const assignedWords = new Set<string>();
+  const operations = candidates
+    .filter((item) => item.studySessionId === previousSessionId)
+    .filter((item) => {
+      if (assignedWords.has(item.wordId)) return false;
+      assignedWords.add(item.wordId);
+      return true;
+    })
+    .slice(0, MAX_FLUSH_BATCH);
+  if (operations.length === 0) return false;
+
+  const markBlocked = (message: string) => {
+    for (const operation of operations) {
+      const current = loadPendingReviews(userId).find(
+        (item) => item.operationId === operation.operationId,
+      );
+      if (!current) continue;
+      writeReviewItem(userId, {
+        ...current,
+        status: "blocked",
+        credentialState: "blocked",
+        lastError: message,
+        nextAttemptAt: undefined,
+      });
+    }
+  };
 
   try {
     const response = await fetch("/api/study/credentials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wordIds }),
+      body: JSON.stringify({
+        previousSessionId,
+        operations: operations.map(({ operationId, wordId }) => ({
+          operationId,
+          wordId,
+        })),
+      }),
     });
-    if (!response.ok) return false;
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: unknown }
+        | null;
+      const message =
+        typeof payload?.error === "string"
+          ? payload.error.slice(0, 200)
+          : `HTTP ${response.status}`;
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        ![401, 408, 422, 429].includes(response.status)
+      ) {
+        markBlocked(message);
+      }
+      return false;
+    }
     const payload = (await response.json().catch(() => null)) as
       | {
           studySession?: {
             id?: unknown;
-            nonces?: unknown;
           } | null;
+          credentials?: unknown;
         }
       | null;
     const session = payload?.studySession;
     if (
       !session ||
       typeof session.id !== "string" ||
-      typeof session.nonces !== "object" ||
-      session.nonces === null ||
-      Array.isArray(session.nonces)
+      !Array.isArray(payload?.credentials)
     ) {
       return false;
     }
-    const nonces = Object.fromEntries(
-      Object.entries(session.nonces).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
-      ),
-    );
-    attachStudySessionCredentials(userId, session.id, nonces);
+    for (const value of payload.credentials) {
+      if (typeof value !== "object" || value === null) continue;
+      const row = value as Record<string, unknown>;
+      if (
+        typeof row.operationId !== "string" ||
+        typeof row.wordId !== "string" ||
+        typeof row.nonce !== "string"
+      ) {
+        continue;
+      }
+      const current = loadPendingReviews(userId).find(
+        (item) =>
+          item.operationId === row.operationId && item.wordId === row.wordId,
+      );
+      if (!current || current.status !== "pending") continue;
+      writeReviewItem(userId, {
+        ...current,
+        studySessionId: session.id,
+        nonce: row.nonce,
+        credentialState: "valid",
+        lastError: undefined,
+        nextAttemptAt: undefined,
+      });
+    }
     return true;
   } catch {
     return false;
@@ -592,8 +696,10 @@ export async function flushPendingReviews(
   onDone?: (wordId: string, data: StudyPostResult) => void,
 ): Promise<number> {
   const run = async () => {
-    const remaining = await flushPendingReviewsUnlocked(userId, onDone);
-    if (!(await reauthorizeRejectedReviews(userId))) return remaining;
+    await flushPendingReviewsUnlocked(userId, onDone);
+    if (!(await reauthorizeRejectedReviews(userId))) {
+      return pendingReviewCount(userId);
+    }
     // Exactly one automatic retry after obtaining a fresh server credential.
     // A second rejection stays pending until the next explicit flush cycle.
     return flushPendingReviewsUnlocked(userId, onDone);

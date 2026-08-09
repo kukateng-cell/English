@@ -4,10 +4,12 @@ import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
+import { passwordPolicyError } from "@/lib/password-policy";
+import { getClientIp } from "@/lib/login-limiter";
 import {
-  MAX_PASSWORD_LENGTH,
-  MIN_PASSWORD_LENGTH,
-} from "@/lib/password-policy";
+  hasRecentAuthentication,
+  securityEventData,
+} from "@/lib/security-events";
 
 /** 生成密码学安全的随机临时密码（12 位，避开易混淆字符）。 */
 function generateTemporaryPassword(): string {
@@ -36,13 +38,19 @@ export async function POST(
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok)
     return NextResponse.json({ error: auth.message }, { status: auth.status });
+  if (!hasRecentAuthentication(auth.authenticatedAt)) {
+    return NextResponse.json(
+      { error: "重置学生密码前必须重新登录" },
+      { status: 401 },
+    );
+  }
 
   try {
     const { id } = await params;
 
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, tokenVersion: true },
+      select: { id: true, email: true, role: true, tokenVersion: true },
     });
     if (!target) {
       return NextResponse.json({ error: "用户不存在" }, { status: 404 });
@@ -63,34 +71,60 @@ export async function POST(
       body.newPassword.trim()
     ) {
       newPassword = body.newPassword.trim();
-      if (newPassword.length < MIN_PASSWORD_LENGTH) {
-        return NextResponse.json(
-          { error: `新密码至少 ${MIN_PASSWORD_LENGTH} 位` },
-          { status: 400 },
-        );
-      }
-      if (newPassword.length > MAX_PASSWORD_LENGTH) {
-        return NextResponse.json({ error: "新密码过长" }, { status: 400 });
-      }
     } else {
       newPassword = generateTemporaryPassword();
     }
+    const policyError = passwordPolicyError(newPassword);
+    if (policyError) {
+      return NextResponse.json({ error: policyError }, { status: 400 });
+    }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    const updated = await prisma.user.updateMany({
-      // 把 role 放进写入条件，堵住「检查时仍是学生、hash 期间被升权」的竞态。
-      where: {
-        id,
-        role: ROLES.STUDENT,
-        tokenVersion: target.tokenVersion,
-      },
-      data: {
-        passwordHash,
-        // 强制下次登录修改密码
-        mustChangePassword: true,
-        // 版本号 +1 → 旧会话失效（jwt 回调检测到版本不一致即销毁会话）
-        tokenVersion: { increment: 1 },
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.user.updateMany({
+        // 把 role 放进写入条件，堵住「检查时仍是学生、hash 期间被升权」的竞态。
+        where: {
+          id,
+          role: ROLES.STUDENT,
+          tokenVersion: target.tokenVersion,
+        },
+        data: {
+          passwordHash,
+          mustChangePassword: true,
+          tokenVersion: { increment: 1 },
+        },
+      });
+      if (result.count === 1) {
+        await tx.securityEvent.create({
+          data: securityEventData({
+            actorUserId: auth.userId,
+            subjectUserId: id,
+            subjectAccount: target.email,
+            eventType: "PASSWORD_RESET_BY_ADMIN",
+            ip: getClientIp(req.headers),
+            metadata: { actorRole: auth.role },
+          }),
+        });
+        await tx.securityEvent.create({
+          data: securityEventData({
+            actorUserId: auth.userId,
+            subjectUserId: id,
+            subjectAccount: target.email,
+            eventType: "SESSIONS_REVOKED",
+            ip: getClientIp(req.headers),
+            metadata: { reason: "teacher_password_reset" },
+          }),
+        });
+        await tx.databaseMetadata.upsert({
+          where: { key: `studentTemporaryCredential:${target.email}` },
+          create: {
+            key: `studentTemporaryCredential:${target.email}`,
+            value: "issued-v1",
+          },
+          update: { value: "issued-v1" },
+        });
+      }
+      return result;
     });
     if (updated.count !== 1) {
       return NextResponse.json(

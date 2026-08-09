@@ -29,6 +29,7 @@ import {
 import {
   enqueuePendingReview,
   attachStudySessionCredentials,
+  finalizeLegacyCredentialClaims,
   flushPendingReviews,
   pendingReviewCount,
   blockedReviewCount,
@@ -511,6 +512,7 @@ export default function StudyPage() {
         studySession.id,
         studySession.nonces,
       );
+      finalizeLegacyCredentialClaims(userId);
       // 空队列时 flushPendingReviews 会立即返回 0（不发任何请求）。
       // 这里的 setState 都在 await 之后，避免在 effect 中同步调用 setState。
       const remaining = await flushPendingReviews(userId, (_id, data) => {
@@ -670,6 +672,7 @@ export default function StudyPage() {
           : null;
         if (checkpoint && canResumeStudySession(checkpoint.queueSignature)) {
           params.set("resumeIds", checkpoint.queueSignature.join(","));
+          params.set("resumeSessionId", checkpoint.studySessionId);
         } else if (checkpoint) {
           // 旧版本可能保存过超过当前请求上限的单元；先丢弃再让服务端
           // 生成同样受限的新队列，避免每次 Retry 都重复收到 400。
@@ -829,6 +832,7 @@ export default function StudyPage() {
             phase: nextPhase,
             unitKey,
             queueSignature: queue.map((q) => q.word.id),
+            studySessionId: studySession!.id,
             currentIndex:
               nextPhase === "done"
                 ? queue.length
@@ -915,6 +919,7 @@ export default function StudyPage() {
       loading ||
       status !== "authenticated" ||
       !userId ||
+      !studySession ||
       swipeTransitioning
     )
       return;
@@ -927,6 +932,7 @@ export default function StudyPage() {
           phase: "done",
           unitKey,
           queueSignature: queue.map((q) => q.word.id),
+          studySessionId: studySession!.id,
           currentIndex: queue.length,
           knownWordIds: knownWords.map((w) => w.id),
           unknownWordIds: unknownWords.map((w) => w.id),
@@ -943,6 +949,7 @@ export default function StudyPage() {
       phase: wordStep,
       unitKey,
       queueSignature: queue.map((q) => q.word.id),
+      studySessionId: studySession!.id,
       currentIndex,
       knownWordIds: knownWords.map((w) => w.id),
       unknownWordIds: unknownWords.map((w) => w.id),
@@ -968,6 +975,7 @@ export default function StudyPage() {
     userId,
     swipeTransitioning,
     pendingSync,
+    studySession,
   ]);
 
   if (status === "loading" || loading) {
@@ -1158,7 +1166,11 @@ export default function StudyPage() {
       queue.length > 0 ? (currentIndex / queue.length) * 100 : 0;
 
     return (
-      <div className="flex min-h-full flex-col pb-24">
+      <div
+        data-testid="study-quiz-phase"
+        data-known-count={knownWords.length}
+        className="flex min-h-full flex-col pb-24"
+      >
         <ResumeToast visible={showResumedBanner} />
         <AchievementToast
           items={newAchievements}

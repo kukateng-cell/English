@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   attachStudySessionCredentials,
+  finalizeLegacyCredentialClaims,
   enqueuePendingReview,
   flushPendingReviews,
   loadPendingReviews,
@@ -62,6 +63,7 @@ test("legacy binding cannot steal a nonce already owned by a current answer", ()
   attachStudySessionCredentials("user-a", "session-current", {
     "word-1": "nonce-current",
   });
+  finalizeLegacyCredentialClaims("user-a");
 
   const rows = loadPendingReviews("user-a");
   const legacy = rows.find((row) => row.operationId === "legacy-a1");
@@ -69,6 +71,7 @@ test("legacy binding cannot steal a nonce already owned by a current answer", ()
   assert.ok(legacy);
   assert.ok(current);
   assert.equal(legacy.nonce, undefined);
+  assert.equal(legacy.status, "blocked");
   assert.equal(current.nonce, "nonce-current");
 });
 
@@ -195,7 +198,7 @@ test("one corrupt storage row does not hide valid outbox operations", () => {
   );
 });
 
-test("legacy outbox rows stay pending until a server nonce is attached", async () => {
+test("legacy outbox rows become visibly blocked after one adoption pass", async () => {
   installStorage();
   enqueuePendingReview("user-a", "operation-a1", "word-1", 5);
   const originalFetch = globalThis.fetch;
@@ -205,10 +208,12 @@ test("legacy outbox rows stay pending until a server nonce is attached", async (
     return new Response("{}", { status: 200 });
   };
   try {
+    finalizeLegacyCredentialClaims("user-a");
     await flushPendingReviews("user-a");
     assert.equal(calls, 0);
-    assert.equal(pendingReviewCount("user-a"), 1);
-    assert.equal(loadPendingReviews("user-a")[0].status, "pending");
+    assert.equal(pendingReviewCount("user-a"), 0);
+    assert.equal(blockedReviewCount("user-a"), 1);
+    assert.match(loadPendingReviews("user-a")[0].lastError ?? "", /来源凭证/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -222,7 +227,9 @@ test("expired session credentials are reauthorized and retried once", async () =
   });
   const originalFetch = globalThis.fetch;
   const requests: string[] = [];
-  globalThis.fetch = async (input) => {
+  let renewalBody: unknown;
+  let retriedBody: Record<string, unknown> | null = null;
+  globalThis.fetch = async (input, init) => {
     const url = String(input);
     requests.push(url);
     if (requests.length === 1) {
@@ -232,17 +239,25 @@ test("expired session credentials are reauthorized and retried once", async () =
       });
     }
     if (url === "/api/study/credentials") {
+      renewalBody = JSON.parse(String(init?.body));
       return new Response(
         JSON.stringify({
           studySession: {
             id: "session-fresh",
             expiresAt: new Date(Date.now() + 60_000).toISOString(),
-            nonces: { "word-1": "nonce-fresh" },
           },
+          credentials: [
+            {
+              operationId: "operation-a1",
+              wordId: "word-1",
+              nonce: "nonce-fresh",
+            },
+          ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
+    retriedBody = JSON.parse(String(init?.body));
     return new Response("{}", { status: 200 });
   };
   try {
@@ -254,6 +269,90 @@ test("expired session credentials are reauthorized and retried once", async () =
       "/api/study/credentials",
       "/api/study",
     ]);
+    assert.deepEqual(renewalBody, {
+      previousSessionId: "session-expired",
+      operations: [{ operationId: "operation-a1", wordId: "word-1" }],
+    });
+    const submittedAgain = retriedBody as Record<string, unknown> | null;
+    assert.equal(submittedAgain?.studySessionId, "session-fresh");
+    assert.equal(submittedAgain?.nonce, "nonce-fresh");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("only one repeated legacy review can adopt a word nonce", () => {
+  installStorage();
+  enqueuePendingReview("user-a", "legacy-a1", "word-1", 5);
+  enqueuePendingReview("user-a", "legacy-a2", "word-1", 3);
+  attachStudySessionCredentials("user-a", "session-fresh", {
+    "word-1": "nonce-fresh",
+  });
+  finalizeLegacyCredentialClaims("user-a");
+
+  const rows = loadPendingReviews("user-a");
+  assert.equal(rows.filter((row) => row.credentialState === "valid").length, 1);
+  assert.equal(rows.filter((row) => row.status === "blocked").length, 1);
+});
+
+for (const [status, error] of [
+  [404, "原学习 session 不存在或已清理"],
+  [403, "该单元已锁定"],
+] as const) {
+  test(`renewal ${status} blocks an expired row instead of retrying forever`, async () => {
+    installStorage();
+    enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+      studySessionId: "session-expired",
+      nonce: "nonce-expired",
+    });
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async (input) => {
+      calls++;
+      if (String(input) === "/api/study") {
+        return new Response(
+          JSON.stringify({ error: "学习 session 无效或已过期" }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ error }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    try {
+      const remaining = await flushPendingReviews("user-a");
+      assert.equal(calls, 2);
+      assert.equal(remaining, 0);
+      assert.equal(pendingReviewCount("user-a"), 0);
+      assert.equal(blockedReviewCount("user-a"), 1);
+      assert.equal(loadPendingReviews("user-a")[0].lastError, error);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+test("renewal 401 stays pending for retry after signing in again", async () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-expired",
+    nonce: "nonce-expired",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) =>
+    new Response(
+      JSON.stringify({ error: String(input).includes("credentials") ? "未登录" : "学习 session 无效或已过期" }),
+      {
+        status: String(input).includes("credentials") ? 401 : 403,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  try {
+    const remaining = await flushPendingReviews("user-a");
+    assert.equal(remaining, 1);
+    assert.equal(blockedReviewCount("user-a"), 0);
+    assert.equal(loadPendingReviews("user-a")[0].credentialState, "expired");
   } finally {
     globalThis.fetch = originalFetch;
   }

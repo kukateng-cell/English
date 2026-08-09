@@ -27,11 +27,14 @@ You can start editing the page in `src/app/`. The page auto-updates as you edit 
 | `DATABASE_URL` | ✅ | 应用运行时 PostgreSQL 连接串 |
 | `MIGRATE_URL` | ✅（迁移/seed） | PostgreSQL Session/direct 连接串；不会回退到 runtime URL |
 | `NEXTAUTH_SECRET` | ✅ | JWT 签名密钥，生产请用 `openssl rand -base64 32` |
+| `SECURITY_AUDIT_HASH_SECRET` | ⚠️ 生产必填 | 至少 32 字符的长期稳定审计 HMAC 密钥，独立于 JWT 密钥 |
 | `NEXTAUTH_URL` | ✅ | 应用根 URL（本地为 `http://localhost:3000`） |
 | `UPSTASH_REDIS_REST_URL` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST URL |
 | `UPSTASH_REDIS_REST_TOKEN` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST Token |
 | `CRON_SECRET` | ⚠️ 生产必填 | Vercel StudySession cleanup cron 的 Bearer secret |
 | `DATABASE_POOL_MAX` | 否 | 每个 serverless instance 的 pg pool 上限，默认 3 |
+| `DATABASE_ENVIRONMENT` | ✅（seed） | `development`、`test` 或 `production`；必须与数据库持久标记一致 |
+| `CONFIRM_DATABASE_ENVIRONMENT` | 首次 seed | 首次分类数据库时必须与 `DATABASE_ENVIRONMENT` 完全相同 |
 
 ### 登录限流（Upstash Redis）
 
@@ -62,6 +65,17 @@ TEST_STUDENT_PASSWORD="只用于本地测试的独立密码"
 
 运行 `npm run seed` 后，该学生会以 `mustChangePassword=false` 建立，可直接登入学习页；
 若账号已经存在，seed 会停止而不会覆盖现有账号。此功能须在生产保持关闭。
+
+批量建立 `student01` 至 `student40` 时，每个账号都会获得不同的一次性临时密码；
+仍未完成首次改密的旧账号会在 seed 时轮换，以清除历史共用密码。每笔写入成功后
+会立即输出凭证，避免中途失败遗失已建立账号的密码。
+
+### 字卡浏览器回归
+
+`npm run test:e2e:card-motion` 会先建立 production build，再以 Chromium、Firefox、
+WebKit 及移动装置 emulation 测试独立 motion harness，另以真实登入 session 验证完整
+学习流程。Playwright 的 Firefox 及 iPhone/WebKit 專案明确标作 JavaScript synthetic
+pointer；移动专案只属模拟环境，不能取代实体 iPhone Safari 测试。
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

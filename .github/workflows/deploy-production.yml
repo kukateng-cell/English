@@ -34,6 +34,8 @@ jobs:
       NEXTAUTH_SECRET: ci-placeholder-secret
       NEXTAUTH_URL: http://127.0.0.1:3100
       INITIAL_ADMIN_PASSWORD: CiAdminPlaceholder!2026
+      DATABASE_ENVIRONMENT: test
+      CONFIRM_DATABASE_ENVIRONMENT: test
       SEED_TEST_STUDENT: "1"
       TEST_STUDENT_USERNAME: __test_student__ci_card_motion
       TEST_STUDENT_PASSWORD: CiCardMotion!2026
@@ -107,6 +109,7 @@ jobs:
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SECURITY_AUDIT_HASH_SECRET: ${{ secrets.SECURITY_AUDIT_HASH_SECRET }}
           STUDY_OPERATION_ID_COMPAT_UNTIL: ${{ secrets.STUDY_OPERATION_ID_COMPAT_UNTIL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -116,6 +119,7 @@ jobs:
           test -n "$UPSTASH_REDIS_REST_URL" || { echo "::error::Missing production UPSTASH_REDIS_REST_URL"; exit 1; }
           test -n "$UPSTASH_REDIS_REST_TOKEN" || { echo "::error::Missing production UPSTASH_REDIS_REST_TOKEN"; exit 1; }
           test -n "$CRON_SECRET" || { echo "::error::Missing production CRON_SECRET"; exit 1; }
+          test -n "$SECURITY_AUDIT_HASH_SECRET" || { echo "::error::Missing SECURITY_AUDIT_HASH_SECRET"; exit 1; }
           test -n "$VERCEL_TOKEN" || { echo "::error::Missing VERCEL_TOKEN"; exit 1; }
           test -n "$VERCEL_ORG_ID" || { echo "::error::Missing VERCEL_ORG_ID"; exit 1; }
           test -n "$VERCEL_PROJECT_ID" || { echo "::error::Missing VERCEL_PROJECT_ID"; exit 1; }

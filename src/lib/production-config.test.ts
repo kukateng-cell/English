@@ -9,6 +9,7 @@ test("production configuration requires distributed limits and cron auth", () =>
   assert.deepEqual(productionConfigurationErrors({}, 0), [
     "distributed Upstash login/study rate limiting is required",
     "CRON_SECRET must contain at least 16 characters",
+    "SECURITY_AUDIT_HASH_SECRET must contain at least 32 characters",
   ]);
 });
 
@@ -35,6 +36,7 @@ test("strict production configuration rejects the old shared switch", () => {
         UPSTASH_REDIS_REST_URL: "https://redis.example",
         UPSTASH_REDIS_REST_TOKEN: "token",
         CRON_SECRET: "1234567890abcdef",
+        SECURITY_AUDIT_HASH_SECRET: "1234567890abcdef1234567890abcdef",
         REQUIRE_STUDY_OPERATION_ID: "0",
       },
       0,

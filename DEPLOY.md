@@ -86,11 +86,13 @@ MIGRATE_URL="postgresql://postgres.[REF]:[密码]@aws-0-[region].pooler.supabase
 
 # NextAuth
 NEXTAUTH_SECRET="用下面命令生成的随机串"
+SECURITY_AUDIT_HASH_SECRET="另一组长期稳定的随机串"
 NEXTAUTH_URL="http://localhost:3000"
 
 SEED_STUDENTS=1
-# 学生预设密码（student01..40 共用；不设置则 seed 自动生成强随机密码并打印到控制台）
-SEED_STUDENT_DEFAULT_PASSWORD="english123"
+DATABASE_ENVIRONMENT="development"
+# 只在数据库第一次分类时需要；之后持久标记会阻止误连生产库
+CONFIRM_DATABASE_ENVIRONMENT="development"
 SEED_TEST_STUDENT=1
 TEST_STUDENT_USERNAME="__test_student__local"
 TEST_STUDENT_PASSWORD="你的本地测试密码"
@@ -142,7 +144,7 @@ npm run seed
 
 - `word list.md` 里的所有单词
 - 管理员账号 `admin`、教师账号 `teacher`（密码 = 你设的 `INITIAL_ADMIN_PASSWORD`）
-- `student01` ~ `student40`（密码 = 你设的 `SEED_STUDENT_DEFAULT_PASSWORD`；未设置则 seed 自动生成强随机密码并打印到控制台。需在 `.env.local` 设 `SEED_STUDENTS=1` 才会创建）
+- `student01` ~ `student40`（仅在 `SEED_STUDENTS=1` 时处理；每个账号获发不同的一次性临时密码，仍未首次改密的旧账号亦会轮换；seed 每成功写入一笔便立即输出，请安全保存）
 - 本地测试学生 `__test_student__local`（或 `TEST_STUDENT_USERNAME` 指定的、带
   `__test_student__` 保留前缀的全新账号），密码为 `TEST_STUDENT_PASSWORD`；该账号
   `mustChangePassword=false`，可直接进入学习页。若账号已经存在，seed 会停止而不会
@@ -158,7 +160,7 @@ npm run seed
 npm run dev
 ```
 
-打开 <http://localhost:3000/login，用> `student01` / 你设的 `SEED_STUDENT_DEFAULT_PASSWORD` 登录，确认能正常学习。
+打开 <http://localhost:3000/login>，用 `student01` 及 seed 当次输出的一次性临时密码登录，确认能正常学习。
 **本地能跑通，说明 Supabase 连接 OK，可以进下一步。**
 
 ---
@@ -188,8 +190,10 @@ git push
    | `DATABASE_URL` | （第 1 步的 Transaction pooler，6543） | 运行时连库 |
    | `MIGRATE_URL`  | 不要填入 Vercel Preview / Runtime | 只存入 GitHub `production` environment secret；build 不可持有 DDL 凭证 |
    | `NEXTAUTH_SECRET` | （和本地一样的那串） | 生产环境要重新生成一串新的也行 |
+   | `SECURITY_AUDIT_HASH_SECRET` | 至少 32 字符独立随机串 | 审计账号/IP HMAC；必须长期稳定，不跟 JWT 密钥一同轮换 |
    | `NEXTAUTH_URL` | `https://你的应用名.vercel.app` | 部署后 Vercel 会给你域名；**首次可先留空或填预计域名，部署拿到真实域名后再回来改** |
    | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
+   | `DATABASE_ENVIRONMENT` | `production` | 仅 seed 时使用；必须与数据库持久环境标记一致 |
    | `SEED_TEST_STUDENT` | `0` | 生产不可自动建立本地测试学生 |
    | `UPSTASH_REDIS_REST_URL/TOKEN` | Upstash REST credentials | production 必填，所有 limiter 共用分布式计数 |
    | `CRON_SECRET` | 至少 16 字符随机值 | 保护每日 expired StudySession cleanup endpoint |
@@ -223,7 +227,9 @@ Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 
 首次大型 ledger backfill 前，workflow 会输出预计 event rows 与 database size；超过
 100,000 rows 默认中止，必须先制定分批／监控／回滚方案。旧 writer 全部离线至少
 30 分钟后，手动运行 **Contract legacy review ledger bridge** workflow，并输入
-`REMOVE_LEGACY_BRIDGE`，才会移除 compatibility trigger。
+`REMOVE_LEGACY_BRIDGE`。workflow 会套用正式 Prisma contract migration；migration
+若发现最近 30 分钟仍有 `LEGACY_BRIDGE` event 会直接拒绝，成功后 trigger/function
+的移除亦会完整记录在 `_prisma_migrations`。
 
 ### 4.2 修正 NEXTAUTH_URL（重要）
 
@@ -238,7 +244,7 @@ Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 
 ## 第 5 步：验证线上
 
 1. 打开 `https://你的域名.vercel.app/login`
-2. 用 `student01` / 你设的 `SEED_STUDENT_DEFAULT_PASSWORD` 登录
+2. 用 `student01` / 该账号获发的一次性临时密码登录
 3. 确认能加载单词、滑动学习、记录进度
 
 如果报错，看 Vercel → **Logs**（或 Functions 标签），最常见的是：
