@@ -1379,6 +1379,36 @@ test("independent browser contexts reconcile a nonce consumed on another device"
   });
   const independentPage = await independentContext.newPage();
   try {
+    await independentPage.goto("/");
+    const independentUserId = await authenticatedUserId(independentPage);
+    await independentPage.evaluate(
+      ({ ownerId, queueIds, studySessionId }) => {
+        window.localStorage.setItem(
+          `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+          JSON.stringify({
+            version: 5,
+            ownerId,
+            ts: Date.now(),
+            phase: "assess",
+            unitKey: "global",
+            queueSignature: queueIds,
+            studySessionId,
+            currentIndex: 0,
+            knownWordIds: [],
+            unknownWordIds: [],
+            quizStats: { correct: 0, wrong: 0 },
+            quizTargetId: null,
+            quizWrongCount: 0,
+            pendingQuizIds: [],
+          }),
+        );
+      },
+      {
+        ownerId: independentUserId,
+        queueIds: firstData.queue.map((item) => item.word.id),
+        studySessionId: firstData.studySession.id,
+      },
+    );
     const secondResponse = independentPage.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
@@ -1387,8 +1417,13 @@ test("independent browser contexts reconcile a nonce consumed on another device"
     );
     await independentPage.goto("/study");
     const secondData = (await (await secondResponse).json()) as StudyWorkflowData;
-    const independentUserId = await authenticatedUserId(independentPage);
-    expect(secondData.queue.some((item) => item.word.id === wordId)).toBe(true);
+    expect(secondData.studySession.id).toBe(firstData.studySession.id);
+    expect(secondData.queue.map((item) => item.word.id)).toEqual(
+      firstData.queue.map((item) => item.word.id),
+    );
+    expect(secondData.studySession.nonces[wordId!]).toBe(
+      firstData.studySession.nonces[wordId!],
+    );
 
     const firstOperationId = `device-a-${randomUUID()}`;
     const firstSubmit = await page.request.post("/api/study", {
