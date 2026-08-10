@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
@@ -24,8 +24,9 @@ export interface QuizQuestion {
 
 interface QuizCardProps {
   question: QuizQuestion;
-  onAnswer: (correct: boolean) => void;
+  onAnswer: (correct: boolean, interactionEpoch: number) => void;
   disabled?: boolean;
+  interactionEpoch?: number;
 }
 
 const cardMotion = {
@@ -39,19 +40,38 @@ export default function QuizCard({
   question,
   onAnswer,
   disabled = false,
+  interactionEpoch = 0,
 }: QuizCardProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const answerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { tc } = useLocale();
   const answered = selectedId !== null;
   const isEnZh = question.direction === "en-zh";
 
   const speak = () => speakEnglish(question.word.term);
 
+  useEffect(() => {
+    if (disabled && answerTimerRef.current) {
+      clearTimeout(answerTimerRef.current);
+      answerTimerRef.current = null;
+    }
+    return () => {
+      if (answerTimerRef.current) {
+        clearTimeout(answerTimerRef.current);
+        answerTimerRef.current = null;
+      }
+    };
+  }, [disabled, interactionEpoch, question.word.id, question.direction]);
+
   const handlePick = (optId: string) => {
     if (answered || disabled) return;
     setSelectedId(optId);
     const correct = optId === question.correctId;
-    setTimeout(() => onAnswer(correct), correct ? 700 : 1400);
+    const answerEpoch = interactionEpoch;
+    answerTimerRef.current = setTimeout(() => {
+      answerTimerRef.current = null;
+      onAnswer(correct, answerEpoch);
+    }, correct ? 700 : 1400);
   };
 
   const optionState = (optId: string): "correct" | "wrong" | "dim" | "idle" => {
@@ -136,6 +156,7 @@ export default function QuizCard({
           return (
             <motion.button
               key={opt.id + i}
+              data-testid="quiz-option"
               onClick={() => handlePick(opt.id)}
               disabled={answered || disabled}
               whileTap={{ scale: answered || disabled ? 1 : 0.97 }}

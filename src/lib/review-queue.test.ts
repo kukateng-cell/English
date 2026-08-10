@@ -10,6 +10,7 @@ import {
   pendingReviewCount,
   blockedReviewCount,
   parseReviewQueueMutationEvent,
+  planReviewQueueMutation,
   reviewQueueMutationStorageKey,
   ReviewQueueStorageError,
 } from "./review-queue";
@@ -171,6 +172,69 @@ test("successful submission publishes a cross-tab server mutation", async () => 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("successful submission retains its row when the mutation marker cannot be published", async () => {
+  installStorage((key) => key === reviewQueueMutationStorageKey("user-a"));
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-valid",
+    nonce: "nonce-valid",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("{}", { status: 200 });
+  try {
+    await assert.rejects(
+      flushPendingReviews("user-a"),
+      ReviewQueueStorageError,
+    );
+    assert.equal(pendingReviewCount("user-a"), 1);
+    assert.equal(loadPendingReviews("user-a")[0]?.operationId, "operation-a1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("mutation preflight includes due credentialed and adoptable legacy rows", () => {
+  installStorage();
+  enqueuePendingReview(
+    "user-a",
+    "operation-valid",
+    "word-valid",
+    5,
+    credentials("operation-valid"),
+  );
+  enqueuePendingReview("user-a", "operation-legacy", "word-legacy", 3);
+
+  const plan = planReviewQueueMutation("user-a", {
+    studySessionId: "session-current",
+    nonces: { "word-legacy": "nonce-legacy" },
+  });
+  assert.deepEqual(
+    new Set(plan.willMutateWordIds),
+    new Set(["word-valid", "word-legacy"]),
+  );
+  assert.deepEqual(plan.passivePendingWordIds, []);
+});
+
+test("mutation preflight treats expired credentials as active network work", () => {
+  const data = installStorage();
+  enqueuePendingReview(
+    "user-a",
+    "operation-expired",
+    "word-expired",
+    5,
+    credentials("operation-expired"),
+  );
+  const key = "study:review-item:user-a:operation-expired";
+  const row = JSON.parse(data.get(key)!) as Record<string, unknown>;
+  delete row.nonce;
+  row.credentialState = "expired";
+  data.set(key, JSON.stringify(row));
+
+  assert.deepEqual(
+    planReviewQueueMutation("user-a").willMutateWordIds,
+    ["word-expired"],
+  );
 });
 
 test("fallback mutex runs a trailing scan for an explicit concurrent flush", async () => {
@@ -392,6 +456,27 @@ test("rotation rebinds one pending operation per word", () => {
   assert.equal(rows[0].studySessionId, "session-new");
   assert.equal(rows[0].nonce, "nonce-new");
   assert.equal(rows[1].studySessionId, "session-old");
+});
+
+test("rotation preserves a future retry deadline while refreshing credentials", () => {
+  const data = installStorage();
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-old",
+    nonce: "nonce-old",
+  });
+  const key = "study:review-item:user-a:operation-a1";
+  const row = JSON.parse(data.get(key)!) as Record<string, unknown>;
+  const retryAt = Date.now() + 10 * 60_000;
+  row.nextAttemptAt = retryAt;
+  data.set(key, JSON.stringify(row));
+
+  rebindStudySessionCredentials("user-a", "session-old", "session-new", {
+    "word-1": "nonce-new",
+  });
+
+  const rebound = loadPendingReviews("user-a")[0];
+  assert.equal(rebound.studySessionId, "session-new");
+  assert.equal(rebound.nextAttemptAt, retryAt);
 });
 
 for (const [status, error] of [

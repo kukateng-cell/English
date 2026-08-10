@@ -424,25 +424,41 @@ async function main() {
     const testUsername = (
       process.env.TEST_STUDENT_USERNAME ?? "__test_student__local"
     ).trim();
+    const webkitTestUsername = (
+      process.env.TEST_STUDENT_WEBKIT_USERNAME ??
+      `${testUsername.slice(0, 56)}_webkit`
+    ).trim();
     const testPassword =
       process.env.TEST_STUDENT_PASSWORD ??
       process.env.TEST_ACCOUNT_PASSWORD ??
       "";
-    if (!/^[A-Za-z0-9._-]{3,64}$/.test(testUsername)) {
-      throw new Error(
-        "TEST_STUDENT_USERNAME 必须为 3–64 位，只可包含字母、数字、点、下划线或连字符。",
-      );
-    }
-    if (!testUsername.startsWith("__test_student__")) {
-      throw new Error(
-        "TEST_STUDENT_USERNAME 必须使用保留前缀 __test_student__，避免误用现有账号。",
-      );
+    for (const [name, username] of [
+      ["TEST_STUDENT_USERNAME", testUsername],
+      ["TEST_STUDENT_WEBKIT_USERNAME", webkitTestUsername],
+    ] as const) {
+      if (!/^[A-Za-z0-9._-]{3,64}$/.test(username)) {
+        throw new Error(
+          `${name} 必须为 3–64 位，只可包含字母、数字、点、下划线或连字符。`,
+        );
+      }
+      if (!username.startsWith("__test_student__")) {
+        throw new Error(
+          `${name} 必须使用保留前缀 __test_student__，避免误用现有账号。`,
+        );
+      }
     }
     const testPasswordError = passwordPolicyError(testPassword);
     if (testPasswordError) {
       throw new Error(`TEST_STUDENT_PASSWORD：${testPasswordError}`);
     }
     await seedTestStudent(testUsername, testPassword, databaseEnvironment);
+    if (webkitTestUsername !== testUsername) {
+      await seedTestStudent(
+        webkitTestUsername,
+        testPassword,
+        databaseEnvironment,
+      );
+    }
   }
 
   await prisma.$disconnect();

@@ -1,15 +1,22 @@
 import { expect, test as setup } from "@playwright/test";
 
-const AUTH_STATE = "test-results/.auth/student.json";
+function webkitUsername(base: string) {
+  return process.env.TEST_STUDENT_WEBKIT_USERNAME ?? `${base.slice(0, 56)}_webkit`;
+}
 
-setup("authenticate a real study session", async ({ page }) => {
-  const username = process.env.TEST_STUDENT_USERNAME;
+setup("authenticate a real study session", async ({ page }, testInfo) => {
+  const baseUsername = process.env.TEST_STUDENT_USERNAME;
   const password = process.env.TEST_STUDENT_PASSWORD;
-  if (!username || !password) {
+  if (!baseUsername || !password) {
     throw new Error(
       "TEST_STUDENT_USERNAME and TEST_STUDENT_PASSWORD are required",
     );
   }
+  const isWebkit = testInfo.project.name === "auth-setup-webkit";
+  const username = isWebkit ? webkitUsername(baseUsername) : baseUsername;
+  const authState = isWebkit
+    ? "test-results/.auth/student-webkit.json"
+    : "test-results/.auth/student-chromium.json";
 
   await page.goto("/login");
   await page.getByRole("textbox", { name: /賬號|账号/ }).fill(username);
@@ -27,5 +34,5 @@ setup("authenticate a real study session", async ({ page }) => {
   expect(sessionResponse.ok()).toBe(true);
   const session = (await sessionResponse.json()) as { user?: { id?: string } };
   expect(session.user?.id).toBeTruthy();
-  await page.context().storageState({ path: AUTH_STATE });
+  await page.context().storageState({ path: authState });
 });

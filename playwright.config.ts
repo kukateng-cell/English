@@ -21,9 +21,14 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "auth-setup",
+      name: "auth-setup-chromium",
       testMatch: /auth\.setup\.ts/,
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "auth-setup-webkit",
+      testMatch: /auth\.setup\.ts/,
+      use: { ...devices["Desktop Safari"] },
     },
     {
       name: "desktop-chromium-motion",
@@ -53,19 +58,19 @@ export default defineConfig({
     {
       name: "study-integration-chromium",
       testMatch: /study-workflow\.spec\.ts/,
-      dependencies: ["auth-setup"],
+      dependencies: ["auth-setup-chromium"],
       use: {
         ...devices["Desktop Chrome"],
-        storageState: "test-results/.auth/student.json",
+        storageState: "test-results/.auth/student-chromium.json",
       },
     },
     {
       name: "study-integration-webkit",
       testMatch: /study-workflow\.spec\.ts/,
-      dependencies: ["auth-setup"],
+      dependencies: ["auth-setup-webkit"],
       use: {
         ...devices["Desktop Safari"],
-        storageState: "test-results/.auth/student.json",
+        storageState: "test-results/.auth/student-webkit.json",
       },
     },
   ],

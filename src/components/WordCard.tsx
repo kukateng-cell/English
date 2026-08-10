@@ -70,6 +70,8 @@ interface WordCardProps {
   onSwipeRight: () => void;
   children?: ReactNode;
   disabled?: boolean;
+  /** Monotonic page generation; changes invalidate every in-flight gesture. */
+  interactionEpoch?: number;
   /** Test-harness instrumentation; production callers leave this unset. */
   onMotionProbe?: (probe: WordCardMotionProbe) => void;
   /** A/B switch used only by the isolated motion harness. */
@@ -251,6 +253,7 @@ export default function WordCard({
   onSwipeRight,
   children,
   disabled,
+  interactionEpoch = 0,
   onMotionProbe,
   timelineLeadEnabled = true,
   immediateReleasePoseEnabled = true,
@@ -306,6 +309,7 @@ export default function WordCard({
   const dismissingRef = useRef(false);
   const interactionPropsRef = useRef({
     disabled,
+    interactionEpoch,
     onSwipeLeft,
     onSwipeRight,
     onMotionProbe,
@@ -316,6 +320,7 @@ export default function WordCard({
   useEffect(() => {
     interactionPropsRef.current = {
       disabled,
+      interactionEpoch,
       onSwipeLeft,
       onSwipeRight,
       onMotionProbe,
@@ -324,6 +329,7 @@ export default function WordCard({
     };
   }, [
     disabled,
+    interactionEpoch,
     onSwipeLeft,
     onSwipeRight,
     onMotionProbe,
@@ -744,11 +750,18 @@ export default function WordCard({
       );
       const remainingDistance = Math.abs(targetX - currentX);
       let committed = false;
+      const startedEpoch = interactionPropsRef.current.interactionEpoch;
 
       const commit = () => {
         if (committed) return;
         committed = true;
-        if (mountedRef.current) callback();
+        if (
+          mountedRef.current &&
+          !interactionPropsRef.current.disabled &&
+          interactionPropsRef.current.interactionEpoch === startedEpoch
+        ) {
+          callback();
+        }
       };
 
       if (remainingDistance <= 0) {
@@ -776,6 +789,54 @@ export default function WordCard({
     },
     [startFlight],
   );
+
+  const cancelActiveInteraction = useCallback(() => {
+    const dragLayer = dragLayerRef.current;
+    const activeDrag = activeDragRef.current;
+    activeDragRef.current = null;
+    activeCaptureGenerationRef.current = null;
+    captureGenerationRef.current += 1;
+    if (
+      dragLayer &&
+      activeDrag &&
+      dragLayer.hasPointerCapture(activeDrag.pointerId)
+    ) {
+      dragLayer.releasePointerCapture(activeDrag.pointerId);
+    }
+    if (motionFrameRef.current !== null) {
+      cancelAnimationFrame(motionFrameRef.current);
+      motionFrameRef.current = null;
+    }
+    const motion = motionStateRef.current;
+    motion.generation += 1;
+    motion.mode = "idle";
+    motion.position = 0;
+    motion.velocity = 0;
+    motion.target = 0;
+    motion.lastTime = null;
+    motion.stationarySeconds = 0;
+    motion.releaseStartedAt = null;
+    motion.releaseStartPosition = 0;
+    motion.releaseStartVelocity = 0;
+    motion.releaseTimelineLeadMs = null;
+    motion.releaseTimelineOffsetMs = null;
+    motion.releaseElapsedMs = 0;
+    motion.releaseLastExecutionAt = 0;
+    motion.duration = 0;
+    motion.direction = null;
+    motion.onComplete = null;
+    motion.probeEmitted = false;
+    dismissingRef.current = false;
+    geometryRef.current = null;
+    writeCurrentDragFrame(0);
+  }, [writeCurrentDragFrame]);
+
+  const previousInteractionEpochRef = useRef(interactionEpoch);
+  useEffect(() => {
+    const epochChanged = previousInteractionEpochRef.current !== interactionEpoch;
+    previousInteractionEpochRef.current = interactionEpoch;
+    if (disabled || epochChanged) cancelActiveInteraction();
+  }, [disabled, interactionEpoch, cancelActiveInteraction]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;

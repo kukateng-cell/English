@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 
 interface StudyWorkflowData {
   queue: Array<{ word: { id: string; term: string } }>;
-  studySession: { id: string; nonces: Record<string, string> };
+  studySession: { id: string; expiresAt: string; nonces: Record<string, string> };
 }
 
 async function authenticatedUserId(page: Page): Promise<string> {
@@ -55,6 +55,35 @@ async function installQuizCheckpoint(
   );
 }
 
+async function dispatchServerMutation(
+  page: Page,
+  userId: string,
+  wordId: string,
+  studySessionId: string,
+) {
+  await page.evaluate(
+    ({ ownerId, affectedWordId, sessionId }) => {
+      const key = `study:review-mutation:${encodeURIComponent(ownerId)}`;
+      const value = JSON.stringify({
+        version: 1,
+        ownerId,
+        kind: "server-mutated",
+        wordIds: [affectedWordId],
+        sessionIds: [sessionId],
+        revision: `e2e-${Date.now()}`,
+      });
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key,
+          newValue: value,
+          storageArea: window.localStorage,
+        }),
+      );
+    },
+    { ownerId: userId, affectedWordId: wordId, sessionId: studySessionId },
+  );
+}
+
 test("authenticated card dismissal enters one quiz exactly once", async ({
   page,
 }) => {
@@ -80,6 +109,75 @@ test("authenticated card dismissal enters one quiz exactly once", async ({
   await expect(quiz).toBeVisible();
   await expect(quiz).toHaveAttribute("data-known-count", "1");
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+});
+
+test("reconciliation cancels a selected quiz answer before its delayed callback", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  await page.getByRole("button", { name: /認識.*✓|认识.*✓/ }).click();
+  await expect(page.getByTestId("study-quiz-phase")).toBeVisible();
+  await page.getByTestId("quiz-option").first().click();
+
+  await dispatchServerMutation(
+    page,
+    userId,
+    data.queue[0].word.id,
+    data.studySession.id,
+  );
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+  await page.waitForTimeout(1_500);
+  const reviewRows = await page.evaluate((ownerId) => {
+    const prefix = `study:review-item:${encodeURIComponent(ownerId)}:`;
+    return Object.keys(window.localStorage).filter((key) => key.startsWith(prefix));
+  }, userId);
+  expect(reviewRows).toEqual([]);
+  await expect(page.getByTestId("study-quiz-phase")).toHaveCount(0);
+});
+
+test("reconciliation cancels the help-panel delayed advance", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  await page.getByRole("button", { name: /不認識|不认识/ }).click();
+  await expect(page.getByTestId("help-panel-dismiss")).toBeVisible();
+  await page.getByTestId("help-panel-dismiss").click();
+
+  const freshResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await dispatchServerMutation(
+    page,
+    userId,
+    data.queue[0].word.id,
+    data.studySession.id,
+  );
+  const freshData = (await (await freshResponse).json()) as StudyWorkflowData;
+  const card = page.getByTestId("word-card-drag-layer");
+  await expect(card).toBeVisible();
+  await page.waitForTimeout(350);
+  await expect(
+    card.getByText(freshData.queue[0].word.term, { exact: true }),
+  ).toBeVisible();
 });
 
 test("queue request runs beside startup flush but interaction waits", async ({
@@ -146,6 +244,70 @@ test("queue request runs beside startup flush but interaction waits", async ({
     await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
   } finally {
     releasePost();
+  }
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+});
+
+test("an expired active row enters the barrier before slow credential renewal", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const operationId = `slow-renewal-${randomUUID()}`;
+  let releaseRenewal!: () => void;
+  let renewalStarted!: () => void;
+  const renewalGate = new Promise<void>((resolve) => {
+    releaseRenewal = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    renewalStarted = resolve;
+  });
+  await page.route("**/api/study/credentials", async (route) => {
+    renewalStarted();
+    await renewalGate;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "simulated renewal delay" }),
+    });
+  });
+  await page.evaluate(
+    ({ ownerId, operation, wordId, studySessionId }) => {
+      window.localStorage.setItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        JSON.stringify({
+          ownerId,
+          operationId: operation,
+          wordId,
+          quality: 5,
+          ts: Date.now(),
+          attempts: 1,
+          status: "pending",
+          studySessionId,
+          credentialState: "expired",
+        }),
+      );
+      window.dispatchEvent(new Event("online"));
+    },
+    {
+      ownerId: userId,
+      operation: operationId,
+      wordId: data.queue[0].word.id,
+      studySessionId: data.studySession.id,
+    },
+  );
+  await started;
+  try {
+    await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  } finally {
+    releaseRenewal();
   }
   await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
 });
@@ -771,6 +933,88 @@ test("a future-backoff active row preserves the in-memory quiz and checkpoint", 
   expect(checkpoint?.pendingQuizIds).toEqual([initialData.queue[0].word.id]);
 });
 
+test("a future-backoff row does not starve session rotation", async ({ page }) => {
+  await page.clock.install();
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const operationId = `rotation-backoff-${randomUUID()}`;
+  const retryAt = Date.now() + 60 * 60_000;
+  const replacementSessionId = `rotation-e2e-${randomUUID()}`;
+  await page.route("**/api/study/session/rotate", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        studySession: {
+          id: replacementSessionId,
+          expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+          nonces: data.studySession.nonces,
+        },
+      }),
+    });
+  });
+  await page.evaluate(
+    ({ ownerId, operation, wordId, studySessionId, nonce, nextAttemptAt }) => {
+      window.localStorage.setItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        JSON.stringify({
+          ownerId,
+          operationId: operation,
+          wordId,
+          quality: 5,
+          ts: Date.now(),
+          attempts: 1,
+          status: "pending",
+          nextAttemptAt,
+          studySessionId,
+          nonce,
+          credentialState: "valid",
+        }),
+      );
+      window.dispatchEvent(new Event("online"));
+    },
+    {
+      ownerId: userId,
+      operation: operationId,
+      wordId: data.queue[0].word.id,
+      studySessionId: data.studySession.id,
+      nonce: data.studySession.nonces[data.queue[0].word.id],
+      nextAttemptAt: retryAt,
+    },
+  );
+  const rotated = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname === "/api/study/session/rotate" &&
+      response.ok(),
+  );
+  const rotationDelay = Math.max(
+    0,
+    Date.parse(data.studySession.expiresAt) - Date.now() - 5 * 60_000,
+  );
+  await page.clock.fastForward(rotationDelay + 1_000);
+  await rotated;
+
+  const row = await page.evaluate(
+    ({ ownerId, operation }) => {
+      const raw = window.localStorage.getItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+      );
+      return raw ? JSON.parse(raw) : null;
+    },
+    { ownerId: userId, operation: operationId },
+  );
+  expect(row?.studySessionId).toBe(replacementSessionId);
+  expect(row?.nextAttemptAt).toBe(retryAt);
+});
+
 for (const failureStatus of [429, 500]) {
   test(`a ${failureStatus} active flush failure preserves quiz progress`, async ({
     page,
@@ -872,6 +1116,77 @@ for (const failureStatus of [429, 500]) {
   });
 }
 
+test("an active permanent failure remains guarded until queue revalidation", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const operationId = `blocked-active-${randomUUID()}`;
+  await page.route("**/api/study*", async (route) => {
+    const request = route.request();
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/study" &&
+      JSON.parse(request.postData() ?? "{}").operationId === operationId
+    ) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "该学习题目已经提交" }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.evaluate(
+    ({ ownerId, operation, wordId, studySessionId, nonce }) => {
+      window.localStorage.setItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        JSON.stringify({
+          ownerId,
+          operationId: operation,
+          wordId,
+          quality: 5,
+          ts: Date.now(),
+          attempts: 0,
+          status: "pending",
+          studySessionId,
+          nonce,
+          credentialState: "valid",
+        }),
+      );
+      window.dispatchEvent(new Event("online"));
+    },
+    {
+      ownerId: userId,
+      operation: operationId,
+      wordId: data.queue[0].word.id,
+      studySessionId: data.studySession.id,
+      nonce: data.studySession.nonces[data.queue[0].word.id],
+    },
+  );
+
+  await expect(page.getByText(/無法自動恢復|无法自动恢复/)).toBeVisible();
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  const row = await page.evaluate(
+    ({ ownerId, operation }) => {
+      const raw = window.localStorage.getItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+      );
+      return raw ? JSON.parse(raw) : null;
+    },
+    { ownerId: userId, operation: operationId },
+  );
+  expect(row?.status).toBe("blocked");
+});
+
 test("a successful submission in another tab invalidates the shared active session", async ({
   page,
   context,
@@ -967,6 +1282,20 @@ test("a successful submission in another tab invalidates the shared active sessi
     await route.continue();
   });
 
+  // Start a gesture before the shared outbox row arrives. Dynamic disabled
+  // must release capture, cancel the drag generation and centre the card.
+  const otherCard = otherPage.getByTestId("word-card-drag-layer");
+  const otherCardBox = await otherCard.boundingBox();
+  if (!otherCardBox) throw new Error("Other tab card bounding box is unavailable");
+  const dragStartX = otherCardBox.x + otherCardBox.width * 0.4;
+  const dragY = otherCardBox.y + otherCardBox.height * 0.4;
+  await otherPage.mouse.move(dragStartX, dragY);
+  await otherPage.mouse.down();
+  await otherPage.mouse.move(dragStartX + 90, dragY);
+  await expect
+    .poll(() => otherCard.evaluate((element) => element.style.transform))
+    .not.toContain("translate3d(0px");
+
   await page.evaluate(
     ({ ownerId, operation, wordId, studySessionId, nonce }) => {
       window.localStorage.setItem(
@@ -997,6 +1326,11 @@ test("a successful submission in another tab invalidates the shared active sessi
     name: /認識.*✓|认识.*✓/,
   });
   await expect(otherKnownButton).toBeDisabled();
+  await expect
+    .poll(() => otherCard.evaluate((element) => element.style.transform))
+    .toContain("translate3d(0px");
+  await otherPage.mouse.up();
+  await expect(otherPage.getByTestId("study-quiz-phase")).toHaveCount(0);
 
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await postStarted;

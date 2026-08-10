@@ -59,6 +59,17 @@ export interface ReviewQueueMutationEvent {
   revision: string;
 }
 
+export interface ReviewQueueMutationPlan {
+  /** Rows that can POST, renew then POST, or adopt the supplied session then POST now. */
+  willMutateWordIds: string[];
+  /** Retryable rows which cannot mutate the server in this flush cycle. */
+  passivePendingWordIds: string[];
+  /** Permanently failed rows which require a queue/session revalidation. */
+  blockedWordIds: string[];
+  /** Earliest retry deadline among passive backoff rows. */
+  nextAttemptAt: number | null;
+}
+
 export class ReviewQueueStorageError extends Error {
   constructor() {
     super("REVIEW_QUEUE_STORAGE_UNAVAILABLE");
@@ -344,6 +355,75 @@ export function blockedReviewMessage(userId: string): string | null {
   );
 }
 
+/**
+ * Classify every durable row before a caller starts network work. This is the
+ * single preflight used by the study page's reconciliation barrier: a missing
+ * nonce does not imply passivity because expired rows can renew and legacy
+ * rows can adopt a nonce from the active session in the same flush cycle.
+ */
+export function planReviewQueueMutation(
+  userId: string,
+  activeSession?: {
+    studySessionId: string;
+    nonces: Record<string, string>;
+  } | null,
+): ReviewQueueMutationPlan {
+  const now = Date.now();
+  const willMutateWordIds = new Set<string>();
+  const passivePendingWordIds = new Set<string>();
+  const blockedWordIds = new Set<string>();
+  let nextAttemptAt: number | null = null;
+  const rows = loadPendingReviews(userId);
+  const assignedActiveSessionWords = new Set(
+    rows
+      .filter(
+        (item) =>
+          item.status === "pending" &&
+          item.studySessionId === activeSession?.studySessionId &&
+          Boolean(item.nonce),
+      )
+      .map((item) => item.wordId),
+  );
+
+  for (const item of rows) {
+    if (item.status === "blocked") {
+      blockedWordIds.add(item.wordId);
+      continue;
+    }
+    if (item.nextAttemptAt && item.nextAttemptAt > now) {
+      passivePendingWordIds.add(item.wordId);
+      nextAttemptAt =
+        nextAttemptAt === null
+          ? item.nextAttemptAt
+          : Math.min(nextAttemptAt, item.nextAttemptAt);
+      continue;
+    }
+    const canPost = Boolean(item.studySessionId && item.nonce);
+    const canRenew =
+      item.credentialState === "expired" &&
+      Boolean(item.studySessionId) &&
+      !item.nonce;
+    const canAdopt = Boolean(
+      item.credentialState === "legacy-claimed" &&
+        activeSession?.nonces[item.wordId] &&
+        !assignedActiveSessionWords.has(item.wordId),
+    );
+    if (canPost || canRenew || canAdopt) {
+      willMutateWordIds.add(item.wordId);
+      if (canAdopt) assignedActiveSessionWords.add(item.wordId);
+    } else {
+      passivePendingWordIds.add(item.wordId);
+    }
+  }
+
+  return {
+    willMutateWordIds: [...willMutateWordIds],
+    passivePendingWordIds: [...passivePendingWordIds],
+    blockedWordIds: [...blockedWordIds],
+    nextAttemptAt,
+  };
+}
+
 /** 用户确认后移除无法自动重试的永久失败项目。 */
 export function discardBlockedReviews(userId: string): void {
   for (const item of loadPendingReviews(userId)) {
@@ -575,7 +655,6 @@ export function rebindStudySessionCredentials(
       nonce: nonces[item.wordId],
       credentialState: "valid",
       lastError: undefined,
-      nextAttemptAt: undefined,
     })) {
       storageAvailable = false;
     }
@@ -731,9 +810,6 @@ async function flushPendingReviewsUnlocked(
   const queueByOperation = new Map(
     queue.map((item) => [item.operationId, item]),
   );
-  for (const operationId of succeededOperations) {
-    if (!removeReviewItem(userId, operationId)) storageAvailable = false;
-  }
   const succeededItems = [...succeededOperations]
     .map((operationId) => queueByOperation.get(operationId))
     .filter((item): item is PendingReview => Boolean(item));
@@ -749,6 +825,15 @@ async function flushPendingReviewsUnlocked(
     )
   ) {
     storageAvailable = false;
+  }
+  // The cross-tab commit marker must become durable before rows disappear.
+  // If marker storage fails, retain the outbox operations: operationId makes
+  // their replay safe, while deleting them would let another tab reuse a
+  // consumed queue/session nonce without ever seeing server-mutated.
+  if (storageAvailable) {
+    for (const operationId of succeededOperations) {
+      if (!removeReviewItem(userId, operationId)) storageAvailable = false;
+    }
   }
   const latest = new Map(
     loadPendingReviews(userId).map((item) => [item.operationId, item]),

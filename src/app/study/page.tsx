@@ -45,6 +45,7 @@ import {
   claimLegacyReviews,
   discardLegacyReviews,
   parseReviewQueueMutationEvent,
+  planReviewQueueMutation,
   reviewQueueItemStoragePrefix,
   reviewQueueMutationStorageKey,
   ReviewQueueStorageError,
@@ -104,6 +105,18 @@ interface PendingFlushOutcome {
   submittedWordIds: string[];
   adoptedWordIds: string[];
   storageError: boolean;
+}
+
+type ReconcileResult =
+  | { kind: "safe" }
+  | { kind: "passive-pending"; nextAttemptAt: number | null }
+  | { kind: "reload-started" }
+  | { kind: "retryable-error" }
+  | { kind: "permanent-error"; blockedWordIds: string[] }
+  | { kind: "storage-error" };
+
+function canRotateAfterReconcile(result: ReconcileResult): boolean {
+  return result.kind === "safe" || result.kind === "passive-pending";
 }
 
 const STUDY_QUEUE_REQUEST_TIMEOUT_MS = 15_000;
@@ -513,10 +526,40 @@ export default function StudyPage() {
   const rotationRetryAttemptRef = useRef(0);
   const rotationSessionRef = useRef<StudySessionInfo | null>(null);
   const rotateStudySessionRef = useRef<() => Promise<void>>(async () => {});
+  const scheduleRotationRetryRef = useRef<
+    (session: StudySessionInfo, retryAfterMs?: number) => void
+  >(() => {});
   const reconciliationServerMutatedWordIdsRef = useRef<Set<string> | null>(null);
+  const [interactionEpoch, setInteractionEpoch] = useState(0);
+  const interactionEpochRef = useRef(0);
+  const helpDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Assessment gestures and help dismissal share the same page generation.
+  const swipeLockRef = useRef(false);
+  const [swipeTransitioning, setSwipeTransitioning] = useState(false);
   const performanceEntriesRef = useRef<
     Array<{ entryType: string; startTime: number; duration: number }>
   >([]);
+
+  const invalidateInteractions = useCallback(() => {
+    interactionEpochRef.current += 1;
+    setInteractionEpoch(interactionEpochRef.current);
+    if (helpDismissTimerRef.current) {
+      clearTimeout(helpDismissTimerRef.current);
+      helpDismissTimerRef.current = null;
+    }
+    swipeLockRef.current = false;
+    setSwipeTransitioning(false);
+  }, []);
+
+  const beginReconciliation = useCallback(() => {
+    invalidateInteractions();
+    setLoading(true);
+  }, [invalidateInteractions]);
+
+  const reloadStudyQueue = useCallback(() => {
+    beginReconciliation();
+    setReloadKey((key) => key + 1);
+  }, [beginReconciliation]);
 
   useEffect(() => {
     rotationSessionRef.current = studySession;
@@ -623,7 +666,7 @@ export default function StudyPage() {
     );
     setGuardedPendingWordIds(
       reviews
-        .filter((item) => item.status === "pending")
+        .filter((item) => item.status === "pending" || item.status === "blocked")
         .map((item) => item.wordId),
     );
     setLegacySync(legacyReviewCount());
@@ -640,7 +683,8 @@ export default function StudyPage() {
       return;
     }
     refreshSyncCounts();
-  }, [userId, refreshSyncCounts]);
+    reloadStudyQueue();
+  }, [userId, refreshSyncCounts, reloadStudyQueue]);
 
   const claimLegacy = useCallback(() => {
     if (!userId) return;
@@ -654,9 +698,9 @@ export default function StudyPage() {
     // Claimed rows can adopt a nonce from the card already on screen. Hide
     // that card immediately and let the startup barrier reconcile the claim
     // against a fresh queue/session before interaction resumes.
-    setLoading(true);
+    beginReconciliation();
     setReloadKey((key) => key + 1);
-  }, [userId, refreshSyncCounts]);
+  }, [userId, refreshSyncCounts, beginReconciliation]);
 
   const discardLegacy = useCallback(() => {
     try {
@@ -670,15 +714,11 @@ export default function StudyPage() {
     refreshSyncCounts();
   }, [refreshSyncCounts]);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
-  const handleQuizAnswerRef = useRef<(correct: boolean | null) => void>(() => {});
+  const handleQuizAnswerRef = useRef<
+    (correct: boolean | null, interactionEpoch: number) => void
+  >(() => {});
   // 测试阶段每个词的答错次数，决定最终 SM-2 quality（0 错=5、1 错=4、≥2 错=3）
   const quizWrongCounts = useRef<Record<string, number>>({});
-  // 认字评估手势锁：飞出完成与状态切换期间禁止重复触发，避免同一词被多次计入
-  // knownWords / unknownWords（连点 / 拖拽+按钮同时触发）。
-  const swipeLockRef = useRef(false);
-  // Swipe 分类与进入 quiz/help 涉及动画；期间不写 checkpoint，避免保存半步状态。
-  const [swipeTransitioning, setSwipeTransitioning] = useState(false);
-
   // 「已恢复上次进度」轻提示
   const [showResumedBanner, setShowResumedBanner] = useState(false);
   const resumedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -726,6 +766,7 @@ export default function StudyPage() {
   const [quizTarget, setQuizTarget] = useState<WordFull | null>(null);
 
   const resetLearningStateForFreshQueue = useCallback(() => {
+    invalidateInteractions();
     setCurrentIndex(0);
     setHelpVisible(false);
     setWordStep("assess");
@@ -740,7 +781,16 @@ export default function StudyPage() {
     setSwipeTransitioning(false);
     swipeLockRef.current = false;
     setShowResumedBanner(false);
-  }, []);
+  }, [invalidateInteractions]);
+
+  useEffect(
+    () => () => {
+      if (helpDismissTimerRef.current) {
+        clearTimeout(helpDismissTimerRef.current);
+      }
+    },
+    [],
+  );
 
   // 干扰项来源池：外部词 + 本次评估队列词
   const distractorSource: PoolWord[] = useMemo(
@@ -849,7 +899,7 @@ export default function StudyPage() {
     setBlockedSyncError(blockedReviewMessage(userId));
     setGuardedPendingWordIds(
       loadPendingReviews(userId)
-        .filter((item) => item.status === "pending")
+        .filter((item) => item.status === "pending" || item.status === "blocked")
         .map((item) => item.wordId),
     );
     setLegacySync(legacyReviewCount());
@@ -861,35 +911,34 @@ export default function StudyPage() {
     };
   }, [userId]);
 
-  // Every flush that runs after the page becomes interactive must reconcile
-  // its result with the active queue/checkpoint. Only a successful server
-  // mutation invalidates that context; a pending/backoff row merely guards its
-  // word and must never erase local progress. Returns true only when it is safe
-  // for a caller such as session rotation to continue on this page.
-  const flushAndReconcile = useCallback(async (): Promise<boolean> => {
-    if (!userId) return false;
+  // Every post-start flush is classified before its first await. Expired and
+  // legacy rows can renew/adopt then POST in one cycle, so a missing nonce is
+  // not enough to declare a flush passive. The structured result deliberately
+  // separates interaction safety, reloads and session-rotation eligibility.
+  const flushAndReconcile = useCallback(async (): Promise<ReconcileResult> => {
+    if (!userId) return { kind: "retryable-error" };
     const checkpoint = loadCheckpoint(userId, getUnitKey());
     const activeWordIds = new Set([
       ...queue.map((item) => item.word.id),
       ...(checkpoint?.queueSignature ?? []),
     ]);
-    const activePending = loadPendingReviews(userId)
-      .filter(
-        (item) =>
-          item.status === "pending" && activeWordIds.has(item.wordId),
-      );
-    const hasEligibleActivePending = activePending.some(
-      (item) =>
-        Boolean(item.studySessionId && item.nonce) &&
-        (!item.nextAttemptAt || item.nextAttemptAt <= Date.now()),
+    const activeSession = rotationSessionRef.current;
+    const preflight = planReviewQueueMutation(
+      userId,
+      activeSession
+        ? { studySessionId: activeSession.id, nonces: activeSession.nonces }
+        : null,
     );
-    if (hasEligibleActivePending) setLoading(true);
+    const startsActiveServerMutation = preflight.willMutateWordIds.some(
+      (wordId) => activeWordIds.has(wordId),
+    );
+    if (startsActiveServerMutation) beginReconciliation();
 
     try {
       const outcome = await flushPending();
       if (outcome.storageError) {
-        if (hasEligibleActivePending) setLoading(false);
-        return false;
+        if (startsActiveServerMutation) setLoading(false);
+        return { kind: "storage-error" };
       }
       const submittedActiveWordIds = outcome.submittedWordIds.filter(
         (wordId) => activeWordIds.has(wordId),
@@ -898,9 +947,9 @@ export default function StudyPage() {
         reconciliationServerMutatedWordIdsRef.current = new Set(
           submittedActiveWordIds,
         );
-        setLoading(true);
+        if (!startsActiveServerMutation) beginReconciliation();
         setReloadKey((key) => key + 1);
-        return false;
+        return { kind: "reload-started" };
       }
       const unresolvedAdoptedActiveWord = outcome.adoptedWordIds.some(
         (wordId) =>
@@ -911,21 +960,40 @@ export default function StudyPage() {
         setError(
           "待同步记录已占用目前学习凭证，但尚未成功提交，请稍后重试",
         );
-        if (hasEligibleActivePending) setLoading(false);
-        return false;
+        if (startsActiveServerMutation) setLoading(false);
+        return { kind: "retryable-error" };
       }
-      if (hasEligibleActivePending) setLoading(false);
-      const stillHasActivePending = loadPendingReviews(userId).some(
-        (item) =>
-          item.status === "pending" && activeWordIds.has(item.wordId),
+      if (startsActiveServerMutation) setLoading(false);
+      const finalPlan = planReviewQueueMutation(
+        userId,
+        activeSession
+          ? { studySessionId: activeSession.id, nonces: activeSession.nonces }
+          : null,
       );
-      return !stillHasActivePending;
+      const blockedActiveWordIds = finalPlan.blockedWordIds.filter((wordId) =>
+        activeWordIds.has(wordId),
+      );
+      if (blockedActiveWordIds.length > 0) {
+        setError(
+          "目前题目有无法自动恢复的同步记录，请重新载入题目或清除失败记录后再继续",
+        );
+        return {
+          kind: "permanent-error",
+          blockedWordIds: blockedActiveWordIds,
+        };
+      }
+      const hasPassiveActivePending = finalPlan.passivePendingWordIds.some(
+        (wordId) => activeWordIds.has(wordId),
+      );
+      return hasPassiveActivePending
+        ? { kind: "passive-pending", nextAttemptAt: finalPlan.nextAttemptAt }
+        : { kind: "safe" };
     } catch (error) {
-      if (hasEligibleActivePending) setLoading(false);
+      if (startsActiveServerMutation) setLoading(false);
       setError(networkErrorMessage(error));
-      return false;
+      return { kind: "retryable-error" };
     }
-  }, [userId, queue, flushPending]);
+  }, [userId, queue, flushPending, beginReconciliation]);
 
   // 网络恢复 / 页面重新可见 / 定时器：自动重试缓冲的待提交评测，
   // 保证用户离线时记下的学习在恢复连接后不丢失。
@@ -949,6 +1017,40 @@ export default function StudyPage() {
       window.clearInterval(timer);
     };
   }, [status, userId, loading, flushAndReconcile]);
+
+  const scheduleRotationRetry = useCallback(
+    (currentSession: StudySessionInfo, retryAfterMs?: number) => {
+      if (rotationRetryTimerRef.current) {
+        clearTimeout(rotationRetryTimerRef.current);
+        rotationRetryTimerRef.current = null;
+      }
+      const remainingMs = Date.parse(currentSession.expiresAt) - Date.now();
+      if (!Number.isFinite(remainingMs) || remainingMs <= 30_000) return;
+      const attempt = rotationRetryAttemptRef.current++;
+      const exponentialDelay = Math.min(
+        60_000,
+        1_000 * 2 ** Math.min(attempt, 6),
+      );
+      const delay = Math.min(
+        Math.max(1_000, retryAfterMs ?? exponentialDelay),
+        Math.max(1_000, remainingMs - 30_000),
+      );
+      rotationRetryTimerRef.current = setTimeout(async () => {
+        rotationRetryTimerRef.current = null;
+        const result = await flushAndReconcile();
+        if (canRotateAfterReconcile(result)) {
+          void rotateStudySessionRef.current();
+          return;
+        }
+        scheduleRotationRetryRef.current(currentSession);
+      }, delay);
+    },
+    [flushAndReconcile],
+  );
+
+  useEffect(() => {
+    scheduleRotationRetryRef.current = scheduleRotationRetry;
+  }, [scheduleRotationRetry]);
 
   // localStorage is shared across tabs, but React state is not. Row changes
   // refresh the guard banner immediately; a successful submission in another
@@ -983,10 +1085,11 @@ export default function StudyPage() {
             mutation.sessionIds[1],
           )
         ) {
-          setLoading(true);
+          beginReconciliation();
           setReloadKey((key) => key + 1);
           return;
         }
+        invalidateInteractions();
         setError(
           "学习凭证已在另一分页轮换，请重新载入题目后继续",
         );
@@ -997,6 +1100,7 @@ export default function StudyPage() {
         studySession &&
         mutation.sessionIds.includes(studySession.id)
       ) {
+        invalidateInteractions();
         setError(
           "学习凭证已在另一分页更新，请重新载入题目后继续",
         );
@@ -1015,12 +1119,20 @@ export default function StudyPage() {
       reconciliationServerMutatedWordIdsRef.current = new Set(
         affectedWordIds,
       );
-      setLoading(true);
+      beginReconciliation();
       setReloadKey((key) => key + 1);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [status, userId, queue, studySession, refreshSyncCounts]);
+  }, [
+    status,
+    userId,
+    queue,
+    studySession,
+    refreshSyncCounts,
+    beginReconciliation,
+    invalidateInteractions,
+  ]);
 
   const rotateStudySession = useCallback(async () => {
     const currentSession = rotationSessionRef.current ?? studySession;
@@ -1030,24 +1142,11 @@ export default function StudyPage() {
       clearTimeout(rotationRetryTimerRef.current);
       rotationRetryTimerRef.current = null;
     }
+    beginReconciliation();
 
     const retryLater = (message: string, retryAfterMs?: number) => {
       setRotationNotice(message);
-      const remainingMs = Date.parse(currentSession.expiresAt) - Date.now();
-      if (!Number.isFinite(remainingMs) || remainingMs <= 30_000) return;
-      const attempt = rotationRetryAttemptRef.current++;
-      const exponentialDelay = Math.min(60_000, 1_000 * 2 ** Math.min(attempt, 6));
-      const requestedDelay = retryAfterMs ?? exponentialDelay;
-      const delay = Math.min(
-        Math.max(1_000, requestedDelay),
-        Math.max(1_000, remainingMs - 30_000),
-      );
-      rotationRetryTimerRef.current = setTimeout(() => {
-        rotationRetryTimerRef.current = null;
-        void flushAndReconcile().then((safeToContinue) => {
-          if (safeToContinue) void rotateStudySessionRef.current();
-        });
-      }, delay);
+      scheduleRotationRetry(currentSession, retryAfterMs);
     };
 
     try {
@@ -1105,8 +1204,15 @@ export default function StudyPage() {
       }
     } finally {
       isRotatingSessionRef.current = false;
+      setLoading(false);
     }
-  }, [userId, studySession, queue, flushAndReconcile]);
+  }, [
+    userId,
+    studySession,
+    queue,
+    beginReconciliation,
+    scheduleRotationRetry,
+  ]);
 
   useEffect(() => {
     rotateStudySessionRef.current = rotateStudySession;
@@ -1121,8 +1227,12 @@ export default function StudyPage() {
     const delay = Math.max(0, expiresAt - Date.now() - 5 * 60_000);
     const timer = window.setTimeout(
       () => {
-        void flushAndReconcile().then((safeToContinue) => {
-          if (safeToContinue) void rotateStudySessionRef.current();
+        void flushAndReconcile().then((result) => {
+          if (canRotateAfterReconcile(result)) {
+            void rotateStudySessionRef.current();
+            return;
+          }
+          scheduleRotationRetryRef.current(studySession);
         });
       },
       Math.min(delay, 2_147_000_000),
@@ -1418,9 +1528,13 @@ export default function StudyPage() {
     if (done || wordStep !== "quiz" || !quizTarget) return;
     if (currentQuestion !== null) return;
     // 用 setTimeout(0) 推迟到下一帧，避免在渲染期间 setState
-    const t = setTimeout(() => handleQuizAnswerRef.current(null), 0);
+    const answerEpoch = interactionEpochRef.current;
+    const t = setTimeout(
+      () => handleQuizAnswerRef.current(null, answerEpoch),
+      0,
+    );
     return () => clearTimeout(t);
-  }, [done, wordStep, quizTarget, currentQuestion]);
+  }, [done, wordStep, quizTarget, currentQuestion, interactionEpoch]);
 
   // 推进到下一个生字的「认字评估」步。
   // 如果还有延后未测的词，不推进，而是回头测它们（在全部认字评估完成后，
@@ -1455,7 +1569,8 @@ export default function StudyPage() {
 
   // 测试作答（必须在所有 early return 之前调用，遵守 Rules of Hooks）
   const handleQuizAnswer = useCallback(
-    (correct: boolean | null) => {
+    (correct: boolean | null, answerEpoch: number) => {
+      if (answerEpoch !== interactionEpochRef.current || loading) return;
       // 测试目标可能是刚认完的词，也可能是延后回来的不认识词
       const word = quizTarget;
       if (word && guardedPendingWordIds.includes(word.id)) return;
@@ -1575,6 +1690,7 @@ export default function StudyPage() {
       knownWords,
       studySession,
       guardedPendingWordIds,
+      loading,
     ]
   );
 
@@ -1697,13 +1813,18 @@ export default function StudyPage() {
   // 当前词（不认识）的测试会延后：先去认下一个生字，等下一个生字认完且测完后，
   // 再回头测这个词。
   const handleHelpDismiss = () => {
+    if (interactionGuarded || loading) return;
+    const dismissEpoch = interactionEpochRef.current;
     setHelpVisible(false);
     // 把当前不认识的词记入延后测试队列
     if (current) {
       pendingQuizzes.current = [...pendingQuizzes.current, current.word];
     }
     // 推进到下一个生字的认字评估
-    setTimeout(() => {
+    if (helpDismissTimerRef.current) clearTimeout(helpDismissTimerRef.current);
+    helpDismissTimerRef.current = setTimeout(() => {
+      helpDismissTimerRef.current = null;
+      if (dismissEpoch !== interactionEpochRef.current) return;
       advanceToNextAssess();
       setSwipeTransitioning(false);
     }, 200);
@@ -1791,7 +1912,7 @@ export default function StudyPage() {
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
         <ErrorBanner
           message={error}
-          onRetry={() => setReloadKey((k) => k + 1)}
+          onRetry={reloadStudyQueue}
         />
       </div>
     );
@@ -1841,7 +1962,7 @@ export default function StudyPage() {
         <RotationNotice
           message={rotationNotice}
           onRetry={() => void rotateStudySession()}
-          onReload={() => setReloadKey((key) => key + 1)}
+          onReload={reloadStudyQueue}
         />
         <CardMotionProbePanel
           enabled={cardProbeEnabled}
@@ -1925,6 +2046,7 @@ export default function StudyPage() {
                   question={currentQuestion}
                   onAnswer={handleQuizAnswer}
                   disabled={interactionGuarded}
+                  interactionEpoch={interactionEpoch}
                 />
               </motion.div>
             )}
@@ -1942,7 +2064,7 @@ export default function StudyPage() {
         <RotationNotice
           message={rotationNotice}
           onRetry={() => void rotateStudySession()}
-          onReload={() => setReloadKey((key) => key + 1)}
+          onReload={reloadStudyQueue}
         />
         <CardMotionProbePanel
           enabled={cardProbeEnabled}
@@ -2058,7 +2180,7 @@ export default function StudyPage() {
       <RotationNotice
         message={rotationNotice}
         onRetry={() => void rotateStudySession()}
-        onReload={() => setReloadKey((key) => key + 1)}
+        onReload={reloadStudyQueue}
       />
       <CardMotionProbePanel
         enabled={cardProbeEnabled}
@@ -2149,6 +2271,7 @@ export default function StudyPage() {
             onSwipeLeft={handleSwipeLeft}
             onSwipeRight={handleSwipeRight}
             disabled={helpVisible || interactionGuarded}
+            interactionEpoch={interactionEpoch}
             onMotionProbe={cardProbeEnabled ? recordCardMotionProbe : undefined}
           />
         </motion.div>
