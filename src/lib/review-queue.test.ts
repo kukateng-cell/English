@@ -13,6 +13,7 @@ import {
   planReviewQueueMutation,
   reviewQueueMutationStorageKey,
   ReviewQueueStorageError,
+  type ReviewQueueMutationEvent,
 } from "./review-queue";
 
 function installStorage(
@@ -151,8 +152,14 @@ test("flush preserves an event enqueued while a request is in flight", async () 
   }
 });
 
-test("successful submission publishes a cross-tab server mutation", async () => {
-  const data = installStorage();
+test("successful submission publishes and then releases its cross-tab mutation lease", async () => {
+  const mutationEvents: ReviewQueueMutationEvent[] = [];
+  installStorage((key, value) => {
+    if (key !== reviewQueueMutationStorageKey("user-a")) return false;
+    const event = parseReviewQueueMutationEvent("user-a", value);
+    if (event) mutationEvents.push(event);
+    return false;
+  });
   enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
     studySessionId: "session-valid",
     nonce: "nonce-valid",
@@ -161,14 +168,15 @@ test("successful submission publishes a cross-tab server mutation", async () => 
   globalThis.fetch = async () => new Response("{}", { status: 200 });
   try {
     await flushPendingReviews("user-a");
-    const event = parseReviewQueueMutationEvent(
-      "user-a",
-      data.get(reviewQueueMutationStorageKey("user-a")) ?? null,
+    const serverEvent = mutationEvents.find(
+      (event) => event.kind === "server-mutated",
     );
-    assert.ok(event);
-    assert.equal(event.kind, "server-mutated");
-    assert.deepEqual(event.wordIds, ["word-1"]);
-    assert.deepEqual(event.sessionIds, ["session-valid"]);
+    const releaseEvent = mutationEvents.at(-1);
+    assert.ok(serverEvent);
+    assert.deepEqual(serverEvent.wordIds, ["word-1"]);
+    assert.deepEqual(serverEvent.sessionIds, ["session-valid"]);
+    assert.equal(releaseEvent?.kind, "mutation-released");
+    assert.equal(releaseEvent?.leaseId, serverEvent.leaseId);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -200,6 +208,96 @@ test("already-processed nonce conflict reconciles instead of blocking", async ()
     assert.equal(loadPendingReviews("user-a").length, 0);
     assert.deepEqual(completed, [{ wordId: "word-1", reconciled: true }]);
   } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("superseded credential renewal reconciles instead of blocking", async () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-stale", "word-1", 4, {
+    studySessionId: "session-retired",
+    nonce: "nonce-retired",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input) === "/api/study") {
+      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        error: "学习 session 已由较新的凭证取代",
+        code: "SESSION_SUPERSEDED",
+        requiresQueueReload: true,
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  const completed: Array<{ wordId: string; reconciled?: boolean }> = [];
+  try {
+    const remaining = await flushPendingReviews("user-a", (wordId, result) => {
+      completed.push({ wordId, reconciled: result.reconciled });
+    });
+    assert.equal(remaining, 0);
+    assert.equal(blockedReviewCount("user-a"), 0);
+    assert.equal(loadPendingReviews("user-a").length, 0);
+    assert.deepEqual(completed, [{ wordId: "word-1", reconciled: true }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("one lease heartbeats before every sequential review request", async () => {
+  const heartbeats: Array<{ leaseId?: string; expiresAt?: number }> = [];
+  const terminalEvents: Array<{ kind: string; leaseId?: string }> = [];
+  installStorage((key, value) => {
+    if (key !== reviewQueueMutationStorageKey("user-a")) return false;
+    const event = JSON.parse(value) as {
+      kind?: string;
+      leaseId?: string;
+      expiresAt?: number;
+    };
+    if (event.kind === "mutation-started") {
+      heartbeats.push({ leaseId: event.leaseId, expiresAt: event.expiresAt });
+    } else if (
+      event.kind === "server-mutated" ||
+      event.kind === "mutation-released"
+    ) {
+      terminalEvents.push({ kind: event.kind, leaseId: event.leaseId });
+    }
+    return false;
+  });
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, credentials("operation-a1"));
+  enqueuePendingReview("user-a", "operation-a2", "word-2", 5, credentials("operation-a2"));
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  globalThis.fetch = async () => {
+    now += 14_000;
+    return new Response("{}", { status: 200 });
+  };
+  try {
+    await flushPendingReviews("user-a");
+    assert.ok(heartbeats.length >= 3);
+    assert.equal(new Set(heartbeats.map((event) => event.leaseId)).size, 1);
+    assert.ok(heartbeats.every((event) => Boolean(event.leaseId)));
+    assert.ok(
+      heartbeats.at(-1)!.expiresAt! > heartbeats[0].expiresAt!,
+      "lease expiry was not extended between sequential requests",
+    );
+    assert.deepEqual(
+      terminalEvents.map((event) => event.kind),
+      ["server-mutated", "mutation-released"],
+    );
+    assert.ok(
+      terminalEvents.every((event) => event.leaseId === heartbeats[0].leaseId),
+      "mutation and release markers must close the same lease",
+    );
+  } finally {
+    Date.now = originalNow;
     globalThis.fetch = originalFetch;
   }
 });

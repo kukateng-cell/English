@@ -84,6 +84,71 @@ async function dispatchServerMutation(
   );
 }
 
+test("a cross-tab mutation lease stays closed through server markers until release", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const wordId = data.queue[0].word.id;
+  const leaseId = `lease-${randomUUID()}`;
+  const dispatchMutation = async (
+    kind: "mutation-started" | "server-mutated" | "mutation-released",
+  ) => {
+    await page.evaluate(
+      ({ ownerId, affectedWordId, sessionId, mutationKind, id }) => {
+        const key = `study:review-mutation:${encodeURIComponent(ownerId)}`;
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key,
+            newValue: JSON.stringify({
+              version: 1,
+              ownerId,
+              kind: mutationKind,
+              wordIds: [affectedWordId],
+              sessionIds: [sessionId],
+              revision: `${mutationKind}-${Date.now()}`,
+              leaseId: id,
+              ...(mutationKind === "mutation-started"
+                ? { expiresAt: Date.now() + 60_000 }
+                : {}),
+            }),
+            storageArea: window.localStorage,
+          }),
+        );
+      },
+      {
+        ownerId: userId,
+        affectedWordId: wordId,
+        sessionId: data.studySession.id,
+        mutationKind: kind,
+        id: leaseId,
+      },
+    );
+  };
+
+  await dispatchMutation("mutation-started");
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  await dispatchMutation("server-mutated");
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+
+  const freshResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await dispatchMutation("mutation-released");
+  await freshResponse;
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+});
+
 test("authenticated card dismissal enters one quiz exactly once", async ({
   page,
 }) => {
@@ -308,6 +373,107 @@ test("an expired active row enters the barrier before slow credential renewal", 
     await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
   } finally {
     releaseRenewal();
+  }
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+});
+
+test("reconciliation keeps its barrier until a second expired active row is handled", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const unrelatedOperation = `expired-unrelated-${randomUUID()}`;
+  const activeOperation = `expired-active-${randomUUID()}`;
+  let renewalCalls = 0;
+  let releaseSecondRenewal!: () => void;
+  let markSecondRenewalStarted!: () => void;
+  const secondRenewalGate = new Promise<void>((resolve) => {
+    releaseSecondRenewal = resolve;
+  });
+  const secondRenewalStarted = new Promise<void>((resolve) => {
+    markSecondRenewalStarted = resolve;
+  });
+  await page.route("**/api/study/credentials", async (route) => {
+    renewalCalls += 1;
+    const body = JSON.parse(route.request().postData() ?? "{}") as {
+      operations: Array<{ operationId: string; wordId: string }>;
+    };
+    if (renewalCalls === 2) {
+      markSecondRenewalStarted();
+      await secondRenewalGate;
+    }
+    const operation = body.operations[0];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        studySession: { id: `renewed-${operation.operationId}` },
+        credentials: [{ ...operation, nonce: `nonce-${operation.operationId}` }],
+      }),
+    });
+  });
+  await page.route("**/api/study", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+  await page.evaluate(
+    ({ ownerId, rows }) => {
+      for (const row of rows) {
+        window.localStorage.setItem(
+          `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(row.operationId)}`,
+          JSON.stringify({
+            ownerId,
+            operationId: row.operationId,
+            wordId: row.wordId,
+            quality: 5,
+            ts: row.ts,
+            attempts: 1,
+            status: "pending",
+            studySessionId: row.studySessionId,
+            credentialState: "expired",
+          }),
+        );
+      }
+      window.dispatchEvent(new Event("online"));
+    },
+    {
+      ownerId: userId,
+      rows: [
+        {
+          operationId: unrelatedOperation,
+          wordId: `outside-queue-${randomUUID()}`,
+          studySessionId: `expired-session-${randomUUID()}`,
+          ts: Date.now() - 1_000,
+        },
+        {
+          operationId: activeOperation,
+          wordId: data.queue[0].word.id,
+          studySessionId: data.studySession.id,
+          ts: Date.now(),
+        },
+      ],
+    },
+  );
+  await secondRenewalStarted;
+  try {
+    expect(renewalCalls).toBe(2);
+    await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  } finally {
+    releaseSecondRenewal();
   }
   await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
 });
@@ -1437,54 +1603,44 @@ test("independent browser contexts reconcile a nonce consumed on another device"
     });
     expect(firstSubmit.ok()).toBe(true);
 
-    const secondOperationId = `device-b-${randomUUID()}`;
     const freshResponse = independentPage.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
         new URL(response.url()).pathname === "/api/study" &&
         response.ok(),
     );
-    await independentPage.evaluate(
-      ({ ownerId, operationId, targetWordId, studySessionId, nonce }) => {
-        window.localStorage.setItem(
-          `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operationId)}`,
-          JSON.stringify({
-            ownerId,
-            operationId,
-            wordId: targetWordId,
-            quality: 4,
-            ts: Date.now(),
-            attempts: 0,
-            status: "pending",
-            studySessionId,
-            nonce,
-            credentialState: "valid",
-          }),
-        );
-        window.dispatchEvent(new Event("online"));
-      },
-      {
-        ownerId: independentUserId,
-        operationId: secondOperationId,
-        targetWordId: wordId!,
-        // This independent context represents a device that loaded the same
-        // server-issued credential before device A consumed it. Its current
-        // UI may already have refreshed to a newer session; the durable row
-        // deliberately retains the stale shared credential being reconciled.
-        studySessionId: firstData.studySession.id,
-        nonce: firstData.studySession.nonces[wordId!],
-      },
+    const conflictResponse = independentPage.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/study" &&
+        response.status() === 409,
     );
+    await independentPage.getByRole("button", {
+      name: /認識.*✓|认识.*✓/,
+    }).click();
+    await expect(independentPage.getByTestId("study-quiz-phase")).toBeVisible();
+    await independentPage.locator(`[data-option-id="${wordId}"]`).click();
+    const conflictPayload = (await (await conflictResponse).json()) as {
+      code?: string;
+      requiresQueueReload?: boolean;
+    };
+    expect(conflictPayload).toMatchObject({
+      code: "REVIEW_ALREADY_PROCESSED",
+      requiresQueueReload: true,
+    });
 
     const freshData = (await (await freshResponse).json()) as StudyWorkflowData;
     expect(freshData.queue.some((item) => item.word.id === wordId)).toBe(false);
     await expect
       .poll(() =>
         independentPage.evaluate(
-          ({ ownerId, operationId }) => ({
-            row: window.localStorage.getItem(
-              `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operationId)}`,
-            ),
+          ({ ownerId, targetWordId }) => ({
+            wordRows: Object.keys(window.localStorage)
+              .filter((key) =>
+                key.startsWith(`study:review-item:${encodeURIComponent(ownerId)}:`),
+              )
+              .map((key) => JSON.parse(window.localStorage.getItem(key) ?? "{}"))
+              .filter((row) => row.wordId === targetWordId).length,
             blocked: Object.keys(window.localStorage)
               .filter((key) =>
                 key.startsWith(`study:review-item:${encodeURIComponent(ownerId)}:`),
@@ -1492,10 +1648,10 @@ test("independent browser contexts reconcile a nonce consumed on another device"
               .map((key) => JSON.parse(window.localStorage.getItem(key) ?? "{}"))
               .filter((row) => row.status === "blocked").length,
           }),
-          { ownerId: independentUserId, operationId: secondOperationId },
+          { ownerId: independentUserId, targetWordId: wordId! },
         ),
       )
-      .toEqual({ row: null, blocked: 0 });
+      .toEqual({ wordRows: 0, blocked: 0 });
   } finally {
     await independentContext.close();
   }

@@ -751,12 +751,7 @@ export async function applyReviewEvent(input: {
             if (
               !sessionItem ||
               sessionItem.session.userId !== input.userId ||
-              sessionItem.nonce !== input.nonce ||
-              sessionItem.session.expiresAt <= new Date() ||
-              sessionItem.session.retiredAt !== null ||
-              sessionItem.renewedAt !== null ||
-              (sessionItem.operationId !== null &&
-                sessionItem.operationId !== input.operationId)
+              sessionItem.nonce !== input.nonce
             ) {
               throw new StudyRequestError(403, "学习 session 无效或已过期");
             }
@@ -777,6 +772,27 @@ export async function applyReviewEvent(input: {
                   ? reviewStateFromRow(currentReview)
                   : null,
               });
+            }
+            if (
+              sessionItem.session.retiredAt !== null ||
+              sessionItem.renewedAt !== null
+            ) {
+              throw new StudyRequestError(
+                409,
+                "学习 session 已由较新的凭证取代",
+                {
+                  code: "SESSION_SUPERSEDED",
+                  wordId: input.wordId,
+                  requiresQueueReload: true,
+                },
+              );
+            }
+            if (
+              sessionItem.session.expiresAt <= new Date() ||
+              (sessionItem.operationId !== null &&
+                sessionItem.operationId !== input.operationId)
+            ) {
+              throw new StudyRequestError(403, "学习 session 无效或已过期");
             }
             const consumed = await tx.studySessionItem.updateMany({
               where: { id: sessionItem.id, usedAt: null },

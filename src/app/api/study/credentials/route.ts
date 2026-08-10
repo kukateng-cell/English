@@ -71,7 +71,10 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     if (error instanceof StudyCredentialRenewalError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return NextResponse.json(
+        { error: error.message, ...error.details },
+        { status: error.status },
+      );
     }
     throw error;
   }

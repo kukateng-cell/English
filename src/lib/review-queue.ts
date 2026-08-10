@@ -63,6 +63,7 @@ export interface ReviewQueueMutationEvent {
   wordIds: string[];
   sessionIds: string[];
   revision: string;
+  leaseId?: string;
   expiresAt?: number;
 }
 
@@ -158,6 +159,7 @@ export function parseReviewQueueMutationEvent(
       !Array.isArray(value.sessionIds) ||
       !value.sessionIds.every((sessionId) => typeof sessionId === "string") ||
       typeof value.revision !== "string" ||
+      (value.leaseId !== undefined && typeof value.leaseId !== "string") ||
       (value.expiresAt !== undefined && typeof value.expiresAt !== "number")
     ) {
       return null;
@@ -173,6 +175,7 @@ function publishReviewQueueMutation(
   kind: ReviewQueueMutationEvent["kind"],
   wordIds: string[],
   sessionIds: string[],
+  leaseId?: string,
 ): boolean {
   try {
     const event: ReviewQueueMutationEvent = {
@@ -182,6 +185,7 @@ function publishReviewQueueMutation(
       wordIds: [...new Set(wordIds)],
       sessionIds: [...new Set(sessionIds)],
       revision: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      ...(leaseId ? { leaseId } : {}),
       ...(kind === "mutation-started"
         ? { expiresAt: Date.now() + REVIEW_REQUEST_TIMEOUT_MS + 5_000 }
         : {}),
@@ -741,6 +745,8 @@ export function finalizeLegacyCredentialClaims(
 async function flushPendingReviewsUnlocked(
   userId: string,
   onDone?: (wordId: string, data: StudyPostResult) => void,
+  onBeforeRequest?: () => void,
+  leaseId?: string,
 ): Promise<{ remaining: number; mutatedWordIds: string[] }> {
   const now = Date.now();
   const queue = loadPendingReviews(userId)
@@ -773,6 +779,7 @@ async function flushPendingReviewsUnlocked(
     let ok = false;
     let result: StudyPostResult | null = null;
     try {
+      onBeforeRequest?.();
       const res = await fetchReviewRequest("/api/study", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -799,7 +806,9 @@ async function flushPendingReviewsUnlocked(
           res.status === 403 && message === SESSION_REAUTH_ERROR;
         const reconciledConflict =
           res.status === 409 &&
-          payload?.code === "REVIEW_ALREADY_PROCESSED" &&
+          (payload?.code === "REVIEW_ALREADY_PROCESSED" ||
+            payload?.code === "SESSION_SUPERSEDED" ||
+            payload?.code === "CREDENTIAL_ALREADY_RENEWED") &&
           payload.requiresQueueReload === true;
         if (reconciledConflict) {
           ok = true;
@@ -862,6 +871,7 @@ async function flushPendingReviewsUnlocked(
       succeededItems.flatMap((item) =>
         item.studySessionId ? [item.studySessionId] : [],
       ),
+      leaseId,
     )
   ) {
     storageAvailable = false;
@@ -907,7 +917,12 @@ async function flushPendingReviewsUnlocked(
   };
 }
 
-async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
+async function reauthorizeRejectedReviews(
+  userId: string,
+  onDone?: (wordId: string, data: StudyPostResult) => void,
+  onBeforeRequest?: () => void,
+  leaseId?: string,
+): Promise<"none" | "renewed" | "reconciled"> {
   const now = Date.now();
   const candidates = loadPendingReviews(userId).filter(
     (item) =>
@@ -918,7 +933,7 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       (!item.nextAttemptAt || item.nextAttemptAt <= now),
   );
   const previousSessionId = candidates[0]?.studySessionId;
-  if (!previousSessionId) return false;
+  if (!previousSessionId) return "none";
   const assignedWords = new Set<string>();
   const operations = candidates
     .filter((item) => item.studySessionId === previousSessionId)
@@ -931,7 +946,7 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
     // but browser storage failed, the next call can replay that exact one
     // without mixing it with untouched items and turning the whole batch 409.
     .slice(0, 1);
-  if (operations.length === 0) return false;
+  if (operations.length === 0) return "none";
 
   const markBlocked = (message: string) => {
     for (const operation of operations) {
@@ -969,6 +984,7 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
   };
 
   try {
+    onBeforeRequest?.();
     const response = await fetchReviewRequest("/api/study/credentials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -982,12 +998,36 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as
-        | { error?: unknown }
+        | { error?: unknown; code?: unknown; requiresQueueReload?: unknown }
         | null;
       const message =
         typeof payload?.error === "string"
           ? payload.error.slice(0, 200)
           : `HTTP ${response.status}`;
+      const reconciledConflict =
+        response.status === 409 &&
+        (payload?.code === "REVIEW_ALREADY_PROCESSED" ||
+          payload?.code === "SESSION_SUPERSEDED" ||
+          payload?.code === "CREDENTIAL_ALREADY_RENEWED") &&
+        payload.requiresQueueReload === true;
+      if (reconciledConflict) {
+        if (!publishReviewQueueMutation(
+          userId,
+          "server-mutated",
+          operations.map((operation) => operation.wordId),
+          [previousSessionId],
+          leaseId,
+        )) {
+          throw new ReviewQueueStorageError();
+        }
+        for (const operation of operations) {
+          if (!removeReviewItem(userId, operation.operationId)) {
+            throw new ReviewQueueStorageError();
+          }
+          onDone?.(operation.wordId, { reconciled: true });
+        }
+        return "reconciled";
+      }
       if (
         response.status >= 400 &&
         response.status < 500 &&
@@ -997,7 +1037,7 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       } else {
         markRetry(message, retryAfterMs(response));
       }
-      return false;
+      return "none";
     }
     const payload = (await response.json().catch(() => null)) as
       | {
@@ -1014,7 +1054,7 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       !Array.isArray(payload?.credentials)
     ) {
       markRetry("续期响应无效，请稍后重试");
-      return false;
+      return "none";
     }
     const renewedCredentials = new Map<
       string,
@@ -1043,7 +1083,7 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       )
     ) {
       markRetry("续期响应无效，请稍后重试");
-      return false;
+      return "none";
     }
     if (
       !publishReviewQueueMutation(
@@ -1072,11 +1112,11 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
         throw new ReviewQueueStorageError();
       }
     }
-    return true;
+    return "renewed";
   } catch (error) {
     if (error instanceof ReviewQueueStorageError) throw error;
     markRetry("网络错误，请稍后重试");
-    return false;
+    return "none";
   }
 }
 
@@ -1088,48 +1128,73 @@ export async function flushPendingReviews(
   onWillMutate?: (plan: ReviewQueueMutationPlan) => void,
 ): Promise<number> {
   const run = async () => {
+    const leaseId = globalThis.crypto?.randomUUID?.() ??
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     let leaseActive = false;
-    let serverMutated = false;
     const announcedWordIds = new Set<string>();
+    const announcedSessionIds = new Set<string>();
+    const heartbeat = () => {
+      if (!leaseActive) return;
+      if (!publishReviewQueueMutation(
+        userId,
+        "mutation-started",
+        [...announcedWordIds],
+        [...announcedSessionIds],
+        leaseId,
+      )) {
+        throw new ReviewQueueStorageError();
+      }
+    };
     const announcePlan = (plan: ReviewQueueMutationPlan) => {
       if (plan.willMutateWordIds.length === 0) return;
       const sessions = loadPendingReviews(userId)
         .filter((item) => plan.willMutateWordIds.includes(item.wordId))
         .flatMap((item) => item.studySessionId ? [item.studySessionId] : []);
-      if (!publishReviewQueueMutation(
-        userId,
-        "mutation-started",
-        plan.willMutateWordIds,
-        sessions,
-      )) {
-        throw new ReviewQueueStorageError();
-      }
-      leaseActive = true;
       plan.willMutateWordIds.forEach((wordId) => announcedWordIds.add(wordId));
+      sessions.forEach((sessionId) => announcedSessionIds.add(sessionId));
+      leaseActive = true;
+      heartbeat();
       onWillMutate?.(plan);
     };
     try {
       announcePlan(planReviewQueueMutation(userId));
-      const first = await flushPendingReviewsUnlocked(userId, onDone);
-      serverMutated ||= first.mutatedWordIds.length > 0;
-      if (!(await reauthorizeRejectedReviews(userId))) {
+      await flushPendingReviewsUnlocked(
+        userId,
+        onDone,
+        heartbeat,
+        leaseId,
+      );
+      const renewal = await reauthorizeRejectedReviews(
+        userId,
+        onDone,
+        heartbeat,
+        leaseId,
+      );
+      if (renewal === "reconciled") {
+        return pendingReviewCount(userId);
+      }
+      if (renewal !== "renewed") {
         return pendingReviewCount(userId);
       }
       // Renewal can turn a credential-less row into an immediately executable
       // POST. Re-plan while still holding the same queue lock, before request 2.
       announcePlan(planReviewQueueMutation(userId));
-      const second = await flushPendingReviewsUnlocked(userId, onDone);
-      serverMutated ||= second.mutatedWordIds.length > 0;
+      const second = await flushPendingReviewsUnlocked(
+        userId,
+        onDone,
+        heartbeat,
+        leaseId,
+      );
       return second.remaining;
     } finally {
       if (
         leaseActive &&
-        !serverMutated &&
         !publishReviewQueueMutation(
           userId,
           "mutation-released",
           [...announcedWordIds],
           [],
+          leaseId,
         )
       ) {
         throw new ReviewQueueStorageError();

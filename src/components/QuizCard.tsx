@@ -157,6 +157,7 @@ export default function QuizCard({
             <motion.button
               key={opt.id + i}
               data-testid="quiz-option"
+              data-option-id={opt.id}
               onClick={() => handlePick(opt.id)}
               disabled={answered || disabled}
               whileTap={{ scale: answered || disabled ? 1 : 0.97 }}

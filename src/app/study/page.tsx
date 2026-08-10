@@ -238,6 +238,12 @@ function submitQuizReview(
   onQueueChange?: () => void,
   onStorageError?: () => void,
   saveNextCheckpoint?: () => boolean,
+  reconciliation?: {
+    isActiveWord: (wordId: string) => boolean;
+    begin: () => number;
+    finish: (generation: number) => void;
+    reload: (wordIds: string[], generation: number | null) => void;
+  },
 ): boolean {
   const operationId = crypto.randomUUID();
   // Write-ahead：先同步写入本地 outbox，再推进页面／发网络请求。即使用户立即
@@ -255,16 +261,44 @@ function submitQuizReview(
     return false;
   }
   onQueueChange?.();
+  let reconciliationGeneration: number | null = null;
+  const affectedWordIds = new Set<string>();
   void flushPendingReviews(userId, (_id, data) => {
     if (data?.streak && onDone) onDone(data.streak as StreakInfo);
     if (Array.isArray(data?.newlyUnlocked) && data.newlyUnlocked.length) {
       onAchievements?.(data.newlyUnlocked as AchievementDef[]);
     }
+    if (_id !== wordId || data.reconciled) affectedWordIds.add(_id);
+  }, (plan) => {
+    if (
+      reconciliation &&
+      reconciliationGeneration === null &&
+      plan.willMutateWordIds.some(
+        (plannedWordId) =>
+          plannedWordId !== wordId && reconciliation.isActiveWord(plannedWordId),
+      )
+    ) {
+      reconciliationGeneration = reconciliation.begin();
+    }
   })
     .catch((error) => {
       if (error instanceof ReviewQueueStorageError) onStorageError?.();
     })
-    .finally(() => onQueueChange?.());
+    .finally(() => {
+      onQueueChange?.();
+      if (!reconciliation) return;
+      const affectedActiveWordIds = [...affectedWordIds].filter(
+        reconciliation.isActiveWord,
+      );
+      if (affectedActiveWordIds.length > 0) {
+        reconciliation.reload(
+          affectedActiveWordIds,
+          reconciliationGeneration,
+        );
+      } else if (reconciliationGeneration !== null) {
+        reconciliation.finish(reconciliationGeneration);
+      }
+    });
   return true;
 }
 
@@ -532,7 +566,10 @@ export default function StudyPage() {
   >(() => {});
   const reconciliationServerMutatedWordIdsRef = useRef<Set<string> | null>(null);
   const reconciliationGenerationRef = useRef(0);
-  const externalMutationLeaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const externalMutationLeaseTimersRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  );
+  const externalMutationAffectedWordIdsRef = useRef(new Set<string>());
   const [interactionEpoch, setInteractionEpoch] = useState(0);
   const interactionEpochRef = useRef(0);
   const helpDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -957,32 +994,56 @@ export default function StudyPage() {
         : isCurrentReconciliation(barrierGeneration);
 
     try {
-      const outcome = await flushPending(
-        undefined,
-        false,
-        onWillMutate,
-        canApply,
-      );
-      if (!canApply()) return { kind: "reload-started" };
-      if (outcome.storageError) {
-        if (barrierGeneration !== null) endReconciliation(barrierGeneration);
-        return { kind: "storage-error" };
-      }
-      const submittedActiveWordIds = outcome.submittedWordIds.filter(
-        (wordId) => activeWordIds.has(wordId),
-      );
-      if (submittedActiveWordIds.length > 0) {
-        reconciliationServerMutatedWordIdsRef.current = new Set(
-          submittedActiveWordIds,
+      const submittedWordIds = new Set<string>();
+      const adoptedWordIds = new Set<string>();
+      let finalPlan: ReviewQueueMutationPlan | null = null;
+      for (let cycle = 0; cycle < 100; cycle += 1) {
+        const outcome = await flushPending(
+          undefined,
+          false,
+          onWillMutate,
+          canApply,
         );
-        if (barrierGeneration === null) barrierGeneration = beginReconciliation();
-        setReloadKey((key) => key + 1);
-        return { kind: "reload-started" };
+        if (!canApply()) return { kind: "reload-started" };
+        outcome.submittedWordIds.forEach((wordId) =>
+          submittedWordIds.add(wordId),
+        );
+        outcome.adoptedWordIds.forEach((wordId) => adoptedWordIds.add(wordId));
+        if (outcome.storageError) {
+          if (barrierGeneration !== null) endReconciliation(barrierGeneration);
+          return { kind: "storage-error" };
+        }
+        const submittedActiveWordIds = [...submittedWordIds].filter(
+          (wordId) => activeWordIds.has(wordId),
+        );
+        if (submittedActiveWordIds.length > 0) {
+          reconciliationServerMutatedWordIdsRef.current = new Set(
+            submittedActiveWordIds,
+          );
+          if (barrierGeneration === null) {
+            barrierGeneration = beginReconciliation();
+          }
+          setReloadKey((key) => key + 1);
+          return { kind: "reload-started" };
+        }
+        finalPlan = planReviewQueueMutation(
+          userId,
+          activeSession
+            ? { studySessionId: activeSession.id, nonces: activeSession.nonces }
+            : null,
+        );
+        const activeWorkRemaining = finalPlan.willMutateWordIds.some(
+          (wordId) => activeWordIds.has(wordId),
+        );
+        if (!activeWorkRemaining) break;
+        if (cycle === 99) {
+          setError("待同步记录过多，尚未完成协调，请稍后重试");
+          if (barrierGeneration !== null) endReconciliation(barrierGeneration);
+          return { kind: "retryable-error" };
+        }
       }
-      const unresolvedAdoptedActiveWord = outcome.adoptedWordIds.some(
-        (wordId) =>
-          activeWordIds.has(wordId) &&
-          !outcome.submittedWordIds.includes(wordId),
+      const unresolvedAdoptedActiveWord = [...adoptedWordIds].some(
+        (wordId) => activeWordIds.has(wordId) && !submittedWordIds.has(wordId),
       );
       if (unresolvedAdoptedActiveWord) {
         setError(
@@ -991,13 +1052,8 @@ export default function StudyPage() {
         if (barrierGeneration !== null) endReconciliation(barrierGeneration);
         return { kind: "retryable-error" };
       }
+      if (!finalPlan) finalPlan = planReviewQueueMutation(userId, null);
       if (barrierGeneration !== null) endReconciliation(barrierGeneration);
-      const finalPlan = planReviewQueueMutation(
-        userId,
-        activeSession
-          ? { studySessionId: activeSession.id, nonces: activeSession.nonces }
-          : null,
-      );
       const blockedActiveWordIds = finalPlan.blockedWordIds.filter((wordId) =>
         activeWordIds.has(wordId),
       );
@@ -1093,6 +1149,8 @@ export default function StudyPage() {
   // same fresh-load barrier used by this tab's own flush.
   useEffect(() => {
     if (status !== "authenticated" || !userId) return;
+    const effectLeaseTimers = externalMutationLeaseTimersRef.current;
+    const effectAffectedWordIds = externalMutationAffectedWordIdsRef.current;
     const itemPrefix = reviewQueueItemStoragePrefix(userId);
     const mutationKey = reviewQueueMutationStorageKey(userId);
     const onStorage = (event: StorageEvent) => {
@@ -1115,22 +1173,39 @@ export default function StudyPage() {
       );
       if (mutation.kind === "mutation-started") {
         if (!affectsActiveQueue) return;
-        beginReconciliation();
-        if (externalMutationLeaseTimerRef.current) {
-          clearTimeout(externalMutationLeaseTimerRef.current);
-        }
+        const leaseId = mutation.leaseId ?? mutation.revision;
+        const leaseTimers = externalMutationLeaseTimersRef.current;
+        if (leaseTimers.size === 0) beginReconciliation();
+        const existingTimer = leaseTimers.get(leaseId);
+        if (existingTimer) clearTimeout(existingTimer);
         const delay = Math.max(0, (mutation.expiresAt ?? Date.now()) - Date.now());
-        externalMutationLeaseTimerRef.current = setTimeout(() => {
-          externalMutationLeaseTimerRef.current = null;
-          reloadStudyQueue();
-        }, delay);
+        leaseTimers.set(
+          leaseId,
+          setTimeout(() => {
+            leaseTimers.delete(leaseId);
+            if (leaseTimers.size !== 0) return;
+            const affected = externalMutationAffectedWordIdsRef.current;
+            if (affected.size > 0) {
+              reconciliationServerMutatedWordIdsRef.current = new Set(affected);
+              affected.clear();
+            }
+            reloadStudyQueue();
+          }, delay),
+        );
         return;
       }
       if (mutation.kind === "mutation-released") {
         if (!affectsActiveQueue) return;
-        if (externalMutationLeaseTimerRef.current) {
-          clearTimeout(externalMutationLeaseTimerRef.current);
-          externalMutationLeaseTimerRef.current = null;
+        const leaseId = mutation.leaseId ?? mutation.revision;
+        const leaseTimers = externalMutationLeaseTimersRef.current;
+        const timer = leaseTimers.get(leaseId);
+        if (timer) clearTimeout(timer);
+        leaseTimers.delete(leaseId);
+        if (leaseTimers.size !== 0) return;
+        const affected = externalMutationAffectedWordIdsRef.current;
+        if (affected.size > 0) {
+          reconciliationServerMutatedWordIdsRef.current = new Set(affected);
+          affected.clear();
         }
         reloadStudyQueue();
         return;
@@ -1176,23 +1251,31 @@ export default function StudyPage() {
         activeWordIds.has(wordId),
       );
       if (affectedWordIds.length === 0) return;
-      if (externalMutationLeaseTimerRef.current) {
-        clearTimeout(externalMutationLeaseTimerRef.current);
-        externalMutationLeaseTimerRef.current = null;
-      }
-      reconciliationServerMutatedWordIdsRef.current = new Set(
-        affectedWordIds,
+      affectedWordIds.forEach((wordId) =>
+        externalMutationAffectedWordIdsRef.current.add(wordId),
       );
+      const leaseTimers = externalMutationLeaseTimersRef.current;
+      // A server-mutated marker is durable evidence that fresh data will be
+      // needed, but it is not the end of the mutation lease: the owner may
+      // still be renewing credentials or submitting a second batch. Wait for
+      // mutation-released (or lease expiry) before reopening this tab.
+      if (mutation.leaseId && leaseTimers.has(mutation.leaseId)) return;
+      if (leaseTimers.size !== 0) return;
+      reconciliationServerMutatedWordIdsRef.current = new Set(
+        externalMutationAffectedWordIdsRef.current,
+      );
+      externalMutationAffectedWordIdsRef.current.clear();
       beginReconciliation();
       setReloadKey((key) => key + 1);
     };
     window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener("storage", onStorage);
-      if (externalMutationLeaseTimerRef.current) {
-        clearTimeout(externalMutationLeaseTimerRef.current);
-        externalMutationLeaseTimerRef.current = null;
+      for (const timer of effectLeaseTimers.values()) {
+        clearTimeout(timer);
       }
+      effectLeaseTimers.clear();
+      effectAffectedWordIds.clear();
     };
   }, [
     status,
@@ -1759,6 +1842,19 @@ export default function StudyPage() {
                       "浏览器无法保存待同步记录，请释放存储空间或允许网站存储后重试",
                     ),
                   saveNextCheckpoint,
+                  {
+                    isActiveWord: (candidateWordId) =>
+                      queue.some((item) => item.word.id === candidateWordId),
+                    begin: beginReconciliation,
+                    finish: endReconciliation,
+                    reload: (affectedWordIds, generation) => {
+                      reconciliationServerMutatedWordIdsRef.current = new Set(
+                        affectedWordIds,
+                      );
+                      if (generation === null) beginReconciliation();
+                      setReloadKey((key) => key + 1);
+                    },
+                  },
                 )
               : (setError("学习 session 已失效，请重新载入题目后再试"), false);
         if (!persisted) return;
@@ -1792,6 +1888,8 @@ export default function StudyPage() {
       studySession,
       guardedPendingWordIds,
       loading,
+      beginReconciliation,
+      endReconciliation,
     ]
   );
 

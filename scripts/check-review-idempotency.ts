@@ -14,6 +14,7 @@ async function main() {
     STUDY_SESSION_RETENTION_MS,
     rotateStudySession,
     serializeStudySession,
+    studyQueueFingerprint,
   } = await import("../src/lib/study-session-server");
   const suffix = randomUUID();
   let userId: string | null = null;
@@ -306,6 +307,78 @@ async function main() {
     if (resumedAfterRotation?.id !== rotatedSession.id) {
       throw new Error("resume did not follow a response-loss rotation replacement");
     }
+    const rotationFirstSource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: studyQueueFingerprint([sessionWord.id]),
+        expiresAt: new Date(Date.now() + 4 * 60_000),
+        items: {
+          create: { wordId: sessionWord.id, nonce: randomUUID() },
+        },
+      },
+    });
+    const rotationFirstReplacement = await rotateStudySession(
+      user.id,
+      rotationFirstSource.id,
+      [sessionWord.id],
+      `rotate-${rotationFirstSource.id}`,
+    );
+    await assertRejectsCode(
+      () =>
+        renewStudySessionCredentials(user.id, rotationFirstSource.id, [
+          {
+            operationId: `rotation-first-renewal_${randomUUID()}`,
+            wordId: sessionWord.id,
+          },
+        ]),
+      "SESSION_SUPERSEDED",
+    );
+    if (!serializeStudySession(rotationFirstReplacement)?.nonces[sessionWord.id]) {
+      throw new Error("rotation-first replacement lost its sole active credential");
+    }
+    await prisma.studySession.update({
+      where: { id: rotationFirstReplacement.id },
+      data: { retiredAt: new Date() },
+    });
+
+    const renewalFirstSource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: studyQueueFingerprint([sessionWord.id]),
+        expiresAt: new Date(Date.now() + 4 * 60_000),
+        items: {
+          create: { wordId: sessionWord.id, nonce: randomUUID() },
+        },
+      },
+    });
+    const renewalFirstOperation = `renewal-first_${randomUUID()}`;
+    const renewalFirstReplacement = await renewStudySessionCredentials(
+      user.id,
+      renewalFirstSource.id,
+      [{ operationId: renewalFirstOperation, wordId: sessionWord.id }],
+    );
+    const rotationAfterRenewal = await rotateStudySession(
+      user.id,
+      renewalFirstSource.id,
+      [sessionWord.id],
+      `rotate-${renewalFirstSource.id}`,
+    );
+    if (serializeStudySession(rotationAfterRenewal)?.nonces[sessionWord.id]) {
+      throw new Error("rotation reactivated a credential already owned by renewal");
+    }
+    const renewalFirstNonce = serializeStudySession(renewalFirstReplacement)
+      ?.nonces[sessionWord.id];
+    if (!renewalFirstNonce) {
+      throw new Error("renewal-first replacement did not retain its credential");
+    }
+    await applyReviewEvent({
+      userId: user.id,
+      wordId: sessionWord.id,
+      quality: 5,
+      operationId: renewalFirstOperation,
+      studySessionId: renewalFirstReplacement.id,
+      nonce: renewalFirstNonce,
+    });
     await assertRejectsStatus(
       () =>
         rotateStudySession(
@@ -561,6 +634,31 @@ async function assertRejectsStatus(
     throw error;
   }
   throw new Error(`operation did not return expected status ${expectedStatus}`);
+}
+
+async function assertRejectsCode(
+  fn: () => Promise<unknown>,
+  expectedCode: string,
+) {
+  try {
+    await fn();
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "status" in error &&
+      error.status === 409 &&
+      "details" in error &&
+      typeof error.details === "object" &&
+      error.details !== null &&
+      "code" in error.details &&
+      error.details.code === expectedCode
+    ) {
+      return;
+    }
+    throw error;
+  }
+  throw new Error(`operation did not return expected code ${expectedCode}`);
 }
 
 void main().catch((error) => {
