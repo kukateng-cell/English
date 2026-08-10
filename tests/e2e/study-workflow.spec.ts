@@ -1502,8 +1502,12 @@ test("a successful submission in another tab invalidates the shared active sessi
   await postStarted;
   try {
     await expect
-      .poll(async () =>
-        (await otherKnownButton.count()) === 0 || otherKnownButton.isDisabled(),
+      .poll(() =>
+        otherKnownButton.evaluateAll(
+          (buttons) =>
+            buttons.length === 0 ||
+            buttons.every((button) => (button as HTMLButtonElement).disabled),
+        ),
       )
       .toBe(true);
   } finally {
