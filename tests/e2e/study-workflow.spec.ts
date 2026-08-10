@@ -1335,7 +1335,11 @@ test("a successful submission in another tab invalidates the shared active sessi
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await postStarted;
   try {
-    await expect(otherKnownButton).toBeDisabled();
+    await expect
+      .poll(async () =>
+        (await otherKnownButton.count()) === 0 || otherKnownButton.isDisabled(),
+      )
+      .toBe(true);
   } finally {
     releasePost();
   }
@@ -1352,4 +1356,112 @@ test("a successful submission in another tab invalidates the shared active sessi
     otherFreshData.studySession.nonces[initialData.queue[0].word.id],
   ).toBeUndefined();
   await otherPage.close();
+});
+
+test("independent browser contexts reconcile a nonce consumed on another device", async ({
+  page,
+  context,
+  browser,
+}) => {
+  const firstResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const firstData = (await (await firstResponse).json()) as StudyWorkflowData;
+  const wordId = firstData.queue[0]?.word.id;
+  expect(wordId).toBeTruthy();
+
+  const independentContext = await browser.newContext({
+    storageState: await context.storageState(),
+  });
+  const independentPage = await independentContext.newPage();
+  try {
+    const secondResponse = independentPage.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/study" &&
+        response.ok(),
+    );
+    await independentPage.goto("/study");
+    const secondData = (await (await secondResponse).json()) as StudyWorkflowData;
+    const independentUserId = await authenticatedUserId(independentPage);
+    expect(secondData.queue.some((item) => item.word.id === wordId)).toBe(true);
+
+    const firstOperationId = `device-a-${randomUUID()}`;
+    const firstSubmit = await page.request.post("/api/study", {
+      data: {
+        wordId,
+        quality: 5,
+        operationId: firstOperationId,
+        studySessionId: firstData.studySession.id,
+        nonce: firstData.studySession.nonces[wordId!],
+      },
+    });
+    expect(firstSubmit.ok()).toBe(true);
+
+    const secondOperationId = `device-b-${randomUUID()}`;
+    const freshResponse = independentPage.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/study" &&
+        response.ok(),
+    );
+    await independentPage.evaluate(
+      ({ ownerId, operationId, targetWordId, studySessionId, nonce }) => {
+        window.localStorage.setItem(
+          `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operationId)}`,
+          JSON.stringify({
+            ownerId,
+            operationId,
+            wordId: targetWordId,
+            quality: 4,
+            ts: Date.now(),
+            attempts: 0,
+            status: "pending",
+            studySessionId,
+            nonce,
+            credentialState: "valid",
+          }),
+        );
+        window.dispatchEvent(new Event("online"));
+      },
+      {
+        ownerId: independentUserId,
+        operationId: secondOperationId,
+        targetWordId: wordId!,
+        // This independent context represents a device that loaded the same
+        // server-issued credential before device A consumed it. Its current
+        // UI may already have refreshed to a newer session; the durable row
+        // deliberately retains the stale shared credential being reconciled.
+        studySessionId: firstData.studySession.id,
+        nonce: firstData.studySession.nonces[wordId!],
+      },
+    );
+
+    const freshData = (await (await freshResponse).json()) as StudyWorkflowData;
+    expect(freshData.queue.some((item) => item.word.id === wordId)).toBe(false);
+    await expect
+      .poll(() =>
+        independentPage.evaluate(
+          ({ ownerId, operationId }) => ({
+            row: window.localStorage.getItem(
+              `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operationId)}`,
+            ),
+            blocked: Object.keys(window.localStorage)
+              .filter((key) =>
+                key.startsWith(`study:review-item:${encodeURIComponent(ownerId)}:`),
+              )
+              .map((key) => JSON.parse(window.localStorage.getItem(key) ?? "{}"))
+              .filter((row) => row.status === "blocked").length,
+          }),
+          { ownerId: independentUserId, operationId: secondOperationId },
+        ),
+      )
+      .toEqual({ row: null, blocked: 0 });
+  } finally {
+    await independentContext.close();
+  }
 });

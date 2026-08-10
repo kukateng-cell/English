@@ -37,6 +37,7 @@ export interface ReviewSubmissionCredentials {
 export interface StudyPostResult {
   streak?: unknown;
   newlyUnlocked?: unknown;
+  reconciled?: boolean;
 }
 
 export interface CredentialAttachmentResult {
@@ -53,10 +54,16 @@ export interface LegacyFinalizationResult {
 export interface ReviewQueueMutationEvent {
   version: 1;
   ownerId: string;
-  kind: "server-mutated" | "session-rotated" | "credentials-renewed";
+  kind:
+    | "mutation-started"
+    | "mutation-released"
+    | "server-mutated"
+    | "session-rotated"
+    | "credentials-renewed";
   wordIds: string[];
   sessionIds: string[];
   revision: string;
+  expiresAt?: number;
 }
 
 export interface ReviewQueueMutationPlan {
@@ -141,14 +148,17 @@ export function parseReviewQueueMutationEvent(
     if (
       value.version !== 1 ||
       value.ownerId !== userId ||
-      (value.kind !== "server-mutated" &&
+      (value.kind !== "mutation-started" &&
+        value.kind !== "mutation-released" &&
+        value.kind !== "server-mutated" &&
         value.kind !== "session-rotated" &&
         value.kind !== "credentials-renewed") ||
       !Array.isArray(value.wordIds) ||
       !value.wordIds.every((wordId) => typeof wordId === "string") ||
       !Array.isArray(value.sessionIds) ||
       !value.sessionIds.every((sessionId) => typeof sessionId === "string") ||
-      typeof value.revision !== "string"
+      typeof value.revision !== "string" ||
+      (value.expiresAt !== undefined && typeof value.expiresAt !== "number")
     ) {
       return null;
     }
@@ -172,6 +182,9 @@ function publishReviewQueueMutation(
       wordIds: [...new Set(wordIds)],
       sessionIds: [...new Set(sessionIds)],
       revision: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      ...(kind === "mutation-started"
+        ? { expiresAt: Date.now() + REVIEW_REQUEST_TIMEOUT_MS + 5_000 }
+        : {}),
     };
     window.localStorage.setItem(
       reviewQueueMutationStorageKey(userId),
@@ -638,8 +651,30 @@ export function rebindStudySessionCredentials(
   nonces: Record<string, string>,
 ): number {
   const assignedWords = new Set<string>();
+  const rows = loadPendingReviews(userId);
+  for (const item of rows) {
+    if (
+      item.status === "pending" &&
+      item.studySessionId === previousSessionId &&
+      nonces[item.wordId] &&
+      !assignedWords.has(item.wordId)
+    ) {
+      assignedWords.add(item.wordId);
+    }
+  }
+  // Publish retirement before overwriting any local credential. If a later
+  // row write fails, every other tab has still invalidated the old session.
+  if (!publishReviewQueueMutation(
+    userId,
+    "session-rotated",
+    assignedWords.size > 0 ? [...assignedWords] : Object.keys(nonces),
+    [previousSessionId, studySessionId],
+  )) {
+    throw new ReviewQueueStorageError();
+  }
+  assignedWords.clear();
   let storageAvailable = true;
-  for (const item of loadPendingReviews(userId)) {
+  for (const item of rows) {
     if (
       item.status !== "pending" ||
       item.studySessionId !== previousSessionId ||
@@ -659,13 +694,7 @@ export function rebindStudySessionCredentials(
       storageAvailable = false;
     }
   }
-  const mutationPublished = publishReviewQueueMutation(
-    userId,
-    "session-rotated",
-    assignedWords.size > 0 ? [...assignedWords] : Object.keys(nonces),
-    [previousSessionId, studySessionId],
-  );
-  if (!storageAvailable || !mutationPublished) {
+  if (!storageAvailable) {
     throw new ReviewQueueStorageError();
   }
   return pendingReviewCount(userId);
@@ -712,7 +741,7 @@ export function finalizeLegacyCredentialClaims(
 async function flushPendingReviewsUnlocked(
   userId: string,
   onDone?: (wordId: string, data: StudyPostResult) => void,
-): Promise<number> {
+): Promise<{ remaining: number; mutatedWordIds: string[] }> {
   const now = Date.now();
   const queue = loadPendingReviews(userId)
     .filter(
@@ -722,7 +751,9 @@ async function flushPendingReviewsUnlocked(
         (!r.nextAttemptAt || r.nextAttemptAt <= now),
     )
     .slice(0, MAX_FLUSH_BATCH);
-  if (queue.length === 0) return pendingReviewCount(userId);
+  if (queue.length === 0) {
+    return { remaining: pendingReviewCount(userId), mutatedWordIds: [] };
+  }
 
   const succeededOperations = new Set<string>();
   const failedOperations = new Map<
@@ -758,7 +789,7 @@ async function flushPendingReviewsUnlocked(
         result = (await res.json().catch(() => null)) as StudyPostResult | null;
       } else {
         const payload = (await res.json().catch(() => null)) as
-          | { error?: unknown }
+          | { error?: unknown; code?: unknown; requiresQueueReload?: unknown }
           | null;
         const message =
           typeof payload?.error === "string"
@@ -766,28 +797,37 @@ async function flushPendingReviewsUnlocked(
             : `HTTP ${res.status}`;
         const sessionRejected =
           res.status === 403 && message === SESSION_REAUTH_ERROR;
-        const permanent =
-          res.status >= 400 &&
-          res.status < 500 &&
-          ![401, 408, 422, 429].includes(res.status) &&
-          !sessionRejected;
-        const stopBatch =
-          res.status === 401 ||
-          res.status === 408 ||
-          res.status === 422 ||
-          res.status === 429 ||
-          sessionRejected ||
-          res.status >= 500;
-        failedOperations.set(item.operationId, {
-          permanent,
-          message,
-          clearSessionNonce: sessionRejected,
-          nextAttemptAt: permanent
-            ? undefined
-            : Date.now() + backoffMs(item, retryAfterMs(res)),
-        });
-        // 未登入、尚未完成强制改密、限流或服务端错误时，后续条目也不应继续发送。
-        if (stopBatch) networkDown = true;
+        const reconciledConflict =
+          res.status === 409 &&
+          payload?.code === "REVIEW_ALREADY_PROCESSED" &&
+          payload.requiresQueueReload === true;
+        if (reconciledConflict) {
+          ok = true;
+          result = { reconciled: true };
+        } else {
+          const permanent =
+            res.status >= 400 &&
+            res.status < 500 &&
+            ![401, 408, 422, 429].includes(res.status) &&
+            !sessionRejected;
+          const stopBatch =
+            res.status === 401 ||
+            res.status === 408 ||
+            res.status === 422 ||
+            res.status === 429 ||
+            sessionRejected ||
+            res.status >= 500;
+          failedOperations.set(item.operationId, {
+            permanent,
+            message,
+            clearSessionNonce: sessionRejected,
+            nextAttemptAt: permanent
+              ? undefined
+              : Date.now() + backoffMs(item, retryAfterMs(res)),
+          });
+          // 未登入、尚未完成强制改密、限流或服务端错误时，后续条目也不应继续发送。
+          if (stopBatch) networkDown = true;
+        }
       }
     } catch {
       // fetch 抛错 = 断网 / DNS 失败：本条失败且停止本轮，避免连续打失败请求。
@@ -861,7 +901,10 @@ async function flushPendingReviewsUnlocked(
     }
   }
   if (!storageAvailable) throw new ReviewQueueStorageError();
-  return pendingReviewCount(userId);
+  return {
+    remaining: pendingReviewCount(userId),
+    mutatedWordIds: succeededItems.map((item) => item.wordId),
+  };
 }
 
 async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
@@ -1002,6 +1045,16 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       markRetry("续期响应无效，请稍后重试");
       return false;
     }
+    if (
+      !publishReviewQueueMutation(
+        userId,
+        "credentials-renewed",
+        operations.map((operation) => operation.wordId),
+        [previousSessionId, session.id],
+      )
+    ) {
+      throw new ReviewQueueStorageError();
+    }
     for (const operation of operations) {
       const renewed = renewedCredentials.get(operation.operationId)!;
       const current = loadPendingReviews(userId).find(
@@ -1019,16 +1072,6 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
         throw new ReviewQueueStorageError();
       }
     }
-    if (
-      !publishReviewQueueMutation(
-        userId,
-        "credentials-renewed",
-        operations.map((operation) => operation.wordId),
-        [previousSessionId, session.id],
-      )
-    ) {
-      throw new ReviewQueueStorageError();
-    }
     return true;
   } catch (error) {
     if (error instanceof ReviewQueueStorageError) throw error;
@@ -1042,15 +1085,56 @@ const localFlushes = new Map<string, Promise<number>>();
 export async function flushPendingReviews(
   userId: string,
   onDone?: (wordId: string, data: StudyPostResult) => void,
+  onWillMutate?: (plan: ReviewQueueMutationPlan) => void,
 ): Promise<number> {
   const run = async () => {
-    await flushPendingReviewsUnlocked(userId, onDone);
-    if (!(await reauthorizeRejectedReviews(userId))) {
-      return pendingReviewCount(userId);
+    let leaseActive = false;
+    let serverMutated = false;
+    const announcedWordIds = new Set<string>();
+    const announcePlan = (plan: ReviewQueueMutationPlan) => {
+      if (plan.willMutateWordIds.length === 0) return;
+      const sessions = loadPendingReviews(userId)
+        .filter((item) => plan.willMutateWordIds.includes(item.wordId))
+        .flatMap((item) => item.studySessionId ? [item.studySessionId] : []);
+      if (!publishReviewQueueMutation(
+        userId,
+        "mutation-started",
+        plan.willMutateWordIds,
+        sessions,
+      )) {
+        throw new ReviewQueueStorageError();
+      }
+      leaseActive = true;
+      plan.willMutateWordIds.forEach((wordId) => announcedWordIds.add(wordId));
+      onWillMutate?.(plan);
+    };
+    try {
+      announcePlan(planReviewQueueMutation(userId));
+      const first = await flushPendingReviewsUnlocked(userId, onDone);
+      serverMutated ||= first.mutatedWordIds.length > 0;
+      if (!(await reauthorizeRejectedReviews(userId))) {
+        return pendingReviewCount(userId);
+      }
+      // Renewal can turn a credential-less row into an immediately executable
+      // POST. Re-plan while still holding the same queue lock, before request 2.
+      announcePlan(planReviewQueueMutation(userId));
+      const second = await flushPendingReviewsUnlocked(userId, onDone);
+      serverMutated ||= second.mutatedWordIds.length > 0;
+      return second.remaining;
+    } finally {
+      if (
+        leaseActive &&
+        !serverMutated &&
+        !publishReviewQueueMutation(
+          userId,
+          "mutation-released",
+          [...announcedWordIds],
+          [],
+        )
+      ) {
+        throw new ReviewQueueStorageError();
+      }
     }
-    // Exactly one automatic retry after obtaining a fresh server credential.
-    // A second rejection stays pending until the next explicit flush cycle.
-    return flushPendingReviewsUnlocked(userId, onDone);
   };
   // 多个页面生命周期事件／浏览器分页面可同时触发 flush。Web Locks 可用时
   // 将同一用户的 flush 串行化；服务端 operationId 幂等仍是最后防线。

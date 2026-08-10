@@ -174,6 +174,80 @@ test("successful submission publishes a cross-tab server mutation", async () => 
   }
 });
 
+test("already-processed nonce conflict reconciles instead of blocking", async () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-b", "word-1", 4, {
+    studySessionId: "shared-session",
+    nonce: "shared-nonce",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: "该学习题目已经提交",
+        code: "REVIEW_ALREADY_PROCESSED",
+        requiresQueueReload: true,
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  const completed: Array<{ wordId: string; reconciled?: boolean }> = [];
+  try {
+    const remaining = await flushPendingReviews("user-a", (wordId, result) => {
+      completed.push({ wordId, reconciled: result.reconciled });
+    });
+    assert.equal(remaining, 0);
+    assert.equal(blockedReviewCount("user-a"), 0);
+    assert.equal(loadPendingReviews("user-a").length, 0);
+    assert.deepEqual(completed, [{ wordId: "word-1", reconciled: true }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("mutation plan is computed inside the Web Lock before network work", async () => {
+  const data = installStorage();
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, credentials("operation-a1"));
+  const itemKey = "study:review-item:user-a:operation-a1";
+  const row = JSON.parse(data.get(itemKey)!) as Record<string, unknown>;
+  row.nextAttemptAt = Date.now() + 60_000;
+  data.set(itemKey, JSON.stringify(row));
+
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const originalFetch = globalThis.fetch;
+  const order: string[] = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      locks: {
+        request: async (_name: string, callback: () => Promise<number>) => {
+          const due = JSON.parse(data.get(itemKey)!) as Record<string, unknown>;
+          due.nextAttemptAt = Date.now() - 1;
+          data.set(itemKey, JSON.stringify(due));
+          return callback();
+        },
+      },
+    },
+  });
+  globalThis.fetch = async () => {
+    order.push("fetch");
+    return new Response("{}", { status: 200 });
+  };
+  try {
+    await flushPendingReviews("user-a", undefined, (plan) => {
+      order.push("barrier");
+      assert.deepEqual(plan.willMutateWordIds, ["word-1"]);
+    });
+    assert.deepEqual(order, ["barrier", "fetch"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalNavigator) {
+      Object.defineProperty(globalThis, "navigator", originalNavigator);
+    } else {
+      delete (globalThis as { navigator?: unknown }).navigator;
+    }
+  }
+});
+
 test("successful submission retains its row when the mutation marker cannot be published", async () => {
   installStorage((key) => key === reviewQueueMutationStorageKey("user-a"));
   enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
@@ -477,6 +551,28 @@ test("rotation preserves a future retry deadline while refreshing credentials", 
   const rebound = loadPendingReviews("user-a")[0];
   assert.equal(rebound.studySessionId, "session-new");
   assert.equal(rebound.nextAttemptAt, retryAt);
+});
+
+test("rotation marker failure leaves old credentials untouched", () => {
+  installStorage((key) => key === reviewQueueMutationStorageKey("user-a"));
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-old",
+    nonce: "nonce-old",
+  });
+
+  assert.throws(
+    () =>
+      rebindStudySessionCredentials(
+        "user-a",
+        "session-old",
+        "session-new",
+        { "word-1": "nonce-new" },
+      ),
+    ReviewQueueStorageError,
+  );
+  const row = loadPendingReviews("user-a")[0];
+  assert.equal(row.studySessionId, "session-old");
+  assert.equal(row.nonce, "nonce-old");
 });
 
 for (const [status, error] of [

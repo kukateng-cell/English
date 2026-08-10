@@ -603,7 +603,10 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     if (error instanceof StudyRequestError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return NextResponse.json(
+        { error: error.message, ...error.details },
+        { status: error.status },
+      );
     }
     throw error;
   }
@@ -616,6 +619,7 @@ class StudyRequestError extends Error {
   constructor(
     public readonly status: 403 | 404 | 409,
     message: string,
+    public readonly details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "StudyRequestError";
@@ -757,14 +761,44 @@ export async function applyReviewEvent(input: {
               throw new StudyRequestError(403, "学习 session 无效或已过期");
             }
             if (sessionItem.usedAt) {
-              throw new StudyRequestError(409, "该学习题目已经提交");
+              const currentReview = await tx.review.findUnique({
+                where: {
+                  userId_wordId: {
+                    userId: input.userId,
+                    wordId: input.wordId,
+                  },
+                },
+              });
+              throw new StudyRequestError(409, "该学习题目已经提交", {
+                code: "REVIEW_ALREADY_PROCESSED",
+                wordId: input.wordId,
+                requiresQueueReload: true,
+                currentReviewState: currentReview
+                  ? reviewStateFromRow(currentReview)
+                  : null,
+              });
             }
             const consumed = await tx.studySessionItem.updateMany({
               where: { id: sessionItem.id, usedAt: null },
               data: { usedAt: new Date() },
             });
             if (consumed.count !== 1) {
-              throw new StudyRequestError(409, "该学习题目已经提交");
+              const currentReview = await tx.review.findUnique({
+                where: {
+                  userId_wordId: {
+                    userId: input.userId,
+                    wordId: input.wordId,
+                  },
+                },
+              });
+              throw new StudyRequestError(409, "该学习题目已经提交", {
+                code: "REVIEW_ALREADY_PROCESSED",
+                wordId: input.wordId,
+                requiresQueueReload: true,
+                currentReviewState: currentReview
+                  ? reviewStateFromRow(currentReview)
+                  : null,
+              });
             }
           }
 
