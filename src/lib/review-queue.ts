@@ -278,7 +278,9 @@ export function blockedReviewMessage(userId: string): string | null {
 export function discardBlockedReviews(userId: string): void {
   for (const item of loadPendingReviews(userId)) {
     if (item.status === "blocked") {
-      removeReviewItem(userId, item.operationId);
+      if (!removeReviewItem(userId, item.operationId)) {
+        throw new ReviewQueueStorageError();
+      }
     }
   }
 }
@@ -287,7 +289,9 @@ export function discardPendingReview(
   userId: string,
   operationId: string,
 ): void {
-  removeReviewItem(userId, operationId);
+  if (!removeReviewItem(userId, operationId)) {
+    throw new ReviewQueueStorageError();
+  }
 }
 
 interface LegacyReview {
@@ -345,7 +349,11 @@ export function claimLegacyReviews(userId: string): number {
     );
   }
   if (typeof window !== "undefined") {
-    window.localStorage.removeItem(LEGACY_QUEUE_KEY);
+    try {
+      window.localStorage.removeItem(LEGACY_QUEUE_KEY);
+    } catch {
+      throw new ReviewQueueStorageError();
+    }
   }
   return pendingReviewCount(userId);
 }
@@ -366,7 +374,11 @@ function stableLegacyOperationId(
 
 export function discardLegacyReviews(): void {
   if (typeof window !== "undefined") {
-    window.localStorage.removeItem(LEGACY_QUEUE_KEY);
+    try {
+      window.localStorage.removeItem(LEGACY_QUEUE_KEY);
+    } catch {
+      throw new ReviewQueueStorageError();
+    }
   }
 }
 
@@ -486,14 +498,16 @@ export function rebindStudySessionCredentials(
       continue;
     }
     assignedWords.add(item.wordId);
-    writeReviewItem(userId, {
+    if (!writeReviewItem(userId, {
       ...item,
       studySessionId,
       nonce: nonces[item.wordId],
       credentialState: "valid",
       lastError: undefined,
       nextAttemptAt: undefined,
-    });
+    })) {
+      throw new ReviewQueueStorageError();
+    }
   }
   return pendingReviewCount(userId);
 }
@@ -633,8 +647,9 @@ async function flushPendingReviewsUnlocked(
 
   // 每个 operation 独立存储：只删除成功 key、只更新本轮失败 key。期间由其他
   // tab 新增的 key 不会被整份 snapshot 覆盖。
+  let storageAvailable = true;
   for (const operationId of succeededOperations) {
-    removeReviewItem(userId, operationId);
+    if (!removeReviewItem(userId, operationId)) storageAvailable = false;
   }
   const latest = new Map(
     loadPendingReviews(userId).map((item) => [item.operationId, item]),
@@ -642,7 +657,7 @@ async function flushPendingReviewsUnlocked(
   for (const [operationId, failure] of failedOperations) {
     const item = latest.get(operationId);
     if (!item) continue;
-    writeReviewItem(userId, {
+    if (!writeReviewItem(userId, {
       ...item,
       attempts: item.attempts + 1,
       status: failure.permanent ? "blocked" : item.status,
@@ -657,8 +672,11 @@ async function flushPendingReviewsUnlocked(
           ? undefined
           : failure.nextAttemptAt,
       nonce: failure.clearSessionNonce ? undefined : item.nonce,
-    });
+    })) {
+      storageAvailable = false;
+    }
   }
+  if (!storageAvailable) throw new ReviewQueueStorageError();
   return pendingReviewCount(userId);
 }
 
@@ -694,13 +712,15 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
         (item) => item.operationId === operation.operationId,
       );
       if (!current) continue;
-      writeReviewItem(userId, {
+      if (!writeReviewItem(userId, {
         ...current,
         status: "blocked",
         credentialState: "blocked",
         lastError: message,
         nextAttemptAt: undefined,
-      });
+      })) {
+        throw new ReviewQueueStorageError();
+      }
     }
   };
 
@@ -710,12 +730,14 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
         (item) => item.operationId === operation.operationId,
       );
       if (!current) continue;
-      writeReviewItem(userId, {
+      if (!writeReviewItem(userId, {
         ...current,
         attempts: current.attempts + 1,
         lastError: message ?? current.lastError,
         nextAttemptAt: Date.now() + backoffMs(current, retryAfter),
-      });
+      })) {
+        throw new ReviewQueueStorageError();
+      }
     }
   };
 

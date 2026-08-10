@@ -244,7 +244,9 @@ function submitQuizReview(
       onAchievements?.(data.newlyUnlocked as AchievementDef[]);
     }
   })
-    .catch(() => undefined)
+    .catch((error) => {
+      if (error instanceof ReviewQueueStorageError) onStorageError?.();
+    })
     .finally(() => onQueueChange?.());
   return true;
 }
@@ -507,6 +509,7 @@ export default function StudyPage() {
   const rotationRetryAttemptRef = useRef(0);
   const rotationSessionRef = useRef<StudySessionInfo | null>(null);
   const rotateStudySessionRef = useRef<() => Promise<void>>(async () => {});
+  const reconciliationReloadWordIdsRef = useRef<Set<string> | null>(null);
   const performanceEntriesRef = useRef<
     Array<{ entryType: string; startTime: number; duration: number }>
   >([]);
@@ -616,7 +619,14 @@ export default function StudyPage() {
 
   const discardBlocked = useCallback(() => {
     if (!userId) return;
-    discardBlockedReviews(userId);
+    try {
+      discardBlockedReviews(userId);
+    } catch {
+      setError(
+        "浏览器无法清除失败记录，请释放存储空间或允许网站存储后重试",
+      );
+      return;
+    }
     refreshSyncCounts();
   }, [userId, refreshSyncCounts]);
 
@@ -629,10 +639,22 @@ export default function StudyPage() {
       return;
     }
     refreshSyncCounts();
+    // Claimed rows can adopt a nonce from the card already on screen. Hide
+    // that card immediately and let the startup barrier reconcile the claim
+    // against a fresh queue/session before interaction resumes.
+    setLoading(true);
+    setReloadKey((key) => key + 1);
   }, [userId, refreshSyncCounts]);
 
   const discardLegacy = useCallback(() => {
-    discardLegacyReviews();
+    try {
+      discardLegacyReviews();
+    } catch {
+      setError(
+        "浏览器无法清除旧版记录，请释放存储空间或允许网站存储后重试",
+      );
+      return;
+    }
     refreshSyncCounts();
   }, [refreshSyncCounts]);
   // 始终指向最新的 handleQuizAnswer，供 effect 调用而不破坏其依赖数组
@@ -784,7 +806,7 @@ export default function StudyPage() {
     } catch (error) {
       if (!(error instanceof ReviewQueueStorageError)) throw error;
       setError(
-        "浏览器无法保存续期后的学习凭证，请释放存储空间或允许网站存储后重试",
+        "浏览器无法更新待同步记录，请释放存储空间或允许网站存储后重试",
       );
       return {
         remaining: pendingReviewCount(userId),
@@ -805,26 +827,86 @@ export default function StudyPage() {
     };
   }, [userId]);
 
+  // Every flush that runs after the page becomes interactive must reconcile
+  // its result with the active queue/checkpoint. A matching pending row is
+  // locked before network I/O; a consumed/adopted active nonce then triggers
+  // the same startup barrier used on page entry. Returns true only when it is
+  // safe for a caller such as session rotation to continue on this page.
+  const flushAndReconcile = useCallback(async (): Promise<boolean> => {
+    if (!userId) return false;
+    const checkpoint = loadCheckpoint(userId, getUnitKey());
+    const activeWordIds = new Set([
+      ...queue.map((item) => item.word.id),
+      ...(checkpoint?.queueSignature ?? []),
+    ]);
+    const activePendingWordIds = loadPendingReviews(userId)
+      .filter(
+        (item) =>
+          item.status === "pending" && activeWordIds.has(item.wordId),
+      )
+      .map((item) => item.wordId);
+    const hadActivePending = activePendingWordIds.length > 0;
+    if (hadActivePending) setLoading(true);
+
+    try {
+      const outcome = await flushPending();
+      if (outcome.storageError) {
+        if (hadActivePending) setLoading(false);
+        return false;
+      }
+      const submittedActiveWord = outcome.submittedWordIds.some((wordId) =>
+        activeWordIds.has(wordId),
+      );
+      const adoptedActiveWord = outcome.adoptedWordIds.some((wordId) =>
+        activeWordIds.has(wordId),
+      );
+      const requiresReload =
+        hadActivePending ||
+        adoptedActiveWord ||
+        submittedActiveWord;
+      if (requiresReload) {
+        reconciliationReloadWordIdsRef.current = new Set(
+          [
+            ...activePendingWordIds,
+            ...outcome.submittedWordIds,
+            ...outcome.adoptedWordIds,
+          ].filter((wordId) => activeWordIds.has(wordId)),
+        );
+        setLoading(true);
+        setReloadKey((key) => key + 1);
+        return false;
+      }
+      if (hadActivePending) setLoading(false);
+      return true;
+    } catch (error) {
+      if (hadActivePending) setLoading(false);
+      setError(networkErrorMessage(error));
+      return false;
+    }
+  }, [userId, queue, flushPending]);
+
   // 网络恢复 / 页面重新可见 / 定时器：自动重试缓冲的待提交评测，
   // 保证用户离线时记下的学习在恢复连接后不丢失。
   useEffect(() => {
     if (status !== "authenticated" || loading) return;
-    const onOnline = () => void flushPending();
+    const onOnline = () => void flushAndReconcile();
     const onVisible = () => {
-      if (document.visibilityState === "visible") void flushPending();
+      if (document.visibilityState === "visible") void flushAndReconcile();
     };
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
     // 每 30s 兜底重试一次（仅在有待提交时才会真正发请求）。
     const timer = window.setInterval(() => {
-      if (userId && pendingReviewCount(userId) > 0) void flushPending();
+      if (userId && pendingReviewCount(userId) > 0) {
+        void flushAndReconcile();
+      }
     }, 30000);
     return () => {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
     };
-  }, [status, userId, loading, flushPending]);
+  }, [status, userId, loading, flushAndReconcile]);
 
   const rotateStudySession = useCallback(async () => {
     const currentSession = rotationSessionRef.current ?? studySession;
@@ -848,9 +930,9 @@ export default function StudyPage() {
       );
       rotationRetryTimerRef.current = setTimeout(() => {
         rotationRetryTimerRef.current = null;
-        void flushPending()
-          .catch(() => undefined)
-          .then(() => rotateStudySessionRef.current());
+        void flushAndReconcile().then((safeToContinue) => {
+          if (safeToContinue) void rotateStudySessionRef.current();
+        });
       }, delay);
     };
 
@@ -900,11 +982,17 @@ export default function StudyPage() {
       rotationSessionRef.current = nextSession;
       setStudySession(nextSession);
     } catch (error) {
-      retryLater(networkErrorMessage(error));
+      if (error instanceof ReviewQueueStorageError) {
+        setError(
+          "浏览器无法保存续期后的待同步记录，请释放存储空间或允许网站存储后重新载入",
+        );
+      } else {
+        retryLater(networkErrorMessage(error));
+      }
     } finally {
       isRotatingSessionRef.current = false;
     }
-  }, [userId, studySession, queue, flushPending]);
+  }, [userId, studySession, queue, flushAndReconcile]);
 
   useEffect(() => {
     rotateStudySessionRef.current = rotateStudySession;
@@ -919,9 +1007,9 @@ export default function StudyPage() {
     const delay = Math.max(0, expiresAt - Date.now() - 5 * 60_000);
     const timer = window.setTimeout(
       () => {
-        void flushPending()
-          .catch(() => undefined)
-          .then(() => rotateStudySessionRef.current());
+        void flushAndReconcile().then((safeToContinue) => {
+          if (safeToContinue) void rotateStudySessionRef.current();
+        });
       },
       Math.min(delay, 2_147_000_000),
     );
@@ -932,7 +1020,7 @@ export default function StudyPage() {
         rotationRetryTimerRef.current = null;
       }
     };
-  }, [studySession, flushPending]);
+  }, [studySession, flushAndReconcile]);
 
   /**
    * 尝试用本地存档点恢复进度。返回是否成功恢复。
@@ -1051,16 +1139,19 @@ export default function StudyPage() {
       setError(null);
       try {
         const params = new URLSearchParams(window.location.search);
+        const postStartReconciledWordIds =
+          reconciliationReloadWordIdsRef.current ?? new Set<string>();
         // 固定恢复队列：成功提交一题后，动态 due/new/补救集合会立刻变化；把
         // checkpoint 的原 id 顺序交回服务端作当前权限验证并重建，才可真正续做。
-        const checkpoint = loadCheckpoint(userId, getUnitKey());
-        if (checkpoint && canResumeStudySession(checkpoint.queueSignature)) {
-          params.set("resumeIds", checkpoint.queueSignature.join(","));
-          params.set("resumeSessionId", checkpoint.studySessionId);
-        } else if (checkpoint) {
+        let checkpoint = loadCheckpoint(userId, getUnitKey());
+        if (checkpoint && !canResumeStudySession(checkpoint.queueSignature)) {
           // 旧版本可能保存过超过当前请求上限的单元；先丢弃再让服务端
           // 生成同样受限的新队列，避免每次 Retry 都重复收到 400。
           clearCheckpoint(userId, getUnitKey());
+          checkpoint = null;
+        } else if (checkpoint && postStartReconciledWordIds.size === 0) {
+          params.set("resumeIds", checkpoint.queueSignature.join(","));
+          params.set("resumeSessionId", checkpoint.studySessionId);
         }
 
         // Start credentialed outbox recovery and queue loading together. The
@@ -1081,22 +1172,40 @@ export default function StudyPage() {
         if (cancelled) return;
         if (initialFlush.storageError || adoptionFlush.storageError) return;
 
-        const reconciledWordIds = new Set([
+        const concurrentReconciledWordIds = new Set([
           ...initialFlush.submittedWordIds,
           ...initialFlush.adoptedWordIds,
           ...adoptionFlush.submittedWordIds,
           ...adoptionFlush.adoptedWordIds,
         ]);
+        const reconciledWordIds = new Set([
+          ...postStartReconciledWordIds,
+          ...concurrentReconciledWordIds,
+        ]);
         let restoreAllowed = true;
-        if (reconciledWordIds.size > 0) {
+        if (concurrentReconciledWordIds.size > 0) {
           // A startup submission changed SM-2 state, or consumed a nonce from
-          // the first response. Discard both that response and its checkpoint
-          // provenance, then request a wholly fresh queue/session.
-          clearCheckpoint(userId, getUnitKey());
+          // the first response. Discard that response and request a wholly
+          // fresh queue/session, but retain the checkpoint until this request
+          // succeeds and we know whether the reconciled words affect it.
           data = await requestQueue(
             new URLSearchParams(window.location.search),
           );
           if (!data || cancelled) return;
+        }
+        if (
+          reconciliationReloadWordIdsRef.current ===
+          postStartReconciledWordIds
+        ) {
+          reconciliationReloadWordIdsRef.current = null;
+        }
+        const checkpointAffected = Boolean(
+          checkpoint?.queueSignature.some((wordId) =>
+            reconciledWordIds.has(wordId),
+          ),
+        );
+        if (checkpointAffected) {
+          clearCheckpoint(userId, getUnitKey());
           restoreAllowed = false;
         }
 
@@ -1615,7 +1724,7 @@ export default function StudyPage() {
           blocked={blockedSync}
           blockedError={blockedSyncError}
           legacy={legacySync}
-          onRetry={() => void flushPending()}
+          onRetry={() => void flushAndReconcile()}
           onDiscardBlocked={discardBlocked}
           onClaimLegacy={claimLegacy}
           onDiscardLegacy={discardLegacy}
@@ -1714,7 +1823,7 @@ export default function StudyPage() {
           blocked={blockedSync}
           blockedError={blockedSyncError}
           legacy={legacySync}
-          onRetry={() => void flushPending()}
+          onRetry={() => void flushAndReconcile()}
           onDiscardBlocked={discardBlocked}
           onClaimLegacy={claimLegacy}
           onDiscardLegacy={discardLegacy}
@@ -1831,7 +1940,7 @@ export default function StudyPage() {
         blocked={blockedSync}
         blockedError={blockedSyncError}
         legacy={legacySync}
-        onRetry={() => void flushPending()}
+        onRetry={() => void flushAndReconcile()}
         onDiscardBlocked={discardBlocked}
         onClaimLegacy={claimLegacy}
         onDiscardLegacy={discardLegacy}

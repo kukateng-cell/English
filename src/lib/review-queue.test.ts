@@ -14,6 +14,7 @@ import {
 
 function installStorage(
   shouldFailWrite?: (key: string, value: string) => boolean,
+  shouldFailRemove?: (key: string) => boolean,
 ) {
   const data = new Map<string, string>();
   Object.defineProperty(globalThis, "window", {
@@ -29,7 +30,10 @@ function installStorage(
           if (shouldFailWrite?.(key, value)) throw new Error("quota exceeded");
           data.set(key, value);
         },
-        removeItem: (key: string) => data.delete(key),
+        removeItem: (key: string) => {
+          if (shouldFailRemove?.(key)) throw new Error("storage unavailable");
+          data.delete(key);
+        },
       },
     },
   });
@@ -543,4 +547,84 @@ test("renewal storage failure replays one operation without blocking untouched r
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("successful submission fails visibly when local cleanup cannot be persisted", async () => {
+  let failRemoval = true;
+  installStorage(undefined, (key) =>
+    failRemoval && key.includes("operation-a1"),
+  );
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-valid",
+    nonce: "nonce-valid",
+  });
+  const originalFetch = globalThis.fetch;
+  let submissions = 0;
+  globalThis.fetch = async () => {
+    submissions++;
+    return new Response("{}", { status: 200 });
+  };
+
+  try {
+    await assert.rejects(
+      flushPendingReviews("user-a"),
+      ReviewQueueStorageError,
+    );
+    assert.equal(pendingReviewCount("user-a"), 1);
+    failRemoval = false;
+    await flushPendingReviews("user-a");
+    assert.equal(submissions, 2);
+    assert.equal(pendingReviewCount("user-a"), 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("retry state fails visibly when browser storage rejects the backoff update", async () => {
+  let failRetryWrite = false;
+  installStorage((_key, value) =>
+    failRetryWrite && value.includes('"attempts":1'),
+  );
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-valid",
+    nonce: "nonce-valid",
+  });
+  failRetryWrite = true;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("server error", { status: 500 });
+
+  try {
+    await assert.rejects(
+      flushPendingReviews("user-a"),
+      ReviewQueueStorageError,
+    );
+    const [row] = loadPendingReviews("user-a");
+    assert.equal(row.attempts, 0);
+    assert.equal(row.nextAttemptAt, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rotation rebind fails visibly when browser storage is unavailable", () => {
+  let failRebind = false;
+  installStorage((_key, value) =>
+    failRebind && value.includes('"studySessionId":"session-new"'),
+  );
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-old",
+    nonce: "nonce-old",
+  });
+  failRebind = true;
+
+  assert.throws(
+    () =>
+      rebindStudySessionCredentials(
+        "user-a",
+        "session-old",
+        "session-new",
+        { "word-1": "nonce-new" },
+      ),
+    ReviewQueueStorageError,
+  );
 });
