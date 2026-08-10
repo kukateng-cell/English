@@ -1,4 +1,4 @@
-name: Card motion browser regression
+name: Study quality gate
 
 on:
   push:
@@ -28,42 +28,19 @@ on:
       - "tests/e2e/study-workflow.spec.ts"
       - "tests/e2e/word-card-release.spec.ts"
   pull_request:
-    paths:
-      - ".github/workflows/card-motion.yml"
-      - "package.json"
-      - "package-lock.json"
-      - "playwright.config.ts"
-      - "src/app/study/page.tsx"
-      - "src/app/api/study/**"
-      - "src/app/api/auth/**"
-      - "src/app/login/**"
-      - "src/components/WordCard.tsx"
-      - "src/app/test/word-card-motion/**"
-      - "src/lib/auth.ts"
-      - "src/lib/login-limiter.ts"
-      - "src/lib/checkpoint.ts"
-      - "src/lib/review-queue.ts"
-      - "src/lib/session.ts"
-      - "src/lib/study-*.ts"
-      - "src/lib/swipe-motion.ts"
-      - "prisma/schema.prisma"
-      - "prisma/seed.ts"
-      - "prisma/migrations/**"
-      - "src/proxy.ts"
-      - "tests/e2e/auth.setup.ts"
-      - "tests/e2e/study-workflow.spec.ts"
-      - "tests/e2e/word-card-release.spec.ts"
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: card-motion-${{ github.workflow }}-${{ github.ref }}
+  group: study-quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  browser-regression:
-    name: Mouse, emulated touch, and synthetic-pointer continuity
+  study-quality:
+    name: Unit, database, migration, and browser regression
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -92,10 +69,10 @@ jobs:
       TEST_STUDENT_PASSWORD: CiCardMotion!2026
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -106,8 +83,29 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run ESLint with zero warnings
+        run: npm run lint -- --max-warnings=0
+
+      - name: Run TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Verify migration checksums
+        run: npm run test:migration-checksums
+
+      - name: Replay migrations on a fresh schema
+        run: npm run test:migrations
+
+      - name: Verify expand, confirmed contract, and future ordinary deploy
+        run: npm run test:migrations:contract
+
       - name: Deploy migrations to the CI database
         run: npm run db:deploy
+
+      - name: Run review ledger and concurrency checks
+        run: npm run test:db
 
       - name: Seed the card-motion test account and words
         run: npm run seed
@@ -120,7 +118,7 @@ jobs:
 
       - name: Upload Playwright failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: card-motion-playwright-${{ github.run_attempt }}
           path: test-results/

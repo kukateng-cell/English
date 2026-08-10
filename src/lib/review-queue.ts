@@ -39,6 +39,24 @@ export interface StudyPostResult {
   newlyUnlocked?: unknown;
 }
 
+export interface CredentialAttachmentResult {
+  pendingCount: number;
+  adoptedWordIds: string[];
+  storageAvailable: boolean;
+}
+
+export interface LegacyFinalizationResult {
+  blockedCount: number;
+  storageAvailable: boolean;
+}
+
+export class ReviewQueueStorageError extends Error {
+  constructor() {
+    super("REVIEW_QUEUE_STORAGE_UNAVAILABLE");
+    this.name = "ReviewQueueStorageError";
+  }
+}
+
 const QUEUE_PREFIX = "study:review-queue:";
 const ITEM_PREFIX = "study:review-item:";
 const LEGACY_QUEUE_KEY = "study:review-queue";
@@ -378,7 +396,7 @@ export function enqueuePendingReview(
     credentialState: credentials ? "valid" : "legacy-claimed",
   };
   if (!writeReviewItem(userId, item)) {
-    throw new Error("REVIEW_QUEUE_STORAGE_UNAVAILABLE");
+    throw new ReviewQueueStorageError();
   }
   return pendingReviewCount(userId);
 }
@@ -393,8 +411,10 @@ export function attachStudySessionCredentials(
   userId: string,
   studySessionId: string,
   nonces: Record<string, string>,
-): number {
+): CredentialAttachmentResult {
   const pending = loadPendingReviews(userId);
+  const adoptedWordIds: string[] = [];
+  let storageAvailable = true;
   // Reserve words that already have a credential in this session before
   // binding legacy rows. Otherwise an older credential-less row can steal the
   // nonce from a newer answer that was just enqueued by the current page.
@@ -430,7 +450,7 @@ export function attachStudySessionCredentials(
     if (item.studySessionId === studySessionId && item.nonce === nonce) {
       continue;
     }
-    writeReviewItem(userId, {
+    const written = writeReviewItem(userId, {
       ...item,
       studySessionId,
       nonce,
@@ -438,8 +458,14 @@ export function attachStudySessionCredentials(
       nextAttemptAt: undefined,
       lastError: undefined,
     });
+    if (written) adoptedWordIds.push(item.wordId);
+    else storageAvailable = false;
   }
-  return pendingReviewCount(userId);
+  return {
+    pendingCount: pendingReviewCount(userId),
+    adoptedWordIds,
+    storageAvailable,
+  };
 }
 
 /** Rebind one pending operation per word when an atomic session rotation returns. */
@@ -474,20 +500,28 @@ export function rebindStudySessionCredentials(
 
 /** After the current server queue had one chance to adopt legacy rows, make
  * every remaining credential-less legacy operation visibly non-retryable. */
-export function finalizeLegacyCredentialClaims(userId: string): number {
+export function finalizeLegacyCredentialClaims(
+  userId: string,
+): LegacyFinalizationResult {
+  let storageAvailable = true;
   for (const item of loadPendingReviews(userId)) {
     if (item.status !== "pending" || item.credentialState !== "legacy-claimed") {
       continue;
     }
-    writeReviewItem(userId, {
+    if (!writeReviewItem(userId, {
       ...item,
       status: "blocked",
       credentialState: "blocked",
       lastError: "旧版待同步记录缺少服务器来源凭证，无法安全恢复",
       nextAttemptAt: undefined,
-    });
+    })) {
+      storageAvailable = false;
+    }
   }
-  return blockedReviewCount(userId);
+  return {
+    blockedCount: blockedReviewCount(userId),
+    storageAvailable,
+  };
 }
 
 /**
@@ -648,7 +682,10 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       assignedWords.add(item.wordId);
       return true;
     })
-    .slice(0, MAX_FLUSH_BATCH);
+    // Renew one operation at a time. If the server committed a prior renewal
+    // but browser storage failed, the next call can replay that exact one
+    // without mixing it with untouched items and turning the whole batch 409.
+    .slice(0, 1);
   if (operations.length === 0) return false;
 
   const markBlocked = (message: string) => {
@@ -765,17 +802,20 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
         (item) => item.operationId === operation.operationId,
       );
       if (!current || current.status !== "pending") continue;
-      writeReviewItem(userId, {
+      if (!writeReviewItem(userId, {
         ...current,
         studySessionId: session.id,
         nonce: renewed.nonce,
         credentialState: "valid",
         lastError: undefined,
         nextAttemptAt: undefined,
-      });
+      })) {
+        throw new ReviewQueueStorageError();
+      }
     }
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof ReviewQueueStorageError) throw error;
     markRetry("网络错误，请稍后重试");
     return false;
   }

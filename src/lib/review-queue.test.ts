@@ -9,9 +9,12 @@ import {
   loadPendingReviews,
   pendingReviewCount,
   blockedReviewCount,
+  ReviewQueueStorageError,
 } from "./review-queue";
 
-function installStorage() {
+function installStorage(
+  shouldFailWrite?: (key: string, value: string) => boolean,
+) {
   const data = new Map<string, string>();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -22,7 +25,10 @@ function installStorage() {
         },
         key: (index: number) => [...data.keys()][index] ?? null,
         getItem: (key: string) => data.get(key) ?? null,
-        setItem: (key: string, value: string) => data.set(key, value),
+        setItem: (key: string, value: string) => {
+          if (shouldFailWrite?.(key, value)) throw new Error("quota exceeded");
+          data.set(key, value);
+        },
         removeItem: (key: string) => data.delete(key),
       },
     },
@@ -455,6 +461,85 @@ test("renewal rate limits set a cooldown before another credential request", asy
 
     await flushPendingReviews("user-a");
     assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("renewal storage failure replays one operation without blocking untouched rows", async () => {
+  let failFreshCredentialWrite = false;
+  const data = installStorage((_key, value) => {
+    if (!failFreshCredentialWrite || !value.includes('"session-fresh-operation-a1"')) {
+      return false;
+    }
+    failFreshCredentialWrite = false;
+    return true;
+  });
+  for (const [operationId, wordId] of [
+    ["operation-a1", "word-1"],
+    ["operation-a2", "word-2"],
+  ] as const) {
+    enqueuePendingReview("user-a", operationId, wordId, 5, {
+      studySessionId: "session-expired",
+      nonce: `nonce-${operationId}`,
+    });
+    const key = `study:review-item:user-a:${operationId}`;
+    const row = JSON.parse(data.get(key)!) as Record<string, unknown>;
+    delete row.nonce;
+    row.credentialState = "expired";
+    data.set(key, JSON.stringify(row));
+  }
+
+  const originalFetch = globalThis.fetch;
+  const renewalOperations: string[][] = [];
+  const submitted: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    if (url === "/api/study/credentials") {
+      const operations = body.operations as Array<{
+        operationId: string;
+        wordId: string;
+      }>;
+      renewalOperations.push(operations.map((item) => item.operationId));
+      const operation = operations[0];
+      failFreshCredentialWrite = renewalOperations.length === 1;
+      return new Response(
+        JSON.stringify({
+          studySession: { id: `session-fresh-${operation.operationId}` },
+          credentials: [
+            {
+              ...operation,
+              nonce: `nonce-fresh-${operation.operationId}`,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    submitted.push(body.operationId as string);
+    return new Response("{}", { status: 200 });
+  };
+
+  try {
+    await assert.rejects(
+      flushPendingReviews("user-a"),
+      ReviewQueueStorageError,
+    );
+    assert.equal(pendingReviewCount("user-a"), 2);
+    assert.equal(blockedReviewCount("user-a"), 0);
+
+    await flushPendingReviews("user-a");
+    await flushPendingReviews("user-a");
+
+    assert.deepEqual(renewalOperations, [
+      ["operation-a1"],
+      ["operation-a1"],
+      ["operation-a2"],
+    ]);
+    assert.deepEqual(submitted, ["operation-a1", "operation-a2"]);
+    assert.equal(pendingReviewCount("user-a"), 0);
+    assert.equal(blockedReviewCount("user-a"), 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

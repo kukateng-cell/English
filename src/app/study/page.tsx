@@ -34,6 +34,7 @@ import {
   attachStudySessionCredentials,
   finalizeLegacyCredentialClaims,
   flushPendingReviews,
+  loadPendingReviews,
   rebindStudySessionCredentials,
   pendingReviewCount,
   blockedReviewCount,
@@ -43,6 +44,7 @@ import {
   legacyReviewCount,
   claimLegacyReviews,
   discardLegacyReviews,
+  ReviewQueueStorageError,
   type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
 import { canResumeStudySession } from "@/lib/study-session";
@@ -83,6 +85,22 @@ interface StudySessionInfo {
   id: string;
   expiresAt: string;
   nonces: Record<string, string>;
+}
+
+interface StudyQueueResponse {
+  queue?: QueueItem[];
+  pool?: PoolWord[];
+  unitMode?: boolean;
+  category?: string | null;
+  streak?: StreakInfo | null;
+  studySession?: StudySessionInfo | null;
+}
+
+interface PendingFlushOutcome {
+  remaining: number;
+  submittedWordIds: string[];
+  adoptedWordIds: string[];
+  storageError: boolean;
 }
 
 const STUDY_QUEUE_REQUEST_TIMEOUT_MS = 15_000;
@@ -702,50 +720,95 @@ export default function StudyPage() {
   const flushPending = useCallback(async (
     sessionOverride?: StudySessionInfo | null,
     finalizeLegacy = false,
-  ) => {
-    if (!userId) return;
+  ): Promise<PendingFlushOutcome> => {
+    if (!userId) {
+      return {
+        remaining: 0,
+        submittedWordIds: [],
+        adoptedWordIds: [],
+        storageError: false,
+      };
+    }
+    const adoptedWordIds: string[] = [];
     const activeSession =
       sessionOverride === undefined ? rotationSessionRef.current : sessionOverride;
     if (activeSession) {
-      attachStudySessionCredentials(
+      const attachment = attachStudySessionCredentials(
         userId,
         activeSession.id,
         activeSession.nonces,
       );
+      adoptedWordIds.push(...attachment.adoptedWordIds);
+      if (!attachment.storageAvailable) {
+        setError(
+          "浏览器无法保存学习凭证，请释放存储空间或允许网站存储后重试",
+        );
+        return {
+          remaining: attachment.pendingCount,
+          submittedWordIds: [],
+          adoptedWordIds,
+          storageError: true,
+        };
+      }
     }
     // Only a successful queue response is definitive for credential-less
     // legacy rows. Before that response, retain them for nonce adoption.
     if (finalizeLegacy) {
-      finalizeLegacyCredentialClaims(userId);
+      const finalization = finalizeLegacyCredentialClaims(userId);
+      if (!finalization.storageAvailable) {
+        setError(
+          "浏览器无法更新旧版待同步记录，请释放存储空间或允许网站存储后重试",
+        );
+        return {
+          remaining: pendingReviewCount(userId),
+          submittedWordIds: [],
+          adoptedWordIds,
+          storageError: true,
+        };
+      }
     }
     // Current queue may be empty; durable rows already carry their own
     // credentials (or provenance for reauthorization), so they still flush.
     // The queue library serializes concurrent callers and runs a trailing scan.
-    const remaining = await flushPendingReviews(userId, (_id, data) => {
-      if (data?.streak) setStreak(data.streak as StreakInfo);
-      const unlocked = data?.newlyUnlocked as AchievementDef[] | undefined;
-      if (unlocked?.length) {
-        setNewAchievements((prev) => [...prev, ...unlocked]);
-      }
-    });
+    const submittedWordIds = new Set<string>();
+    let remaining: number;
+    try {
+      remaining = await flushPendingReviews(userId, (wordId, data) => {
+        submittedWordIds.add(wordId);
+        if (data?.streak) setStreak(data.streak as StreakInfo);
+        const unlocked = data?.newlyUnlocked as AchievementDef[] | undefined;
+        if (unlocked?.length) {
+          setNewAchievements((prev) => [...prev, ...unlocked]);
+        }
+      });
+    } catch (error) {
+      if (!(error instanceof ReviewQueueStorageError)) throw error;
+      setError(
+        "浏览器无法保存续期后的学习凭证，请释放存储空间或允许网站存储后重试",
+      );
+      return {
+        remaining: pendingReviewCount(userId),
+        submittedWordIds: [...submittedWordIds],
+        adoptedWordIds,
+        storageError: true,
+      };
+    }
     setPendingSync(remaining);
     setBlockedSync(blockedReviewCount(userId));
     setBlockedSyncError(blockedReviewMessage(userId));
     setLegacySync(legacyReviewCount());
+    return {
+      remaining,
+      submittedWordIds: [...submittedWordIds],
+      adoptedWordIds,
+      storageError: false,
+    };
   }, [userId]);
-
-  // 进入学习页时先同步已经有凭证的记录，但不要等待它才加载当前队列，
-  // 亦不要在 GET 发出 session/nonces 前封锁可恢复的旧记录。
-  useEffect(() => {
-    if (status !== "authenticated") return;
-    const timer = window.setTimeout(() => void flushPending(), 0);
-    return () => window.clearTimeout(timer);
-  }, [status, flushPending]);
 
   // 网络恢复 / 页面重新可见 / 定时器：自动重试缓冲的待提交评测，
   // 保证用户离线时记下的学习在恢复连接后不丢失。
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" || loading) return;
     const onOnline = () => void flushPending();
     const onVisible = () => {
       if (document.visibilityState === "visible") void flushPending();
@@ -761,7 +824,7 @@ export default function StudyPage() {
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
     };
-  }, [status, userId, flushPending]);
+  }, [status, userId, loading, flushPending]);
 
   const rotateStudySession = useCallback(async () => {
     const currentSession = rotationSessionRef.current ?? studySession;
@@ -943,13 +1006,46 @@ export default function StudyPage() {
   // 通过 URL query 决定是「全局今日队列」还是「指定单元练习」。
   // 用内联 async IIFE 触发请求，符合 react-hooks/set-state-in-effect 规则。
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" || !userId) return;
     let cancelled = false;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(
-      () => controller.abort(),
-      STUDY_QUEUE_REQUEST_TIMEOUT_MS,
-    );
+    const controllers = new Set<AbortController>();
+
+    const requestQueue = async (
+      params: URLSearchParams,
+    ): Promise<StudyQueueResponse | null> => {
+      const controller = new AbortController();
+      controllers.add(controller);
+      const timeout = window.setTimeout(
+        () => controller.abort(),
+        STUDY_QUEUE_REQUEST_TIMEOUT_MS,
+      );
+      try {
+        const res = await fetch(`/api/study?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        if (cancelled) return null;
+        if (res.status === 401) {
+          router.push("/login");
+          return null;
+        }
+        if (res.status === 403) {
+          setLocked(true);
+          setQueue([]);
+          setPool([]);
+          setUnitCategory(null);
+          return null;
+        }
+        if (!res.ok) {
+          setError(await responseErrorMessage(res));
+          return null;
+        }
+        return (await res.json()) as StudyQueueResponse;
+      } finally {
+        window.clearTimeout(timeout);
+        controllers.delete(controller);
+      }
+    };
+
     (async () => {
       setLoading(true);
       setError(null);
@@ -957,53 +1053,80 @@ export default function StudyPage() {
         const params = new URLSearchParams(window.location.search);
         // 固定恢复队列：成功提交一题后，动态 due/new/补救集合会立刻变化；把
         // checkpoint 的原 id 顺序交回服务端作当前权限验证并重建，才可真正续做。
-        const checkpoint = userId
-          ? loadCheckpoint(userId, getUnitKey())
-          : null;
+        const checkpoint = loadCheckpoint(userId, getUnitKey());
         if (checkpoint && canResumeStudySession(checkpoint.queueSignature)) {
           params.set("resumeIds", checkpoint.queueSignature.join(","));
           params.set("resumeSessionId", checkpoint.studySessionId);
         } else if (checkpoint) {
           // 旧版本可能保存过超过当前请求上限的单元；先丢弃再让服务端
           // 生成同样受限的新队列，避免每次 Retry 都重复收到 400。
-          clearCheckpoint(userId!, getUnitKey());
+          clearCheckpoint(userId, getUnitKey());
         }
-        const res = await fetch(`/api/study?${params.toString()}`, {
-          signal: controller.signal,
-        });
+
+        // Start credentialed outbox recovery and queue loading together. The
+        // page remains in its loading state until both phases reconcile, so a
+        // stale queue/session can never become interactive.
+        const initialFlushPromise = flushPending(null, false);
+        let data = await requestQueue(params);
+        if (!data) {
+          await initialFlushPromise;
+          return;
+        }
+        const firstSession = data.studySession ?? null;
+        const adoptionPromise = flushPending(firstSession, true);
+        const [initialFlush, adoptionFlush] = await Promise.all([
+          initialFlushPromise,
+          adoptionPromise,
+        ]);
         if (cancelled) return;
-        if (res.status === 401) {
-          // 会话过期：直接回登录页，而不是只显示错误横幅让用户卡住。
-          router.push("/login");
-          return;
+        if (initialFlush.storageError || adoptionFlush.storageError) return;
+
+        const reconciledWordIds = new Set([
+          ...initialFlush.submittedWordIds,
+          ...initialFlush.adoptedWordIds,
+          ...adoptionFlush.submittedWordIds,
+          ...adoptionFlush.adoptedWordIds,
+        ]);
+        let restoreAllowed = true;
+        if (reconciledWordIds.size > 0) {
+          // A startup submission changed SM-2 state, or consumed a nonce from
+          // the first response. Discard both that response and its checkpoint
+          // provenance, then request a wholly fresh queue/session.
+          clearCheckpoint(userId, getUnitKey());
+          data = await requestQueue(
+            new URLSearchParams(window.location.search),
+          );
+          if (!data || cancelled) return;
+          restoreAllowed = false;
         }
-        if (res.status === 403) {
-          // 被锁单元：直接访问 URL 才会走到这里（/units 列表已禁用入口）
-          setLocked(true);
-          setQueue([]);
-          setPool([]);
-          setUnitCategory(null);
-          return;
-        }
-        if (!res.ok) {
-          setError(await responseErrorMessage(res));
-          return;
-        }
-        setLocked(false);
-        const data = await res.json();
+
         const loadedQueue = (data.queue || []) as QueueItem[];
-        const restoredQueue = !cancelled
+        const pendingWordIds = new Set(
+          loadPendingReviews(userId)
+            .filter((item) => item.status === "pending")
+            .map((item) => item.wordId),
+        );
+        const conflictingWords = loadedQueue.filter((item) =>
+          pendingWordIds.has(item.word.id),
+        );
+        if (conflictingWords.length > 0) {
+          setError(
+            "目前学习队列仍有同一单词等待同步，请恢复网络后重试，避免重复记录学习进度",
+          );
+          return;
+        }
+
+        setLocked(false);
+        const restoredQueue = restoreAllowed && !cancelled
           ? restoreProgress(loadedQueue)
           : null;
         setQueue(restoredQueue ?? loadedQueue);
         setPool(data.pool || []);
-        setUnitCategory(data.unitMode ? data.category : null);
+        setUnitCategory(data.unitMode ? data.category ?? null : null);
         setStreak(data.streak ?? null);
         const nextSession = (data.studySession ?? null) as StudySessionInfo | null;
+        rotationSessionRef.current = nextSession;
         setStudySession(nextSession);
-        // The successful GET is now the authoritative adoption pass. Attach
-        // matching nonces first, then make any remaining legacy rows visible.
-        void flushPending(nextSession, true);
         setRotationNotice(null);
         rotationRetryAttemptRef.current = 0;
         // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
@@ -1013,14 +1136,13 @@ export default function StudyPage() {
       } catch (e) {
         if (!cancelled) setError(networkErrorMessage(e));
       } finally {
-        window.clearTimeout(timeout);
         if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
-      controller.abort();
-      window.clearTimeout(timeout);
+      for (const controller of controllers) controller.abort();
+      controllers.clear();
     };
   }, [
     status,

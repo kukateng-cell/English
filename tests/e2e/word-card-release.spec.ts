@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// Firefox can spend most of the global 30s budget on its first cold page load
+// on a busy runner. Keep the actual frame-continuity deadline at five seconds
+// below, while allowing browser startup enough independent headroom.
+test.describe.configure({ timeout: 60_000 });
+
 type GestureScenario = {
   name: "fast-flick" | "slow-threshold" | "outward-return" | "held-late-flick";
   distance: number;
@@ -270,7 +275,10 @@ async function collectReleaseFrames(page: Page, releasePosition: number) {
         (window.__wordCardReleaseObserved === true &&
           (window.__wordCardPaintTrace?.length ?? 0) >= 3),
       undefined,
-      { timeout: 5_000 },
+      // Firefox can starve a second rAF-based poll while the page's sampler is
+      // itself recording rAF frames. A timer poll observes the same paint
+      // trace without competing for that scheduling path.
+      { timeout: 5_000, polling: 50 },
     );
   } catch {
     const diagnostics = await page.evaluate(() => ({
