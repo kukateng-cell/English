@@ -1,5 +1,59 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
+
+interface StudyWorkflowData {
+  queue: Array<{ word: { id: string; term: string } }>;
+  studySession: { id: string; nonces: Record<string, string> };
+}
+
+async function authenticatedUserId(page: Page): Promise<string> {
+  const response = await page.request.get("/api/auth/session");
+  const userId = (await response.json()).user?.id as string | undefined;
+  expect(userId).toBeTruthy();
+  return userId!;
+}
+
+async function installQuizCheckpoint(
+  page: Page,
+  userId: string,
+  data: StudyWorkflowData,
+) {
+  expect(data.queue.length).toBeGreaterThanOrEqual(2);
+  await page.evaluate(
+    ({ ownerId, queueIds, studySessionId }) => {
+      window.localStorage.setItem(
+        `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+        JSON.stringify({
+          version: 5,
+          ownerId,
+          ts: Date.now(),
+          phase: "quiz",
+          unitKey: "global",
+          queueSignature: queueIds,
+          studySessionId,
+          currentIndex: 1,
+          knownWordIds: [queueIds[0]],
+          unknownWordIds: [],
+          quizStats: { correct: 1, wrong: 1 },
+          quizTargetId: queueIds[1],
+          quizWrongCount: 1,
+          pendingQuizIds: [queueIds[0]],
+        }),
+      );
+    },
+    {
+      ownerId: userId,
+      queueIds: data.queue.map((item) => item.word.id),
+      studySessionId: data.studySession.id,
+    },
+  );
+  await page.reload();
+  await expect(page.getByTestId("study-quiz-phase")).toBeVisible();
+  await expect(page.getByTestId("study-quiz-phase")).toHaveAttribute(
+    "data-known-count",
+    "1",
+  );
+}
 
 test("authenticated card dismissal enters one quiz exactly once", async ({
   page,
@@ -499,7 +553,7 @@ test("an unrelated startup submission preserves a matching checkpoint", async ({
     },
   );
 
-  let queueRequestCount = 0;
+  const queueRequests: string[] = [];
   await page.route("**/api/study*", async (route) => {
     const request = route.request();
     if (new URL(request.url()).pathname !== "/api/study") {
@@ -507,15 +561,8 @@ test("an unrelated startup submission preserves a matching checkpoint", async ({
       return;
     }
     if (request.method() === "GET") {
-      queueRequestCount++;
-      // Hold the current context signature stable so this regression isolates
-      // checkpoint invalidation caused by the unrelated outbox submission,
-      // rather than the global queue's normal random selection of new words.
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(initialData),
-      });
+      queueRequests.push(request.url());
+      await route.continue();
       return;
     }
     const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
@@ -533,7 +580,14 @@ test("an unrelated startup submission preserves a matching checkpoint", async ({
   await page.reload();
   await expect(page.getByText(/已恢復上次進度|已恢复上次进度/)).toBeVisible();
   await expect(page.getByText(/認識 1|认识 1/)).toBeVisible();
-  await expect.poll(() => queueRequestCount).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => queueRequests.length).toBe(1);
+  const resumeRequest = new URL(queueRequests[0]);
+  expect(resumeRequest.searchParams.get("resumeIds")).toBe(
+    initialData.queue.map((item) => item.word.id).join(","),
+  );
+  expect(resumeRequest.searchParams.get("resumeSessionId")).toBe(
+    initialData.studySession.id,
+  );
   const checkpoint = await page.evaluate((ownerId) => {
     const raw = window.localStorage.getItem(
       `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
@@ -542,4 +596,426 @@ test("an unrelated startup submission preserves a matching checkpoint", async ({
   }, userId!);
   expect(checkpoint?.currentIndex).toBe(1);
   expect(checkpoint?.knownWordIds).toEqual([initialData.queue[0].word.id]);
+});
+
+test("an affected fresh queue resets stale quiz and classification state", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const initialData = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  await installQuizCheckpoint(page, userId, initialData);
+
+  const operationId = `reset-fresh-state-${randomUUID()}`;
+  const freshResponses: StudyWorkflowData[] = [];
+  await page.route("**/api/study*", async (route) => {
+    const request = route.request();
+    if (new URL(request.url()).pathname !== "/api/study") {
+      await route.continue();
+      return;
+    }
+    if (request.method() === "GET") {
+      const response = await route.fetch();
+      freshResponses.push(await response.json());
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.evaluate(
+    ({ ownerId, operation, wordId, studySessionId, nonce }) => {
+      window.localStorage.setItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        JSON.stringify({
+          ownerId,
+          operationId: operation,
+          wordId,
+          quality: 5,
+          ts: Date.now(),
+          attempts: 0,
+          status: "pending",
+          studySessionId,
+          nonce,
+          credentialState: "valid",
+        }),
+      );
+      window.dispatchEvent(new Event("online"));
+    },
+    {
+      ownerId: userId,
+      operation: operationId,
+      wordId: initialData.queue[0].word.id,
+      studySessionId: initialData.studySession.id,
+      nonce: initialData.studySession.nonces[initialData.queue[0].word.id],
+    },
+  );
+
+  await expect.poll(() => freshResponses.length).toBeGreaterThanOrEqual(1);
+  await expect(page.getByTestId("study-quiz-phase")).toHaveCount(0);
+  const card = page.getByTestId("word-card-drag-layer");
+  await expect(card).toBeVisible();
+  const freshData = freshResponses.at(-1)!;
+  await expect(card.getByText(freshData.queue[0].word.term, { exact: true })).toBeVisible();
+  await expect(page.getByText(/^(認識|认识) 0$/)).toBeVisible();
+  await expect(page.getByText(/^(不認識|不认识) 0$/)).toBeVisible();
+  expect(
+    freshData.queue.some(
+      (item) => item.word.id === initialData.queue[0].word.id,
+    ),
+  ).toBe(false);
+  await expect
+    .poll(async () =>
+      page.evaluate((ownerId) => {
+        const raw = window.localStorage.getItem(
+          `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+        );
+        if (!raw) return null;
+        const checkpoint = JSON.parse(raw);
+        return {
+          currentIndex: checkpoint.currentIndex,
+          phase: checkpoint.phase,
+          knownWordIds: checkpoint.knownWordIds,
+          unknownWordIds: checkpoint.unknownWordIds,
+          pendingQuizIds: checkpoint.pendingQuizIds,
+          quizTargetId: checkpoint.quizTargetId,
+        };
+      }, userId),
+    )
+    .toEqual({
+      currentIndex: 0,
+      phase: "assess",
+      knownWordIds: [],
+      unknownWordIds: [],
+      pendingQuizIds: [],
+      quizTargetId: null,
+    });
+});
+
+test("a future-backoff active row preserves the in-memory quiz and checkpoint", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const initialData = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  await installQuizCheckpoint(page, userId, initialData);
+  let getCount = 0;
+  let postCount = 0;
+  await page.route("**/api/study*", async (route) => {
+    const request = route.request();
+    if (new URL(request.url()).pathname === "/api/study") {
+      if (request.method() === "GET") getCount++;
+      if (request.method() === "POST") postCount++;
+    }
+    await route.continue();
+  });
+
+  await page.evaluate(
+    ({ ownerId, operation, wordId, studySessionId, nonce }) => {
+      window.localStorage.setItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        JSON.stringify({
+          ownerId,
+          operationId: operation,
+          wordId,
+          quality: 5,
+          ts: Date.now(),
+          attempts: 1,
+          status: "pending",
+          nextAttemptAt: Date.now() + 60_000,
+          studySessionId,
+          nonce,
+          credentialState: "valid",
+        }),
+      );
+      window.dispatchEvent(new Event("online"));
+    },
+    {
+      ownerId: userId,
+      operation: `future-backoff-${randomUUID()}`,
+      wordId: initialData.queue[0].word.id,
+      studySessionId: initialData.studySession.id,
+      nonce: initialData.studySession.nonces[initialData.queue[0].word.id],
+    },
+  );
+
+  await expect(page.getByText(/有 1 條學習記錄待同步|有 1 条学习记录待同步/)).toBeVisible();
+  await expect(page.getByTestId("study-quiz-phase")).toHaveAttribute(
+    "data-known-count",
+    "1",
+  );
+  expect(getCount).toBe(0);
+  expect(postCount).toBe(0);
+  const checkpoint = await page.evaluate((ownerId) => {
+    const raw = window.localStorage.getItem(
+      `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+    );
+    return raw ? JSON.parse(raw) : null;
+  }, userId);
+  expect(checkpoint?.currentIndex).toBe(1);
+  expect(checkpoint?.phase).toBe("quiz");
+  expect(checkpoint?.quizTargetId).toBe(initialData.queue[1].word.id);
+  expect(checkpoint?.knownWordIds).toEqual([initialData.queue[0].word.id]);
+  expect(checkpoint?.pendingQuizIds).toEqual([initialData.queue[0].word.id]);
+});
+
+for (const failureStatus of [429, 500]) {
+  test(`a ${failureStatus} active flush failure preserves quiz progress`, async ({
+    page,
+  }) => {
+    const initialResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/study" &&
+        response.ok(),
+    );
+    await page.goto("/study");
+    const initialData = (await (await initialResponse).json()) as StudyWorkflowData;
+    const userId = await authenticatedUserId(page);
+    await installQuizCheckpoint(page, userId, initialData);
+    const operationId = `failed-${failureStatus}-${randomUUID()}`;
+    let getCount = 0;
+    let postCount = 0;
+    await page.route("**/api/study*", async (route) => {
+      const request = route.request();
+      if (new URL(request.url()).pathname !== "/api/study") {
+        await route.continue();
+        return;
+      }
+      if (request.method() === "GET") {
+        getCount++;
+        await route.continue();
+        return;
+      }
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      if (body.operationId === operationId) {
+        postCount++;
+        await route.fulfill({
+          status: failureStatus,
+          headers: failureStatus === 429 ? { "Retry-After": "60" } : {},
+          contentType: "application/json",
+          body: JSON.stringify({ error: `simulated ${failureStatus}` }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.evaluate(
+      ({ ownerId, operation, wordId, studySessionId, nonce }) => {
+        window.localStorage.setItem(
+          `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+          JSON.stringify({
+            ownerId,
+            operationId: operation,
+            wordId,
+            quality: 5,
+            ts: Date.now(),
+            attempts: 0,
+            status: "pending",
+            studySessionId,
+            nonce,
+            credentialState: "valid",
+          }),
+        );
+        window.dispatchEvent(new Event("online"));
+      },
+      {
+        ownerId: userId,
+        operation: operationId,
+        wordId: initialData.queue[0].word.id,
+        studySessionId: initialData.studySession.id,
+        nonce: initialData.studySession.nonces[initialData.queue[0].word.id],
+      },
+    );
+
+    await expect
+      .poll(async () =>
+        page.evaluate(
+          ({ ownerId, operation }) => {
+            const raw = window.localStorage.getItem(
+              `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+            );
+            return raw ? JSON.parse(raw).attempts : null;
+          },
+          { ownerId: userId, operation: operationId },
+        ),
+      )
+      .toBe(1);
+    await expect(page.getByTestId("study-quiz-phase")).toHaveAttribute(
+      "data-known-count",
+      "1",
+    );
+    expect(postCount).toBe(1);
+    expect(getCount).toBe(0);
+    const checkpoint = await page.evaluate((ownerId) => {
+      const raw = window.localStorage.getItem(
+        `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+      );
+      return raw ? JSON.parse(raw) : null;
+    }, userId);
+    expect(checkpoint?.currentIndex).toBe(1);
+    expect(checkpoint?.phase).toBe("quiz");
+    expect(checkpoint?.quizTargetId).toBe(initialData.queue[1].word.id);
+  });
+}
+
+test("a successful submission in another tab invalidates the shared active session", async ({
+  page,
+  context,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const initialData = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  await page.evaluate(
+    ({ ownerId, queueIds, studySessionId }) => {
+      window.localStorage.setItem(
+        `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+        JSON.stringify({
+          version: 5,
+          ownerId,
+          ts: Date.now(),
+          phase: "assess",
+          unitKey: "global",
+          queueSignature: queueIds,
+          studySessionId,
+          currentIndex: 0,
+          knownWordIds: [],
+          unknownWordIds: [],
+          quizStats: { correct: 0, wrong: 0 },
+          quizTargetId: null,
+          quizWrongCount: 0,
+          pendingQuizIds: [],
+        }),
+      );
+    },
+    {
+      ownerId: userId,
+      queueIds: initialData.queue.map((item) => item.word.id),
+      studySessionId: initialData.studySession.id,
+    },
+  );
+
+  const otherPage = await context.newPage();
+  const otherInitialResponse = otherPage.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await otherPage.goto("/study");
+  const otherInitialData = (await (await otherInitialResponse).json()) as StudyWorkflowData;
+  expect(otherInitialData.studySession.id).toBe(initialData.studySession.id);
+  expect(otherInitialData.queue.map((item) => item.word.id)).toEqual(
+    initialData.queue.map((item) => item.word.id),
+  );
+  await expect(otherPage.getByTestId("word-card-drag-layer")).toBeVisible();
+
+  const operationId = `cross-tab-${randomUUID()}`;
+  let releasePost!: () => void;
+  let markPostStarted!: () => void;
+  const blockedPost = new Promise<void>((resolve) => {
+    releasePost = resolve;
+  });
+  const postStarted = new Promise<void>((resolve) => {
+    markPostStarted = resolve;
+  });
+  await page.route("**/api/study*", async (route) => {
+    const request = route.request();
+    if (
+      new URL(request.url()).pathname === "/api/study" &&
+      request.method() === "POST"
+    ) {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      if (body.operationId === operationId) {
+        markPostStarted();
+        await blockedPost;
+      }
+    }
+    await route.continue();
+  });
+  const otherFreshResponses: StudyWorkflowData[] = [];
+  await otherPage.route("**/api/study*", async (route) => {
+    const request = route.request();
+    if (
+      new URL(request.url()).pathname === "/api/study" &&
+      request.method() === "GET"
+    ) {
+      const response = await route.fetch();
+      otherFreshResponses.push(await response.json());
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.evaluate(
+    ({ ownerId, operation, wordId, studySessionId, nonce }) => {
+      window.localStorage.setItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        JSON.stringify({
+          ownerId,
+          operationId: operation,
+          wordId,
+          quality: 5,
+          ts: Date.now(),
+          attempts: 0,
+          status: "pending",
+          studySessionId,
+          nonce,
+          credentialState: "valid",
+        }),
+      );
+    },
+    {
+      ownerId: userId,
+      operation: operationId,
+      wordId: initialData.queue[0].word.id,
+      studySessionId: initialData.studySession.id,
+      nonce: initialData.studySession.nonces[initialData.queue[0].word.id],
+    },
+  );
+  const otherKnownButton = otherPage.getByRole("button", {
+    name: /認識.*✓|认识.*✓/,
+  });
+  await expect(otherKnownButton).toBeDisabled();
+
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await postStarted;
+  try {
+    await expect(otherKnownButton).toBeDisabled();
+  } finally {
+    releasePost();
+  }
+
+  await expect.poll(() => otherFreshResponses.length).toBeGreaterThanOrEqual(1);
+  await expect(otherPage.getByTestId("word-card-drag-layer")).toBeVisible();
+  const otherFreshData = otherFreshResponses.at(-1)!;
+  expect(
+    otherFreshData.queue.some(
+      (item) => item.word.id === initialData.queue[0].word.id,
+    ),
+  ).toBe(false);
+  expect(
+    otherFreshData.studySession.nonces[initialData.queue[0].word.id],
+  ).toBeUndefined();
+  await otherPage.close();
 });

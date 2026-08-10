@@ -25,6 +25,7 @@ export interface QuizQuestion {
 interface QuizCardProps {
   question: QuizQuestion;
   onAnswer: (correct: boolean) => void;
+  disabled?: boolean;
 }
 
 const cardMotion = {
@@ -34,7 +35,11 @@ const cardMotion = {
   transition: { type: "spring" as const, stiffness: 320, damping: 26 },
 };
 
-export default function QuizCard({ question, onAnswer }: QuizCardProps) {
+export default function QuizCard({
+  question,
+  onAnswer,
+  disabled = false,
+}: QuizCardProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { tc } = useLocale();
   const answered = selectedId !== null;
@@ -43,7 +48,7 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
   const speak = () => speakEnglish(question.word.term);
 
   const handlePick = (optId: string) => {
-    if (answered) return;
+    if (answered || disabled) return;
     setSelectedId(optId);
     const correct = optId === question.correctId;
     setTimeout(() => onAnswer(correct), correct ? 700 : 1400);
@@ -132,8 +137,8 @@ export default function QuizCard({ question, onAnswer }: QuizCardProps) {
             <motion.button
               key={opt.id + i}
               onClick={() => handlePick(opt.id)}
-              disabled={answered}
-              whileTap={{ scale: answered ? 1 : 0.97 }}
+              disabled={answered || disabled}
+              whileTap={{ scale: answered || disabled ? 1 : 0.97 }}
               className={containerClass}
             >
               {/* 圆形编号 */}

@@ -44,6 +44,9 @@ import {
   legacyReviewCount,
   claimLegacyReviews,
   discardLegacyReviews,
+  parseReviewQueueMutationEvent,
+  reviewQueueItemStoragePrefix,
+  reviewQueueMutationStorageKey,
   ReviewQueueStorageError,
   type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
@@ -503,13 +506,14 @@ export default function StudyPage() {
   const [blockedSync, setBlockedSync] = useState(0);
   const [blockedSyncError, setBlockedSyncError] = useState<string | null>(null);
   const [legacySync, setLegacySync] = useState(0);
+  const [guardedPendingWordIds, setGuardedPendingWordIds] = useState<string[]>([]);
   const [rotationNotice, setRotationNotice] = useState<string | null>(null);
   const isRotatingSessionRef = useRef(false);
   const rotationRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rotationRetryAttemptRef = useRef(0);
   const rotationSessionRef = useRef<StudySessionInfo | null>(null);
   const rotateStudySessionRef = useRef<() => Promise<void>>(async () => {});
-  const reconciliationReloadWordIdsRef = useRef<Set<string> | null>(null);
+  const reconciliationServerMutatedWordIdsRef = useRef<Set<string> | null>(null);
   const performanceEntriesRef = useRef<
     Array<{ entryType: string; startTime: number; duration: number }>
   >([]);
@@ -611,9 +615,17 @@ export default function StudyPage() {
 
   const refreshSyncCounts = useCallback(() => {
     if (!userId) return;
-    setPendingSync(pendingReviewCount(userId));
-    setBlockedSync(blockedReviewCount(userId));
-    setBlockedSyncError(blockedReviewMessage(userId));
+    const reviews = loadPendingReviews(userId);
+    setPendingSync(reviews.filter((item) => item.status === "pending").length);
+    setBlockedSync(reviews.filter((item) => item.status === "blocked").length);
+    setBlockedSyncError(
+      reviews.find((item) => item.status === "blocked")?.lastError ?? null,
+    );
+    setGuardedPendingWordIds(
+      reviews
+        .filter((item) => item.status === "pending")
+        .map((item) => item.wordId),
+    );
     setLegacySync(legacyReviewCount());
   }, [userId]);
 
@@ -712,6 +724,23 @@ export default function StudyPage() {
   // 多余重渲染，也不会触发 ESLint 「声明但未读取」警告。
   const pendingQuizzes = useRef<WordFull[]>([]);
   const [quizTarget, setQuizTarget] = useState<WordFull | null>(null);
+
+  const resetLearningStateForFreshQueue = useCallback(() => {
+    setCurrentIndex(0);
+    setHelpVisible(false);
+    setWordStep("assess");
+    setDone(false);
+    setKnownWords([]);
+    setUnknownWords([]);
+    setQuizStats({ correct: 0, wrong: 0 });
+    setQuizAttempt(0);
+    setQuizTarget(null);
+    pendingQuizzes.current = [];
+    quizWrongCounts.current = {};
+    setSwipeTransitioning(false);
+    swipeLockRef.current = false;
+    setShowResumedBanner(false);
+  }, []);
 
   // 干扰项来源池：外部词 + 本次评估队列词
   const distractorSource: PoolWord[] = useMemo(
@@ -818,6 +847,11 @@ export default function StudyPage() {
     setPendingSync(remaining);
     setBlockedSync(blockedReviewCount(userId));
     setBlockedSyncError(blockedReviewMessage(userId));
+    setGuardedPendingWordIds(
+      loadPendingReviews(userId)
+        .filter((item) => item.status === "pending")
+        .map((item) => item.wordId),
+    );
     setLegacySync(legacyReviewCount());
     return {
       remaining,
@@ -828,10 +862,10 @@ export default function StudyPage() {
   }, [userId]);
 
   // Every flush that runs after the page becomes interactive must reconcile
-  // its result with the active queue/checkpoint. A matching pending row is
-  // locked before network I/O; a consumed/adopted active nonce then triggers
-  // the same startup barrier used on page entry. Returns true only when it is
-  // safe for a caller such as session rotation to continue on this page.
+  // its result with the active queue/checkpoint. Only a successful server
+  // mutation invalidates that context; a pending/backoff row merely guards its
+  // word and must never erase local progress. Returns true only when it is safe
+  // for a caller such as session rotation to continue on this page.
   const flushAndReconcile = useCallback(async (): Promise<boolean> => {
     if (!userId) return false;
     const checkpoint = loadCheckpoint(userId, getUnitKey());
@@ -839,47 +873,55 @@ export default function StudyPage() {
       ...queue.map((item) => item.word.id),
       ...(checkpoint?.queueSignature ?? []),
     ]);
-    const activePendingWordIds = loadPendingReviews(userId)
+    const activePending = loadPendingReviews(userId)
       .filter(
         (item) =>
           item.status === "pending" && activeWordIds.has(item.wordId),
-      )
-      .map((item) => item.wordId);
-    const hadActivePending = activePendingWordIds.length > 0;
-    if (hadActivePending) setLoading(true);
+      );
+    const hasEligibleActivePending = activePending.some(
+      (item) =>
+        Boolean(item.studySessionId && item.nonce) &&
+        (!item.nextAttemptAt || item.nextAttemptAt <= Date.now()),
+    );
+    if (hasEligibleActivePending) setLoading(true);
 
     try {
       const outcome = await flushPending();
       if (outcome.storageError) {
-        if (hadActivePending) setLoading(false);
+        if (hasEligibleActivePending) setLoading(false);
         return false;
       }
-      const submittedActiveWord = outcome.submittedWordIds.some((wordId) =>
-        activeWordIds.has(wordId),
+      const submittedActiveWordIds = outcome.submittedWordIds.filter(
+        (wordId) => activeWordIds.has(wordId),
       );
-      const adoptedActiveWord = outcome.adoptedWordIds.some((wordId) =>
-        activeWordIds.has(wordId),
-      );
-      const requiresReload =
-        hadActivePending ||
-        adoptedActiveWord ||
-        submittedActiveWord;
-      if (requiresReload) {
-        reconciliationReloadWordIdsRef.current = new Set(
-          [
-            ...activePendingWordIds,
-            ...outcome.submittedWordIds,
-            ...outcome.adoptedWordIds,
-          ].filter((wordId) => activeWordIds.has(wordId)),
+      if (submittedActiveWordIds.length > 0) {
+        reconciliationServerMutatedWordIdsRef.current = new Set(
+          submittedActiveWordIds,
         );
         setLoading(true);
         setReloadKey((key) => key + 1);
         return false;
       }
-      if (hadActivePending) setLoading(false);
-      return true;
+      const unresolvedAdoptedActiveWord = outcome.adoptedWordIds.some(
+        (wordId) =>
+          activeWordIds.has(wordId) &&
+          !outcome.submittedWordIds.includes(wordId),
+      );
+      if (unresolvedAdoptedActiveWord) {
+        setError(
+          "待同步记录已占用目前学习凭证，但尚未成功提交，请稍后重试",
+        );
+        if (hasEligibleActivePending) setLoading(false);
+        return false;
+      }
+      if (hasEligibleActivePending) setLoading(false);
+      const stillHasActivePending = loadPendingReviews(userId).some(
+        (item) =>
+          item.status === "pending" && activeWordIds.has(item.wordId),
+      );
+      return !stillHasActivePending;
     } catch (error) {
-      if (hadActivePending) setLoading(false);
+      if (hasEligibleActivePending) setLoading(false);
       setError(networkErrorMessage(error));
       return false;
     }
@@ -907,6 +949,78 @@ export default function StudyPage() {
       window.clearInterval(timer);
     };
   }, [status, userId, loading, flushAndReconcile]);
+
+  // localStorage is shared across tabs, but React state is not. Row changes
+  // refresh the guard banner immediately; a successful submission in another
+  // tab invalidates any matching in-memory queue/session and re-enters the
+  // same fresh-load barrier used by this tab's own flush.
+  useEffect(() => {
+    if (status !== "authenticated" || !userId) return;
+    const itemPrefix = reviewQueueItemStoragePrefix(userId);
+    const mutationKey = reviewQueueMutationStorageKey(userId);
+    const onStorage = (event: StorageEvent) => {
+      if (event.storageArea !== window.localStorage || !event.key) return;
+      if (event.key.startsWith(itemPrefix)) {
+        refreshSyncCounts();
+        return;
+      }
+      if (event.key !== mutationKey) return;
+      const mutation = parseReviewQueueMutationEvent(userId, event.newValue);
+      if (!mutation) return;
+      refreshSyncCounts();
+      if (
+        mutation.kind === "session-rotated" &&
+        studySession &&
+        mutation.sessionIds[0] === studySession.id &&
+        mutation.sessionIds[1]
+      ) {
+        const checkpoint = loadCheckpoint(userId, getUnitKey());
+        if (
+          checkpoint &&
+          updateCheckpointStudySession(
+            userId,
+            getUnitKey(),
+            mutation.sessionIds[1],
+          )
+        ) {
+          setLoading(true);
+          setReloadKey((key) => key + 1);
+          return;
+        }
+        setError(
+          "学习凭证已在另一分页轮换，请重新载入题目后继续",
+        );
+        return;
+      }
+      if (
+        mutation.kind === "credentials-renewed" &&
+        studySession &&
+        mutation.sessionIds.includes(studySession.id)
+      ) {
+        setError(
+          "学习凭证已在另一分页更新，请重新载入题目后继续",
+        );
+        return;
+      }
+      if (mutation.kind !== "server-mutated") return;
+      const checkpoint = loadCheckpoint(userId, getUnitKey());
+      const activeWordIds = new Set([
+        ...queue.map((item) => item.word.id),
+        ...(checkpoint?.queueSignature ?? []),
+      ]);
+      const affectedWordIds = mutation.wordIds.filter((wordId) =>
+        activeWordIds.has(wordId),
+      );
+      if (affectedWordIds.length === 0) return;
+      reconciliationServerMutatedWordIdsRef.current = new Set(
+        affectedWordIds,
+      );
+      setLoading(true);
+      setReloadKey((key) => key + 1);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [status, userId, queue, studySession, refreshSyncCounts]);
 
   const rotateStudySession = useCallback(async () => {
     const currentSession = rotationSessionRef.current ?? studySession;
@@ -1139,8 +1253,8 @@ export default function StudyPage() {
       setError(null);
       try {
         const params = new URLSearchParams(window.location.search);
-        const postStartReconciledWordIds =
-          reconciliationReloadWordIdsRef.current ?? new Set<string>();
+        const postStartServerMutatedWordIds =
+          reconciliationServerMutatedWordIdsRef.current ?? new Set<string>();
         // 固定恢复队列：成功提交一题后，动态 due/new/补救集合会立刻变化；把
         // checkpoint 的原 id 顺序交回服务端作当前权限验证并重建，才可真正续做。
         let checkpoint = loadCheckpoint(userId, getUnitKey());
@@ -1149,7 +1263,7 @@ export default function StudyPage() {
           // 生成同样受限的新队列，避免每次 Retry 都重复收到 400。
           clearCheckpoint(userId, getUnitKey());
           checkpoint = null;
-        } else if (checkpoint && postStartReconciledWordIds.size === 0) {
+        } else if (checkpoint && postStartServerMutatedWordIds.size === 0) {
           params.set("resumeIds", checkpoint.queueSignature.join(","));
           params.set("resumeSessionId", checkpoint.studySessionId);
         }
@@ -1172,18 +1286,33 @@ export default function StudyPage() {
         if (cancelled) return;
         if (initialFlush.storageError || adoptionFlush.storageError) return;
 
-        const concurrentReconciledWordIds = new Set([
+        const concurrentServerMutatedWordIds = new Set([
           ...initialFlush.submittedWordIds,
-          ...initialFlush.adoptedWordIds,
           ...adoptionFlush.submittedWordIds,
+        ]);
+        const concurrentSessionReservedWordIds = new Set([
+          ...initialFlush.adoptedWordIds,
           ...adoptionFlush.adoptedWordIds,
         ]);
-        const reconciledWordIds = new Set([
-          ...postStartReconciledWordIds,
-          ...concurrentReconciledWordIds,
+        const serverMutatedWordIds = new Set([
+          ...postStartServerMutatedWordIds,
+          ...concurrentServerMutatedWordIds,
         ]);
+        const firstQueueWordIds = new Set(
+          (data.queue ?? []).map((item) => item.word.id),
+        );
+        const activeServerMutation = [...concurrentServerMutatedWordIds].some(
+          (wordId) => firstQueueWordIds.has(wordId),
+        );
+        const unresolvedSessionReservation = [
+          ...concurrentSessionReservedWordIds,
+        ].some(
+          (wordId) =>
+            firstQueueWordIds.has(wordId) &&
+            !concurrentServerMutatedWordIds.has(wordId),
+        );
         let restoreAllowed = true;
-        if (concurrentReconciledWordIds.size > 0) {
+        if (activeServerMutation) {
           // A startup submission changed SM-2 state, or consumed a nonce from
           // the first response. Discard that response and request a wholly
           // fresh queue/session, but retain the checkpoint until this request
@@ -1193,15 +1322,21 @@ export default function StudyPage() {
           );
           if (!data || cancelled) return;
         }
+        if (unresolvedSessionReservation) {
+          setError(
+            "待同步记录已占用目前学习凭证，但尚未成功提交，请稍后重试",
+          );
+          return;
+        }
         if (
-          reconciliationReloadWordIdsRef.current ===
-          postStartReconciledWordIds
+          reconciliationServerMutatedWordIdsRef.current ===
+          postStartServerMutatedWordIds
         ) {
-          reconciliationReloadWordIdsRef.current = null;
+          reconciliationServerMutatedWordIdsRef.current = null;
         }
         const checkpointAffected = Boolean(
           checkpoint?.queueSignature.some((wordId) =>
-            reconciledWordIds.has(wordId),
+            serverMutatedWordIds.has(wordId),
           ),
         );
         if (checkpointAffected) {
@@ -1229,6 +1364,7 @@ export default function StudyPage() {
         const restoredQueue = restoreAllowed && !cancelled
           ? restoreProgress(loadedQueue)
           : null;
+        if (!restoredQueue) resetLearningStateForFreshQueue();
         setQueue(restoredQueue ?? loadedQueue);
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category ?? null : null);
@@ -1261,6 +1397,7 @@ export default function StudyPage() {
     flashResumed,
     router,
     flushPending,
+    resetLearningStateForFreshQueue,
   ]);
 
   // 认字评估阶段的词：取队列中 currentIndex 位置的词（经 current 引用）。
@@ -1321,6 +1458,7 @@ export default function StudyPage() {
     (correct: boolean | null) => {
       // 测试目标可能是刚认完的词，也可能是延后回来的不认识词
       const word = quizTarget;
+      if (word && guardedPendingWordIds.includes(word.id)) return;
       if (correct === false) {
         setQuizStats((s) => ({
           correct: s.correct,
@@ -1436,6 +1574,7 @@ export default function StudyPage() {
       queue,
       knownWords,
       studySession,
+      guardedPendingWordIds,
     ]
   );
 
@@ -1524,11 +1663,17 @@ export default function StudyPage() {
   if (status === "unauthenticated") return null;
 
   const current = queue[currentIndex];
+  const currentInteractionWordId =
+    wordStep === "quiz" ? quizTarget?.id : current?.word.id;
+  const interactionGuarded = Boolean(
+    currentInteractionWordId &&
+      guardedPendingWordIds.includes(currentInteractionWordId),
+  );
 
   // 右滑：认识（仅本地分类，不写记录；掌握与否交给随后的测试判定）
   // 选好「认识」后，立刻进入该词的测试步。
   const handleSwipeRight = () => {
-    if (!current || swipeLockRef.current) return;
+    if (!current || interactionGuarded || swipeLockRef.current) return;
     swipeLockRef.current = true;
     setKnownWords((prev) => [...prev, current.word]);
     setQuizTarget(current.word);
@@ -1540,7 +1685,7 @@ export default function StudyPage() {
 
   // 左滑：不认识 → 展示助记面板（仅本地分类，不写记录）
   const handleSwipeLeft = () => {
-    if (!current || swipeLockRef.current) return;
+    if (!current || interactionGuarded || swipeLockRef.current) return;
     swipeLockRef.current = true;
     setSwipeTransitioning(true);
     setUnknownWords((prev) => [...prev, current.word]);
@@ -1571,17 +1716,7 @@ export default function StudyPage() {
     setPool([]);
     setStudySession(null);
     setLocked(false);
-    setCurrentIndex(0);
-    setWordStep("assess");
-    setDone(false);
-    setKnownWords([]);
-    setUnknownWords([]);
-    setQuizStats({ correct: 0, wrong: 0 });
-    setQuizAttempt(0);
-    setQuizTarget(null);
-    pendingQuizzes.current = [];
-    quizWrongCounts.current = {};
-    setSwipeTransitioning(false);
+    resetLearningStateForFreshQueue();
     setReloadKey((k) => k + 1);
   };
 
@@ -1789,6 +1924,7 @@ export default function StudyPage() {
                 <QuizCard
                   question={currentQuestion}
                   onAnswer={handleQuizAnswer}
+                  disabled={interactionGuarded}
                 />
               </motion.div>
             )}
@@ -2012,7 +2148,7 @@ export default function StudyPage() {
             word={current.word}
             onSwipeLeft={handleSwipeLeft}
             onSwipeRight={handleSwipeRight}
-            disabled={helpVisible}
+            disabled={helpVisible || interactionGuarded}
             onMotionProbe={cardProbeEnabled ? recordCardMotionProbe : undefined}
           />
         </motion.div>

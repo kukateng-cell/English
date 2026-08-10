@@ -9,6 +9,8 @@ import {
   loadPendingReviews,
   pendingReviewCount,
   blockedReviewCount,
+  parseReviewQueueMutationEvent,
+  reviewQueueMutationStorageKey,
   ReviewQueueStorageError,
 } from "./review-queue";
 
@@ -143,6 +145,29 @@ test("flush preserves an event enqueued while a request is in flight", async () 
       loadPendingReviews("user-a").map((item) => item.operationId),
       ["operation-a2"],
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("successful submission publishes a cross-tab server mutation", async () => {
+  const data = installStorage();
+  enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
+    studySessionId: "session-valid",
+    nonce: "nonce-valid",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("{}", { status: 200 });
+  try {
+    await flushPendingReviews("user-a");
+    const event = parseReviewQueueMutationEvent(
+      "user-a",
+      data.get(reviewQueueMutationStorageKey("user-a")) ?? null,
+    );
+    assert.ok(event);
+    assert.equal(event.kind, "server-mutated");
+    assert.deepEqual(event.wordIds, ["word-1"]);
+    assert.deepEqual(event.sessionIds, ["session-valid"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

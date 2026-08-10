@@ -50,6 +50,15 @@ export interface LegacyFinalizationResult {
   storageAvailable: boolean;
 }
 
+export interface ReviewQueueMutationEvent {
+  version: 1;
+  ownerId: string;
+  kind: "server-mutated" | "session-rotated" | "credentials-renewed";
+  wordIds: string[];
+  sessionIds: string[];
+  revision: string;
+}
+
 export class ReviewQueueStorageError extends Error {
   constructor() {
     super("REVIEW_QUEUE_STORAGE_UNAVAILABLE");
@@ -59,6 +68,7 @@ export class ReviewQueueStorageError extends Error {
 
 const QUEUE_PREFIX = "study:review-queue:";
 const ITEM_PREFIX = "study:review-item:";
+const MUTATION_PREFIX = "study:review-mutation:";
 const LEGACY_QUEUE_KEY = "study:review-queue";
 const VERSION = 5;
 const MAX_FLUSH_BATCH = 20;
@@ -100,6 +110,66 @@ function queueKey(userId: string): string {
 
 function itemPrefix(userId: string): string {
   return `${ITEM_PREFIX}${encodeURIComponent(userId)}:`;
+}
+
+export function reviewQueueItemStoragePrefix(userId: string): string {
+  return itemPrefix(userId);
+}
+
+export function reviewQueueMutationStorageKey(userId: string): string {
+  return `${MUTATION_PREFIX}${encodeURIComponent(userId)}`;
+}
+
+export function parseReviewQueueMutationEvent(
+  userId: string,
+  raw: string | null,
+): ReviewQueueMutationEvent | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      value.version !== 1 ||
+      value.ownerId !== userId ||
+      (value.kind !== "server-mutated" &&
+        value.kind !== "session-rotated" &&
+        value.kind !== "credentials-renewed") ||
+      !Array.isArray(value.wordIds) ||
+      !value.wordIds.every((wordId) => typeof wordId === "string") ||
+      !Array.isArray(value.sessionIds) ||
+      !value.sessionIds.every((sessionId) => typeof sessionId === "string") ||
+      typeof value.revision !== "string"
+    ) {
+      return null;
+    }
+    return value as unknown as ReviewQueueMutationEvent;
+  } catch {
+    return null;
+  }
+}
+
+function publishReviewQueueMutation(
+  userId: string,
+  kind: ReviewQueueMutationEvent["kind"],
+  wordIds: string[],
+  sessionIds: string[],
+): boolean {
+  try {
+    const event: ReviewQueueMutationEvent = {
+      version: 1,
+      ownerId: userId,
+      kind,
+      wordIds: [...new Set(wordIds)],
+      sessionIds: [...new Set(sessionIds)],
+      revision: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    };
+    window.localStorage.setItem(
+      reviewQueueMutationStorageKey(userId),
+      JSON.stringify(event),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function itemKey(userId: string, operationId: string): string {
@@ -488,6 +558,7 @@ export function rebindStudySessionCredentials(
   nonces: Record<string, string>,
 ): number {
   const assignedWords = new Set<string>();
+  let storageAvailable = true;
   for (const item of loadPendingReviews(userId)) {
     if (
       item.status !== "pending" ||
@@ -506,8 +577,17 @@ export function rebindStudySessionCredentials(
       lastError: undefined,
       nextAttemptAt: undefined,
     })) {
-      throw new ReviewQueueStorageError();
+      storageAvailable = false;
     }
+  }
+  const mutationPublished = publishReviewQueueMutation(
+    userId,
+    "session-rotated",
+    assignedWords.size > 0 ? [...assignedWords] : Object.keys(nonces),
+    [previousSessionId, studySessionId],
+  );
+  if (!storageAvailable || !mutationPublished) {
+    throw new ReviewQueueStorageError();
   }
   return pendingReviewCount(userId);
 }
@@ -648,8 +728,27 @@ async function flushPendingReviewsUnlocked(
   // 每个 operation 独立存储：只删除成功 key、只更新本轮失败 key。期间由其他
   // tab 新增的 key 不会被整份 snapshot 覆盖。
   let storageAvailable = true;
+  const queueByOperation = new Map(
+    queue.map((item) => [item.operationId, item]),
+  );
   for (const operationId of succeededOperations) {
     if (!removeReviewItem(userId, operationId)) storageAvailable = false;
+  }
+  const succeededItems = [...succeededOperations]
+    .map((operationId) => queueByOperation.get(operationId))
+    .filter((item): item is PendingReview => Boolean(item));
+  if (
+    succeededItems.length > 0 &&
+    !publishReviewQueueMutation(
+      userId,
+      "server-mutated",
+      succeededItems.map((item) => item.wordId),
+      succeededItems.flatMap((item) =>
+        item.studySessionId ? [item.studySessionId] : [],
+      ),
+    )
+  ) {
+    storageAvailable = false;
   }
   const latest = new Map(
     loadPendingReviews(userId).map((item) => [item.operationId, item]),
@@ -834,6 +933,16 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       })) {
         throw new ReviewQueueStorageError();
       }
+    }
+    if (
+      !publishReviewQueueMutation(
+        userId,
+        "credentials-renewed",
+        operations.map((operation) => operation.wordId),
+        [previousSessionId, session.id],
+      )
+    ) {
+      throw new ReviewQueueStorageError();
     }
     return true;
   } catch (error) {
