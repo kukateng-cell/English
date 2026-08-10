@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  advanceReleaseTimeline,
   boundedReleaseVelocity,
   decideSwipe,
   dismissalDuration,
@@ -139,6 +140,21 @@ test("release timeline aligns a near-paint pointerup to one display frame", () =
 
   assert.equal(refreshInterval, 16.5);
   assert.equal(lead, 14.5);
+});
+
+test("release timeline caps progress after a delayed first callback", () => {
+  const delayed = advanceReleaseTimeline(1000 / 60, 500, 1_600, 1000 / 60);
+  assert.ok(delayed.elapsedMs < 0.06 * 1_000);
+  assert.equal(delayed.lastExecutionAt, 1_600);
+
+  const nextFrame = advanceReleaseTimeline(
+    delayed.elapsedMs,
+    delayed.lastExecutionAt,
+    1_600 + 1000 / 60,
+    1000 / 60,
+  );
+  assert.ok(nextFrame.elapsedMs > delayed.elapsedMs);
+  assert.ok(nextFrame.elapsedMs < 0.08 * 1_000);
 });
 
 test("committed dismissal always launches outward perceptibly", () => {

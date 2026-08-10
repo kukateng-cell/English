@@ -102,7 +102,7 @@ export default function ResetPasswordPage() {
         {success ? (
           <div className="rounded-2xl bg-[#ECFDF3] px-4 py-6 text-center text-[15px] text-[#16A34A] dark:bg-[#0B2D1A] dark:text-[#4ADE80]">
             <div className="mb-2 text-[40px] leading-none">✓</div>
-            {tc("密码已更新，正在进入系统…")}
+            {tc("密码已更新，请重新登录…")}
           </div>
         ) : (
           <form

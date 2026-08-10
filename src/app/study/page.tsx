@@ -85,6 +85,8 @@ interface StudySessionInfo {
   nonces: Record<string, string>;
 }
 
+const STUDY_QUEUE_REQUEST_TIMEOUT_MS = 15_000;
+
 declare global {
   interface Window {
     __wordCardMotionProbe?: WordCardMotionProbe;
@@ -481,10 +483,7 @@ export default function StudyPage() {
   const [blockedSync, setBlockedSync] = useState(0);
   const [blockedSyncError, setBlockedSyncError] = useState<string | null>(null);
   const [legacySync, setLegacySync] = useState(0);
-  const [flushedUserId, setFlushedUserId] = useState<string | null>(null);
   const [rotationNotice, setRotationNotice] = useState<string | null>(null);
-  // 防止并发 flush（多次重试同时跑会重复提交同一批评测）
-  const isFlushingRef = useRef(false);
   const isRotatingSessionRef = useRef(false);
   const rotationRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rotationRetryAttemptRef = useRef(0);
@@ -700,62 +699,53 @@ export default function StudyPage() {
 
   // 把本地缓冲的待提交评测尽量同步到服务端。
   // flushPendingReviews 成功提交一条即回传最新 streak / 成就，与即时提交一致。
-  const flushPending = useCallback(async () => {
+  const flushPending = useCallback(async (
+    sessionOverride?: StudySessionInfo | null,
+    finalizeLegacy = false,
+  ) => {
     if (!userId) return;
-    if (isFlushingRef.current) return;
-    isFlushingRef.current = true;
-    try {
-      if (studySession) {
-        attachStudySessionCredentials(
-          userId,
-          studySession.id,
-          studySession.nonces,
-        );
-      }
-      // Even an empty server queue is a definitive answer for credentialless
-      // legacy rows: leave them visible as blocked instead of forever pending.
-      finalizeLegacyCredentialClaims(userId);
-      // Current queue may be empty; durable rows already carry their own
-      // credentials (or provenance for reauthorization), so they still flush.
-      // 这里的 setState 都在 await 之后，避免在 effect 中同步调用 setState。
-      const remaining = await flushPendingReviews(userId, (_id, data) => {
-        if (data?.streak) setStreak(data.streak as StreakInfo);
-        const unlocked = data?.newlyUnlocked as
-          | AchievementDef[]
-          | undefined;
-        if (unlocked?.length) {
-          setNewAchievements((prev) => [...prev, ...unlocked]);
-        }
-      });
-      setPendingSync(remaining);
-      setBlockedSync(blockedReviewCount(userId));
-      setBlockedSyncError(blockedReviewMessage(userId));
-      setLegacySync(legacyReviewCount());
-    } finally {
-      isFlushingRef.current = false;
+    const activeSession =
+      sessionOverride === undefined ? rotationSessionRef.current : sessionOverride;
+    if (activeSession) {
+      attachStudySessionCredentials(
+        userId,
+        activeSession.id,
+        activeSession.nonces,
+      );
     }
-  }, [userId, studySession]);
+    // Only a successful queue response is definitive for credential-less
+    // legacy rows. Before that response, retain them for nonce adoption.
+    if (finalizeLegacy) {
+      finalizeLegacyCredentialClaims(userId);
+    }
+    // Current queue may be empty; durable rows already carry their own
+    // credentials (or provenance for reauthorization), so they still flush.
+    // The queue library serializes concurrent callers and runs a trailing scan.
+    const remaining = await flushPendingReviews(userId, (_id, data) => {
+      if (data?.streak) setStreak(data.streak as StreakInfo);
+      const unlocked = data?.newlyUnlocked as AchievementDef[] | undefined;
+      if (unlocked?.length) {
+        setNewAchievements((prev) => [...prev, ...unlocked]);
+      }
+    });
+    setPendingSync(remaining);
+    setBlockedSync(blockedReviewCount(userId));
+    setBlockedSyncError(blockedReviewMessage(userId));
+    setLegacySync(legacyReviewCount());
+  }, [userId]);
 
-  // 进入学习页时：先把本地缓冲的待提交评测尽量同步。
-  // flushPending 内部会在完成时（同步或异步）更新 pendingSync 计数。
+  // 进入学习页时先同步已经有凭证的记录，但不要等待它才加载当前队列，
+  // 亦不要在 GET 发出 session/nonces 前封锁可恢复的旧记录。
   useEffect(() => {
     if (status !== "authenticated") return;
-    let cancelled = false;
-    void flushPending().finally(() => {
-      if (!cancelled) setFlushedUserId(userId);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [status, userId, flushPending]);
+    const timer = window.setTimeout(() => void flushPending(), 0);
+    return () => window.clearTimeout(timer);
+  }, [status, flushPending]);
 
   // 网络恢复 / 页面重新可见 / 定时器：自动重试缓冲的待提交评测，
   // 保证用户离线时记下的学习在恢复连接后不丢失。
   useEffect(() => {
-    if (
-      status !== "authenticated" ||
-      flushedUserId !== userId
-    ) return;
+    if (status !== "authenticated") return;
     const onOnline = () => void flushPending();
     const onVisible = () => {
       if (document.visibilityState === "visible") void flushPending();
@@ -771,7 +761,7 @@ export default function StudyPage() {
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
     };
-  }, [status, userId, flushedUserId, flushPending]);
+  }, [status, userId, flushPending]);
 
   const rotateStudySession = useCallback(async () => {
     const currentSession = rotationSessionRef.current ?? studySession;
@@ -953,8 +943,13 @@ export default function StudyPage() {
   // 通过 URL query 决定是「全局今日队列」还是「指定单元练习」。
   // 用内联 async IIFE 触发请求，符合 react-hooks/set-state-in-effect 规则。
   useEffect(() => {
-    if (status !== "authenticated" || flushedUserId !== userId) return;
+    if (status !== "authenticated") return;
     let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      STUDY_QUEUE_REQUEST_TIMEOUT_MS,
+    );
     (async () => {
       setLoading(true);
       setError(null);
@@ -973,7 +968,9 @@ export default function StudyPage() {
           // 生成同样受限的新队列，避免每次 Retry 都重复收到 400。
           clearCheckpoint(userId!, getUnitKey());
         }
-        const res = await fetch(`/api/study?${params.toString()}`);
+        const res = await fetch(`/api/study?${params.toString()}`, {
+          signal: controller.signal,
+        });
         if (cancelled) return;
         if (res.status === 401) {
           // 会话过期：直接回登录页，而不是只显示错误横幅让用户卡住。
@@ -1002,7 +999,11 @@ export default function StudyPage() {
         setPool(data.pool || []);
         setUnitCategory(data.unitMode ? data.category : null);
         setStreak(data.streak ?? null);
-        setStudySession(data.studySession ?? null);
+        const nextSession = (data.studySession ?? null) as StudySessionInfo | null;
+        setStudySession(nextSession);
+        // The successful GET is now the authoritative adoption pass. Attach
+        // matching nonces first, then make any remaining legacy rows visible.
+        void flushPending(nextSession, true);
         setRotationNotice(null);
         rotationRetryAttemptRef.current = 0;
         // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
@@ -1012,20 +1013,23 @@ export default function StudyPage() {
       } catch (e) {
         if (!cancelled) setError(networkErrorMessage(e));
       } finally {
+        window.clearTimeout(timeout);
         if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeout);
     };
   }, [
     status,
-    flushedUserId,
     userId,
     reloadKey,
     restoreProgress,
     flashResumed,
     router,
+    flushPending,
   ]);
 
   // 认字评估阶段的词：取队列中 currentIndex 位置的词（经 current 引用）。

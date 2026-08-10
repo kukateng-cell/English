@@ -13,6 +13,7 @@ async function main() {
     cleanupExpiredStudySessions,
     STUDY_SESSION_RETENTION_MS,
     rotateStudySession,
+    serializeStudySession,
   } = await import("../src/lib/study-session-server");
   const suffix = randomUUID();
   let userId: string | null = null;
@@ -187,6 +188,13 @@ async function main() {
     if (resumedPartial?.id !== partialSession.id) {
       throw new Error("partial progress checkpoint could not reuse its source");
     }
+    const serializedPartial = serializeStudySession(resumedPartial);
+    if (serializedPartial?.nonces[word.id] !== undefined) {
+      throw new Error("resume exposed a nonce that partial progress already consumed");
+    }
+    if (!serializedPartial?.nonces[sessionWord.id]) {
+      throw new Error("resume omitted the remaining pristine nonce");
+    }
     const concurrentSessions = await Promise.all(
       Array.from({ length: 8 }, () =>
         issueStudySession(user.id, [word.id, sessionWord.id]),
@@ -263,6 +271,10 @@ async function main() {
       rotatedReplay.items[0]?.nonce !== rotatedSession.items[0]?.nonce
     ) {
       throw new Error("study session rotation replay did not return the original result");
+    }
+    const serializedRotationReplay = serializeStudySession(rotatedReplay);
+    if (serializedRotationReplay?.nonces[word.id] !== undefined) {
+      throw new Error("rotation replay exposed a nonce that was already consumed");
     }
     const rotatedUsedItem = rotatedSession.items.find((item) => item.wordId === word.id);
     if (!rotatedUsedItem?.usedAt) {

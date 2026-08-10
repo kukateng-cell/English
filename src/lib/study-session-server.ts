@@ -22,9 +22,9 @@ export interface IssuedStudySession {
   items: Array<{
     wordId: string;
     nonce: string;
-    usedAt?: Date | null;
-    renewedAt?: Date | null;
-    operationId?: string | null;
+    usedAt: Date | null;
+    renewedAt: Date | null;
+    operationId: string | null;
   }>;
 }
 
@@ -117,7 +117,15 @@ export async function issueStudySession(
             select: {
               id: true,
               expiresAt: true,
-              items: { select: { wordId: true, nonce: true } },
+              items: {
+                select: {
+                  wordId: true,
+                  nonce: true,
+                  usedAt: true,
+                  renewedAt: true,
+                  operationId: true,
+                },
+              },
             },
           });
         },
@@ -186,10 +194,7 @@ export async function reuseStudySessionForResume(
               return {
                 id: candidate.id,
                 expiresAt: candidate.expiresAt,
-                items: candidate.items.map(({ wordId, nonce }) => ({
-                  wordId,
-                  nonce,
-                })),
+                items: candidate.items,
               };
             }
             if (candidate.retiredAt === null) return null;
@@ -251,13 +256,23 @@ export async function rotateStudySession(
     try {
       return await prisma.$transaction(
         async (tx) => {
+          const now = new Date();
           const existing = await tx.studySession.findFirst({
             where: { userId, rotationKey },
             select: {
               id: true,
               queueFingerprint: true,
               expiresAt: true,
-              items: { select: { wordId: true, nonce: true } },
+              retiredAt: true,
+              items: {
+                select: {
+                  wordId: true,
+                  nonce: true,
+                  usedAt: true,
+                  renewedAt: true,
+                  operationId: true,
+                },
+              },
             },
           });
           if (existing) {
@@ -266,11 +281,17 @@ export async function rotateStudySession(
               existing.queueFingerprint !== fingerprint ||
               existing.items.length !== ids.length ||
               existingIds.size !== ids.length ||
-              ids.some((id) => !existingIds.has(id))
+              ids.some((id) => !existingIds.has(id)) ||
+              existing.retiredAt !== null ||
+              existing.expiresAt <= now
             ) {
               throw new StudySessionRotationError(409, "学习 session 轮换凭证不一致");
             }
-            return existing;
+            return {
+              id: existing.id,
+              expiresAt: existing.expiresAt,
+              items: existing.items,
+            };
           }
 
           await tx.$queryRaw(
@@ -300,7 +321,6 @@ export async function rotateStudySession(
           if (!source) {
             throw new StudySessionRotationError(404, "原学习 session 不存在或已清理");
           }
-          const now = new Date();
           const remainingMs = source.expiresAt.getTime() - now.getTime();
           const sourceIds = new Set(source.items.map((item) => item.wordId));
           if (
@@ -466,8 +486,16 @@ export async function renewStudySessionCredentials(
               select: {
                 wordId: true,
                 nonce: true,
+                usedAt: true,
+                renewedAt: true,
                 operationId: true,
-                session: { select: { id: true, expiresAt: true } },
+                session: {
+                  select: {
+                    id: true,
+                    expiresAt: true,
+                    retiredAt: true,
+                  },
+                },
               },
             });
             const replacementSessionIds = new Set(
@@ -476,6 +504,11 @@ export async function renewStudySessionCredentials(
             const completeReplay =
               replacements.length === operations.length &&
               replacementSessionIds.size === 1 &&
+              replacements.every(
+                (item) =>
+                  item.session.retiredAt === null &&
+                  item.session.expiresAt > new Date(),
+              ) &&
               operations.every((operation) =>
                 replacements.some(
                   (item) =>
@@ -488,7 +521,15 @@ export async function renewStudySessionCredentials(
               return {
                 id: replacement.id,
                 expiresAt: replacement.expiresAt,
-                items: replacements.map(({ wordId, nonce }) => ({ wordId, nonce })),
+                items: replacements.map(
+                  ({ wordId, nonce, usedAt, renewedAt, operationId }) => ({
+                    wordId,
+                    nonce,
+                    usedAt,
+                    renewedAt,
+                    operationId,
+                  }),
+                ),
               };
             }
             throw new StudyCredentialRenewalError(409, "原学习凭证已经提交或续期");
@@ -567,7 +608,15 @@ export async function renewStudySessionCredentials(
             select: {
               id: true,
               expiresAt: true,
-              items: { select: { wordId: true, nonce: true } },
+              items: {
+                select: {
+                  wordId: true,
+                  nonce: true,
+                  usedAt: true,
+                  renewedAt: true,
+                  operationId: true,
+                },
+              },
             },
           });
         },

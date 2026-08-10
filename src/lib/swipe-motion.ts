@@ -40,6 +40,11 @@ export interface SwipeDecision {
   threshold: number;
 }
 
+export interface ReleaseTimelineState {
+  elapsedMs: number;
+  lastExecutionAt: number;
+}
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
@@ -73,6 +78,41 @@ export function releaseTimelineLead(
     40,
   );
   return Math.max(0, frameInterval - wallDelay);
+}
+
+/**
+ * Advance a release animation without letting one delayed main-thread callback
+ * consume the whole trajectory. Normal refresh intervals remain real-time;
+ * a long task is capped to two estimated display frames so the next paint
+ * continues from a nearby pose instead of jumping straight to the endpoint.
+ */
+export function advanceReleaseTimeline(
+  elapsedMs: number,
+  lastExecutionAt: number,
+  executionNow: number,
+  refreshIntervalMs: number,
+): ReleaseTimelineState {
+  const safeElapsed = Math.max(0, Number.isFinite(elapsedMs) ? elapsedMs : 0);
+  const safeNow = Number.isFinite(executionNow)
+    ? executionNow
+    : Number.isFinite(lastExecutionAt)
+      ? lastExecutionAt
+      : 0;
+  const safeLast = Number.isFinite(lastExecutionAt)
+    ? lastExecutionAt
+    : safeNow;
+  const rawAdvance = Math.max(0, safeNow - safeLast);
+  const frameInterval = clamp(
+    Number.isFinite(refreshIntervalMs)
+      ? refreshIntervalMs
+      : DEFAULT_FRAME_INTERVAL_MS,
+    4,
+    40,
+  );
+  return {
+    elapsedMs: safeElapsed + Math.min(rawAdvance, frameInterval * 2),
+    lastExecutionAt: safeNow,
+  };
 }
 
 /**
@@ -287,8 +327,8 @@ export function dismissalDuration(distance: number, releaseVelocity: number) {
 
 /**
  * Cubic Hermite dismissal with exact start position/velocity and a zero-speed
- * offscreen endpoint. Sampling by absolute elapsed time makes delayed frames
- * catch up instead of slowing the whole animation.
+ * offscreen endpoint. The caller supplies a monotonic, stall-capped release
+ * timeline so a delayed callback cannot skip every intermediate paint.
  */
 export function sampleDismissTrajectory(
   startPosition: number,

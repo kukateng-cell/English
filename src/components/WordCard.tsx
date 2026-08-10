@@ -9,6 +9,7 @@ import {
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
 import {
+  advanceReleaseTimeline,
   boundedReleaseVelocity,
   decideSwipe,
   dismissalDuration,
@@ -117,6 +118,8 @@ interface MotionState {
   releaseStartVelocity: number;
   releaseTimelineLeadMs: number | null;
   releaseTimelineOffsetMs: number | null;
+  releaseElapsedMs: number;
+  releaseLastExecutionAt: number;
   duration: number;
   direction: SwipeDirection | null;
   onComplete: (() => void) | null;
@@ -279,6 +282,8 @@ export default function WordCard({
     releaseStartVelocity: 0,
     releaseTimelineLeadMs: null,
     releaseTimelineOffsetMs: null,
+    releaseElapsedMs: 0,
+    releaseLastExecutionAt: 0,
     duration: 0,
     direction: null,
     onComplete: null,
@@ -367,6 +372,8 @@ export default function WordCard({
     motion.releaseStartVelocity = 0;
     motion.releaseTimelineLeadMs = null;
     motion.releaseTimelineOffsetMs = null;
+    motion.releaseElapsedMs = 0;
+    motion.releaseLastExecutionAt = 0;
     motion.duration = 0;
     motion.direction = null;
     motion.onComplete = null;
@@ -528,9 +535,17 @@ export default function WordCard({
           ? releaseTimelineLead(wallElapsedMs, refreshIntervalMs)
           : 0;
         motion.releaseTimelineLeadMs = motion.releaseTimelineOffsetMs;
+        motion.releaseElapsedMs += motion.releaseTimelineOffsetMs;
       }
-      const timelineElapsedMs =
-        wallElapsedMs + (motion.releaseTimelineOffsetMs ?? 0);
+      const timeline = advanceReleaseTimeline(
+        motion.releaseElapsedMs,
+        motion.releaseLastExecutionAt,
+        now,
+        refreshIntervalMs,
+      );
+      motion.releaseElapsedMs = timeline.elapsedMs;
+      motion.releaseLastExecutionAt = timeline.lastExecutionAt;
+      const timelineElapsedMs = timeline.elapsedMs;
       const elapsedSeconds = timelineElapsedMs / 1_000;
       const next =
         motion.mode === "dismiss"
@@ -605,6 +620,8 @@ export default function WordCard({
       motion.releaseStartVelocity = releaseVelocity;
       motion.releaseTimelineLeadMs = null;
       motion.releaseTimelineOffsetMs = null;
+      motion.releaseElapsedMs = 0;
+      motion.releaseLastExecutionAt = now;
       motion.duration = duration;
       motion.lastTime = now;
       motion.direction = direction;
@@ -650,6 +667,7 @@ export default function WordCard({
           ? refreshIntervalMs
           : 0;
         motion.releaseTimelineOffsetMs = refreshIntervalMs;
+        motion.releaseElapsedMs = refreshIntervalMs;
         motion.releasePreviewAt = performance.now();
         motion.releasePreviewPosition = preview.position;
         motion.releasePreviewVelocity = preview.velocity;
@@ -678,6 +696,8 @@ export default function WordCard({
         motion.releaseStartVelocity = 0;
         motion.releaseTimelineLeadMs = null;
         motion.releaseTimelineOffsetMs = null;
+        motion.releaseElapsedMs = 0;
+        motion.releaseLastExecutionAt = 0;
         motion.duration = 0;
         motion.direction = null;
         motion.onComplete = null;
@@ -832,6 +852,8 @@ export default function WordCard({
       motion.releaseStartVelocity = 0;
       motion.releaseTimelineLeadMs = null;
       motion.releaseTimelineOffsetMs = null;
+      motion.releaseElapsedMs = 0;
+      motion.releaseLastExecutionAt = 0;
       motion.duration = 0;
       motion.direction = null;
       motion.onComplete = null;
@@ -1010,6 +1032,8 @@ export default function WordCard({
       motionState.releaseStartVelocity = 0;
       motionState.releaseTimelineLeadMs = null;
       motionState.releaseTimelineOffsetMs = null;
+      motionState.releaseElapsedMs = 0;
+      motionState.releaseLastExecutionAt = 0;
       motionState.duration = 0;
       motionState.direction = null;
       motionState.onComplete = null;

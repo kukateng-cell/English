@@ -45,6 +45,7 @@ const LEGACY_QUEUE_KEY = "study:review-queue";
 const VERSION = 5;
 const MAX_FLUSH_BATCH = 20;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
+const REVIEW_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_REAUTH_ERROR = "学习 session 无效或已过期";
 
 interface StoredQueue {
@@ -139,11 +140,68 @@ function removeReviewItem(userId: string, operationId: string): boolean {
   }
 }
 
+async function fetchReviewRequest(
+  input: RequestInfo | URL,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REVIEW_REQUEST_TIMEOUT_MS,
+  );
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const raw = response.headers.get("Retry-After");
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, Math.min(MAX_RETRY_DELAY_MS, seconds * 1_000));
+  }
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) return undefined;
+  return Math.max(0, Math.min(MAX_RETRY_DELAY_MS, timestamp - Date.now()));
+}
+
+function backoffMs(item: PendingReview, retryAfter?: number) {
+  if (retryAfter !== undefined) return retryAfter;
+  const base = Math.min(
+    MAX_RETRY_DELAY_MS,
+    1_000 * 2 ** Math.min(item.attempts, 8),
+  );
+  const jitter = 0.75 + Math.random() * 0.5;
+  return Math.min(MAX_RETRY_DELAY_MS, Math.round(base * jitter));
+}
+
 export function loadPendingReviews(userId: string): PendingReview[] {
   if (typeof window === "undefined") return [];
   const itemsByOperation = new Map<string, PendingReview>();
-  // 旧 mutable-array 格式损坏时，不可连带遮蔽已经迁移好的 per-operation keys。
   try {
+    // Read current per-operation rows first. A previous migration may have
+    // written them before failing to remove the old mutable-array blob; the
+    // stale blob must never overwrite a newer retry/credential state.
+    const prefix = itemPrefix(userId);
+    for (let index = 0; index < window.localStorage.length; index++) {
+      const key = window.localStorage.key(index);
+      if (!key?.startsWith(prefix)) continue;
+      const itemRaw = window.localStorage.getItem(key);
+      if (!itemRaw) continue;
+      try {
+        const parsed = JSON.parse(itemRaw) as unknown;
+        if (!isPendingReview(parsed)) continue;
+        const normalized = normalizePendingReview(parsed, userId);
+        if (normalized) itemsByOperation.set(normalized.operationId, normalized);
+      } catch {
+        // One corrupt operation must not hide later valid operations in the scan.
+      }
+    }
+
+    // 旧 mutable-array 格式损坏时，不可连带遮蔽已经迁移好的 per-operation keys。
     const raw = window.localStorage.getItem(queueKey(userId));
     if (raw) {
       try {
@@ -164,6 +222,7 @@ export function loadPendingReviews(userId: string): PendingReview[] {
             : [];
           let migrated = true;
           for (const row of scoped) {
+            if (itemsByOperation.has(row.operationId)) continue;
             itemsByOperation.set(row.operationId, row);
             if (!writeReviewItem(userId, row)) migrated = false;
           }
@@ -171,22 +230,6 @@ export function loadPendingReviews(userId: string): PendingReview[] {
         }
       } catch {
         // Ignore only the corrupt legacy blob; valid per-operation rows still load.
-      }
-    }
-
-    const prefix = itemPrefix(userId);
-    for (let index = 0; index < window.localStorage.length; index++) {
-      const key = window.localStorage.key(index);
-      if (!key?.startsWith(prefix)) continue;
-      const itemRaw = window.localStorage.getItem(key);
-      if (!itemRaw) continue;
-      try {
-        const parsed = JSON.parse(itemRaw) as unknown;
-        if (!isPendingReview(parsed)) continue;
-        const normalized = normalizePendingReview(parsed, userId);
-        if (normalized) itemsByOperation.set(normalized.operationId, normalized);
-      } catch {
-        // One corrupt operation must not hide later valid operations in the scan.
       }
     }
   } catch {
@@ -486,35 +529,13 @@ async function flushPendingReviewsUnlocked(
   >();
   let networkDown = false;
 
-  const retryAfterMs = (response: Response): number | undefined => {
-    const raw = response.headers.get("Retry-After");
-    if (!raw) return undefined;
-    const seconds = Number(raw);
-    if (Number.isFinite(seconds)) {
-      return Math.max(0, Math.min(MAX_RETRY_DELAY_MS, seconds * 1_000));
-    }
-    const timestamp = Date.parse(raw);
-    if (!Number.isFinite(timestamp)) return undefined;
-    return Math.max(0, Math.min(MAX_RETRY_DELAY_MS, timestamp - Date.now()));
-  };
-
-  const backoffMs = (item: PendingReview, retryAfter?: number) => {
-    if (retryAfter !== undefined) return retryAfter;
-    const base = Math.min(
-      MAX_RETRY_DELAY_MS,
-      1_000 * 2 ** Math.min(item.attempts, 8),
-    );
-    const jitter = 0.75 + Math.random() * 0.5;
-    return Math.min(MAX_RETRY_DELAY_MS, Math.round(base * jitter));
-  };
-
   for (const item of queue) {
     if (networkDown) break;
 
     let ok = false;
     let result: StudyPostResult | null = null;
     try {
-      const res = await fetch("/api/study", {
+      const res = await fetchReviewRequest("/api/study", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -608,12 +629,14 @@ async function flushPendingReviewsUnlocked(
 }
 
 async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
+  const now = Date.now();
   const candidates = loadPendingReviews(userId).filter(
     (item) =>
       item.status === "pending" &&
       item.credentialState === "expired" &&
       Boolean(item.studySessionId) &&
-      !item.nonce,
+      !item.nonce &&
+      (!item.nextAttemptAt || item.nextAttemptAt <= now),
   );
   const previousSessionId = candidates[0]?.studySessionId;
   if (!previousSessionId) return false;
@@ -644,8 +667,23 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
     }
   };
 
+  const markRetry = (message?: string, retryAfter?: number) => {
+    for (const operation of operations) {
+      const current = loadPendingReviews(userId).find(
+        (item) => item.operationId === operation.operationId,
+      );
+      if (!current) continue;
+      writeReviewItem(userId, {
+        ...current,
+        attempts: current.attempts + 1,
+        lastError: message ?? current.lastError,
+        nextAttemptAt: Date.now() + backoffMs(current, retryAfter),
+      });
+    }
+  };
+
   try {
-    const response = await fetch("/api/study/credentials", {
+    const response = await fetchReviewRequest("/api/study/credentials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -670,6 +708,8 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
         ![401, 408, 422, 429].includes(response.status)
       ) {
         markBlocked(message);
+      } else {
+        markRetry(message, retryAfterMs(response));
       }
       return false;
     }
@@ -687,8 +727,13 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       typeof session.id !== "string" ||
       !Array.isArray(payload?.credentials)
     ) {
+      markRetry("续期响应无效，请稍后重试");
       return false;
     }
+    const renewedCredentials = new Map<
+      string,
+      { wordId: string; nonce: string }
+    >();
     for (const value of payload.credentials) {
       if (typeof value !== "object" || value === null) continue;
       const row = value as Record<string, unknown>;
@@ -699,15 +744,31 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
       ) {
         continue;
       }
+      renewedCredentials.set(row.operationId, {
+        wordId: row.wordId,
+        nonce: row.nonce,
+      });
+    }
+    if (
+      !operations.every(
+        (operation) =>
+          renewedCredentials.get(operation.operationId)?.wordId ===
+          operation.wordId,
+      )
+    ) {
+      markRetry("续期响应无效，请稍后重试");
+      return false;
+    }
+    for (const operation of operations) {
+      const renewed = renewedCredentials.get(operation.operationId)!;
       const current = loadPendingReviews(userId).find(
-        (item) =>
-          item.operationId === row.operationId && item.wordId === row.wordId,
+        (item) => item.operationId === operation.operationId,
       );
       if (!current || current.status !== "pending") continue;
       writeReviewItem(userId, {
         ...current,
         studySessionId: session.id,
-        nonce: row.nonce,
+        nonce: renewed.nonce,
         credentialState: "valid",
         lastError: undefined,
         nextAttemptAt: undefined,
@@ -715,6 +776,7 @@ async function reauthorizeRejectedReviews(userId: string): Promise<boolean> {
     }
     return true;
   } catch {
+    markRetry("网络错误，请稍后重试");
     return false;
   }
 }

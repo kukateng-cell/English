@@ -139,6 +139,7 @@ async function dispatchGesture(
   input: InputMode,
   collectFrames = true,
   path = "/test/word-card-motion",
+  blockAfterReleaseMs = 0,
 ) {
   // Reload each scenario because a completed dismissal intentionally leaves
   // this isolated card offscreen. The callback never unmounts the component.
@@ -195,9 +196,9 @@ async function dispatchGesture(
       dragLayer.setPointerCapture = () => {};
       dragLayer.hasPointerCapture = () => true;
     });
-    const dispatch = (type: string, x: number) =>
+    const dispatch = (type: string, x: number, blockMs = 0) =>
       page.evaluate(
-        ({ type, x, y, pointerType }) => {
+        ({ type, x, y, pointerType, blockMs }) => {
           const dragLayer = document.querySelector<HTMLElement>(
             '[data-testid="word-card-drag-layer"]',
           );
@@ -215,8 +216,14 @@ async function dispatchGesture(
               clientY: y,
             }),
           );
+          if (type === "pointerup" && blockMs > 0) {
+            const deadline = performance.now() + blockMs;
+            while (performance.now() < deadline) {
+              // Reproduce a long pointerup task before the first release rAF.
+            }
+          }
         },
-        { type, x, y: start.y, pointerType },
+        { type, x, y: start.y, pointerType, blockMs },
       );
     await dispatch("pointerdown", start.x);
     if (scenario.preHoldMs) await page.waitForTimeout(scenario.preHoldMs);
@@ -228,7 +235,11 @@ async function dispatchGesture(
       if (step < scenario.steps) await page.waitForTimeout(scenario.delayMs);
     }
     if (scenario.holdMs) await page.waitForTimeout(scenario.holdMs);
-    await dispatch("pointerup", start.x + scenario.distance);
+    await dispatch(
+      "pointerup",
+      start.x + scenario.distance,
+      blockAfterReleaseMs,
+    );
     return collectFrames
       ? collectReleaseFrames(page, scenario.distance)
       : { releasePosition: scenario.distance, frames: [], samplerError: null };
@@ -365,6 +376,38 @@ for (const scenario of scenarios) {
     }
   });
 }
+
+test("a delayed first release callback continues through intermediate frames", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "mobile-webkit-synthetic-pointer-emulation",
+    "Target the WebKit timing path that previously failed in CI",
+  );
+  const scenario = scenarios.find((item) => item.name === "fast-flick")!;
+  await dispatchGesture(
+    page,
+    scenario,
+    "synthetic-touch",
+    false,
+    "/test/word-card-motion",
+    650,
+  );
+  await expect(page.getByTestId("motion-probe")).not.toHaveText("none");
+  const probe = JSON.parse(
+    (await page.getByTestId("motion-probe").textContent()) ?? "{}",
+  ) as {
+    frameCount?: number;
+    firstReleaseRafExecutionDelayMs?: number | null;
+    firstFramePosition?: number;
+    secondFramePosition?: number | null;
+    thirdFramePosition?: number | null;
+  };
+  expect(probe.firstReleaseRafExecutionDelayMs).toBeGreaterThanOrEqual(600);
+  expect(probe.frameCount).toBeGreaterThanOrEqual(3);
+  expect(probe.secondFramePosition).toBeGreaterThan(probe.firstFramePosition!);
+  expect(probe.thirdFramePosition).toBeGreaterThan(probe.secondFramePosition!);
+});
 
 test("reduced motion returns directly without spring frames", async ({
   page,
