@@ -54,6 +54,9 @@ export interface WordCardMotionProbe {
   secondFrameVelocity: number | null;
   thirdFrameVelocity: number | null;
   firstReleaseRafDelayMs: number | null;
+  firstReleaseRafSignedDeltaMs: number | null;
+  firstReleaseRafExecutionAt: number | null;
+  firstReleaseRafExecutionDelayMs: number | null;
   eventProcessingDurationMs: number | null;
   frameGapMs: number | null;
   longTaskDurationMs?: number;
@@ -103,6 +106,7 @@ type MotionMode = "idle" | "drag" | "dismiss" | "return";
 
 interface MotionState {
   mode: MotionMode;
+  generation: number;
   position: number;
   velocity: number;
   target: number;
@@ -112,12 +116,14 @@ interface MotionState {
   releaseStartPosition: number;
   releaseStartVelocity: number;
   releaseTimelineLeadMs: number | null;
+  releaseTimelineOffsetMs: number | null;
   duration: number;
   direction: SwipeDirection | null;
   onComplete: (() => void) | null;
   probeEmitted: boolean;
   releaseFrameCount: number;
   releaseFrameTimes: number[];
+  releaseFrameExecutionTimes: number[];
   releaseFramePositions: number[];
   releaseFrameVelocities: number[];
   lastDragRafAt: number | null;
@@ -132,6 +138,26 @@ interface MotionState {
 function pointerTypeOf(pointerType: string): SwipePointerType {
   if (pointerType === "touch" || pointerType === "pen") return pointerType;
   return "mouse";
+}
+
+type RefLike<T> = { current: T };
+
+/** Ignore a drag rAF that was queued before the pointerup/release handoff. */
+function requestMotionFrame(
+  frameRef: RefLike<number | null>,
+  motionRef: RefLike<MotionState>,
+  tickRef: RefLike<(timestamp: number) => void>,
+) {
+  if (frameRef.current !== null) return;
+  const scheduledGeneration = motionRef.current.generation;
+  frameRef.current = requestAnimationFrame((timestamp) => {
+    frameRef.current = null;
+    if (motionRef.current.generation !== scheduledGeneration) {
+      requestMotionFrame(frameRef, motionRef, tickRef);
+      return;
+    }
+    tickRef.current(timestamp);
+  });
 }
 
 function pointerSampleTime(
@@ -242,6 +268,7 @@ export default function WordCard({
   const frameCalibrationRemainingRef = useRef(0);
   const motionStateRef = useRef<MotionState>({
     mode: "idle",
+    generation: 0,
     position: 0,
     velocity: 0,
     target: 0,
@@ -251,12 +278,14 @@ export default function WordCard({
     releaseStartPosition: 0,
     releaseStartVelocity: 0,
     releaseTimelineLeadMs: null,
+    releaseTimelineOffsetMs: null,
     duration: 0,
     direction: null,
     onComplete: null,
     probeEmitted: false,
     releaseFrameCount: 0,
     releaseFrameTimes: [],
+    releaseFrameExecutionTimes: [],
     releaseFramePositions: [],
     releaseFrameVelocities: [],
     lastDragRafAt: null,
@@ -311,11 +340,7 @@ export default function WordCard({
   }, []);
 
   const scheduleMotionFrame = useCallback(() => {
-    if (motionFrameRef.current !== null) return;
-    motionFrameRef.current = requestAnimationFrame((timestamp) => {
-      motionFrameRef.current = null;
-      motionTickRef.current(timestamp);
-    });
+    requestMotionFrame(motionFrameRef, motionStateRef, motionTickRef);
   }, []);
 
   const cacheGeometry = useCallback((): CardGeometry | null => {
@@ -341,6 +366,7 @@ export default function WordCard({
     motion.releaseStartPosition = motion.position;
     motion.releaseStartVelocity = 0;
     motion.releaseTimelineLeadMs = null;
+    motion.releaseTimelineOffsetMs = null;
     motion.duration = 0;
     motion.direction = null;
     motion.onComplete = null;
@@ -350,10 +376,14 @@ export default function WordCard({
   const renderMotionFrame = useCallback(
     (timestamp: number) => {
       const motion = motionStateRef.current;
-      const now = Number.isFinite(timestamp) ? timestamp : performance.now();
+      const rafTimestamp = Number.isFinite(timestamp)
+        ? timestamp
+        : performance.now();
+      const executionNow = performance.now();
+      const now = motion.mode === "drag" ? rafTimestamp : executionNow;
       const previousRafTime = previousMotionRafTimeRef.current;
       if (previousRafTime !== null) {
-        const interval = now - previousRafTime;
+        const interval = rafTimestamp - previousRafTime;
         if (interval >= 4 && interval <= 40) {
           recentFrameIntervalsRef.current.push(interval);
           if (recentFrameIntervalsRef.current.length > 8) {
@@ -361,7 +391,7 @@ export default function WordCard({
           }
         }
       }
-      previousMotionRafTimeRef.current = now;
+      previousMotionRafTimeRef.current = rafTimestamp;
 
       if (motion.mode === "idle") {
         if (frameCalibrationRemainingRef.current > 0) {
@@ -410,17 +440,25 @@ export default function WordCard({
         refreshIntervalMs: number,
         timelineLeadMs: number,
         reducedMotion: boolean,
+        force = false,
       ) => {
         motion.releaseFrameCount += 1;
-        motion.releaseFrameTimes.push(now);
+        motion.releaseFrameTimes.push(rafTimestamp);
+        motion.releaseFrameExecutionTimes.push(executionNow);
         motion.releaseFramePositions.push(motion.position);
         motion.releaseFrameVelocities.push(motion.velocity);
         const firstReleaseRafAt = motion.releaseFrameTimes[0] ?? null;
-        const firstReleaseRafDelayMs =
+        const firstReleaseRafSignedDeltaMs =
           firstReleaseRafAt !== null && motion.pointerupEndedAt !== null
-            ? Math.max(firstReleaseRafAt - motion.pointerupEndedAt, 0)
+            ? firstReleaseRafAt - motion.pointerupEndedAt
             : null;
-        interactionPropsRef.current.onMotionProbe?.({
+        const firstReleaseRafExecutionAt =
+          motion.releaseFrameExecutionTimes[0] ?? null;
+        const firstReleaseRafExecutionDelayMs =
+          firstReleaseRafExecutionAt !== null && motion.pointerupEndedAt !== null
+            ? firstReleaseRafExecutionAt - motion.pointerupEndedAt
+            : null;
+        const probe: WordCardMotionProbe = {
           mode: motion.mode === "dismiss" ? "dismiss" : "return",
           reducedMotion,
           wallElapsedMs,
@@ -446,13 +484,23 @@ export default function WordCard({
           thirdFramePosition: motion.releaseFramePositions[2] ?? null,
           secondFrameVelocity: motion.releaseFrameVelocities[1] ?? null,
           thirdFrameVelocity: motion.releaseFrameVelocities[2] ?? null,
-          firstReleaseRafDelayMs,
+          firstReleaseRafDelayMs: firstReleaseRafSignedDeltaMs,
+          firstReleaseRafSignedDeltaMs,
+          firstReleaseRafExecutionAt,
+          firstReleaseRafExecutionDelayMs,
           eventProcessingDurationMs:
             motion.pointerupStartedAt !== null && motion.pointerupEndedAt !== null
               ? Math.max(motion.pointerupEndedAt - motion.pointerupStartedAt, 0)
               : null,
-          frameGapMs: firstReleaseRafDelayMs,
-        });
+          frameGapMs: firstReleaseRafSignedDeltaMs,
+        };
+        if (
+          !motion.probeEmitted &&
+          (force || motion.releaseFrameCount >= 3)
+        ) {
+          motion.probeEmitted = true;
+          interactionPropsRef.current.onMotionProbe?.(probe);
+        }
       };
 
       if (reducedMotionRef.current) {
@@ -462,6 +510,7 @@ export default function WordCard({
           Math.max(now - motion.releaseStartedAt, 0),
           estimateFrameInterval(recentFrameIntervalsRef.current),
           0,
+          true,
           true,
         );
         writeCurrentDragFrame(motion.position);
@@ -473,13 +522,15 @@ export default function WordCard({
       const refreshIntervalMs = estimateFrameInterval(
         recentFrameIntervalsRef.current,
       );
-      if (motion.releaseTimelineLeadMs === null) {
-        motion.releaseTimelineLeadMs = interactionPropsRef.current
+      if (motion.releaseTimelineOffsetMs === null) {
+        motion.releaseTimelineOffsetMs = interactionPropsRef.current
           .timelineLeadEnabled
           ? releaseTimelineLead(wallElapsedMs, refreshIntervalMs)
           : 0;
+        motion.releaseTimelineLeadMs = motion.releaseTimelineOffsetMs;
       }
-      const timelineElapsedMs = wallElapsedMs + motion.releaseTimelineLeadMs;
+      const timelineElapsedMs =
+        wallElapsedMs + (motion.releaseTimelineOffsetMs ?? 0);
       const elapsedSeconds = timelineElapsedMs / 1_000;
       const next =
         motion.mode === "dismiss"
@@ -498,14 +549,6 @@ export default function WordCard({
       motion.position = next.position;
       motion.velocity = next.velocity;
       motion.lastTime = now;
-      emitProbe(
-        wallElapsedMs,
-        refreshIntervalMs,
-        motion.releaseTimelineLeadMs ?? 0,
-        false,
-      );
-      writeCurrentDragFrame(next.position);
-
       const complete =
         motion.mode === "dismiss"
           ? elapsedSeconds >= motion.duration
@@ -514,6 +557,15 @@ export default function WordCard({
             (Math.abs(next.position) <= 0.5 &&
               Math.abs(next.velocity) <= 18) ||
             elapsedSeconds >= RETURN_MAX_SECONDS;
+      emitProbe(
+        wallElapsedMs,
+        refreshIntervalMs,
+        motion.releaseTimelineLeadMs ?? 0,
+        false,
+        complete,
+      );
+      writeCurrentDragFrame(next.position);
+
       if (complete) {
         motion.position = motion.mode === "dismiss" ? motion.target : 0;
         motion.velocity = 0;
@@ -538,6 +590,11 @@ export default function WordCard({
     ) => {
       const motion = motionStateRef.current;
       const now = performance.now();
+      if (motionFrameRef.current !== null) {
+        cancelAnimationFrame(motionFrameRef.current);
+        motionFrameRef.current = null;
+      }
+      motion.generation += 1;
       const releasePosition = motion.position;
       const releaseVelocity = boundedReleaseVelocity(velocity);
       motion.mode = mode;
@@ -547,6 +604,7 @@ export default function WordCard({
       motion.releaseStartPosition = releasePosition;
       motion.releaseStartVelocity = releaseVelocity;
       motion.releaseTimelineLeadMs = null;
+      motion.releaseTimelineOffsetMs = null;
       motion.duration = duration;
       motion.lastTime = now;
       motion.direction = direction;
@@ -555,6 +613,7 @@ export default function WordCard({
       motion.probeEmitted = false;
       motion.releaseFrameCount = 0;
       motion.releaseFrameTimes = [];
+      motion.releaseFrameExecutionTimes = [];
       motion.releaseFramePositions = [];
       motion.releaseFrameVelocities = [];
       motion.releasePreviewAt = null;
@@ -584,7 +643,13 @@ export default function WordCard({
               );
         motion.position = preview.position;
         motion.velocity = preview.velocity;
-        motion.releaseTimelineLeadMs = 0;
+        // The synchronous preview is already one display interval into the
+        // absolute trajectory. Keep the release clock at that same point so
+        // a pending pre-pointerup rAF can never sample t=0 and rewind it.
+        motion.releaseTimelineLeadMs = interactionPropsRef.current.timelineLeadEnabled
+          ? refreshIntervalMs
+          : 0;
+        motion.releaseTimelineOffsetMs = refreshIntervalMs;
         motion.releasePreviewAt = performance.now();
         motion.releasePreviewPosition = preview.position;
         motion.releasePreviewVelocity = preview.velocity;
@@ -603,6 +668,7 @@ export default function WordCard({
       const position = motion.position;
       if (Math.abs(position) < 0.5) {
         const motion = motionStateRef.current;
+        motion.generation += 1;
         motion.mode = "idle";
         motion.velocity = 0;
         motion.lastTime = null;
@@ -611,6 +677,7 @@ export default function WordCard({
         motion.releaseStartPosition = 0;
         motion.releaseStartVelocity = 0;
         motion.releaseTimelineLeadMs = null;
+        motion.releaseTimelineOffsetMs = null;
         motion.duration = 0;
         motion.direction = null;
         motion.onComplete = null;
@@ -753,6 +820,7 @@ export default function WordCard({
       const captureGeneration = captureGenerationRef.current + 1;
       captureGenerationRef.current = captureGeneration;
       const motion = motionStateRef.current;
+      motion.generation += 1;
       motion.mode = "drag";
       motion.position = dragXRef.current;
       motion.velocity = 0;
@@ -763,6 +831,7 @@ export default function WordCard({
       motion.releaseStartPosition = motion.position;
       motion.releaseStartVelocity = 0;
       motion.releaseTimelineLeadMs = null;
+      motion.releaseTimelineOffsetMs = null;
       motion.duration = 0;
       motion.direction = null;
       motion.onComplete = null;
@@ -932,6 +1001,7 @@ export default function WordCard({
       frameCalibrationRemainingRef.current = 0;
       motionTickRef.current = () => {};
       motionState.mode = "idle";
+      motionState.generation += 1;
       motionState.velocity = 0;
       motionState.lastTime = null;
       motionState.stationarySeconds = 0;
@@ -939,12 +1009,14 @@ export default function WordCard({
       motionState.releaseStartPosition = motionState.position;
       motionState.releaseStartVelocity = 0;
       motionState.releaseTimelineLeadMs = null;
+      motionState.releaseTimelineOffsetMs = null;
       motionState.duration = 0;
       motionState.direction = null;
       motionState.onComplete = null;
       motionState.probeEmitted = false;
       motionState.releaseFrameCount = 0;
       motionState.releaseFrameTimes = [];
+      motionState.releaseFrameExecutionTimes = [];
       motionState.releaseFramePositions = [];
       motionState.releaseFrameVelocities = [];
       motionState.lastDragRafAt = null;

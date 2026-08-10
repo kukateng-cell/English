@@ -226,17 +226,37 @@ async function main() {
     }
     const rotationSource = await issueStudySession(userId, [word.id, sessionWord.id]);
     if (!rotationSource) throw new Error("expected rotation source session");
+    await assertRejectsStatus(
+      () =>
+        rotateStudySession(
+          user.id,
+          rotationSource.id,
+          [word.id, sessionWord.id],
+          `rotation-too-early-${suffix}`,
+        ),
+      409,
+    );
+    await prisma.studySession.update({
+      where: { id: rotationSource.id },
+      data: { expiresAt: new Date(Date.now() + 4 * 60_000) },
+    });
+    await prisma.studySessionItem.update({
+      where: {
+        sessionId_wordId: { sessionId: rotationSource.id, wordId: word.id },
+      },
+      data: { usedAt: new Date() },
+    });
     const rotatedSession = await rotateStudySession(
       user.id,
       rotationSource.id,
       [word.id, sessionWord.id],
-      `rotation-${suffix}`,
+      `rotate-${rotationSource.id}`,
     );
     const rotatedReplay = await rotateStudySession(
       user.id,
       rotationSource.id,
       [word.id, sessionWord.id],
-      `rotation-${suffix}`,
+      `rotate-${rotationSource.id}`,
     );
     if (
       rotatedReplay.id !== rotatedSession.id ||
@@ -244,6 +264,46 @@ async function main() {
     ) {
       throw new Error("study session rotation replay did not return the original result");
     }
+    const rotatedUsedItem = rotatedSession.items.find((item) => item.wordId === word.id);
+    if (!rotatedUsedItem?.usedAt) {
+      throw new Error("rotation reissued a previously used item as available");
+    }
+    await assertRejectsStatus(
+      () =>
+        applyReviewEvent({
+          userId: user.id,
+          wordId: word.id,
+          quality: 5,
+          operationId: `rotation-used-replay-${randomUUID()}`,
+          studySessionId: rotatedSession.id,
+          nonce: rotatedUsedItem.nonce,
+        }),
+      409,
+    );
+    const retiredRotationSource = await prisma.studySession.findUniqueOrThrow({
+      where: { id: rotationSource.id },
+    });
+    if (!retiredRotationSource.retiredAt) {
+      throw new Error("successful rotation did not retire its source session");
+    }
+    const resumedAfterRotation = await reuseStudySessionForResume(
+      user.id,
+      rotationSource.id,
+      [word.id, sessionWord.id],
+    );
+    if (resumedAfterRotation?.id !== rotatedSession.id) {
+      throw new Error("resume did not follow a response-loss rotation replacement");
+    }
+    await assertRejectsStatus(
+      () =>
+        rotateStudySession(
+          user.id,
+          rotatedSession.id,
+          [word.id, sessionWord.id],
+          `rotation-chain-${suffix}`,
+        ),
+      409,
+    );
     const renewedOldItem = await prisma.studySessionItem.findUniqueOrThrow({
       where: {
         sessionId_wordId: {

@@ -85,6 +85,12 @@ interface StudySessionInfo {
   nonces: Record<string, string>;
 }
 
+declare global {
+  interface Window {
+    __wordCardMotionProbe?: WordCardMotionProbe;
+  }
+}
+
 /** 当前词处在哪一步：先认字评估，随即立刻测试。 */
 type WordStep = "assess" | "quiz";
 
@@ -363,6 +369,87 @@ function PendingSyncBanner({
   );
 }
 
+function RotationNotice({
+  message,
+  onRetry,
+  onReload,
+}: {
+  message: string | null;
+  onRetry: () => void;
+  onReload: () => void;
+}) {
+  const { tc } = useLocale();
+  if (!message) return null;
+  return (
+    <div className="fixed inset-x-3 top-3 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-3 text-xs text-amber-900 shadow-lg backdrop-blur dark:border-amber-800 dark:bg-amber-950/95 dark:text-amber-100">
+      <span className="leading-relaxed">{tc(message)}</span>
+      <span className="flex shrink-0 gap-1.5">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-full bg-amber-500 px-3 py-1.5 font-semibold text-white hover:bg-amber-600"
+        >
+          {tc("重试")}
+        </button>
+        <button
+          type="button"
+          onClick={onReload}
+          className="rounded-full border border-amber-400 px-3 py-1.5 font-semibold"
+        >
+          {tc("重新载入")}
+        </button>
+      </span>
+    </div>
+  );
+}
+
+function CardMotionProbePanel({
+  enabled,
+  probe,
+  onClear,
+  onClose,
+}: {
+  enabled: boolean;
+  probe: WordCardMotionProbe | null;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const { tc } = useLocale();
+  const [copied, setCopied] = useState(false);
+  if (!enabled) return null;
+  const json = probe ? JSON.stringify(probe, null, 2) : "card probe waiting for pointerup";
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(json);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <aside className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-md overflow-hidden rounded-2xl bg-slate-950/95 text-[10px] text-emerald-300 shadow-2xl backdrop-blur">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-700 px-3 py-2 text-[11px] font-semibold text-white">
+        <span>Card motion probe</span>
+        <span className="flex gap-1.5">
+          <button type="button" onClick={() => void copy()} className="rounded-full bg-slate-700 px-2 py-1 hover:bg-slate-600">
+            {copied ? tc("已复制") : tc("复制 JSON")}
+          </button>
+          <button type="button" onClick={onClear} className="rounded-full bg-slate-700 px-2 py-1 hover:bg-slate-600">
+            {tc("清除")}
+          </button>
+          <button type="button" onClick={onClose} className="rounded-full bg-slate-700 px-2 py-1 hover:bg-slate-600">
+            {tc("关闭")}
+          </button>
+        </span>
+      </div>
+      <pre data-testid="study-card-probe" className="max-h-48 overflow-auto px-3 py-2 whitespace-pre-wrap">
+        {json}
+      </pre>
+    </aside>
+  );
+}
+
 export default function StudyPage() {
   const { data: session, status } = useSession();
   const userId = session?.user?.id ?? null;
@@ -395,40 +482,53 @@ export default function StudyPage() {
   const [blockedSyncError, setBlockedSyncError] = useState<string | null>(null);
   const [legacySync, setLegacySync] = useState(0);
   const [flushedUserId, setFlushedUserId] = useState<string | null>(null);
+  const [rotationNotice, setRotationNotice] = useState<string | null>(null);
   // 防止并发 flush（多次重试同时跑会重复提交同一批评测）
   const isFlushingRef = useRef(false);
   const isRotatingSessionRef = useRef(false);
-  const performanceProbeRef = useRef({
-    longTaskDurationMs: 0,
-    eventObserverDurationMs: 0,
-  });
+  const rotationRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rotationRetryAttemptRef = useRef(0);
+  const rotationSessionRef = useRef<StudySessionInfo | null>(null);
+  const rotateStudySessionRef = useRef<() => Promise<void>>(async () => {});
+  const performanceEntriesRef = useRef<
+    Array<{ entryType: string; startTime: number; duration: number }>
+  >([]);
+
+  useEffect(() => {
+    rotationSessionRef.current = studySession;
+  }, [studySession]);
 
   useEffect(() => {
     const enabled = new URLSearchParams(window.location.search).get("cardProbe") === "1";
     const enableTimer = window.setTimeout(() => setCardProbeEnabled(enabled), 0);
-    if (!enabled || typeof PerformanceObserver === "undefined") return;
+    const restoreTimer = enabled
+      ? window.setTimeout(() => {
+          try {
+            const saved = window.sessionStorage.getItem("word-card-motion-probe");
+            if (saved) setCardMotionProbe(JSON.parse(saved) as WordCardMotionProbe);
+          } catch {
+            // Diagnostics must never prevent the study page from loading.
+          }
+        }, 0)
+      : null;
+    if (!enabled || typeof PerformanceObserver === "undefined") {
+      return () => {
+        window.clearTimeout(enableTimer);
+        if (restoreTimer !== null) window.clearTimeout(restoreTimer);
+      };
+    }
 
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        if (entry.entryType === "longtask") {
-          performanceProbeRef.current.longTaskDurationMs += entry.duration;
-        } else if (entry.entryType === "event") {
-          performanceProbeRef.current.eventObserverDurationMs = Math.max(
-            performanceProbeRef.current.eventObserverDurationMs,
-            entry.duration,
-          );
-        }
+        performanceEntriesRef.current.push({
+          entryType: entry.entryType,
+          startTime: entry.startTime,
+          duration: entry.duration,
+        });
       }
-      setCardMotionProbe((previous) =>
-        previous
-          ? {
-              ...previous,
-              longTaskDurationMs: performanceProbeRef.current.longTaskDurationMs,
-              eventObserverDurationMs:
-                performanceProbeRef.current.eventObserverDurationMs,
-            }
-          : previous,
-      );
+      if (performanceEntriesRef.current.length > 200) {
+        performanceEntriesRef.current = performanceEntriesRef.current.slice(-200);
+      }
     });
     try {
       observer.observe({ type: "longtask", buffered: true });
@@ -442,16 +542,51 @@ export default function StudyPage() {
     }
     return () => {
       window.clearTimeout(enableTimer);
+      if (restoreTimer !== null) window.clearTimeout(restoreTimer);
       observer.disconnect();
     };
   }, []);
 
   const recordCardMotionProbe = useCallback((probe: WordCardMotionProbe) => {
-    setCardMotionProbe({
+    const gestureStart = probe.pointerupStartedAt ?? performance.now();
+    const gestureEnd = performance.now();
+    const overlap = (entry: { startTime: number; duration: number }) =>
+      Math.max(
+        0,
+        Math.min(entry.startTime + entry.duration, gestureEnd) -
+          Math.max(entry.startTime, gestureStart),
+      );
+    const longTaskDurationMs = performanceEntriesRef.current
+      .filter((entry) => entry.entryType === "longtask")
+      .reduce((total, entry) => total + overlap(entry), 0);
+    const eventObserverDurationMs = performanceEntriesRef.current
+      .filter((entry) => entry.entryType === "event")
+      .reduce((longest, entry) => Math.max(longest, overlap(entry)), 0);
+    const recordedProbe = {
       ...probe,
-      longTaskDurationMs: performanceProbeRef.current.longTaskDurationMs,
-      eventObserverDurationMs: performanceProbeRef.current.eventObserverDurationMs,
-    });
+      longTaskDurationMs,
+      eventObserverDurationMs,
+    };
+    setCardMotionProbe(recordedProbe);
+    try {
+      window.__wordCardMotionProbe = recordedProbe;
+      window.sessionStorage.setItem(
+        "word-card-motion-probe",
+        JSON.stringify(recordedProbe),
+      );
+    } catch {
+      // Keep the in-memory probe available when storage is blocked.
+    }
+  }, []);
+
+  const clearCardMotionProbe = useCallback(() => {
+    setCardMotionProbe(null);
+    try {
+      delete window.__wordCardMotionProbe;
+      window.sessionStorage.removeItem("word-card-motion-probe");
+    } catch {
+      // Ignore unavailable diagnostic storage.
+    }
   }, []);
 
   const refreshSyncCounts = useCallback(() => {
@@ -576,8 +711,10 @@ export default function StudyPage() {
           studySession.id,
           studySession.nonces,
         );
-        finalizeLegacyCredentialClaims(userId);
       }
+      // Even an empty server queue is a definitive answer for credentialless
+      // legacy rows: leave them visible as blocked instead of forever pending.
+      finalizeLegacyCredentialClaims(userId);
       // Current queue may be empty; durable rows already carry their own
       // credentials (or provenance for reauthorization), so they still flush.
       // 这里的 setState 都在 await 之后，避免在 effect 中同步调用 setState。
@@ -637,26 +774,55 @@ export default function StudyPage() {
   }, [status, userId, flushedUserId, flushPending]);
 
   const rotateStudySession = useCallback(async () => {
-    if (!userId || !studySession || isRotatingSessionRef.current) return;
+    const currentSession = rotationSessionRef.current ?? studySession;
+    if (!userId || !currentSession || isRotatingSessionRef.current) return;
     isRotatingSessionRef.current = true;
+    if (rotationRetryTimerRef.current) {
+      clearTimeout(rotationRetryTimerRef.current);
+      rotationRetryTimerRef.current = null;
+    }
+
+    const retryLater = (message: string, retryAfterMs?: number) => {
+      setRotationNotice(message);
+      const remainingMs = Date.parse(currentSession.expiresAt) - Date.now();
+      if (!Number.isFinite(remainingMs) || remainingMs <= 30_000) return;
+      const attempt = rotationRetryAttemptRef.current++;
+      const exponentialDelay = Math.min(60_000, 1_000 * 2 ** Math.min(attempt, 6));
+      const requestedDelay = retryAfterMs ?? exponentialDelay;
+      const delay = Math.min(
+        Math.max(1_000, requestedDelay),
+        Math.max(1_000, remainingMs - 30_000),
+      );
+      rotationRetryTimerRef.current = setTimeout(() => {
+        rotationRetryTimerRef.current = null;
+        void flushPending()
+          .catch(() => undefined)
+          .then(() => rotateStudySessionRef.current());
+      }, delay);
+    };
+
     try {
       const checkpoint = loadCheckpoint(userId, getUnitKey());
       const queueIds = checkpoint?.queueSignature ?? queue.map((item) => item.word.id);
       if (!canResumeStudySession(queueIds)) {
-        setError("学习队列无法安全续期，请重新载入页面");
+        retryLater("学习队列无法安全续期，请重新载入页面");
         return;
       }
       const response = await fetch("/api/study/session/rotate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          previousSessionId: studySession.id,
+          previousSessionId: currentSession.id,
           queueIds,
-          rotationKey: `rotate-${studySession.id}`,
+          rotationKey: `rotate-${currentSession.id}`,
         }),
       });
       if (!response.ok) {
-        setError(await responseErrorMessage(response));
+        const retryAfter = Number(response.headers.get("Retry-After"));
+        retryLater(
+          await responseErrorMessage(response),
+          Number.isFinite(retryAfter) ? Math.max(0, retryAfter * 1_000) : undefined,
+        );
         return;
       }
       const payload = (await response.json()) as {
@@ -664,7 +830,7 @@ export default function StudyPage() {
       };
       const nextSession = payload.studySession;
       if (!nextSession) {
-        setError("学习 session 续期失败，请重新载入页面");
+        retryLater("学习 session 续期失败，请稍后重试");
         return;
       }
       if (checkpoint) {
@@ -672,17 +838,24 @@ export default function StudyPage() {
       }
       rebindStudySessionCredentials(
         userId,
-        studySession.id,
+        currentSession.id,
         nextSession.id,
         nextSession.nonces,
       );
+      rotationRetryAttemptRef.current = 0;
+      setRotationNotice(null);
+      rotationSessionRef.current = nextSession;
       setStudySession(nextSession);
     } catch (error) {
-      setError(networkErrorMessage(error));
+      retryLater(networkErrorMessage(error));
     } finally {
       isRotatingSessionRef.current = false;
     }
-  }, [userId, studySession, queue]);
+  }, [userId, studySession, queue, flushPending]);
+
+  useEffect(() => {
+    rotateStudySessionRef.current = rotateStudySession;
+  }, [rotateStudySession]);
 
   // Rotate the server-issued nonce set while the old session is still live.
   // The rotation endpoint preserves queue order and has response-loss idempotency.
@@ -693,12 +866,20 @@ export default function StudyPage() {
     const delay = Math.max(0, expiresAt - Date.now() - 5 * 60_000);
     const timer = window.setTimeout(
       () => {
-        void flushPending().then(() => rotateStudySession());
+        void flushPending()
+          .catch(() => undefined)
+          .then(() => rotateStudySessionRef.current());
       },
       Math.min(delay, 2_147_000_000),
     );
-    return () => window.clearTimeout(timer);
-  }, [studySession, flushPending, rotateStudySession]);
+    return () => {
+      window.clearTimeout(timer);
+      if (rotationRetryTimerRef.current) {
+        clearTimeout(rotationRetryTimerRef.current);
+        rotationRetryTimerRef.current = null;
+      }
+    };
+  }, [studySession, flushPending]);
 
   /**
    * 尝试用本地存档点恢复进度。返回是否成功恢复。
@@ -822,6 +1003,8 @@ export default function StudyPage() {
         setUnitCategory(data.unitMode ? data.category : null);
         setStreak(data.streak ?? null);
         setStudySession(data.studySession ?? null);
+        setRotationNotice(null);
+        rotationRetryAttemptRef.current = 0;
         // 恢复存档点：若有匹配的本地进度，直接续做，无需从头开始
         if (restoredQueue) {
           flashResumed();
@@ -1285,6 +1468,17 @@ export default function StudyPage() {
         data-known-count={knownWords.length}
         className="flex min-h-full flex-col pb-24"
       >
+        <RotationNotice
+          message={rotationNotice}
+          onRetry={() => void rotateStudySession()}
+          onReload={() => setReloadKey((key) => key + 1)}
+        />
+        <CardMotionProbePanel
+          enabled={cardProbeEnabled}
+          probe={cardMotionProbe}
+          onClear={clearCardMotionProbe}
+          onClose={() => setCardProbeEnabled(false)}
+        />
         <ResumeToast visible={showResumedBanner} />
         <AchievementToast
           items={newAchievements}
@@ -1374,6 +1568,17 @@ export default function StudyPage() {
     const hasQuiz = quizStats.correct + quizStats.wrong > 0;
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <RotationNotice
+          message={rotationNotice}
+          onRetry={() => void rotateStudySession()}
+          onReload={() => setReloadKey((key) => key + 1)}
+        />
+        <CardMotionProbePanel
+          enabled={cardProbeEnabled}
+          probe={cardMotionProbe}
+          onClear={clearCardMotionProbe}
+          onClose={() => setCardProbeEnabled(false)}
+        />
         <AchievementToast
           items={newAchievements}
           onClose={() => setNewAchievements([])}
@@ -1479,17 +1684,18 @@ export default function StudyPage() {
   // ───────── 认字评估阶段渲染 ─────────
   return (
     <div className="flex min-h-full flex-col pb-8">
+      <RotationNotice
+        message={rotationNotice}
+        onRetry={() => void rotateStudySession()}
+        onReload={() => setReloadKey((key) => key + 1)}
+      />
+      <CardMotionProbePanel
+        enabled={cardProbeEnabled}
+        probe={cardMotionProbe}
+        onClear={clearCardMotionProbe}
+        onClose={() => setCardProbeEnabled(false)}
+      />
       <ResumeToast visible={showResumedBanner} />
-      {cardProbeEnabled && (
-        <pre
-          data-testid="study-card-probe"
-          className="mx-auto mb-3 w-full max-w-md overflow-auto rounded-xl bg-slate-950 p-3 text-[10px] text-emerald-300"
-        >
-          {cardMotionProbe
-            ? JSON.stringify(cardMotionProbe, null, 2)
-            : "card probe waiting for pointerup"}
-        </pre>
-      )}
       <AchievementToast
         items={newAchievements}
         onClose={() => setNewAchievements([])}

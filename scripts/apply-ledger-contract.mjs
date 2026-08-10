@@ -1,4 +1,11 @@
-import { mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdtemp,
+  mkdir,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import dotenv from "dotenv";
@@ -30,10 +37,11 @@ try {
   for (const root of ["prisma/migrations", "prisma/contract-migrations"]) {
     for (const entry of await readdir(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      await symlink(
-        join(process.cwd(), root, entry.name),
-        join(migrationPath, entry.name),
-        "dir",
+      const destination = join(migrationPath, entry.name);
+      await mkdir(destination);
+      await copyFile(
+        join(process.cwd(), root, entry.name, "migration.sql"),
+        join(destination, "migration.sql"),
       );
     }
   }

@@ -12,13 +12,20 @@ import {
 const STUDY_SESSION_TTL_MS = 30 * 60_000;
 export const STUDY_SESSION_RETENTION_MS = 14 * 24 * 60 * 60_000;
 const REUSE_MIN_REMAINING_MS = 2 * 60_000;
+export const STUDY_SESSION_ROTATION_WINDOW_MS = 5 * 60_000;
 const MAX_ACTIVE_STUDY_SESSIONS = 6;
 const SESSION_TRANSACTION_RETRIES = 4;
 
 export interface IssuedStudySession {
   id: string;
   expiresAt: Date;
-  items: Array<{ wordId: string; nonce: string }>;
+  items: Array<{
+    wordId: string;
+    nonce: string;
+    usedAt?: Date | null;
+    renewedAt?: Date | null;
+    operationId?: string | null;
+  }>;
 }
 
 function normalizedWordIds(wordIds: string[]) {
@@ -65,7 +72,15 @@ export async function issueStudySession(
             select: {
               id: true,
               expiresAt: true,
-              items: { select: { wordId: true, nonce: true } },
+              items: {
+                select: {
+                  wordId: true,
+                  nonce: true,
+                  usedAt: true,
+                  renewedAt: true,
+                  operationId: true,
+                },
+              },
             },
           });
           const active = await tx.studySession.findMany({
@@ -136,36 +151,60 @@ export async function reuseStudySessionForResume(
     try {
       return await prisma.$transaction(
         async (tx) => {
-          await tx.$queryRaw(
-            Prisma.sql`SELECT "id" FROM "StudySessionItem" WHERE "sessionId" = ${sourceSessionId} FOR UPDATE`,
-          );
-          const source = await tx.studySession.findFirst({
-            where: {
-              id: sourceSessionId,
-              userId,
-              queueFingerprint: studyQueueFingerprint(ids),
-            },
-            select: {
-              id: true,
-              expiresAt: true,
-              retiredAt: true,
-              items: {
-                select: {
-                  wordId: true,
-                  nonce: true,
-                  usedAt: true,
-                  renewedAt: true,
-                  operationId: true,
+          const fingerprint = studyQueueFingerprint(ids);
+          let candidateId = sourceSessionId;
+          // A response-loss rotation retires the checkpoint's source. Follow
+          // the deterministic replacement chain so a reload can recover the
+          // already-committed session without minting another nonce set.
+          for (let hop = 0; hop < 4; hop += 1) {
+            await tx.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "StudySessionItem" WHERE "sessionId" = ${candidateId} FOR UPDATE`,
+            );
+            const candidate = await tx.studySession.findFirst({
+              where: {
+                id: candidateId,
+                userId,
+                queueFingerprint: fingerprint,
+              },
+              select: {
+                id: true,
+                expiresAt: true,
+                retiredAt: true,
+                items: {
+                  select: {
+                    wordId: true,
+                    nonce: true,
+                    usedAt: true,
+                    renewedAt: true,
+                    operationId: true,
+                  },
                 },
               },
-            },
-          });
-          if (!source || !canReuseResumeSession(source, ids)) return null;
-          return {
-            id: source.id,
-            expiresAt: source.expiresAt,
-            items: source.items.map(({ wordId, nonce }) => ({ wordId, nonce })),
-          };
+            });
+            if (!candidate) return null;
+            if (canReuseResumeSession(candidate, ids)) {
+              return {
+                id: candidate.id,
+                expiresAt: candidate.expiresAt,
+                items: candidate.items.map(({ wordId, nonce }) => ({
+                  wordId,
+                  nonce,
+                })),
+              };
+            }
+            if (candidate.retiredAt === null) return null;
+            const replacement = await tx.studySession.findFirst({
+              where: {
+                userId,
+                rotationKey: `rotate-${candidate.id}`,
+                queueFingerprint: fingerprint,
+              },
+              select: { id: true },
+            });
+            if (!replacement) return null;
+            candidateId = replacement.id;
+          }
+          return null;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -204,6 +243,9 @@ export async function rotateStudySession(
   rotationKey: string,
 ): Promise<IssuedStudySession> {
   const ids = normalizedWordIds(wordIds);
+  if (rotationKey !== `rotate-${previousSessionId}`) {
+    throw new StudySessionRotationError(409, "学习 session 轮换凭证不一致");
+  }
   const fingerprint = studyQueueFingerprint(ids);
   for (let attempt = 0; attempt < SESSION_TRANSACTION_RETRIES; attempt++) {
     try {
@@ -219,9 +261,12 @@ export async function rotateStudySession(
             },
           });
           if (existing) {
+            const existingIds = new Set(existing.items.map((item) => item.wordId));
             if (
               existing.queueFingerprint !== fingerprint ||
-              existing.items.length !== ids.length
+              existing.items.length !== ids.length ||
+              existingIds.size !== ids.length ||
+              ids.some((id) => !existingIds.has(id))
             ) {
               throw new StudySessionRotationError(409, "学习 session 轮换凭证不一致");
             }
@@ -231,6 +276,9 @@ export async function rotateStudySession(
           await tx.$queryRaw(
             Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${previousSessionId} AND "userId" = ${userId} FOR UPDATE`,
           );
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "StudySessionItem" WHERE "sessionId" = ${previousSessionId} FOR UPDATE`,
+          );
           const source = await tx.studySession.findFirst({
             where: { id: previousSessionId, userId },
             select: {
@@ -238,18 +286,38 @@ export async function rotateStudySession(
               queueFingerprint: true,
               expiresAt: true,
               retiredAt: true,
+              items: {
+                select: {
+                  wordId: true,
+                  nonce: true,
+                  usedAt: true,
+                  renewedAt: true,
+                  operationId: true,
+                },
+              },
             },
           });
           if (!source) {
             throw new StudySessionRotationError(404, "原学习 session 不存在或已清理");
           }
           const now = new Date();
+          const remainingMs = source.expiresAt.getTime() - now.getTime();
+          const sourceIds = new Set(source.items.map((item) => item.wordId));
           if (
             source.queueFingerprint !== fingerprint ||
+            source.items.length !== ids.length ||
+            sourceIds.size !== ids.length ||
+            ids.some((id) => !sourceIds.has(id)) ||
             source.retiredAt !== null ||
-            source.expiresAt <= now
+            remainingMs <= 0 ||
+            remainingMs > STUDY_SESSION_ROTATION_WINDOW_MS
           ) {
-            throw new StudySessionRotationError(409, "学习 session 队列已改变");
+            throw new StudySessionRotationError(
+              409,
+              remainingMs > STUDY_SESSION_ROTATION_WINDOW_MS
+                ? "学习 session 尚未进入轮换窗口"
+                : "学习 session 已过期或已失效",
+            );
           }
 
           const active = await tx.studySession.findMany({
@@ -268,22 +336,41 @@ export async function rotateStudySession(
             });
           }
 
-          return tx.studySession.create({
+          const replacement = await tx.studySession.create({
             data: {
               userId,
               queueFingerprint: fingerprint,
               rotationKey,
               expiresAt: new Date(now.getTime() + STUDY_SESSION_TTL_MS),
               items: {
-                create: ids.map((wordId) => ({ wordId, nonce: randomUUID() })),
+                create: source.items.map((item) => ({
+                  wordId: item.wordId,
+                  nonce: randomUUID(),
+                  usedAt: item.usedAt,
+                  renewedAt: item.renewedAt,
+                  operationId: item.operationId,
+                })),
               },
             },
             select: {
               id: true,
               expiresAt: true,
-              items: { select: { wordId: true, nonce: true } },
+              items: {
+                select: {
+                  wordId: true,
+                  nonce: true,
+                  usedAt: true,
+                  renewedAt: true,
+                  operationId: true,
+                },
+              },
             },
           });
+          await tx.studySession.update({
+            where: { id: source.id },
+            data: { retiredAt: now },
+          });
+          return replacement;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -505,7 +592,9 @@ export function serializeStudySession(session: IssuedStudySession | null) {
     id: session.id,
     expiresAt: session.expiresAt,
     nonces: Object.fromEntries(
-      session.items.map((item) => [item.wordId, item.nonce]),
+      session.items
+        .filter((item) => item.usedAt == null && item.renewedAt == null)
+        .map((item) => [item.wordId, item.nonce]),
     ),
   };
 }

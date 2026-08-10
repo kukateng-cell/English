@@ -61,6 +61,9 @@ jobs:
       - name: Replay migrations on a fresh schema
         run: npm run test:migrations
 
+      - name: Verify expand, confirmed contract, and future ordinary deploy
+        run: npm run test:migrations:contract
+
       - name: Deploy migrations to the CI database
         run: npm run db:deploy
 

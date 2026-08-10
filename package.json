@@ -11,6 +11,7 @@
     "test:e2e:card-motion": "ENABLE_TEST_ROUTES=1 next build && ENABLE_TEST_ROUTES=1 playwright test",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:migrations": "node scripts/check-migrations-fresh.mjs",
+    "test:migrations:contract": "node scripts/check-contract-migration-regression.mjs",
     "test:migration-checksums": "node scripts/check-migration-checksums.mjs",
     "check:production-config": "node --import tsx scripts/check-production-config.ts",
     "lint": "eslint",

@@ -291,7 +291,7 @@ for (const scenario of scenarios) {
     page,
   }, testInfo) => {
     const input = inputForProject(testInfo.project.name);
-    const result = await dispatchGesture(page, scenario, input);
+    await dispatchGesture(page, scenario, input);
     await expect(page.getByTestId("motion-probe")).not.toHaveText("none");
     const probe = JSON.parse(
       (await page.getByTestId("motion-probe").textContent()) ?? "{}",
@@ -301,10 +301,15 @@ for (const scenario of scenarios) {
       releasePreviewAt?: number | null;
       releasePreviewPosition?: number | null;
       releasePreviewVelocity?: number | null;
+      firstReleaseRafSignedDeltaMs?: number | null;
+      firstReleaseRafExecutionAt?: number | null;
+      firstReleaseRafExecutionDelayMs?: number | null;
       pointerupStartedAt?: number | null;
       pointerupEndedAt?: number | null;
       releasePosition?: number;
       firstFramePosition?: number;
+      secondFramePosition?: number | null;
+      thirdFramePosition?: number | null;
       frameCount?: number;
     };
     expect(probe.frameCount).toBeGreaterThanOrEqual(1);
@@ -325,29 +330,32 @@ for (const scenario of scenarios) {
       expect(probe.releasePreviewPosition).toBeGreaterThan(
         probe.releasePosition!,
       );
+      expect(probe.firstFramePosition).toBeGreaterThanOrEqual(
+        probe.releasePreviewPosition! - 0.5,
+      );
+      expect(probe.secondFramePosition).toBeGreaterThan(
+        probe.firstFramePosition!,
+      );
+      expect(probe.thirdFramePosition).toBeGreaterThan(
+        probe.secondFramePosition!,
+      );
     } else {
       expect(Math.abs(probe.releasePreviewPosition!)).toBeLessThan(
         Math.abs(probe.releasePosition!),
       );
+      expect(Math.abs(probe.firstFramePosition!)).toBeLessThanOrEqual(
+        Math.abs(probe.releasePreviewPosition!) + 0.5,
+      );
+      expect(Math.abs(probe.secondFramePosition!)).toBeLessThan(
+        Math.abs(probe.firstFramePosition!),
+      );
     }
 
-    // A headless WebKit worker can delay its first rAF by hundreds of ms or
-    // more. That is scheduler evidence, not evidence that the release pose
-    // was duplicated. The synchronous release preview above is the contract;
-    // this optional check only confirms direction when the first rAF is timely.
-    if (
-      result.frames.length >= 2 &&
-      (probe.firstReleaseRafDelayMs ?? Number.POSITIVE_INFINITY) <= 120 &&
-      probe.firstFramePosition !== undefined
-    ) {
-      if (scenario.expected === "dismiss-right") {
-        expect(probe.firstFramePosition).toBeGreaterThan(probe.releasePosition!);
-      } else {
-        expect(Math.abs(probe.firstFramePosition)).toBeLessThan(
-          Math.abs(probe.releasePosition!),
-        );
-      }
-    }
+    // Keep both clocks visible in the artifact: rAF timestamps can precede
+    // pointerup, while the callback's performance.now() must never do so.
+    expect(Number.isFinite(probe.firstReleaseRafSignedDeltaMs)).toBe(true);
+    expect(Number.isFinite(probe.firstReleaseRafExecutionAt)).toBe(true);
+    expect(Number.isFinite(probe.firstReleaseRafExecutionDelayMs)).toBe(true);
 
     if (scenario.expected === "dismiss-right") {
       await expect(page.getByTestId("callback-count")).toHaveText("1");
