@@ -1,27 +1,42 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { signIn, useSession } from "next-auth/react";
-import Link from "next/link";
-import { ROLES, DEFAULT_ROLE } from "@/lib/roles";
 import { useLocale } from "@/components/LocaleProvider";
 import { safeCallbackPath } from "@/lib/safe-callback-url";
+import { DEFAULT_ROLE, homePathFor } from "@/lib/roles";
+import AuthShell from "@/components/auth/AuthShell";
+import Button from "@/components/ui/Button";
+import StatusBanner from "@/components/ui/StatusBanner";
+import Icon from "@/components/ui/Icon";
+
+function safePostLoginCallback(raw: string | null) {
+  if (!raw || typeof window === "undefined") return null;
+  const safe = safeCallbackPath(raw, window.location.origin, "") || null;
+  if (!safe || safe === "/login" || safe.startsWith("/login?")) return null;
+  return safe;
+}
 
 export default function LoginPage() {
   const { tc } = useLocale();
-  // 登录成功后用 update() 刷新 SessionProvider 的缓存 session，
-  // 避免客户端导航到受保护页时 useSession() 读到过期的未登录状态。
-  const { update } = useSession();
+  const { data: session, status, update } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  // 登录限流的锁定状态：lockUntil 为锁定到期时间戳（epoch ms），
-  // 非 null 时禁用登录按钮并显示倒计时，到 0 自动解除。
   const [lockUntil, setLockUntil] = useState<number | null>(null);
   const [remainingSec, setRemainingSec] = useState(0);
 
-  // 锁定倒计时：每秒刷新剩余秒数，到 0 自动清除锁定状态。
+  useEffect(() => {
+    if (status !== "authenticated" || loading) return;
+    const callback = safePostLoginCallback(new URLSearchParams(window.location.search).get("callbackUrl"));
+    const role = session?.user?.role ?? DEFAULT_ROLE;
+    const roleHome = homePathFor(role);
+    const destination = callback ?? roleHome;
+    const target = session?.user?.mustChangePassword ? `/reset-password?callbackUrl=${encodeURIComponent(destination)}` : destination;
+    window.location.replace(target);
+  }, [loading, session, status]);
+
   useEffect(() => {
     if (lockUntil === null) return;
     const tick = () => {
@@ -34,194 +49,65 @@ export default function LoginPage() {
     return () => clearInterval(timer);
   }, [lockUntil]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     setLoading(true);
-
     let result;
     try {
-      result = await signIn("credentials", {
-        email: email.trim(),
-        password,
-        redirect: false,
-      });
+      result = await signIn("credentials", { email: email.trim(), password, redirect: false });
     } catch {
       setLoading(false);
       setError("网络连接失败，请检查网络后重试");
       return;
     }
-
-    setLoading(false);
-
     if (!result || result.error) {
-      // NextAuth v4 CredentialsProvider 不透传具体错误原因（密码错 / 被锁），
-      // 这里再查一次限流状态：被锁则显示倒计时并禁用按钮，避免用户无意义重试。
       try {
-        const status = await fetch(
-          `/api/auth/login-status?account=${encodeURIComponent(email.trim().toLowerCase())}`,
-        ).then((r) => r.json());
-        if (status?.locked) {
-          setLockUntil(Date.now() + (status.retryAfterSec ?? 0) * 1000);
-          setError(status.message ?? "登录尝试过多，已临时锁定");
+        const loginStatus = await fetch(`/api/auth/login-status?account=${encodeURIComponent(email.trim().toLowerCase())}`).then((response) => response.json());
+        if (loginStatus?.locked) {
+          setLockUntil(Date.now() + (loginStatus.retryAfterSec ?? 0) * 1000);
+          setError(loginStatus.message ?? "登录尝试过多，已临时锁定");
+          setLoading(false);
           return;
         }
       } catch {
-        // 查询失败时回退到通用提示，不阻断主流程
+        // Keep the generic error when the rate-limit status endpoint is unavailable.
       }
+      setLoading(false);
       setError("账号或密码错误，请重试");
-    } else {
-      // 关键修复：登录成功后先刷新 SessionProvider 的缓存 session。
-      // NextAuth v4 的 SessionProvider 在登录前缓存了「未登录」状态；
-      // 若直接 router.push 做客户端导航，目标页（/study、/units）的
-      // useSession() 仍会读到过期的 unauthenticated，被认证守卫立即
-      // 弹回登录页——表现为「登录后要退出登录界面再点一次才能进入」。
-      // update() 会重新请求 /api/auth/session 并同步 context，之后
-      // 客户端导航即可被正确识别为已登录。
-      try {
-        await update();
-      } catch {
-        // 刷新失败（罕见）不阻断主流程：随后仍按原逻辑跳转，
-        // 最坏情况用户刷新页面即可正常进入。
-      }
-
-      // 登录成功后：优先回到來時的 callbackUrl（proxy 帶上的），
-      // 否則按角色跳轉到對應入口。
-      const callbackUrl = new URLSearchParams(window.location.search).get(
-        "callbackUrl",
-      );
-      // 安全檢查：只允許站內相對路徑，防止開放重導向（協議相對 URL //evil.com）
-      const safeCallback = callbackUrl
-        ? safeCallbackPath(callbackUrl, window.location.origin, "") || null
-        : null;
-      // 用 window.location.replace 做整页跳转（而非 router.push）：
-      // router.push + router.refresh 在部分手机浏览器上会相互竞争，导致跳转
-      // 没生效、停在登录页甚至被带回首页。replace 是硬跳转、稳定可靠，且
-      // 替换历史记录（后退键不会回到登录页），体验更干净。
-      let target = "/study";
-      try {
-        const me = await fetch("/api/auth/session").then((r) => r.json());
-        const role = (me?.user?.role as string) ?? DEFAULT_ROLE;
-        const mustChangePassword = me?.user?.mustChangePassword === true;
-        const roleHome =
-          role === ROLES.ADMIN
-            ? "/admin"
-            : role === ROLES.TEACHER
-              ? "/teacher"
-              : "/study";
-        const postLoginTarget = safeCallback ?? roleHome;
-        // 首次登入強制改密碼：优先引导到重设页（覆盖默认的角色跳转与 callbackUrl，
-        // 避免用户带着预设密码进入系统）。
-        if (mustChangePassword) {
-          target = `/reset-password?callbackUrl=${encodeURIComponent(postLoginTarget)}`;
-        } else {
-          target = postLoginTarget;
-        }
-      } catch {
-        target = safeCallback ?? "/study";
-      }
-      window.location.replace(target);
+      return;
     }
-  };
+    try {
+      await update();
+    } catch {
+      // A full navigation below still refreshes the authoritative session.
+    }
+    const callback = safePostLoginCallback(new URLSearchParams(window.location.search).get("callbackUrl"));
+    let target = callback ?? "/";
+    try {
+      const me = await fetch("/api/auth/session").then((response) => response.json());
+      const role = me?.user?.role ?? DEFAULT_ROLE;
+      const roleHome = homePathFor(role);
+      const destination = callback ?? roleHome;
+      target = me?.user?.mustChangePassword ? `/reset-password?callbackUrl=${encodeURIComponent(destination)}` : destination;
+    } catch {
+      // The callback is already safe; fallback remains inside the app.
+    }
+    window.location.replace(target);
+  }
 
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-5 py-12">
-      <div className="w-full max-w-[420px] animate-fade-in-up">
-        {/* 顶部图标 */}
-        <div className="mb-6 flex justify-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#5B6FEF] shadow-[0_8px_24px_rgba(37,99,235,0.18)]">
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M4 8h12l3-3h9v18H4V8z"
-                fill="rgba(255,255,255,0.25)"
-                stroke="white"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-              />
-              <circle cx="22" cy="22" r="3" fill="white" opacity="0.9" />
-              <path d="M21 22l0.7 0.7 1.8-1.8" stroke="#2563EB" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-        </div>
-
-        <h1 className="mb-1 text-center text-[26px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-          {tc("英语单词认读")}
-        </h1>
-        <p className="mb-8 text-center text-[15px] text-[#7C89A5] dark:text-[#64748B]">
-          {tc("登录以继续学习")}
-        </p>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <input
-              type="text"
-              placeholder={tc("账号 (如 student01)")}
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                // 换了账号：清掉旧账号的锁定提示与错误（账号维度锁只针对旧账号）。
-                setLockUntil(null);
-                setError("");
-              }}
-              autoComplete="username"
-              required
-              className="h-[48px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[15px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA] dark:focus:ring-[#60A5FA]/10"
-            />
-          </div>
-          <div>
-            <input
-              type="password"
-              placeholder={tc("密码")}
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setError("");
-              }}
-              required
-              className="h-[48px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[15px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA] dark:focus:ring-[#60A5FA]/10"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || lockUntil !== null}
-            className="mt-1 flex h-[48px] w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] disabled:opacity-50"
-          >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                {tc("登录中...")}
-              </span>
-            ) : (
-              tc("登录")
-            )}
-          </button>
+    <AuthShell>
+      <section className="auth-panel" aria-labelledby="login-title">
+        <div className="auth-panel-header"><span className="auth-panel-icon"><Icon name="book" size={28} /></span><h1 id="login-title">{tc("英语单词认读")}</h1><p>{tc("登录以继续学习")}</p></div>
+        <form className="auth-form" onSubmit={handleSubmit} noValidate>
+          <div className="ui-field"><label htmlFor="login-account">{tc("账号")}</label><input id="login-account" type="text" placeholder={tc("例如 student01")} value={email} onChange={(event) => { setEmail(event.target.value); setLockUntil(null); setError(""); }} autoComplete="username" required /></div>
+          <div className="ui-field"><label htmlFor="login-password">{tc("密码")}</label><input id="login-password" type="password" placeholder={tc("输入密码")} value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} autoComplete="current-password" required /></div>
+          <Button className="auth-form-submit" size="large" type="submit" loading={loading || lockUntil !== null}>{lockUntil !== null && remainingSec > 0 ? tc("暂时锁定") : tc("登录")}</Button>
         </form>
-
-        {error && (
-          <div className="mt-4 rounded-2xl bg-[#FEF2F2] px-4 py-3 text-center text-[14px] text-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]">
-            {tc(error)}
-            {lockUntil !== null && remainingSec > 0 && (
-              <span className="ml-1 font-semibold">
-                {tc(`（剩余 ${Math.floor(remainingSec / 60)} 分 ${remainingSec % 60} 秒）`)}
-              </span>
-            )}
-          </div>
-        )}
-
-        <p className="mt-8 text-center text-[13px] text-[#BFCBE3] dark:text-[#475569]">
-          {tc("账号由老师统一发放，如忘记请联系老师")}
-        </p>
-
-        <div className="mt-6 text-center">
-          <Link
-            href="/"
-            className="text-[14px] text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
-          >
-            {tc("← 返回首页")}
-          </Link>
-        </div>
-      </div>
-    </div>
+        {error ? <div className="auth-error" id="login-error"><StatusBanner variant="error" message={<>{tc(error)}{lockUntil !== null && remainingSec > 0 ? <span className="auth-error-countdown">{tc(`（剩余 ${Math.floor(remainingSec / 60)} 分 ${remainingSec % 60} 秒）`)}</span> : null}</>} /></div> : null}
+        <p className="auth-footer-note">{tc("账号由老师统一发放，如忘记请联系老师")}</p>
+      </section>
+    </AuthShell>
   );
 }

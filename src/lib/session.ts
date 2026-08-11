@@ -33,6 +33,8 @@ export async function getSessionRole(): Promise<Role | null> {
 export async function getCurrentUser(): Promise<{
   id: string;
   role: Role;
+  name: string | null;
+  email: string;
 } | null> {
   const session = await getServerSession(authOptions);
   if (!session?.user) return null;
@@ -40,6 +42,8 @@ export async function getCurrentUser(): Promise<{
   return {
     id: (session.user as { id: string }).id,
     role: (session.user as { role: Role }).role,
+    name: session.user.name ?? null,
+    email: session.user.email,
   };
 }
 

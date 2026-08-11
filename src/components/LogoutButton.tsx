@@ -15,7 +15,7 @@ export default function LogoutButton() {
       onClick={() => signOut({ callbackUrl: "/login" })}
       aria-label={tc("退出登录")}
       title={tc("退出登录")}
-      className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#7C89A5] transition hover:bg-[#FEF2F2] hover:text-[#EF6B6B] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#64748B] dark:hover:bg-[#2D0B0B] dark:hover:text-[#F87171]"
+      className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] active:scale-[0.95] dark:bg-[var(--border-soft)] dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)] dark:hover:text-[var(--danger)]"
     >
       <svg
         width="18"

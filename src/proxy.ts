@@ -13,7 +13,7 @@ import { ROLES, DEFAULT_ROLE, homePathFor, type Role } from "@/lib/roles";
  * 规则：
  *  - /admin/*           → 仅 ADMIN
  *  - /teacher/*         → TEACHER 或 ADMIN（管理员可查看教师视角）
- *  - /study /units       → 任意已登录用户
+ *  - /、/study /units    → 任意已登录用户（首页按角色处理）
  *  - /api/admin/*        → 仅 ADMIN（API 请求返回 403 JSON，而非跳转）
  *  - /api/teacher/*      → TEACHER 或 ADMIN
  *  - /api/study /units   → 任意已登录用户
@@ -31,15 +31,21 @@ const proxy: NextProxy = async (req: NextRequest) => {
   const isTeacherArea =
     pathname.startsWith("/teacher") || pathname.startsWith("/api/teacher");
   const isStudentArea =
+    pathname === "/" ||
     pathname.startsWith("/study") ||
     pathname.startsWith("/units") ||
     pathname.startsWith("/api/study") ||
     pathname.startsWith("/api/units");
+  const isStudentOnlyArea =
+    pathname.startsWith("/words") ||
+    pathname.startsWith("/stats") ||
+    pathname.startsWith("/api/words") ||
+    pathname.startsWith("/api/student");
   // 重设密码区：必须登入，但不受 mustChangePassword 闸门拦截（否则死循环）。
   const isResetArea =
     pathname === "/reset-password" || pathname.startsWith("/api/reset-password");
 
-  const needsAuth = isAdminArea || isTeacherArea || isStudentArea || isResetArea;
+  const needsAuth = isAdminArea || isTeacherArea || isStudentArea || isStudentOnlyArea || isResetArea;
   if (!token && needsAuth) {
     if (isApi) {
       // 未登入的 API 請求：回 401（語意比 403 準確；各 route 內仍會再驗一次）
@@ -79,6 +85,15 @@ const proxy: NextProxy = async (req: NextRequest) => {
 
   // teacher 区：TEACHER 或 ADMIN
   if (isTeacherArea && role !== ROLES.TEACHER && role !== ROLES.ADMIN) {
+    return deny(req, isApi, homePathFor(role));
+  }
+
+  if (isStudentOnlyArea && role !== ROLES.STUDENT) {
+    return deny(req, isApi, homePathFor(role));
+  }
+
+  // The root is the student dashboard. Other roles keep their existing home.
+  if (pathname === "/" && role !== ROLES.STUDENT) {
     return deny(req, isApi, homePathFor(role));
   }
 

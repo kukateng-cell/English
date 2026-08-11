@@ -23,7 +23,7 @@ export default function ErrorBanner({
   const { tc } = useLocale();
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-500 dark:bg-red-950/40 dark:text-red-400">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--danger-bg)] text-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]">
         <svg
           width="26"
           height="26"
@@ -39,13 +39,13 @@ export default function ErrorBanner({
           <line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
       </div>
-      <p className="max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#94A3B8]">
+      <p className="max-w-xs text-[14px] leading-relaxed text-[var(--muted)]">
         {tc(message)}
       </p>
       {onRetry && (
         <button
           onClick={onRetry}
-          className="mt-5 flex h-10 items-center gap-1.5 rounded-2xl border border-[#E7EDF8] bg-white px-5 text-[13px] font-semibold text-[#2563EB] transition hover:bg-[#F8FAFF] active:scale-[0.97] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1A2332]"
+          className="mt-5 flex h-10 items-center gap-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 text-[13px] font-semibold text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.97]"
         >
           <svg
             width="14"
