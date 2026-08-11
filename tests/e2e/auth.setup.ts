@@ -1,7 +1,10 @@
 import { expect, test as setup } from "@playwright/test";
 
 function webkitUsername(base: string) {
-  return process.env.TEST_STUDENT_WEBKIT_USERNAME ?? `${base.slice(0, 56)}_webkit`;
+  // A separate WebKit fixture is optional.  When seed did not create one,
+  // reuse the explicitly configured student instead of inventing an account
+  // that cannot authenticate and masking the actual study regression.
+  return process.env.TEST_STUDENT_WEBKIT_USERNAME ?? base;
 }
 
 setup("authenticate a real study session", async ({ page }, testInfo) => {

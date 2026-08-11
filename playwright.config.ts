@@ -74,5 +74,28 @@ export default defineConfig({
         storageState: "test-results/.auth/student-webkit.json",
       },
     },
+    {
+      name: "student-shell-chromium",
+      testMatch: /student-shell\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
+      name: "student-shell-mobile",
+      testMatch: /student-shell\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Pixel 7"],
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
+      name: "role-redirects",
+      testMatch: /role-redirects\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });

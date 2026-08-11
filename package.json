@@ -12,6 +12,8 @@
     "test:e2e:card-motion": "ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 next build && npm run test:e2e:browser-primary && npm run test:e2e:browser-webkit-study",
     "test:e2e:browser-primary": "ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=desktop-chromium-motion --project=desktop-firefox-synthetic-pointer-motion --project=desktop-webkit-motion --project=mobile-chromium-emulation --project=mobile-webkit-synthetic-pointer-emulation --project=study-integration-chromium",
     "test:e2e:browser-webkit-study": "ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=study-integration-webkit --shard=1/2 && ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=study-integration-webkit --shard=2/2",
+    "test:e2e:student-ia": "ENABLE_TEST_ROUTES=1 playwright test --project=student-shell-chromium --project=student-shell-mobile --project=role-redirects",
+    "test:e2e:workspace": "ENABLE_TEST_ROUTES=1 playwright test --project=role-redirects",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:migrations": "node scripts/check-migrations-fresh.mjs",
     "test:migrations:contract": "node scripts/check-contract-migration-regression.mjs",
