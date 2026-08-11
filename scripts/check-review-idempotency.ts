@@ -8,6 +8,7 @@ async function main() {
   const { applyReviewEvent } = await import("../src/app/api/study/route");
   const {
     issueStudySession,
+    recoverStudySessionCredential,
     renewStudySessionCredentials,
     reuseStudySessionForResume,
     cleanupExpiredStudySessions,
@@ -334,10 +335,30 @@ async function main() {
         ]),
       "SESSION_SUPERSEDED",
     );
-    const rotationFirstNonce = serializeStudySession(rotationFirstReplacement)
+    const recoveredRotationFirst = await recoverStudySessionCredential(
+      user.id,
+      rotationFirstSource.id,
+      { operationId: rotationFirstOperation, wordId: sessionWord.id },
+    );
+    if (recoveredRotationFirst.id !== rotationFirstReplacement.id) {
+      throw new Error("recovery did not follow the rotation replacement lineage");
+    }
+    const rotationFirstNonce = serializeStudySession(recoveredRotationFirst)
       ?.nonces[sessionWord.id];
     if (!rotationFirstNonce) {
       throw new Error("rotation-first replacement lost its sole active credential");
+    }
+    const recoveredRotationReplay = await recoverStudySessionCredential(
+      user.id,
+      rotationFirstSource.id,
+      { operationId: rotationFirstOperation, wordId: sessionWord.id },
+    );
+    if (
+      recoveredRotationReplay.id !== recoveredRotationFirst.id ||
+      serializeStudySession(recoveredRotationReplay)?.nonces[sessionWord.id] !==
+        rotationFirstNonce
+    ) {
+      throw new Error("response-loss recovery did not replay the exact credential");
     }
     await applyReviewEvent({
       userId: user.id,

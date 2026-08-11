@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
 import {
+  recoverStudySessionCredential,
   renewStudySessionCredentials,
   serializeStudySession,
   StudyCredentialRenewalError,
@@ -34,9 +35,11 @@ export async function POST(req: Request) {
       ? body.previousSessionId.trim()
       : "";
   const operations = Array.isArray(body?.operations) ? body.operations : [];
+  const mode = body?.mode === "recover" ? "recover" : "renew";
   if (
     !ID_PATTERN.test(previousSessionId) ||
     operations.length === 0 ||
+    (mode === "recover" && operations.length !== 1) ||
     operations.length > 20 ||
     operations.some((value) => {
       if (typeof value !== "object" || value === null) return true;
@@ -56,11 +59,17 @@ export async function POST(req: Request) {
       operationId: string;
       wordId: string;
     }>;
-    const studySession = await renewStudySessionCredentials(
-      auth.userId,
-      previousSessionId,
-      typedOperations,
-    );
+    const studySession = mode === "recover"
+      ? await recoverStudySessionCredential(
+          auth.userId,
+          previousSessionId,
+          typedOperations[0],
+        )
+      : await renewStudySessionCredentials(
+          auth.userId,
+          previousSessionId,
+          typedOperations,
+        );
     const serialized = serializeStudySession(studySession)!;
     return NextResponse.json({
       studySession: serialized,

@@ -46,11 +46,12 @@ import {
   claimLegacyReviews,
   discardLegacyReviews,
   parseReviewQueueMutationEvent,
+  parseReviewQueueServerRevision,
   planReviewQueueMutation,
   reviewQueueItemStoragePrefix,
   reviewQueueMutationStorageKey,
+  reviewQueueServerRevisionStorageKey,
   ReviewQueueStorageError,
-  type ReviewQueueMutationEvent,
   type ReviewQueueMutationPlan,
   type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
@@ -580,6 +581,9 @@ export default function StudyPage() {
     new Map<string, ReturnType<typeof setTimeout>>(),
   );
   const externalMutationAffectedWordIdsRef = useRef(new Set<string>());
+  const externalBarrierGenerationRef = useRef<number | null>(null);
+  const loadingRef = useRef(loading);
+  const studySessionRef = useRef(studySession);
   const [interactionEpoch, setInteractionEpoch] = useState(0);
   const interactionEpochRef = useRef(0);
   const helpDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -624,7 +628,12 @@ export default function StudyPage() {
 
   useEffect(() => {
     rotationSessionRef.current = studySession;
+    studySessionRef.current = studySession;
   }, [studySession]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   useEffect(() => {
     activeQueueWordIdsRef.current = new Set(
@@ -1194,34 +1203,75 @@ export default function StudyPage() {
     const effectAffectedWordIds = externalMutationAffectedWordIdsRef.current;
     const itemPrefix = reviewQueueItemStoragePrefix(userId);
     const mutationKey = reviewQueueMutationStorageKey(userId);
+    const serverRevisionKey = reviewQueueServerRevisionStorageKey(userId);
+    const finishExternalBarrier = () => {
+      if (effectLeaseTimers.size !== 0) return;
+      const generation = externalBarrierGenerationRef.current;
+      const affected = externalMutationAffectedWordIdsRef.current;
+      if (affected.size > 0) {
+        reconciliationServerMutatedWordIdsRef.current = new Set(affected);
+        affected.clear();
+        if (generation === null && loadingRef.current) return;
+        externalBarrierGenerationRef.current = null;
+        setReloadKey((key) => key + 1);
+        return;
+      }
+      if (generation !== null) endReconciliation(generation);
+      externalBarrierGenerationRef.current = null;
+    };
+    const activeWordIds = () => {
+      const checkpoint = loadCheckpoint(userId, getUnitKey());
+      return new Set([
+        ...activeQueueWordIdsRef.current,
+        ...(checkpoint?.queueSignature ?? []),
+      ]);
+    };
+    const affectsCurrentLifecycle = (wordIds: string[]) => {
+      const active = activeWordIds();
+      return loadingRef.current ||
+        active.size === 0 ||
+        wordIds.some((wordId) => active.has(wordId));
+    };
     const onStorage = (event: StorageEvent) => {
       if (event.storageArea !== window.localStorage || !event.key) return;
       if (event.key.startsWith(itemPrefix)) {
         refreshSyncCounts();
         return;
       }
+      if (event.key === serverRevisionKey) {
+        const revision = parseReviewQueueServerRevision(userId, event.newValue);
+        if (!revision || !affectsCurrentLifecycle(revision.wordIds)) return;
+        revision.wordIds.forEach((wordId) =>
+          externalMutationAffectedWordIdsRef.current.add(wordId),
+        );
+        // A live mutation lease owns the barrier until its matching release.
+        if (effectLeaseTimers.size !== 0) return;
+        if (loadingRef.current) return;
+        beginReconciliation();
+        externalMutationAffectedWordIdsRef.current.clear();
+        reconciliationServerMutatedWordIdsRef.current = new Set(
+          revision.wordIds,
+        );
+        setReloadKey((key) => key + 1);
+        return;
+      }
       if (event.key !== mutationKey) return;
       const mutation = parseReviewQueueMutationEvent(userId, event.newValue);
       if (!mutation) return;
       refreshSyncCounts();
-      const checkpoint = loadCheckpoint(userId, getUnitKey());
-      const activeWordIds = new Set([
-        ...queue.map((item) => item.word.id),
-        ...(checkpoint?.queueSignature ?? []),
-      ]);
-      const affectsActiveQueue = mutation.wordIds.some((wordId) =>
-        activeWordIds.has(wordId),
-      );
-      // During first load there is no React queue or checkpoint to compare.
-      // Treat every mutation lease as relevant until the startup snapshot is
-      // fenced, otherwise a late-joining tab can accept a pre-commit GET.
-      const affectsMutationLifecycle =
-        loading || activeWordIds.size === 0 || affectsActiveQueue;
+      const affectsMutationLifecycle = affectsCurrentLifecycle(mutation.wordIds);
       if (mutation.kind === "mutation-started") {
         if (!affectsMutationLifecycle) return;
+        if ((mutation.expiresAt ?? 0) <= Date.now()) return;
         const leaseId = mutation.leaseId ?? mutation.revision;
         const leaseTimers = externalMutationLeaseTimersRef.current;
-        if (leaseTimers.size === 0) beginReconciliation();
+        if (
+          leaseTimers.size === 0 &&
+          externalBarrierGenerationRef.current === null &&
+          !loadingRef.current
+        ) {
+          externalBarrierGenerationRef.current = beginReconciliation();
+        }
         const existingTimer = leaseTimers.get(leaseId);
         if (existingTimer) clearTimeout(existingTimer);
         const delay = Math.max(0, (mutation.expiresAt ?? Date.now()) - Date.now());
@@ -1229,13 +1279,7 @@ export default function StudyPage() {
           leaseId,
           setTimeout(() => {
             leaseTimers.delete(leaseId);
-            if (leaseTimers.size !== 0) return;
-            const affected = externalMutationAffectedWordIdsRef.current;
-            if (affected.size > 0) {
-              reconciliationServerMutatedWordIdsRef.current = new Set(affected);
-              affected.clear();
-            }
-            reloadStudyQueue();
+            finishExternalBarrier();
           }, delay),
         );
         return;
@@ -1249,19 +1293,14 @@ export default function StudyPage() {
         const timer = leaseTimers.get(leaseId);
         if (timer) clearTimeout(timer);
         leaseTimers.delete(leaseId);
-        if (leaseTimers.size !== 0) return;
-        const affected = externalMutationAffectedWordIdsRef.current;
-        if (affected.size > 0) {
-          reconciliationServerMutatedWordIdsRef.current = new Set(affected);
-          affected.clear();
-        }
-        reloadStudyQueue();
+        finishExternalBarrier();
         return;
       }
+      const currentStudySession = studySessionRef.current;
       if (
         mutation.kind === "session-rotated" &&
-        studySession &&
-        mutation.sessionIds[0] === studySession.id &&
+        currentStudySession &&
+        mutation.sessionIds[0] === currentStudySession.id &&
         mutation.sessionIds[1]
       ) {
         const checkpoint = loadCheckpoint(userId, getUnitKey());
@@ -1285,8 +1324,8 @@ export default function StudyPage() {
       }
       if (
         mutation.kind === "credentials-renewed" &&
-        studySession &&
-        mutation.sessionIds.includes(studySession.id)
+        currentStudySession &&
+        mutation.sessionIds.includes(currentStudySession.id)
       ) {
         invalidateInteractions();
         setError(
@@ -1299,9 +1338,12 @@ export default function StudyPage() {
         mutation.leaseId &&
         externalMutationLeaseTimersRef.current.has(mutation.leaseId),
       );
-      const affectedWordIds = loading || activeWordIds.size === 0 || tracksMutationLease
+      const currentActiveWordIds = activeWordIds();
+      const affectedWordIds = loadingRef.current ||
+        currentActiveWordIds.size === 0 ||
+        tracksMutationLease
         ? mutation.wordIds
-        : mutation.wordIds.filter((wordId) => activeWordIds.has(wordId));
+        : mutation.wordIds.filter((wordId) => currentActiveWordIds.has(wordId));
       if (affectedWordIds.length === 0) return;
       affectedWordIds.forEach((wordId) =>
         externalMutationAffectedWordIdsRef.current.add(wordId),
@@ -1328,17 +1370,15 @@ export default function StudyPage() {
       }
       effectLeaseTimers.clear();
       effectAffectedWordIds.clear();
+      externalBarrierGenerationRef.current = null;
     };
   }, [
     status,
     userId,
-    queue,
-    studySession,
-    loading,
     refreshSyncCounts,
     beginReconciliation,
+    endReconciliation,
     invalidateInteractions,
-    reloadStudyQueue,
   ]);
 
   const rotateStudySession = useCallback(async () => {
@@ -1607,6 +1647,12 @@ export default function StudyPage() {
           userId,
           window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
         );
+        const serverRevisionBefore = parseReviewQueueServerRevision(
+          userId,
+          window.localStorage.getItem(
+            reviewQueueServerRevisionStorageKey(userId),
+          ),
+        );
         const initialFlushPromise = flushPending(
           null,
           false,
@@ -1635,6 +1681,39 @@ export default function StudyPage() {
           userId,
           window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
         );
+        const activeStartupLease = [
+          startupMutationAfter,
+          startupMutationBefore,
+        ].find((mutation) =>
+          (mutation?.kind === "mutation-started" ||
+            mutation?.kind === "server-mutated") &&
+          Boolean(mutation.leaseId) &&
+          (mutation.expiresAt ?? 0) > Date.now(),
+        );
+        if (activeStartupLease) {
+          const leaseId = activeStartupLease.leaseId ?? activeStartupLease.revision;
+          const deadline = activeStartupLease.expiresAt ?? Date.now();
+          while (canApply() && Date.now() < deadline) {
+            const current = parseReviewQueueMutationEvent(
+              userId,
+              window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
+            );
+            if (
+              current?.kind === "mutation-released" &&
+              (current.leaseId ?? current.revision) === leaseId
+            ) {
+              break;
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 50));
+          }
+          if (!canApply()) return;
+        }
+        const serverRevisionAfter = parseReviewQueueServerRevision(
+          userId,
+          window.localStorage.getItem(
+            reviewQueueServerRevisionStorageKey(userId),
+          ),
+        );
         const concurrentServerMutatedWordIds = new Set([
           ...initialFlush.submittedWordIds,
           ...adoptionFlush.submittedWordIds,
@@ -1654,21 +1733,11 @@ export default function StudyPage() {
           ...firstQueueWordIds,
           ...(checkpoint?.queueSignature ?? []),
         ]);
-        const touchesStartupSnapshot = (
-          mutation: ReviewQueueMutationEvent | null,
-        ) => Boolean(
-          mutation?.wordIds.some((wordId) =>
+        const serverRevisionChanged =
+          serverRevisionBefore?.revision !== serverRevisionAfter?.revision &&
+          Boolean(serverRevisionAfter?.wordIds.some((wordId) =>
             startupSnapshotWordIds.has(wordId),
-          ),
-        );
-        const startupMutationFenceChanged =
-          (startupMutationBefore?.kind === "mutation-started" &&
-            touchesStartupSnapshot(startupMutationBefore)) ||
-          (startupMutationAfter?.kind === "server-mutated" &&
-            touchesStartupSnapshot(startupMutationAfter)) ||
-          (startupMutationBefore?.revision !== startupMutationAfter?.revision &&
-            (touchesStartupSnapshot(startupMutationBefore) ||
-              touchesStartupSnapshot(startupMutationAfter)));
+          ));
         const activeServerMutation = [...concurrentServerMutatedWordIds].some(
           (wordId) => firstQueueWordIds.has(wordId),
         );
@@ -1680,7 +1749,7 @@ export default function StudyPage() {
             !concurrentServerMutatedWordIds.has(wordId),
         );
         let restoreAllowed = true;
-        if (activeServerMutation || startupMutationFenceChanged) {
+        if (activeServerMutation || serverRevisionChanged) {
           // A startup submission changed SM-2 state, or consumed a nonce from
           // the first response. A mutation revision change also means another
           // tab held the queue lock while the first GET was in flight. Discard

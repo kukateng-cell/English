@@ -13,6 +13,7 @@ import {
   parseReviewQueueMutationEvent,
   planReviewQueueMutation,
   reviewQueueMutationStorageKey,
+  reviewQueueServerRevisionStorageKey,
   ReviewQueueStorageError,
   type ReviewQueueMutationEvent,
 } from "./review-queue";
@@ -67,7 +68,7 @@ test("outbox is user scoped and preserves repeated reviews of one word", () => {
 
 test("legacy binding cannot steal a nonce already owned by a current answer", () => {
   installStorage();
-  enqueuePendingReview("user-a", "legacy-a1", "word-1", 3);
+  enqueuePendingReview("user-a", "legacy-claim:a1", "word-1", 3);
   enqueuePendingReview(
     "user-a",
     "current-a1",
@@ -82,7 +83,7 @@ test("legacy binding cannot steal a nonce already owned by a current answer", ()
   finalizeLegacyCredentialClaims("user-a");
 
   const rows = loadPendingReviews("user-a");
-  const legacy = rows.find((row) => row.operationId === "legacy-a1");
+  const legacy = rows.find((row) => row.operationId === "legacy-claim:a1");
   const current = rows.find((row) => row.operationId === "current-a1");
   assert.ok(legacy);
   assert.ok(current);
@@ -155,7 +156,12 @@ test("flush preserves an event enqueued while a request is in flight", async () 
 
 test("successful submission publishes and then releases its cross-tab mutation lease", async () => {
   const mutationEvents: ReviewQueueMutationEvent[] = [];
+  const serverRevisions: string[] = [];
   installStorage((key, value) => {
+    if (key === reviewQueueServerRevisionStorageKey("user-a")) {
+      serverRevisions.push(value);
+      return false;
+    }
     if (key !== reviewQueueMutationStorageKey("user-a")) return false;
     const event = parseReviewQueueMutationEvent("user-a", value);
     if (event) mutationEvents.push(event);
@@ -178,6 +184,7 @@ test("successful submission publishes and then releases its cross-tab mutation l
     assert.deepEqual(serverEvent.sessionIds, ["session-valid"]);
     assert.equal(releaseEvent?.kind, "mutation-released");
     assert.equal(releaseEvent?.leaseId, serverEvent.leaseId);
+    assert.equal(serverRevisions.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -254,20 +261,56 @@ test("superseded credential preserves the answer for a fresh session", async () 
     const [preserved] = loadPendingReviews("user-a");
     assert.equal(preserved.operationId, "operation-stale");
     assert.equal(preserved.status, "pending");
-    assert.equal(preserved.credentialState, "legacy-claimed");
+    assert.equal(preserved.credentialState, "refresh-required");
     assert.equal(preserved.nonce, undefined);
+    assert.equal(preserved.sourceStudySessionId, "session-retired");
     assert.deepEqual(completed, [{
       wordId: "word-1",
       outcome: "credential-refresh-required",
       conflictCode: "SESSION_SUPERSEDED",
     }]);
 
-    attachStudySessionCredentials("user-a", "session-fresh", {
-      "word-1": "nonce-fresh",
-    });
-    globalThis.fetch = async () => new Response("{}", { status: 200 });
+    finalizeLegacyCredentialClaims("user-a");
+    assert.equal(loadPendingReviews("user-a")[0].credentialState, "refresh-required");
+    globalThis.fetch = async (input, init) => {
+      if (String(input) === "/api/study/credentials") {
+        const body = JSON.parse(String(init?.body)) as { mode?: string };
+        assert.equal(body.mode, "recover");
+        return new Response(JSON.stringify({
+          studySession: { id: "session-fresh" },
+          credentials: [{
+            operationId: "operation-stale",
+            wordId: "word-1",
+            nonce: "nonce-fresh",
+          }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("{}", { status: 200 });
+    };
     assert.equal(await flushPendingReviews("user-a"), 0);
     assert.equal(loadPendingReviews("user-a").length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("failed submissions do not advance the durable server revision", async () => {
+  const revisions: string[] = [];
+  installStorage((key, value) => {
+    if (key === reviewQueueServerRevisionStorageKey("user-a")) {
+      revisions.push(value);
+    }
+    return false;
+  });
+  enqueuePendingReview("user-a", "operation-failed", "word-1", 5, {
+    studySessionId: "session-valid",
+    nonce: "nonce-valid",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("{}", { status: 500 });
+  try {
+    await flushPendingReviews("user-a");
+    assert.deepEqual(revisions, []);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -579,7 +622,7 @@ test("partial legacy migration never overwrites a newer operation row", () => {
 
 test("legacy outbox rows become visibly blocked after one adoption pass", async () => {
   installStorage();
-  enqueuePendingReview("user-a", "operation-a1", "word-1", 5);
+  enqueuePendingReview("user-a", "legacy-claim:a1", "word-1", 5);
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
@@ -662,8 +705,8 @@ test("expired session credentials are reauthorized and retried once", async () =
 
 test("only one repeated legacy review can adopt a word nonce", () => {
   installStorage();
-  enqueuePendingReview("user-a", "legacy-a1", "word-1", 5);
-  enqueuePendingReview("user-a", "legacy-a2", "word-1", 3);
+  enqueuePendingReview("user-a", "legacy-claim:a1", "word-1", 5);
+  enqueuePendingReview("user-a", "legacy-claim:a2", "word-1", 3);
   attachStudySessionCredentials("user-a", "session-fresh", {
     "word-1": "nonce-fresh",
   });

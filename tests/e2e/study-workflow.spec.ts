@@ -55,6 +55,69 @@ async function installQuizCheckpoint(
   );
 }
 
+async function installAssessCheckpoint(
+  page: Page,
+  userId: string,
+  data: StudyWorkflowData,
+) {
+  expect(data.queue.length).toBeGreaterThanOrEqual(2);
+  await page.evaluate(
+    ({ ownerId, queueIds, studySessionId }) => {
+      window.localStorage.setItem(
+        `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+        JSON.stringify({
+          version: 5,
+          ownerId,
+          ts: Date.now(),
+          phase: "assess",
+          unitKey: "global",
+          queueSignature: queueIds,
+          studySessionId,
+          currentIndex: 1,
+          knownWordIds: [queueIds[0]],
+          unknownWordIds: [],
+          quizStats: { correct: 1, wrong: 0 },
+          quizTargetId: null,
+          quizWrongCount: 0,
+          pendingQuizIds: [],
+        }),
+      );
+    },
+    {
+      ownerId: userId,
+      queueIds: data.queue.map((item) => item.word.id),
+      studySessionId: data.studySession.id,
+    },
+  );
+}
+
+async function dispatchServerRevision(
+  page: Page,
+  userId: string,
+  wordId: string,
+  studySessionId: string,
+) {
+  await page.evaluate(
+    ({ ownerId, affectedWordId, sessionId }) => {
+      const key = `study:review-server-revision:${encodeURIComponent(ownerId)}`;
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key,
+          newValue: JSON.stringify({
+            version: 1,
+            ownerId,
+            wordIds: [affectedWordId],
+            sessionIds: [sessionId],
+            revision: `server-${Date.now()}`,
+          }),
+          storageArea: window.localStorage,
+        }),
+      );
+    },
+    { ownerId: userId, affectedWordId: wordId, sessionId: studySessionId },
+  );
+}
+
 async function dispatchServerMutation(
   page: Page,
   userId: string,
@@ -87,6 +150,12 @@ async function dispatchServerMutation(
 test("a cross-tab mutation lease stays closed through server markers until release", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+  });
   const initialResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "GET" &&
@@ -98,6 +167,16 @@ test("a cross-tab mutation lease stays closed through server markers until relea
   const userId = await authenticatedUserId(page);
   const wordId = data.queue[0].word.id;
   const leaseId = `lease-${randomUUID()}`;
+  let freshGets = 0;
+  await page.route("**/api/study*", async (route) => {
+    if (
+      route.request().method() === "GET" &&
+      new URL(route.request().url()).pathname === "/api/study"
+    ) {
+      freshGets += 1;
+    }
+    await route.continue();
+  });
   const dispatchMutation = async (
     kind: "mutation-started" | "server-mutated" | "mutation-released",
   ) => {
@@ -135,8 +214,11 @@ test("a cross-tab mutation lease stays closed through server markers until relea
 
   await dispatchMutation("mutation-started");
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  await dispatchServerRevision(page, userId, wordId, data.studySession.id);
   await dispatchMutation("server-mutated");
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  await page.waitForTimeout(250);
+  expect(freshGets).toBe(0);
 
   const freshResponse = page.waitForResponse(
     (response) =>
@@ -146,7 +228,74 @@ test("a cross-tab mutation lease stays closed through server markers until relea
   );
   await dispatchMutation("mutation-released");
   await freshResponse;
+  expect(freshGets).toBe(1);
   await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+});
+
+test("a failed cross-tab lease reopens interaction without a fresh GET", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  let freshGets = 0;
+  await page.route("**/api/study*", async (route) => {
+    if (
+      route.request().method() === "GET" &&
+      new URL(route.request().url()).pathname === "/api/study"
+    ) {
+      freshGets += 1;
+    }
+    await route.continue();
+  });
+  const leaseId = `failed-lease-${randomUUID()}`;
+  const dispatch = async (kind: "mutation-started" | "mutation-released") => {
+    await page.evaluate(
+      ({ ownerId, wordId, sessionId, id, mutationKind }) => {
+        const key = `study:review-mutation:${encodeURIComponent(ownerId)}`;
+        window.dispatchEvent(new StorageEvent("storage", {
+          key,
+          newValue: JSON.stringify({
+            version: 1,
+            ownerId,
+            kind: mutationKind,
+            wordIds: [wordId],
+            sessionIds: [sessionId],
+            revision: `${mutationKind}-${Date.now()}`,
+            leaseId: id,
+            ...(mutationKind === "mutation-started"
+              ? { expiresAt: Date.now() + 60_000 }
+              : {}),
+          }),
+          storageArea: window.localStorage,
+        }));
+      },
+      {
+        ownerId: userId,
+        wordId: data.queue[0].word.id,
+        sessionId: data.studySession.id,
+        id: leaseId,
+        mutationKind: kind,
+      },
+    );
+  };
+  await dispatch("mutation-started");
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  await dispatch("mutation-released");
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+  expect(freshGets).toBe(0);
 });
 
 test("authenticated card dismissal enters one quiz exactly once", async ({
@@ -189,8 +338,11 @@ test("a superseded quiz credential preserves and replays the same answer operati
   const initialData = (await (await initialResponse).json()) as StudyWorkflowData;
   const userId = await authenticatedUserId(page);
   const targetWordId = initialData.queue[0].word.id;
-  const freshSessionId = `fresh-session-${randomUUID()}`;
+  const freshQueueSessionId = `fresh-queue-session-${randomUUID()}`;
+  const recoverySessionId = `recovery-session-${randomUUID()}`;
   const freshNonce = `fresh-nonce-${randomUUID()}`;
+  const freshNonces = { ...initialData.studySession.nonces };
+  delete freshNonces[targetWordId];
   const submissions: Array<{
     operationId: string;
     wordId: string;
@@ -198,7 +350,24 @@ test("a superseded quiz credential preserves and replays the same answer operati
     studySessionId: string;
     nonce: string;
   }> = [];
+  const recoveryRequests: Array<Record<string, unknown>> = [];
   let reloads = 0;
+  await page.route("**/api/study/credentials", async (route) => {
+    const body = JSON.parse(route.request().postData() ?? "{}") as Record<string, unknown>;
+    recoveryRequests.push(body);
+    const operations = body.operations as Array<{
+      operationId: string;
+      wordId: string;
+    }>;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        studySession: { id: recoverySessionId },
+        credentials: [{ ...operations[0], nonce: freshNonce }],
+      }),
+    });
+  });
   await page.route("**/api/study*", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -213,13 +382,13 @@ test("a superseded quiz credential preserves and replays the same answer operati
         contentType: "application/json",
         body: JSON.stringify({
           ...initialData,
+          queue: initialData.queue.filter(
+            (item) => item.word.id !== targetWordId,
+          ),
           studySession: {
             ...initialData.studySession,
-            id: freshSessionId,
-            nonces: {
-              ...initialData.studySession.nonces,
-              [targetWordId]: freshNonce,
-            },
+            id: freshQueueSessionId,
+            nonces: freshNonces,
           },
         }),
       });
@@ -253,11 +422,20 @@ test("a superseded quiz credential preserves and replays the same answer operati
   ).click();
   await expect.poll(() => submissions.length).toBe(2);
   expect(reloads).toBeGreaterThanOrEqual(1);
+  expect(recoveryRequests).toHaveLength(1);
+  expect(recoveryRequests[0]).toMatchObject({
+    mode: "recover",
+    previousSessionId: initialData.studySession.id,
+    operations: [{
+      operationId: submissions[0].operationId,
+      wordId: targetWordId,
+    }],
+  });
   expect(submissions[1]).toMatchObject({
     operationId: submissions[0].operationId,
     wordId: submissions[0].wordId,
     quality: submissions[0].quality,
-    studySessionId: freshSessionId,
+    studySessionId: recoverySessionId,
     nonce: freshNonce,
   });
   const rows = await page.evaluate((ownerId) => {
@@ -402,6 +580,158 @@ test("queue request runs beside startup flush but interaction waits", async ({
     releasePost();
   }
   await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+});
+
+for (const startupFailure of [
+  { name: "429", status: 429 },
+  { name: "500", status: 500 },
+  { name: "network failure", status: null },
+] as const) {
+  test(`startup ${startupFailure.name} keeps its resume snapshot without a random refetch`, async ({
+    page,
+  }) => {
+    const initialResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/study" &&
+        response.ok(),
+    );
+    await page.goto("/study");
+    const data = (await (await initialResponse).json()) as StudyWorkflowData;
+    const userId = await authenticatedUserId(page);
+    await installAssessCheckpoint(page, userId, data);
+    const operationId = `startup-${startupFailure.name}-${randomUUID()}`;
+    await page.evaluate(
+      ({ ownerId, operation, wordId, studySessionId, nonce }) => {
+        window.localStorage.setItem(
+          `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+          JSON.stringify({
+            ownerId,
+            operationId: operation,
+            wordId,
+            quality: 5,
+            ts: Date.now(),
+            attempts: 0,
+            status: "pending",
+            studySessionId,
+            nonce,
+            credentialState: "valid",
+          }),
+        );
+      },
+      {
+        ownerId: userId,
+        operation: operationId,
+        wordId: data.queue[0].word.id,
+        studySessionId: data.studySession.id,
+        nonce: data.studySession.nonces[data.queue[0].word.id],
+      },
+    );
+
+    const queueRequests: string[] = [];
+    await page.route("**/api/study*", async (route) => {
+      const request = route.request();
+      if (new URL(request.url()).pathname !== "/api/study") {
+        await route.continue();
+        return;
+      }
+      if (request.method() === "GET") {
+        queueRequests.push(request.url());
+        await route.continue();
+        return;
+      }
+      if (startupFailure.status === null) {
+        await route.abort("failed");
+        return;
+      }
+      await route.fulfill({
+        status: startupFailure.status,
+        contentType: "application/json",
+        headers: startupFailure.status === 429
+          ? { "retry-after": "60" }
+          : undefined,
+        body: JSON.stringify({ error: `simulated ${startupFailure.name}` }),
+      });
+    });
+
+    await page.reload();
+    await expect(page.getByText(
+      /目前學習隊列仍有同一單詞等待同步|目前学习队列仍有同一单词等待同步/,
+    )).toBeVisible();
+    await expect.poll(() => queueRequests.length).toBe(1);
+    const resumeRequest = new URL(queueRequests[0]);
+    expect(resumeRequest.searchParams.get("resumeIds")).toBe(
+      data.queue.map((item) => item.word.id).join(","),
+    );
+    expect(resumeRequest.searchParams.get("resumeSessionId")).toBe(
+      data.studySession.id,
+    );
+    await page.waitForTimeout(250);
+    expect(queueRequests).toHaveLength(1);
+    const checkpoint = await page.evaluate((ownerId) => {
+      const raw = window.localStorage.getItem(
+        `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+      );
+      return raw ? JSON.parse(raw) : null;
+    }, userId);
+    expect(checkpoint?.currentIndex).toBe(1);
+    expect(checkpoint?.knownWordIds).toEqual([data.queue[0].word.id]);
+  });
+}
+
+test("an expired startup mutation marker does not discard a resume snapshot", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  await installAssessCheckpoint(page, userId, data);
+  await page.evaluate(
+    ({ ownerId, wordId, sessionId }) => {
+      window.localStorage.setItem(
+        `study:review-mutation:${encodeURIComponent(ownerId)}`,
+        JSON.stringify({
+          version: 1,
+          ownerId,
+          kind: "mutation-started",
+          wordIds: [wordId],
+          sessionIds: [sessionId],
+          revision: `expired-${Date.now()}`,
+          leaseId: "expired-startup-lease",
+          expiresAt: Date.now() - 1_000,
+        }),
+      );
+    },
+    {
+      ownerId: userId,
+      wordId: data.queue[0].word.id,
+      sessionId: data.studySession.id,
+    },
+  );
+  const queueRequests: string[] = [];
+  await page.route("**/api/study*", async (route) => {
+    if (
+      route.request().method() === "GET" &&
+      new URL(route.request().url()).pathname === "/api/study"
+    ) {
+      queueRequests.push(route.request().url());
+    }
+    await route.continue();
+  });
+
+  await page.reload();
+  await expect(page.getByText(/已恢復上次進度|已恢复上次进度/)).toBeVisible();
+  await expect(page.getByText(/認識 1|认识 1/)).toBeVisible();
+  await expect.poll(() => queueRequests.length).toBe(1);
+  expect(new URL(queueRequests[0]).searchParams.get("resumeSessionId")).toBe(
+    data.studySession.id,
+  );
 });
 
 test("an expired active row enters the barrier before slow credential renewal", async ({

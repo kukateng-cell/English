@@ -438,6 +438,227 @@ export interface StudyCredentialRenewalOperation {
 }
 
 /**
+ * Recover one unanswered operation after its source session was superseded.
+ * Rotation copies the original one-time item into a deterministic successor;
+ * bind that successor to the same operation instead of depending on a random
+ * queue load to issue the word again.
+ */
+export async function recoverStudySessionCredential(
+  userId: string,
+  sourceSessionId: string,
+  operation: StudyCredentialRenewalOperation,
+): Promise<IssuedStudySession> {
+  for (let attempt = 0; attempt < SESSION_TRANSACTION_RETRIES; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          const lockedSource = await tx.$queryRaw<Array<{ id: string }>>(
+            Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${sourceSessionId} AND "userId" = ${userId} FOR UPDATE`,
+          );
+          if (lockedSource.length !== 1) {
+            throw new StudyCredentialRenewalError(
+              404,
+              "原学习 session 已被清理，无法恢复答案",
+            );
+          }
+          const processed = await tx.reviewEvent.findUnique({
+            where: {
+              userId_operationId: {
+                userId,
+                operationId: operation.operationId,
+              },
+            },
+            select: { submittedWordId: true },
+          });
+          if (processed) {
+            throw new StudyCredentialRenewalError(
+              409,
+              "学习操作已经处理",
+              {
+                code: "REVIEW_ALREADY_PROCESSED",
+                wordId: processed.submittedWordId,
+                requiresQueueReload: true,
+              },
+            );
+          }
+
+          // A recovery response may have been lost after the operation was
+          // bound. Return that exact live credential on replay.
+          const existing = await tx.studySessionItem.findFirst({
+            where: {
+              operationId: operation.operationId,
+              wordId: operation.wordId,
+              usedAt: null,
+              renewedAt: null,
+              session: {
+                userId,
+                retiredAt: null,
+                expiresAt: { gt: new Date() },
+              },
+            },
+            orderBy: { session: { createdAt: "desc" } },
+            select: {
+              wordId: true,
+              nonce: true,
+              usedAt: true,
+              renewedAt: true,
+              operationId: true,
+              session: { select: { id: true, expiresAt: true } },
+            },
+          });
+          if (existing) {
+            return {
+              id: existing.session.id,
+              expiresAt: existing.session.expiresAt,
+              items: [{
+                wordId: existing.wordId,
+                nonce: existing.nonce,
+                usedAt: existing.usedAt,
+                renewedAt: existing.renewedAt,
+                operationId: existing.operationId,
+              }],
+            };
+          }
+
+          let candidateId = sourceSessionId;
+          for (let hop = 0; hop < 8; hop += 1) {
+            await tx.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "StudySessionItem" WHERE "sessionId" = ${candidateId} FOR UPDATE`,
+            );
+            const candidate = await tx.studySession.findFirst({
+              where: { id: candidateId, userId },
+              select: {
+                id: true,
+                expiresAt: true,
+                retiredAt: true,
+                items: {
+                  where: { wordId: operation.wordId },
+                  select: {
+                    id: true,
+                    wordId: true,
+                    nonce: true,
+                    usedAt: true,
+                    renewedAt: true,
+                    operationId: true,
+                  },
+                },
+              },
+            });
+            if (!candidate) {
+              throw new StudyCredentialRenewalError(
+                404,
+                "原学习 session 已被清理，无法恢复答案",
+              );
+            }
+            const item = candidate.items[0];
+            if (!item) {
+              throw new StudyCredentialRenewalError(
+                403,
+                "恢复单词不属于原学习 session",
+              );
+            }
+            if (candidate.retiredAt !== null) {
+              const successor = await tx.studySession.findFirst({
+                where: {
+                  userId,
+                  rotationKey: `rotate-${candidate.id}`,
+                },
+                select: { id: true },
+              });
+              if (successor) {
+                candidateId = successor.id;
+                continue;
+              }
+            }
+            if (item.usedAt) {
+              throw new StudyCredentialRenewalError(
+                409,
+                "该学习题目已经提交",
+                {
+                  code: "REVIEW_ALREADY_PROCESSED",
+                  wordId: operation.wordId,
+                  requiresQueueReload: true,
+                },
+              );
+            }
+            if (
+              candidate.retiredAt !== null ||
+              candidate.expiresAt <= new Date() ||
+              item.renewedAt !== null ||
+              (item.operationId !== null &&
+                item.operationId !== operation.operationId)
+            ) {
+              throw new StudyCredentialRenewalError(
+                409,
+                "替代学习凭证已由另一项操作占用",
+                {
+                  code: "CREDENTIAL_OWNED_BY_OTHER_OPERATION",
+                  wordId: operation.wordId,
+                  requiresQueueReload: false,
+                },
+              );
+            }
+            const bound = await tx.studySessionItem.updateMany({
+              where: {
+                id: item.id,
+                usedAt: null,
+                renewedAt: null,
+                OR: [
+                  { operationId: null },
+                  { operationId: operation.operationId },
+                ],
+              },
+              data: { operationId: operation.operationId },
+            });
+            if (bound.count !== 1) {
+              throw new StudyCredentialRenewalError(
+                409,
+                "替代学习凭证已由另一项操作占用",
+                {
+                  code: "CREDENTIAL_OWNED_BY_OTHER_OPERATION",
+                  wordId: operation.wordId,
+                  requiresQueueReload: false,
+                },
+              );
+            }
+            return {
+              id: candidate.id,
+              expiresAt: candidate.expiresAt,
+              items: [{
+                wordId: item.wordId,
+                nonce: item.nonce,
+                usedAt: item.usedAt,
+                renewedAt: item.renewedAt,
+                operationId: operation.operationId,
+              }],
+            };
+          }
+          throw new StudyCredentialRenewalError(
+            409,
+            "学习 session 替代链过长，暂时无法恢复答案",
+            {
+              code: "CREDENTIAL_RECOVERY_UNAVAILABLE",
+              wordId: operation.wordId,
+              requiresQueueReload: false,
+            },
+          );
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (
+        !isRetryableTransactionConflict(error) ||
+        attempt === SESSION_TRANSACTION_RETRIES - 1
+      ) {
+        throw error;
+      }
+      await waitForTransactionRetry(attempt);
+    }
+  }
+  throw new Error("STUDY_SESSION_RECOVERY_RETRY_EXHAUSTED");
+}
+
+/**
  * Exchange unused items from one server-issued session for operation-bound
  * credentials. Each prior item can be renewed once, atomically, so raw word
  * IDs or replayed renewal requests cannot mint unlimited review submissions.

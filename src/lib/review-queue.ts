@@ -25,7 +25,15 @@ export interface PendingReview {
   /** 由 GET /api/study 发出的 server-side submission credentials。 */
   studySessionId?: string;
   nonce?: string;
-  credentialState: "valid" | "expired" | "legacy-claimed" | "blocked";
+  credentialState:
+    | "valid"
+    | "expired"
+    | "legacy-claimed"
+    | "refresh-required"
+    | "blocked";
+  refreshCode?: "SESSION_SUPERSEDED" | "CREDENTIAL_ALREADY_RENEWED";
+  /** Original server provenance used by operation-specific recovery. */
+  sourceStudySessionId?: string;
 }
 
 export interface ReviewSubmissionCredentials {
@@ -73,6 +81,14 @@ export interface ReviewQueueMutationEvent {
   expiresAt?: number;
 }
 
+export interface ReviewQueueServerRevision {
+  version: 1;
+  ownerId: string;
+  wordIds: string[];
+  sessionIds: string[];
+  revision: string;
+}
+
 export interface ReviewQueueMutationPlan {
   /** Rows that can POST, renew then POST, or adopt the supplied session then POST now. */
   willMutateWordIds: string[];
@@ -94,6 +110,7 @@ export class ReviewQueueStorageError extends Error {
 const QUEUE_PREFIX = "study:review-queue:";
 const ITEM_PREFIX = "study:review-item:";
 const MUTATION_PREFIX = "study:review-mutation:";
+const SERVER_REVISION_PREFIX = "study:review-server-revision:";
 const LEGACY_QUEUE_KEY = "study:review-queue";
 const VERSION = 5;
 const MAX_FLUSH_BATCH = 20;
@@ -124,7 +141,13 @@ function isPendingReview(x: unknown): x is PendingReview {
       r.credentialState === "valid" ||
       r.credentialState === "expired" ||
       r.credentialState === "legacy-claimed" ||
+      r.credentialState === "refresh-required" ||
       r.credentialState === "blocked")
+    && (r.refreshCode === undefined ||
+      r.refreshCode === "SESSION_SUPERSEDED" ||
+      r.refreshCode === "CREDENTIAL_ALREADY_RENEWED")
+    && (r.sourceStudySessionId === undefined ||
+      typeof r.sourceStudySessionId === "string")
   );
 }
 
@@ -143,6 +166,57 @@ export function reviewQueueItemStoragePrefix(userId: string): string {
 
 export function reviewQueueMutationStorageKey(userId: string): string {
   return `${MUTATION_PREFIX}${encodeURIComponent(userId)}`;
+}
+
+export function reviewQueueServerRevisionStorageKey(userId: string): string {
+  return `${SERVER_REVISION_PREFIX}${encodeURIComponent(userId)}`;
+}
+
+export function parseReviewQueueServerRevision(
+  userId: string,
+  raw: string | null,
+): ReviewQueueServerRevision | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      value.version !== 1 ||
+      value.ownerId !== userId ||
+      !Array.isArray(value.wordIds) ||
+      !value.wordIds.every((wordId) => typeof wordId === "string") ||
+      !Array.isArray(value.sessionIds) ||
+      !value.sessionIds.every((sessionId) => typeof sessionId === "string") ||
+      typeof value.revision !== "string"
+    ) {
+      return null;
+    }
+    return value as unknown as ReviewQueueServerRevision;
+  } catch {
+    return null;
+  }
+}
+
+function publishReviewQueueServerRevision(
+  userId: string,
+  wordIds: string[],
+  sessionIds: string[],
+): boolean {
+  try {
+    const revision: ReviewQueueServerRevision = {
+      version: 1,
+      ownerId: userId,
+      wordIds: [...new Set(wordIds)],
+      sessionIds: [...new Set(sessionIds)],
+      revision: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    };
+    window.localStorage.setItem(
+      reviewQueueServerRevisionStorageKey(userId),
+      JSON.stringify(revision),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function parseReviewQueueMutationEvent(
@@ -192,7 +266,7 @@ function publishReviewQueueMutation(
       sessionIds: [...new Set(sessionIds)],
       revision: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       ...(leaseId ? { leaseId } : {}),
-      ...(kind === "mutation-started"
+      ...(leaseId && kind !== "mutation-released"
         ? { expiresAt: Date.now() + REVIEW_REQUEST_TIMEOUT_MS + 5_000 }
         : {}),
     };
@@ -234,13 +308,23 @@ function normalizePendingReview(
         ? "blocked"
         : row.credentialState === "valid" ||
             row.credentialState === "expired" ||
-            row.credentialState === "legacy-claimed"
+            row.credentialState === "legacy-claimed" ||
+            row.credentialState === "refresh-required"
           ? row.credentialState
           : row.studySessionId && row.nonce
             ? "valid"
             : row.studySessionId
               ? "expired"
               : "legacy-claimed",
+    refreshCode:
+      row.refreshCode === "SESSION_SUPERSEDED" ||
+      row.refreshCode === "CREDENTIAL_ALREADY_RENEWED"
+        ? row.refreshCode
+        : undefined,
+    sourceStudySessionId:
+      typeof row.sourceStudySessionId === "string"
+        ? row.sourceStudySessionId
+        : undefined,
   };
 }
 
@@ -426,12 +510,16 @@ export function planReviewQueueMutation(
       item.credentialState === "expired" &&
       Boolean(item.studySessionId) &&
       !item.nonce;
+    const canRecover =
+      item.credentialState === "refresh-required" &&
+      Boolean(item.sourceStudySessionId ?? item.studySessionId) &&
+      !item.nonce;
     const canAdopt = Boolean(
       item.credentialState === "legacy-claimed" &&
         activeSession?.nonces[item.wordId] &&
         !assignedActiveSessionWords.has(item.wordId),
     );
-    if (canPost || canRenew || canAdopt) {
+    if (canPost || canRenew || canRecover || canAdopt) {
       willMutateWordIds.add(item.wordId);
       if (canAdopt) assignedActiveSessionWords.add(item.wordId);
     } else {
@@ -640,6 +728,8 @@ export function attachStudySessionCredentials(
       studySessionId,
       nonce,
       credentialState: "valid",
+      refreshCode: undefined,
+      sourceStudySessionId: undefined,
       nextAttemptAt: undefined,
       lastError: undefined,
     });
@@ -699,6 +789,8 @@ export function rebindStudySessionCredentials(
       studySessionId,
       nonce: nonces[item.wordId],
       credentialState: "valid",
+      refreshCode: undefined,
+      sourceStudySessionId: undefined,
       lastError: undefined,
     })) {
       storageAvailable = false;
@@ -710,14 +802,19 @@ export function rebindStudySessionCredentials(
   return pendingReviewCount(userId);
 }
 
-/** After the current server queue had one chance to adopt legacy rows, make
- * every remaining credential-less legacy operation visibly non-retryable. */
+/** After the current server queue had one chance to adopt imported legacy
+ * rows, make only those genuine imports visibly non-retryable. Current-client
+ * answers awaiting operation-specific recovery must never enter this path. */
 export function finalizeLegacyCredentialClaims(
   userId: string,
 ): LegacyFinalizationResult {
   let storageAvailable = true;
   for (const item of loadPendingReviews(userId)) {
-    if (item.status !== "pending" || item.credentialState !== "legacy-claimed") {
+    if (
+      item.status !== "pending" ||
+      item.credentialState !== "legacy-claimed" ||
+      !item.operationId.startsWith("legacy-claim:")
+    ) {
       continue;
     }
     if (!writeReviewItem(userId, {
@@ -896,19 +993,26 @@ async function flushPendingReviewsUnlocked(
   const succeededItems = [...succeededOperations]
     .map((operationId) => queueByOperation.get(operationId))
     .filter((item): item is PendingReview => Boolean(item));
-  if (
-    succeededItems.length > 0 &&
-    !publishReviewQueueMutation(
-      userId,
-      "server-mutated",
-      succeededItems.map((item) => item.wordId),
-      succeededItems.flatMap((item) =>
-        item.studySessionId ? [item.studySessionId] : [],
-      ),
-      leaseId,
-    )
-  ) {
-    storageAvailable = false;
+  if (succeededItems.length > 0) {
+    const wordIds = succeededItems.map((item) => item.wordId);
+    const sessionIds = succeededItems.flatMap((item) =>
+      item.studySessionId ? [item.studySessionId] : [],
+    );
+    if (!publishReviewQueueServerRevision(userId, wordIds, sessionIds)) {
+      storageAvailable = false;
+    }
+    if (
+      storageAvailable &&
+      !publishReviewQueueMutation(
+        userId,
+        "server-mutated",
+        wordIds,
+        sessionIds,
+        leaseId,
+      )
+    ) {
+      storageAvailable = false;
+    }
   }
   // The cross-tab commit marker must become durable before rows disappear.
   // If marker storage fails, retain the outbox operations: operationId makes
@@ -932,7 +1036,7 @@ async function flushPendingReviewsUnlocked(
       credentialState: failure.permanent
         ? "blocked"
         : failure.refreshFromFreshSession
-          ? "legacy-claimed"
+          ? "refresh-required"
         : failure.clearSessionNonce
           ? "expired"
           : item.credentialState,
@@ -942,6 +1046,10 @@ async function flushPendingReviewsUnlocked(
           ? undefined
           : failure.nextAttemptAt,
       nonce: failure.clearSessionNonce ? undefined : item.nonce,
+      refreshCode: failure.refreshFromFreshSession ?? item.refreshCode,
+      sourceStudySessionId: failure.refreshFromFreshSession
+        ? item.studySessionId
+        : item.sourceStudySessionId,
     })) {
       storageAvailable = false;
     }
@@ -1055,13 +1163,17 @@ async function reauthorizeRejectedReviews(
         payload?.code === "REVIEW_ALREADY_PROCESSED" &&
         payload.requiresQueueReload === true;
       if (alreadyProcessed) {
-        if (!publishReviewQueueMutation(
-          userId,
-          "server-mutated",
-          operations.map((operation) => operation.wordId),
-          [previousSessionId],
-          leaseId,
-        )) {
+        const wordIds = operations.map((operation) => operation.wordId);
+        if (
+          !publishReviewQueueServerRevision(userId, wordIds, [previousSessionId]) ||
+          !publishReviewQueueMutation(
+            userId,
+            "server-mutated",
+            wordIds,
+            [previousSessionId],
+            leaseId,
+          )
+        ) {
           throw new ReviewQueueStorageError();
         }
         for (const operation of operations) {
@@ -1091,8 +1203,11 @@ async function reauthorizeRejectedReviews(
           if (!current) continue;
           if (!writeReviewItem(userId, {
             ...current,
-            credentialState: "legacy-claimed",
+            credentialState: "refresh-required",
             nonce: undefined,
+            refreshCode: credentialRefreshCode,
+            sourceStudySessionId:
+              current.sourceStudySessionId ?? current.studySessionId,
             lastError: message,
             nextAttemptAt: undefined,
           })) {
@@ -1184,6 +1299,8 @@ async function reauthorizeRejectedReviews(
         studySessionId: session.id,
         nonce: renewed.nonce,
         credentialState: "valid",
+        refreshCode: undefined,
+        sourceStudySessionId: undefined,
         lastError: undefined,
         nextAttemptAt: undefined,
       })) {
@@ -1191,6 +1308,145 @@ async function reauthorizeRejectedReviews(
       }
     }
     return "renewed";
+  } catch (error) {
+    if (error instanceof ReviewQueueStorageError) throw error;
+    markRetry("网络错误，请稍后重试");
+    return "none";
+  }
+}
+
+async function recoverRefreshRequiredReview(
+  userId: string,
+  onDone?: (wordId: string, data: StudyPostResult) => void,
+  onBeforeRequest?: () => void,
+  leaseId?: string,
+): Promise<"none" | "recovered" | "reconciled"> {
+  const now = Date.now();
+  const operation = loadPendingReviews(userId).find(
+    (item) =>
+      item.status === "pending" &&
+      item.credentialState === "refresh-required" &&
+      Boolean(item.sourceStudySessionId ?? item.studySessionId) &&
+      !item.nonce &&
+      (!item.nextAttemptAt || item.nextAttemptAt <= now),
+  );
+  if (!operation) return "none";
+  const previousSessionId =
+    operation.sourceStudySessionId ?? operation.studySessionId!;
+  const markRetry = (message: string, retryAfter?: number) => {
+    const current = loadPendingReviews(userId).find(
+      (item) => item.operationId === operation.operationId,
+    );
+    if (!current) return;
+    if (!writeReviewItem(userId, {
+      ...current,
+      attempts: current.attempts + 1,
+      lastError: message,
+      nextAttemptAt: Date.now() + backoffMs(current, retryAfter),
+    })) {
+      throw new ReviewQueueStorageError();
+    }
+  };
+
+  try {
+    onBeforeRequest?.();
+    const response = await fetchReviewRequest("/api/study/credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "recover",
+        previousSessionId,
+        operations: [{
+          operationId: operation.operationId,
+          wordId: operation.wordId,
+        }],
+      }),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: unknown; code?: unknown; requiresQueueReload?: unknown }
+        | null;
+      const message = typeof payload?.error === "string"
+        ? payload.error.slice(0, 200)
+        : `HTTP ${response.status}`;
+      if (
+        response.status === 409 &&
+        payload?.code === "REVIEW_ALREADY_PROCESSED"
+      ) {
+        if (
+          !publishReviewQueueServerRevision(
+            userId,
+            [operation.wordId],
+            [previousSessionId],
+          ) ||
+          !publishReviewQueueMutation(
+            userId,
+            "server-mutated",
+            [operation.wordId],
+            [previousSessionId],
+            leaseId,
+          ) ||
+          !removeReviewItem(userId, operation.operationId)
+        ) {
+          throw new ReviewQueueStorageError();
+        }
+        onDone?.(operation.wordId, {
+          reconciled: true,
+          outcome: "already-processed",
+          requiresQueueReload: true,
+        });
+        return "reconciled";
+      }
+      // Ownership conflicts do not prove that this answer was applied. Keep
+      // the operation retryable and visible instead of converting it to a
+      // permanent client error.
+      markRetry(message, retryAfterMs(response));
+      return "none";
+    }
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          studySession?: { id?: unknown } | null;
+          credentials?: unknown;
+        }
+      | null;
+    const sessionId = payload?.studySession?.id;
+    const credential = Array.isArray(payload?.credentials)
+      ? payload.credentials.find((value) => {
+          if (typeof value !== "object" || value === null) return false;
+          const row = value as Record<string, unknown>;
+          return row.operationId === operation.operationId &&
+            row.wordId === operation.wordId &&
+            typeof row.nonce === "string";
+        }) as Record<string, unknown> | undefined
+      : undefined;
+    if (typeof sessionId !== "string" || typeof credential?.nonce !== "string") {
+      markRetry("恢复凭证响应无效，请稍后重试");
+      return "none";
+    }
+    if (!publishReviewQueueMutation(
+      userId,
+      "credentials-renewed",
+      [operation.wordId],
+      [previousSessionId, sessionId],
+    )) {
+      throw new ReviewQueueStorageError();
+    }
+    const current = loadPendingReviews(userId).find(
+      (item) => item.operationId === operation.operationId,
+    );
+    if (current && !writeReviewItem(userId, {
+      ...current,
+      studySessionId: sessionId,
+      nonce: credential.nonce,
+      credentialState: "valid",
+      refreshCode: undefined,
+      sourceStudySessionId: undefined,
+      lastError: undefined,
+      nextAttemptAt: undefined,
+    })) {
+      throw new ReviewQueueStorageError();
+    }
+    return "recovered";
   } catch (error) {
     if (error instanceof ReviewQueueStorageError) throw error;
     markRetry("网络错误，请稍后重试");
@@ -1333,19 +1589,37 @@ export async function flushPendingReviews(
       if (renewal === "reconciled") {
         return pendingReviewCount(userId);
       }
-      if (renewal !== "renewed") {
+      if (renewal === "refresh-required") {
         return pendingReviewCount(userId);
       }
-      // Renewal can turn a credential-less row into an immediately executable
-      // POST. Re-plan while still holding the same queue lock, before request 2.
-      announcePlan(planReviewQueueMutation(userId));
-      const second = await flushPendingReviewsUnlocked(
+      if (renewal === "renewed") {
+        // Renewal can turn a credential-less row into an immediately executable
+        // POST. Re-plan while still holding the same queue lock, before request 2.
+        announcePlan(planReviewQueueMutation(userId));
+        const second = await flushPendingReviewsUnlocked(
+          userId,
+          onDone,
+          heartbeat,
+          leaseId,
+        );
+        return second.remaining;
+      }
+      const recovery = await recoverRefreshRequiredReview(
         userId,
         onDone,
         heartbeat,
         leaseId,
       );
-      return second.remaining;
+      if (recovery === "reconciled") return pendingReviewCount(userId);
+      if (recovery !== "recovered") return pendingReviewCount(userId);
+      announcePlan(planReviewQueueMutation(userId));
+      const recovered = await flushPendingReviewsUnlocked(
+        userId,
+        onDone,
+        heartbeat,
+        leaseId,
+      );
+      return recovered.remaining;
     } finally {
       if (
         leaseActive &&
