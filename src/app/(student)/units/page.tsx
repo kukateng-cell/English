@@ -83,8 +83,8 @@ export default function UnitsPage() {
     return (
       <div className="flex min-h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
-          <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">{tc("加载中...")}</span>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
+          <span className="text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">{tc("加载中...")}</span>
         </div>
       </div>
     );
@@ -116,7 +116,7 @@ export default function UnitsPage() {
       <div className="mb-6 flex items-center justify-between">
         <Link
           href="/"
-          className="flex items-center gap-1 text-[14px] text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
+          className="flex items-center gap-1 text-[14px] text-[var(--muted)] transition hover:text-[var(--text)] dark:text-[var(--muted)] dark:hover:text-[var(--text)]"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
@@ -125,7 +125,7 @@ export default function UnitsPage() {
         </Link>
         <Link
           href="/study"
-          className="flex items-center gap-1 text-[14px] font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
+          className="flex items-center gap-1 text-[14px] font-medium text-[var(--primary)] transition hover:text-[var(--primary-2)]"
         >
           {tc("今日学习")}
           <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
@@ -134,10 +134,10 @@ export default function UnitsPage() {
         </Link>
       </div>
 
-      <h1 className="mb-1 text-[28px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
+      <h1 className="mb-1 text-[28px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
         {tc("单元闯关")}
       </h1>
-      <p className="mb-6 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
+      <p className="mb-6 text-[14px] leading-relaxed text-[var(--muted)] dark:text-[var(--muted)]">
         {tc("按主题逐个攻克，认字后通过测试才算掌握。")}
       </p>
 
@@ -161,10 +161,10 @@ export default function UnitsPage() {
               }
               className={`shrink-0 rounded-full px-5 py-2 text-[14px] font-medium transition ${
                 isActive
-                  ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-white shadow-[0_4px_16px_rgba(37,99,235,0.2)]"
+                  ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
                   : unlocked
-                    ? "border border-[#E7EDF8] bg-white text-[#7C89A5] hover:border-[#2563EB]/30 hover:text-[#2563EB] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B] dark:hover:border-[#1E3A5F] dark:hover:text-[#60A5FA]"
-                    : "cursor-not-allowed border border-[#E7EDF8] bg-[#F8FAFF] text-[#BFCBE3] dark:border-[#1E293B] dark:bg-[#0F172A] dark:text-[#334155]"
+                    ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--primary)]/30 hover:text-[var(--primary)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)] dark:hover:border-[var(--border-soft)] dark:hover:text-[var(--primary)]"
+                    : "cursor-not-allowed border border-[var(--border)] bg-[var(--border-soft)] text-[var(--muted)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]"
               }`}
             >
               {!unlocked && (
@@ -182,25 +182,25 @@ export default function UnitsPage() {
 
       {/* 当前级别被锁提示 */}
       {!levelUnlocked && (
-        <div className="mb-6 rounded-2xl bg-[#FFFBEB] p-5 shadow-sm dark:bg-[#291800]">
-          <p className="flex items-center gap-2 text-[14px] font-semibold text-[#B45309] dark:text-[#FBBF24]">
+        <div className="mb-6 rounded-2xl bg-[var(--warning-bg)] p-5 shadow-sm dark:bg-[var(--warning-bg)]">
+          <p className="flex items-center gap-2 text-[14px] font-semibold text-[var(--warning)] dark:text-[var(--warning)]">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
             {tc(`${level} 级别尚未解锁`)}
           </p>
-          <p className="mt-1 text-[13px] leading-relaxed text-[#A16207] dark:text-[#D97706]">
+          <p className="mt-1 text-[13px] leading-relaxed text-[var(--warning)]">
             {tc(`请先回到上一个级别，把所有单元的认字率都练到 80% 以上，即可解锁 ${level} 级别。`)}
           </p>
         </div>
       )}
 
       {/* 级别总览卡片 */}
-      <div className="relative mb-8 overflow-hidden rounded-[22px] bg-gradient-to-br from-[#2563EB] to-[#4F46E5] p-6 text-white shadow-[0_12px_30px_rgba(37,99,235,0.15)]">
+      <div className="relative mb-8 overflow-hidden rounded-[22px] bg-[var(--primary)] p-6 text-[var(--color-surface)] shadow-card">
         {/* 装饰圆形 */}
-        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white opacity-[0.06]" />
-        <div className="absolute -bottom-4 right-12 h-16 w-16 rounded-full bg-white opacity-[0.04]" />
+        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[var(--surface)] opacity-[0.06]" />
+        <div className="absolute -bottom-4 right-12 h-16 w-16 rounded-full bg-[var(--surface)] opacity-[0.04]" />
 
         <div className="relative">
           <div className="mb-4 flex items-end justify-between">
@@ -215,9 +215,9 @@ export default function UnitsPage() {
               </p>
             </div>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-white/20">
+          <div className="h-2 overflow-hidden rounded-full bg-[var(--surface)]/20">
             <motion.div
-              className="h-full rounded-full bg-white"
+              className="h-full rounded-full bg-[var(--surface)]"
               style={{ width: `${grandProgress}%` }}
               initial={{ width: 0 }}
               animate={{ width: `${grandProgress}%` }}
@@ -229,7 +229,7 @@ export default function UnitsPage() {
 
       {/* 单元列表 */}
       {units.length === 0 ? (
-        <div className="rounded-2xl bg-white p-10 text-center text-[14px] text-[#7C89A5] shadow-sm dark:bg-[#111827] dark:text-[#64748B]">
+        <div className="rounded-2xl bg-[var(--surface)] p-10 text-center text-[14px] text-[var(--muted)] shadow-sm dark:bg-[var(--surface)] dark:text-[var(--muted)]">
           {tc("该级别暂无单词数据")}
         </div>
       ) : (
@@ -275,19 +275,19 @@ function UnitCard({
       disabled={locked}
       aria-disabled={locked}
       whileTap={locked ? undefined : { scale: 0.98 }}
-      className={`group relative flex flex-col rounded-2xl border bg-white p-5 text-left transition-all ${
+      className={`group relative flex flex-col rounded-2xl border bg-[var(--surface)] p-5 text-left transition-all ${
         locked
-          ? "cursor-not-allowed border-[#E7EDF8] opacity-60 dark:border-[#1E293B] dark:bg-[#0F172A]"
-          : "border-[#E7EDF8] hover:-translate-y-0.5 hover:border-[#2563EB]/20 hover:shadow-[0_8px_24px_rgba(38,65,140,0.06)] dark:border-[#1E293B] dark:bg-[#111827] dark:hover:border-[#1E3A5F] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
+          ? "cursor-not-allowed border-[var(--border)] opacity-60 dark:border-[var(--border)] dark:bg-[var(--surface)]"
+          : "border-[var(--border)] hover:-translate-y-0.5 hover:border-[var(--primary)]/20 hover:shadow-[var(--shadow-card)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:hover:border-[var(--border-soft)] dark:hover:shadow-[var(--shadow-card)]"
       }`}
     >
       {/* 状态徽章 */}
       {completed ? (
-        <span className="absolute right-4 top-4 rounded-full bg-[#ECFDF5] px-2.5 py-1 text-[11px] font-semibold text-[#15803D] dark:bg-[#052E16] dark:text-[#4ADE80]">
+        <span className="absolute right-4 top-4 rounded-full bg-[var(--success-bg)] px-2.5 py-1 text-[11px] font-semibold text-[var(--success)] dark:bg-[var(--success-bg)] dark:text-[var(--success)]">
           {tc("✓ 已完成")}
         </span>
       ) : locked ? (
-        <span className="absolute right-4 top-4 flex items-center gap-1 rounded-full bg-[#F1F5F9] px-2.5 py-1 text-[11px] font-semibold text-[#94A3B8] dark:bg-[#1E293B] dark:text-[#475569]">
+        <span className="absolute right-4 top-4 flex items-center gap-1 rounded-full bg-[var(--border-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--muted)]">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -301,8 +301,8 @@ function UnitCard({
         <span
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${
             locked
-              ? "bg-[#F1F5F9] text-[#CBD5E1] dark:bg-[#1E293B] dark:text-[#334155]"
-              : "bg-[#EEF4FF] text-[#2563EB] group-hover:bg-[#DBEAFE] dark:bg-[#1E3A5F] dark:text-[#60A5FA]"
+              ? "bg-[var(--border-soft)] text-[var(--muted)] dark:bg-[var(--border)] dark:text-[var(--muted)]"
+              : "bg-[var(--border-soft)] text-[var(--primary)] group-hover:bg-[var(--border-soft)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]"
           }`}
         >
           {String(index).padStart(2, "0")}
@@ -310,8 +310,8 @@ function UnitCard({
         <h3
           className={`line-clamp-1 text-[15px] font-semibold ${
             locked
-              ? "text-[#94A3B8] dark:text-[#475569]"
-              : "text-[#17213C] group-hover:text-[#2563EB] dark:text-[#E2E8F0] dark:group-hover:text-[#60A5FA]"
+              ? "text-[var(--muted)]"
+              : "text-[var(--text)] group-hover:text-[var(--primary)] dark:text-[var(--text)] dark:group-hover:text-[var(--primary)]"
           }`}
         >
           {tc(unit.name)}
@@ -319,14 +319,14 @@ function UnitCard({
       </div>
 
       {/* 进度条 */}
-      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-[#EEF2F9] dark:bg-[#1E293B]">
+      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-[var(--border-soft)] dark:bg-[var(--border)]">
         <motion.div
           className={`h-full rounded-full ${
             completed
-              ? "bg-[#22C55E]"
+              ? "bg-[var(--success)]"
               : started
-                ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
-                : "bg-[#CBD5E1] dark:bg-[#334155]"
+              ? "bg-[var(--primary)]"
+                : "bg-[var(--muted)] dark:bg-[var(--muted)]"
           }`}
           style={{ width: `${unit.progress}%` }}
           initial={{ width: 0 }}
@@ -335,11 +335,11 @@ function UnitCard({
         />
       </div>
 
-      <div className="flex items-center justify-between text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+      <div className="flex items-center justify-between text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
         <span>
           {unit.mastered}/{unit.total} {tc("词")}
         </span>
-        <span className={`font-medium ${locked ? "" : "text-[#2563EB] dark:text-[#60A5FA]"}`}>
+        <span className={`font-medium ${locked ? "" : "text-[var(--primary)] dark:text-[var(--primary)]"}`}>
           {locked
             ? tc("完成上一单元解锁")
             : completed

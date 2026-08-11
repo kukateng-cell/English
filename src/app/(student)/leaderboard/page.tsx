@@ -52,12 +52,12 @@ export default function LeaderboardPage() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-6 text-center">
         <div className="mb-3 text-4xl">🔒</div>
-        <p className="mb-4 text-[15px] text-[#7C89A5] dark:text-[#64748B]">
+        <p className="mb-4 text-[15px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("请先登录后查看排行榜")}
         </p>
         <Link
           href="/login"
-          className="flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] active:scale-[0.98]"
+          className="flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-8 text-[15px] font-semibold text-[var(--color-surface)] shadow-card active:scale-[0.98]"
         >
           {tc("前往登录")}
         </Link>
@@ -80,7 +80,7 @@ export default function LeaderboardPage() {
   if (!data) {
     return (
       <div className="flex min-h-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
       </div>
     );
   }
@@ -98,7 +98,7 @@ export default function LeaderboardPage() {
         <Link
           href="/"
           aria-label={tc("返回")}
-          className="mb-5 flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
+          className="mb-5 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.95]"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
@@ -106,24 +106,24 @@ export default function LeaderboardPage() {
         </Link>
         <div className="mb-5 text-center">
           <div className="mb-2 text-[36px] leading-none">🏆</div>
-          <h1 className="mb-1 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">
+          <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">
             {tc("学习排行榜")}
           </h1>
-          <p className="text-[13px] text-[#7C89A5] dark:text-[#64748B]">
+          <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("和同学一起保持学习动力")}
           </p>
         </div>
 
         {/* Tab 切换 */}
-        <div className="mb-4 flex gap-1 rounded-full bg-[#EEF4FF] p-1 dark:bg-[#1E3A5F]/40">
+        <div className="mb-4 flex gap-1 rounded-full bg-[var(--border-soft)] p-1 dark:bg-[var(--border-soft)]/40">
           {data.lists.map((l) => (
             <button
               key={l.type}
               onClick={() => setActive(l.type)}
               className={`flex-1 rounded-full px-3 py-2 text-[13px] font-medium transition ${
                 active === l.type
-                  ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-white shadow"
-                  : "text-[#7C89A5] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:text-[#60A5FA]"
+                  ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
+                  : "text-[var(--muted)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:text-[var(--primary)]"
               }`}
             >
               {tc(l.label)}
@@ -132,38 +132,38 @@ export default function LeaderboardPage() {
         </div>
 
         {/* 榜单 */}
-        <div className="overflow-hidden rounded-3xl border border-[#E7EDF8] bg-white dark:border-[#1E293B] dark:bg-[#0F172A]">
+        <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] dark:border-[var(--border)] dark:bg-[var(--surface)]">
           {list.entries.map((e, i) => (
             <div
               key={e.userId}
               className={`flex items-center gap-3 px-4 py-3 ${
                 e.isMe
-                  ? "bg-[#FFF7E6] dark:bg-[#2A1E00]"
+                  ? "bg-[var(--warning-bg)] dark:bg-[var(--warning-bg)]"
                   : i !== list.entries.length - 1
-                    ? "border-b border-[#F1F5F9] dark:border-[#1E293B]"
+                    ? "border-b border-[var(--border-soft)] dark:border-[var(--border)]"
                     : ""
               }`}
             >
-              <div className="w-8 text-center text-[15px] font-bold tabular-nums text-[#17213C] dark:text-[#E2E8F0]">
+              <div className="w-8 text-center text-[15px] font-bold tabular-nums text-[var(--text)] dark:text-[var(--text)]">
                 {medal(e.rank) ?? e.rank}
               </div>
               <div className="min-w-0 flex-1">
                 <div
                   className={`truncate text-[14px] font-medium ${
                     e.isMe
-                      ? "text-[#F59E0B] dark:text-[#FBBF24]"
-                      : "text-[#17213C] dark:text-[#E2E8F0]"
+                      ? "text-[var(--warning)] dark:text-[var(--warning)]"
+                      : "text-[var(--text)] dark:text-[var(--text)]"
                   }`}
                 >
                   {e.name}
                   {e.isMe && (
-                    <span className="ml-1.5 rounded-full bg-[#F59E0B]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#F59E0B] dark:text-[#FBBF24]">
+                    <span className="ml-1.5 rounded-full bg-[var(--warning)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--warning)] dark:text-[var(--warning)]">
                       {tc("我")}
                     </span>
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-[14px] font-semibold tabular-nums text-[#2563EB] dark:text-[#60A5FA]">
+              <div className="flex items-center gap-1 text-[14px] font-semibold tabular-nums text-[var(--primary)] dark:text-[var(--primary)]">
                 <span>{list.icon}</span>
                 <span>{e.value}</span>
               </div>

@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
-import { todayStartUtc } from "@/lib/streak";
-import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
-import { MASTERED_REPETITIONS } from "@/lib/units";
+import { getStudentLearningMetrics } from "@/lib/student-metrics";
 
 /**
  * GET /api/study/stats — 当前用户的「学习统计」概览（PLAN 核心功能 #7）。
@@ -30,48 +27,16 @@ export async function GET() {
   if (!auth.ok) {
     return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-  const userId = auth.userId;
-
-  const todayStart = todayStartUtc();
-  const [
-    totalWords,
-    reviewedCount,
-    todayReviewed,
-    masteredCount,
-    todayNew,
-    learnedCount,
-  ] = await Promise.all([
-    prisma.word.count(),
-    prisma.review.count({ where: { userId } }),
-    prisma.review.count({
-      where: { userId, lastReviewedAt: { gte: todayStart } },
-    }),
-    prisma.review.count({
-      where: { userId, interval: { gte: MASTERED_MIN_INTERVAL } },
-    }),
-    prisma.review.count({
-      where: {
-        userId,
-        totalReviews: 1,
-        lastReviewedAt: { gte: todayStart },
-      },
-    }),
-    // 已学（认字口径）：至少答对过一次（repetitions >= 1）。
-    // 与单元解锁口径一致，答对一次即增长，能即时反映学习努力。
-    prisma.review.count({
-      where: { userId, repetitions: { gte: MASTERED_REPETITIONS } },
-    }),
-  ]);
+  const metrics = await getStudentLearningMetrics(auth.userId);
 
   return NextResponse.json({
-    totalWords,
-    reviewedCount,
-    todayNew,
-    todayReviewed,
-    learnedCount,
-    learnedRate:
-      totalWords > 0 ? Math.round((learnedCount / totalWords) * 100) : 0,
-    masteredCount,
-    mastery: totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0,
+    totalWords: metrics.totalWords,
+    reviewedCount: metrics.reviewedCount,
+    todayNew: metrics.newWordCount,
+    todayReviewed: metrics.reviewedWordCount,
+    learnedCount: metrics.learnedCount,
+    learnedRate: metrics.learnedRate,
+    masteredCount: metrics.masteredCount,
+    mastery: metrics.mastery,
   });
 }

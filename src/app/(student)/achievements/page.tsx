@@ -14,31 +14,31 @@ export function AchievementCard({ a }: { a: AchievementStatus }) {
     <div
       className={`flex flex-col items-center rounded-2xl border p-4 text-center transition ${
         a.unlocked
-          ? "border-transparent bg-gradient-to-br from-[#FF7A45] to-[#FFB020] text-white shadow-[0_8px_20px_rgba(255,122,69,0.25)]"
-          : "border-[#E7EDF8] bg-white dark:border-[#1E293B] dark:bg-[#0F172A]"
+          ? "border-transparent bg-[var(--warning)] text-[var(--color-surface)] shadow-card"
+          : "border-[var(--border)] bg-[var(--surface)] dark:border-[var(--border)] dark:bg-[var(--surface)]"
       }`}
     >
       <div className={`mb-2 text-[28px] leading-none ${a.unlocked ? "" : "opacity-40 grayscale"}`}>
         {a.icon}
       </div>
-      <div className={`mb-1 text-[14px] font-bold ${a.unlocked ? "text-white" : "text-[#17213C] dark:text-[#E2E8F0]"}`}>
+      <div className={`mb-1 text-[14px] font-bold ${a.unlocked ? "text-[var(--color-surface)]" : "text-[var(--text)]"}`}>
         {tc(a.title)}
       </div>
-      <div className={`mb-3 text-[11px] leading-snug ${a.unlocked ? "text-white/90" : "text-[#7C89A5] dark:text-[#64748B]"}`}>
+      <div className={`mb-3 text-[11px] leading-snug ${a.unlocked ? "text-[var(--color-surface)]/90" : "text-[var(--muted)]"}`}>
         {tc(a.description)}
       </div>
       {a.unlocked ? (
-        <div className="rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-semibold">
+        <div className="rounded-full bg-[var(--surface)]/20 px-2.5 py-0.5 text-[11px] font-semibold">
           ✓ {tc("已达成")}
         </div>
       ) : (
         <div className="w-full">
-          <div className="mb-1 text-[11px] tabular-nums text-[#94A3B8] dark:text-[#64748B]">
+          <div className="mb-1 text-[11px] tabular-nums text-[var(--muted)]">
             {Math.min(a.progress, a.target)} / {a.target}
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
+          <div className="h-1.5 overflow-hidden rounded-full bg-[var(--border)] dark:bg-[var(--border)]">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
+            className="h-full rounded-full bg-[var(--primary)]"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -89,12 +89,12 @@ export default function AchievementsPage() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-6 text-center">
         <div className="mb-3 text-4xl">🔒</div>
-        <p className="mb-4 text-[15px] text-[#7C89A5] dark:text-[#64748B]">
+        <p className="mb-4 text-[15px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("请先登录后查看成就")}
         </p>
         <Link
           href="/login"
-          className="flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] active:scale-[0.98]"
+          className="flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-8 text-[15px] font-semibold text-[var(--color-surface)] shadow-card active:scale-[0.98]"
         >
           {tc("前往登录")}
         </Link>
@@ -117,7 +117,7 @@ export default function AchievementsPage() {
   if (!list) {
     return (
       <div className="flex min-h-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
       </div>
     );
   }
@@ -131,7 +131,7 @@ export default function AchievementsPage() {
         <Link
           href="/"
           aria-label={tc("返回")}
-          className="mb-5 flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
+          className="mb-5 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.95]"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
@@ -140,10 +140,10 @@ export default function AchievementsPage() {
         {/* 标题 + 总进度 */}
         <div className="mb-6 text-center">
           <div className="mb-2 text-[36px] leading-none">🏆</div>
-          <h1 className="mb-1 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">
+          <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">
             {tc("我的成就")}
           </h1>
-          <p className="text-[13px] text-[#7C89A5] dark:text-[#64748B]">
+          <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("已解锁")} {unlockedCount} / {list.length}
           </p>
         </div>
