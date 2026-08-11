@@ -8,21 +8,41 @@
 技術棧為 Next.js 16 App Router、React 19、TypeScript、Tailwind CSS 4、
 Auth.js、Prisma 7、PostgreSQL，以及 Framer Motion。部署目標是 Vercel。
 
-`PLAN.md` 記錄產品計劃和研究背景，但不是現況的唯一真相。實作行為以程式、
-測試及 `prisma/schema.prisma` 為準；生產部署流程以 `DEPLOY.md` 和 GitHub
-Actions workflow 為準。
+`plans/project-plan.md` 記錄產品計劃和研究背景，`plans/` 亦集中保存各項功能及
+重構實施計劃，但計劃書不是現況的唯一真相。實作行為以程式、測試及
+`prisma/schema.prisma` 為準；生產部署流程以 `DEPLOY.md` 和 GitHub Actions
+workflow 為準。
 
 ## 目錄導覽
 
 - `src/app/`：頁面、layouts 和 Route Handlers。
 - `src/components/`：共用 UI；`WordCard.tsx` 是滑動互動的核心元件。
 - `src/lib/`：認證、SM-2、學習 session、限流、單元進度、統計及純函數測試。
+- `plans/`：產品總體計劃、功能／重構實施計劃、checklist 及計劃書索引。
 - `prisma/schema.prisma`：目前的 PostgreSQL 資料模型。
 - `prisma/migrations/`：一般 expand migrations。
 - `prisma/contract-migrations/`：需要明確確認、獨立執行的 contract migrations。
 - `prisma/seed.ts`：解析 `word list.md`，建立詞庫及可選測試／預設帳戶。
 - `tests/e2e/`：Playwright 字卡和完整學習流程回歸測試。
 - `scripts/`：資料庫、遷移、production config 及 ledger 驗證工具。
+
+## 計劃書工作流程
+
+- 新功能、資料模型改動、跨頁面 UI 重構、認證／學習流程改動及 production 發佈
+  改動，在寫代碼前必須先建立或更新 `plans/<feature-name>.md`。
+- 開始工作前先閱讀 `plans/README.md`、`plans/project-plan.md` 及與任務直接相關的
+  實施計劃。新計劃、改名、完成或取代計劃時，要同步更新 `plans/README.md` 索引。
+- 計劃書要列明背景、目標、非目標、依賴、分階段 checklist、風險、測試矩陣、
+  發佈／rollback 及 Definition of Done；檔名使用小寫 kebab-case。
+- 獲准開始實作後把計劃狀態改為「進行中」。只有對應工作完成且已通過相應驗證，
+  才可把 checklist 由 `[ ]` 改為 `[x]`；不要以「已寫代碼」當成「已驗證」。
+- 實作途中如改變 scope、API／資料 contract、migration 策略或驗收方式，先更新
+  計劃書及決策紀錄，再繼續實作。
+- 完成時在計劃書記錄實際執行的測試、未執行項目、已知限制及後續工作，並把狀態
+  改為「已完成」。已完成計劃保留作歷史記錄，不要刪除。
+- 小型、局部、低風險修正不必另開計劃；如已有相關計劃，仍應更新對應 checklist。
+- 計劃書與程式、測試或 schema 不一致時，以可執行證據為準，並在同一改動內修正
+  過時的計劃內容。
 
 ## 常用指令
 
@@ -105,5 +125,6 @@ npm run test:e2e:card-motion
 
 - 不要手動編輯 `src/generated/`、`.next/`、`next-env.d.ts`、`*.tsbuildinfo` 或測試輸出。
 - 保留工作樹內與當前任務無關的使用者改動。
-- 避免為小型修正順帶重寫整個 `PLAN.md`、`README.md` 或 migration 歷史。
+- 避免為小型修正順帶重寫整個 `plans/project-plan.md`、`README.md` 或 migration
+  歷史；只更新與任務直接相關的計劃 checklist 及決策。
 - 完成後列出實際執行的驗證；若高成本或需外部服務的測試未執行，要明確說明。

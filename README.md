@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## 项目文档
+
+- [计划书索引](plans/README.md)
+- [产品总体计划](plans/project-plan.md)
+- [部署与迁移说明](DEPLOY.md)
+
 ## Getting Started
 
 First, run the development server:

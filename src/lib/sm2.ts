@@ -1,6 +1,6 @@
 /**
  * SM-2 间隔重复算法 — 严格按 Wozniak (1994) 论文实现
- * 参考：PLAN.md 第四章 4.1 节
+ * 参考：plans/project-plan.md 第四章 4.1 节
  */
 
 export interface ReviewState {
