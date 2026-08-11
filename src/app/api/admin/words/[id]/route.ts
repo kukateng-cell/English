@@ -3,6 +3,7 @@ import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { isLevel, normalizeLevel } from "@/lib/units";
+import { getAllowedImageOrigin, isSameOriginImageUrl } from "@/lib/image-policy";
 
 function toArray(v: unknown): string[] {
   if (Array.isArray(v)) {
@@ -64,8 +65,13 @@ export async function PATCH(
     if (typeof body.pos === "string") data.pos = body.pos.trim() || null;
     if (typeof body.category === "string")
       data.category = body.category.trim() || null;
-    if (typeof body.imageUrl === "string")
-      data.imageUrl = body.imageUrl.trim() || null;
+    if (typeof body.imageUrl === "string") {
+      const imageUrl = body.imageUrl.trim();
+      if (imageUrl && !isSameOriginImageUrl(imageUrl, getAllowedImageOrigin(req))) {
+        return NextResponse.json({ error: "图片地址必须使用本站来源" }, { status: 400 });
+      }
+      data.imageUrl = imageUrl || null;
+    }
     if (body.synonyms !== undefined) data.synonyms = toArray(body.synonyms);
     if (body.antonyms !== undefined) data.antonyms = toArray(body.antonyms);
     if (body.examples !== undefined) data.examples = toExamples(body.examples);

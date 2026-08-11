@@ -3,6 +3,7 @@ import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { isLevel, normalizeLevel } from "@/lib/units";
+import { getAllowedImageOrigin, isSameOriginImageUrl } from "@/lib/image-policy";
 
 // normalizeLevel 统一来自 @/lib/units（返回 LevelCode 字面量联合，
 // 直接兼容 Prisma 的 enum Level，无需强转）。
@@ -84,6 +85,11 @@ export async function POST(req: Request) {
     if (!definition)
       return NextResponse.json({ error: "释义不能为空" }, { status: 400 });
 
+    const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";
+    if (imageUrl && !isSameOriginImageUrl(imageUrl, getAllowedImageOrigin(req))) {
+      return NextResponse.json({ error: "图片地址必须使用本站来源" }, { status: 400 });
+    }
+
     const exists = await prisma.word.findUnique({ where: { term } });
     if (exists) return NextResponse.json({ error: "该单词已存在" }, { status: 409 });
 
@@ -97,7 +103,7 @@ export async function POST(req: Request) {
         phonetic: body.phonetic ? String(body.phonetic).trim() : null,
         pos: body.pos ? String(body.pos).trim() : null,
         category: body.category ? String(body.category).trim() : null,
-        imageUrl: body.imageUrl ? String(body.imageUrl).trim() : null,
+        imageUrl: imageUrl || null,
         synonyms: toArray(body.synonyms),
         antonyms: toArray(body.antonyms),
         examples: toExamples(body.examples),

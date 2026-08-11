@@ -41,10 +41,10 @@ const LEVEL_OPTIONS: { value: WordFormData["level"]; label: string }[] = [
 ];
 
 const inputClass =
-  "h-[44px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[14px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#0B1220] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA]";
+  "h-[44px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 text-[14px] text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)] dark:focus:border-[var(--primary)]";
 
 const textareaClass =
-  "w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 py-3 text-[14px] leading-relaxed text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#0B1220] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA]";
+  "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[14px] leading-relaxed text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)] dark:focus:border-[var(--primary)]";
 
 const EMPTY: WordFormData = {
   term: "",
@@ -119,7 +119,7 @@ export default function WordFormModal({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("单词")} *
           </label>
           <input
@@ -133,7 +133,7 @@ export default function WordFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+            <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
               {tc("音标")}
             </label>
             <input
@@ -145,7 +145,7 @@ export default function WordFormModal({
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+            <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
               {tc("词性")}
             </label>
             <input
@@ -159,7 +159,7 @@ export default function WordFormModal({
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("释义")} *
           </label>
           <textarea
@@ -172,7 +172,7 @@ export default function WordFormModal({
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("级别")}
           </label>
           <div className="flex gap-2">
@@ -183,8 +183,8 @@ export default function WordFormModal({
                 onClick={() => set("level", opt.value)}
                 className={`flex-1 rounded-2xl px-3 py-2.5 text-[13px] font-semibold transition ${
                   form.level === opt.value
-                    ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-white shadow-sm"
-                    : "border border-[#E7EDF8] bg-white text-[#7C89A5] hover:border-[#2563EB]/30 dark:border-[#1E293B] dark:bg-[#0B1220] dark:text-[#64748B]"
+                    ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
+                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--primary)]/30 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]"
                 }`}
               >
                 {opt.label}
@@ -194,7 +194,7 @@ export default function WordFormModal({
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("分类（主题）")}
           </label>
           <input
@@ -208,7 +208,7 @@ export default function WordFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+            <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
               {tc("近义词")}
             </label>
             <input
@@ -220,7 +220,7 @@ export default function WordFormModal({
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+            <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
               {tc("反义词")}
             </label>
             <input
@@ -234,7 +234,7 @@ export default function WordFormModal({
         </div>
 
         {error && (
-          <div className="rounded-2xl bg-red-50 px-4 py-2.5 text-[13px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          <div className="rounded-2xl bg-[var(--danger-bg)] px-4 py-2.5 text-[13px] text-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]">
             {tc(error)}
           </div>
         )}
@@ -242,7 +242,7 @@ export default function WordFormModal({
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:from-[#1D4ED8] hover:to-[#4F46E5] disabled:opacity-50"
+          className="w-full rounded-2xl bg-[var(--primary)] px-4 py-3 text-[15px] font-semibold text-[var(--color-surface)] shadow-sm transition disabled:opacity-50"
         >
           {loading ? tc("保存中...") : isEdit ? tc("保存修改") : tc("添加单词")}
         </button>

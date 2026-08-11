@@ -36,7 +36,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
 
 /** 共用的输入框样式，与登录页风格保持一致。 */
 const inputClass =
-  "h-[44px] w-full rounded-2xl border border-[#E7EDF8] bg-white px-4 text-[14px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#0B1220] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA]";
+  "h-[44px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 text-[14px] text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)] dark:focus:border-[var(--primary)]";
 
 export default function UserFormModal({
   open,
@@ -101,7 +101,7 @@ export default function UserFormModal({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("账号")}
           </label>
           <input
@@ -113,14 +113,14 @@ export default function UserFormModal({
             className={inputClass}
           />
           {isEdit && (
-            <p className="mt-1 text-[11px] text-[#BFCBE3] dark:text-[#475569]">
+            <p className="mt-1 text-[11px] text-[var(--muted)] dark:text-[var(--muted)]">
               {tc("账号名创建后不可修改")}
             </p>
           )}
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("姓名（可选）")}
           </label>
           <input
@@ -133,7 +133,7 @@ export default function UserFormModal({
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("角色")}
           </label>
           <div className="flex gap-2">
@@ -147,8 +147,8 @@ export default function UserFormModal({
                   onClick={() => setRole(opt.value)}
                   className={`flex-1 rounded-2xl px-3 py-2.5 text-[13px] font-semibold transition disabled:opacity-40 ${
                     role === opt.value
-                      ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-white shadow-sm"
-                      : "border border-[#E7EDF8] bg-white text-[#7C89A5] hover:border-[#2563EB]/30 dark:border-[#1E293B] dark:bg-[#0B1220] dark:text-[#64748B]"
+                      ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
+                      : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--primary)]/30 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]"
                   }`}
                 >
                   {tc(opt.label)}
@@ -157,14 +157,14 @@ export default function UserFormModal({
             })}
           </div>
           {isSelf && (
-            <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+            <p className="mt-1.5 text-[11px] text-[var(--warning)] dark:text-[var(--warning)]">
               {tc("不能修改自己的管理员角色")}
             </p>
           )}
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {isEdit ? tc("新密码（留空则不修改）") : tc("密码")}
           </label>
           <input
@@ -179,7 +179,7 @@ export default function UserFormModal({
         </div>
 
         {error && (
-          <div className="rounded-2xl bg-red-50 px-4 py-2.5 text-[13px] text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          <div className="rounded-2xl bg-[var(--danger-bg)] px-4 py-2.5 text-[13px] text-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]">
             {tc(error)}
           </div>
         )}
@@ -187,7 +187,7 @@ export default function UserFormModal({
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:from-[#1D4ED8] hover:to-[#4F46E5] disabled:opacity-50"
+          className="w-full rounded-2xl bg-[var(--primary)] px-4 py-3 text-[15px] font-semibold text-[var(--color-surface)] shadow-sm transition disabled:opacity-50"
         >
           {loading ? tc("保存中...") : isEdit ? tc("保存修改") : tc("创建用户")}
         </button>

@@ -26,9 +26,9 @@ const roleLabels: Record<Role, string> = {
 };
 
 const roleStyles: Record<Role, string> = {
-  [ROLES.STUDENT]: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]",
-  [ROLES.TEACHER]: "bg-[#EEF0FF] text-[#4F46E5] dark:bg-[#1E1B4B] dark:text-[#A5B4FC]",
-  [ROLES.ADMIN]: "bg-[#FEF3C7] text-[#B45309] dark:bg-[#291800] dark:text-[#FBBF24]",
+  [ROLES.STUDENT]: "bg-[var(--border-soft)] text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]",
+  [ROLES.TEACHER]: "bg-[var(--border-soft)] text-[var(--primary-2)] dark:bg-[var(--border-soft)] dark:text-[var(--primary-2)]",
+  [ROLES.ADMIN]: "bg-[var(--warning-bg)] text-[var(--warning)] dark:bg-[var(--warning-bg)] dark:text-[var(--warning)]",
 };
 
 /** API 返回的 role 是 string；转成 Role 后再查表，非法值回退原值。 */
@@ -169,7 +169,7 @@ export default function AdminUsersPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
       </div>
     );
   }
@@ -192,16 +192,16 @@ export default function AdminUsersPage() {
       {/* 页面标题 + 新建按钮 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
+          <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
             {tc("用户管理")}
           </h1>
-          <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
+          <p className="mt-1 text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">
             {tc(`共 ${users.length} 位用户`)}
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="flex h-10 items-center gap-1.5 rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 text-[13px] font-semibold text-white shadow-sm transition hover:from-[#1D4ED8] hover:to-[#4F46E5] active:scale-[0.97]"
+          className="flex h-10 items-center gap-1.5 rounded-2xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-[var(--color-surface)] shadow-sm transition active:scale-[0.97]"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
@@ -213,7 +213,7 @@ export default function AdminUsersPage() {
       {/* 搜索框 */}
       <div className="relative">
         <svg
-          className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#BFCBE3] dark:text-[#475569]"
+          className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)] dark:text-[var(--muted)]"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -227,42 +227,39 @@ export default function AdminUsersPage() {
           placeholder={tc("搜索用户名或邮箱...")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="h-[44px] w-full rounded-2xl border border-[#E7EDF8] bg-white pl-10 pr-4 text-[14px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA]"
+          className="h-[44px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] pl-10 pr-4 text-[14px] text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)] dark:focus:border-[var(--primary)]"
         />
       </div>
 
       {/* 用户列表 */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-10 text-center text-[14px] text-[#7C89A5] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center text-[14px] text-[var(--muted)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]">
           {tc("暂无用户数据")}
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((user, i) => {
+          {filtered.map((user) => {
             const isSelf = user.id === currentUserId;
             return (
-              <motion.div
+              <div
                 key={user.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-                className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm transition hover:border-[#2563EB]/20 dark:border-[#1E293B] dark:bg-[#111827]"
+                className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm transition hover:border-[var(--primary)]/20 dark:border-[var(--border)] dark:bg-[var(--surface)]"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[15px] font-bold text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[15px] font-bold text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]">
                       {(user.name || user.email).charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="flex items-center gap-1.5 truncate text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
+                      <p className="flex items-center gap-1.5 truncate text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
                         {user.name || tc("未设置姓名")}
                         {isSelf && (
-                          <span className="rounded-full bg-[#EEF4FF] px-1.5 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#1E3A5F]">
+                          <span className="rounded-full bg-[var(--border-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)] dark:bg-[var(--border-soft)]">
                             {tc("你")}
                           </span>
                         )}
                       </p>
-                      <p className="truncate text-[13px] text-[#7C89A5] dark:text-[#64748B]">
+                      <p className="truncate text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
                         {user.email}
                       </p>
                     </div>
@@ -275,7 +272,7 @@ export default function AdminUsersPage() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => openEdit(user)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
+                        className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
                         aria-label={tc("编辑")}
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -286,7 +283,7 @@ export default function AdminUsersPage() {
                       <button
                         onClick={() => setDeleting(user)}
                         disabled={isSelf}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30 dark:text-[#64748B] dark:hover:bg-red-950/40"
+                        className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] disabled:cursor-not-allowed disabled:opacity-30 dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)]"
                         aria-label={tc("删除")}
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -296,11 +293,11 @@ export default function AdminUsersPage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 flex items-center gap-4 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+                <div className="mt-3 flex items-center gap-4 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
                   <span>📝 {user.totalReviews} {tc("次复习")}</span>
                   <span>🕐 {new Date(user.createdAt).toLocaleDateString(dateLocale)} {tc("加入")}</span>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>

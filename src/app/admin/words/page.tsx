@@ -22,10 +22,10 @@ interface WordItem {
 }
 
 const levelColors: Record<string, string> = {
-  A1: "bg-[#ECFDF5] text-[#15803D] dark:bg-[#052E16] dark:text-[#4ADE80]",
-  A2: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]",
-  B1: "bg-[#EEF0FF] text-[#4F46E5] dark:bg-[#1E1B4B] dark:text-[#A5B4FC]",
-  B2: "bg-[#FDF4FF] text-[#9333EA] dark:bg-[#2A1245] dark:text-[#C084FC]",
+  A1: "bg-[var(--success-bg)] text-[var(--success)] dark:bg-[var(--success-bg)] dark:text-[var(--success)]",
+  A2: "bg-[var(--border-soft)] text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]",
+  B1: "bg-[var(--border-soft)] text-[var(--primary-2)] dark:bg-[var(--border-soft)] dark:text-[var(--primary-2)]",
+  B2: "bg-[var(--border-soft)] text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary-2)]",
 };
 
 export default function AdminWordsPage() {
@@ -35,6 +35,7 @@ export default function AdminWordsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [search, setSearch] = useState("");
   const [levelFilter, setLevelFilter] = useState<string>("ALL");
+  const [visibleCount, setVisibleCount] = useState(100);
 
   // 弹窗状态
   const [formOpen, setFormOpen] = useState(false);
@@ -164,7 +165,7 @@ export default function AdminWordsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
       </div>
     );
   }
@@ -186,16 +187,16 @@ export default function AdminWordsPage() {
     >
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
+          <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
             {tc("单词库")}
           </h1>
-          <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
+          <p className="mt-1 text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">
             {tc(`共 ${words.length} 个单词`)}
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="flex h-10 items-center gap-1.5 rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 text-[13px] font-semibold text-white shadow-sm transition hover:from-[#1D4ED8] hover:to-[#4F46E5] active:scale-[0.97]"
+          className="flex h-10 items-center gap-1.5 rounded-2xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-[var(--color-surface)] shadow-sm transition active:scale-[0.97]"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
@@ -208,7 +209,7 @@ export default function AdminWordsPage() {
       <div className="flex gap-2">
         <div className="relative flex-1">
           <svg
-            className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#BFCBE3]"
+            className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]"
             viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
           >
             <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
@@ -217,8 +218,11 @@ export default function AdminWordsPage() {
             type="text"
             placeholder={tc("搜索单词...")}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-[44px] w-full rounded-2xl border border-[#E7EDF8] bg-white pl-10 pr-4 text-[14px] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569]"
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setVisibleCount(100);
+            }}
+            className="h-[44px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] pl-10 pr-4 text-[14px] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)]"
           />
         </div>
       </div>
@@ -228,11 +232,14 @@ export default function AdminWordsPage() {
         {levels.map((lvl) => (
           <button
             key={lvl}
-            onClick={() => setLevelFilter(lvl)}
+            onClick={() => {
+              setLevelFilter(lvl);
+              setVisibleCount(100);
+            }}
             className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition ${
               levelFilter === lvl
-                ? "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-white shadow-sm"
-                : "border border-[#E7EDF8] bg-white text-[#7C89A5] hover:border-[#2563EB]/30 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]"
+                ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
+                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--primary)]/30 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]"
             }`}
           >
             {lvl === "ALL" ? tc("全部") : lvl}
@@ -242,23 +249,20 @@ export default function AdminWordsPage() {
 
       {/* 单词列表 */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-10 text-center text-[14px] text-[#7C89A5] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center text-[14px] text-[var(--muted)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]">
           {tc("暂无匹配的单词")}
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((word, i) => (
-            <motion.div
+          {filtered.slice(0, visibleCount).map((word) => (
+            <div
               key={word.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.02 }}
-              className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm transition hover:border-[#2563EB]/20 dark:border-[#1E293B] dark:bg-[#111827]"
+              className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm transition hover:border-[var(--primary)]/20 dark:border-[var(--border)] dark:bg-[var(--surface)]"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-[#17213C] dark:text-[#E2E8F0]">
+                    <h3 className="text-[18px] font-bold tracking-[-0.02em] text-[var(--text)] dark:text-[var(--text)]">
                       {word.term}
                     </h3>
                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${levelColors[word.level] || ""}`}>
@@ -266,11 +270,11 @@ export default function AdminWordsPage() {
                     </span>
                   </div>
                   {word.phonetic && (
-                    <p className="text-[13px] text-[#7C89A5] dark:text-[#64748B] mb-1">
+                    <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)] mb-1">
                       {word.phonetic}
                     </p>
                   )}
-                  <p className="text-[14px] leading-relaxed text-[#17213C] dark:text-[#E2E8F0] line-clamp-2">
+                  <p className="text-[14px] leading-relaxed text-[var(--text)] dark:text-[var(--text)] line-clamp-2">
                     {tc(word.definition)}
                   </p>
                 </div>
@@ -278,7 +282,7 @@ export default function AdminWordsPage() {
                 <div className="flex shrink-0 items-center gap-1">
                   <button
                     onClick={() => openEdit(word)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
                     aria-label={tc("编辑")}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -288,7 +292,7 @@ export default function AdminWordsPage() {
                   </button>
                   <button
                     onClick={() => setDeleting(word)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-red-50 hover:text-red-500 dark:text-[#64748B] dark:hover:bg-red-950/40"
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)]"
                     aria-label={tc("删除")}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -297,16 +301,25 @@ export default function AdminWordsPage() {
                   </button>
                 </div>
               </div>
-              <div className="mt-3 flex items-center gap-3 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+              <div className="mt-3 flex items-center gap-3 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
                 {word.category && (
-                  <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 dark:bg-[#1E3A5F]">
+                  <span className="rounded-full bg-[var(--border-soft)] px-2 py-0.5 dark:bg-[var(--border-soft)]">
                     {tc(word.category)}
                   </span>
                 )}
                 <span>📝 {word.reviewCount} {tc("次被学习")}</span>
               </div>
-            </motion.div>
+            </div>
           ))}
+          {visibleCount < filtered.length ? (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((count) => Math.min(count + 100, filtered.length))}
+              className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[13px] font-semibold text-[var(--primary)] transition hover:bg-[var(--border-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
+            >
+              {tc("加载更多")}
+            </button>
+          ) : null}
         </div>
       )}
 

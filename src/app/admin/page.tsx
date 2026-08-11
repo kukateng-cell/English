@@ -47,7 +47,7 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
       </div>
     );
   }
@@ -69,10 +69,10 @@ export default function AdminDashboard() {
     >
       {/* 页面标题 */}
       <div>
-        <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
+        <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
           {tc("系统概览")}
         </h1>
-        <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
+        <p className="mt-1 text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("全局数据一览")}
         </p>
       </div>
@@ -115,28 +115,28 @@ export default function AdminDashboard() {
       </div>
 
       {/* 用户角色分布 */}
-      <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-        <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
+        <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
           {tc("用户角色分布")}
         </h3>
         <div className="space-y-3">
-          <RoleBar label={tc("学生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#2563EB]" />
-          <RoleBar label={tc("老师")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#5B6FEF]" />
-          <RoleBar label={tc("管理员")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#4F46E5]" />
+          <RoleBar label={tc("学生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 1} color="bg-[var(--primary)]" />
+          <RoleBar label={tc("老师")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 1} color="bg-[var(--primary-2)]" />
+          <RoleBar label={tc("管理员")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 1} color="bg-[var(--primary-2)]" />
         </div>
       </div>
 
       {/* 单词等级分布 */}
       {stats?.wordsByLevel && stats.wordsByLevel.length > 0 && (
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
+          <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
             {tc("单词等级分布")}
           </h3>
-          <div className="flex gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {stats.wordsByLevel.map((l) => (
-              <div key={l.level} className="flex-1 rounded-xl bg-[#EEF4FF] px-4 py-3 text-center dark:bg-[#1E3A5F]">
-                <p className="text-[20px] font-bold text-[#2563EB] dark:text-[#60A5FA]">{l.count}</p>
-                <p className="mt-0.5 text-[12px] font-medium text-[#7C89A5] dark:text-[#64748B]">{l.level}</p>
+              <div key={l.level} className="rounded-xl bg-[var(--border-soft)] px-4 py-3 text-center dark:bg-[var(--border-soft)]">
+                <p className="text-[20px] font-bold text-[var(--primary)] dark:text-[var(--primary)]">{l.count}</p>
+                <p className="mt-0.5 text-[12px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">{l.level}</p>
               </div>
             ))}
           </div>
@@ -147,13 +147,13 @@ export default function AdminDashboard() {
       <div className="flex gap-3">
         <Link
           href="/admin/users"
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[#E7EDF8] bg-white py-3.5 text-[14px] font-medium text-[#2563EB] transition hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1A2332]"
+          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
           👥 {tc("管理用户")}
         </Link>
         <Link
           href="/admin/words"
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[#E7EDF8] bg-white py-3.5 text-[14px] font-medium text-[#2563EB] transition hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1A2332]"
+          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
           📚 {tc("单词库")}
         </Link>
@@ -176,23 +176,23 @@ function StatCard({
   color: "blue" | "indigo" | "green" | "amber";
 }) {
   const colorMap = {
-    blue: { bg: "bg-[#EEF4FF]", text: "text-[#2563EB]", darkBg: "dark:bg-[#1E3A5F]", darkText: "dark:text-[#60A5FA]" },
-    indigo: { bg: "bg-[#EEF0FF]", text: "text-[#4F46E5]", darkBg: "dark:bg-[#1E1B4B]", darkText: "dark:text-[#A5B4FC]" },
-    green: { bg: "bg-[#ECFDF5]", text: "text-[#15803D]", darkBg: "dark:bg-[#052E16]", darkText: "dark:text-[#4ADE80]" },
-    amber: { bg: "bg-[#FFFBEB]", text: "text-[#B45309]", darkBg: "dark:bg-[#291800]", darkText: "dark:text-[#FBBF24]" },
+    blue: { bg: "bg-[var(--border-soft)]", text: "text-[var(--primary)]", darkBg: "dark:bg-[var(--border-soft)]", darkText: "dark:text-[var(--primary)]" },
+    indigo: { bg: "bg-[var(--border-soft)]", text: "text-[var(--primary-2)]", darkBg: "dark:bg-[var(--border-soft)]", darkText: "dark:text-[var(--primary-2)]" },
+    green: { bg: "bg-[var(--success-bg)]", text: "text-[var(--success)]", darkBg: "dark:bg-[var(--success-bg)]", darkText: "dark:text-[var(--success)]" },
+    amber: { bg: "bg-[var(--warning-bg)]", text: "text-[var(--warning)]", darkBg: "dark:bg-[var(--warning-bg)]", darkText: "dark:text-[var(--warning)]" },
   };
   const c = colorMap[color];
 
   return (
-    <div className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
       <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${c.bg} ${c.text} ${c.darkBg} ${c.darkText}`}>
         {icon}
       </div>
-      <p className="text-[26px] font-bold tracking-[-0.02em] text-[#17213C] dark:text-[#E2E8F0]">
+      <p className="text-[26px] font-bold tracking-[-0.02em] text-[var(--text)] dark:text-[var(--text)]">
         {value}
-        {subtitle && <span className="ml-1 text-[14px] font-normal text-[#7C89A5]">{subtitle}</span>}
+        {subtitle && <span className="ml-1 text-[14px] font-normal text-[var(--muted)]">{subtitle}</span>}
       </p>
-      <p className="mt-0.5 text-[13px] text-[#7C89A5] dark:text-[#64748B]">{label}</p>
+      <p className="mt-0.5 text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{label}</p>
     </div>
   );
 }
@@ -211,8 +211,8 @@ function RoleBar({
   const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
     <div className="flex items-center gap-3">
-      <span className="w-12 text-[13px] text-[#7C89A5] dark:text-[#64748B]">{label}</span>
-      <div className="flex-1 h-2 rounded-full bg-[#EEF2F9] dark:bg-[#1E293B] overflow-hidden">
+      <span className="w-12 text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{label}</span>
+      <div className="flex-1 h-2 rounded-full bg-[var(--border-soft)] dark:bg-[var(--border)] overflow-hidden">
         <motion.div
           className={`h-full rounded-full ${color}`}
           style={{ width: `${pct}%` }}
@@ -221,7 +221,7 @@ function RoleBar({
           transition={{ duration: 0.6 }}
         />
       </div>
-      <span className="w-10 text-right text-[13px] font-medium text-[#17213C] dark:text-[#E2E8F0]">{count}</span>
+      <span className="w-10 text-right text-[13px] font-medium text-[var(--text)] dark:text-[var(--text)]">{count}</span>
     </div>
   );
 }

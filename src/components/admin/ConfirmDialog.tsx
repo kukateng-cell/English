@@ -37,11 +37,11 @@ export default function ConfirmDialog({
   const cancel = cancelText ?? tc("取消");
   return (
     <Modal open={open} onClose={onClose} title={title}>
-      <p className="mb-6 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
+      <p className="mb-6 text-[14px] leading-relaxed text-[var(--muted)] dark:text-[var(--muted)]">
         {message}
       </p>
       {error && (
-        <div className="mb-4 rounded-xl bg-[#FEF2F2] px-3 py-2.5 text-[13px] font-medium text-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]">
+        <div className="mb-4 rounded-xl bg-[var(--danger-bg)] px-3 py-2.5 text-[13px] font-medium text-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]">
           {error}
         </div>
       )}
@@ -49,17 +49,17 @@ export default function ConfirmDialog({
         <button
           onClick={onClose}
           disabled={loading}
-          className="flex-1 rounded-2xl border border-[#E7EDF8] bg-white px-4 py-3 text-[14px] font-semibold text-[#7C89A5] transition hover:bg-[#F8FAFC] disabled:opacity-50 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B] dark:hover:bg-[#1E293B]"
+          className="flex-1 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[14px] font-semibold text-[var(--muted)] transition hover:bg-[var(--border-soft)] disabled:opacity-50 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)] dark:hover:bg-[var(--border)]"
         >
           {cancel}
         </button>
         <button
           onClick={onConfirm}
           disabled={loading}
-          className={`flex-1 rounded-2xl px-4 py-3 text-[14px] font-semibold text-white transition disabled:opacity-50 ${
+          className={`flex-1 rounded-2xl px-4 py-3 text-[14px] font-semibold text-[var(--color-surface)] transition disabled:opacity-50 ${
             destructive
-              ? "bg-gradient-to-r from-[#EF4444] to-[#DC2626] hover:from-[#DC2626] hover:to-[#B91C1C]"
-              : "bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] hover:from-[#1D4ED8] hover:to-[#4F46E5]"
+              ? "bg-[var(--danger)]"
+              : "bg-[var(--primary)]"
           }`}
         >
           {loading ? tc("处理中...") : confirm}
