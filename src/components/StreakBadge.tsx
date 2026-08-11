@@ -17,10 +17,10 @@ export default function StreakBadge({ streak }: { streak: StreakInfo }) {
 
   const styles =
     studiedToday
-      ? "bg-gradient-to-r from-[#FF7A45] to-[#FFB020] text-white shadow-[0_4px_12px_rgba(255,122,69,0.28)]"
+      ? "bg-[var(--warning)] text-[var(--color-surface)] shadow-sm"
       : count > 0
-        ? "bg-[#FFF7E6] text-[#F59E0B] dark:bg-[#2A1E00] dark:text-[#FBBF24]"
-        : "bg-[#F1F5F9] text-[#94A3B8] dark:bg-[#1E293B] dark:text-[#64748B]";
+        ? "bg-[var(--warning-bg)] text-[var(--warning)] dark:bg-[var(--warning-bg)] dark:text-[var(--warning)]"
+        : "bg-[var(--border-soft)] text-[var(--muted)] dark:bg-[var(--border)] dark:text-[var(--muted)]";
 
   return (
     <div

@@ -59,13 +59,13 @@ export default function StudyStats() {
   // 拉取失败 → 渲染一个带重试按钮的轻量卡片
   if (!data) {
     return (
-      <div className="mb-4 w-full rounded-[22px] border border-[#E7EDF8] bg-white p-5 text-center dark:border-[#1E293B] dark:bg-[#111827]">
-        <p className="mb-2 text-[13px] text-[#7C89A5] dark:text-[#64748B]">
+      <div className="mb-4 w-full rounded-[22px] border border-[var(--border)] bg-[var(--surface)] p-5 text-center dark:border-[var(--border)] dark:bg-[var(--surface)]">
+        <p className="mb-2 text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("学习统计加载失败")}
         </p>
         <button
           onClick={() => setReloadKey((k) => k + 1)}
-          className="text-[13px] font-medium text-[#2563EB] underline dark:text-[#60A5FA]"
+          className="text-[13px] font-medium text-[var(--primary)] underline dark:text-[var(--primary)]"
         >
           {tc("重试")}
         </button>
@@ -80,50 +80,50 @@ export default function StudyStats() {
   return (
     <Link
       href="/study"
-      className="mb-4 block w-full overflow-hidden rounded-[22px] border border-[#E7EDF8] bg-white p-5 text-left shadow-[0_4px_16px_rgba(38,65,140,0.04)] transition hover:border-[#2563EB]/25 active:scale-[0.99] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-none"
+      className="mb-4 block w-full overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-[var(--shadow-sm)] transition hover:border-[var(--primary)]/25 active:scale-[0.99] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:shadow-[var(--shadow-sm)]"
     >
       {/* 标题行 */}
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-[14px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
+        <span className="text-[14px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
           📊 {tc("今日学习")}
         </span>
-        <span className="text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+        <span className="text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("点击开始")} →
         </span>
       </div>
 
       {/* 今日新学 / 今日复习 */}
       <div className="mb-4 flex gap-3">
-        <div className="flex-1 rounded-2xl bg-[#EEF4FF] px-4 py-3 dark:bg-[#1E3A5F]">
-          <div className="text-[22px] font-bold tabular-nums text-[#2563EB] dark:text-[#60A5FA]">
+        <div className="flex-1 rounded-2xl bg-[var(--border-soft)] px-4 py-3 dark:bg-[var(--border-soft)]">
+          <div className="text-[22px] font-bold tabular-nums text-[var(--primary)] dark:text-[var(--primary)]">
             {data.todayNew}
           </div>
-          <div className="text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+          <div className="text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("今日新学")}
           </div>
         </div>
-        <div className="flex-1 rounded-2xl bg-[#F0FDF4] px-4 py-3 dark:bg-[#052E16]">
-          <div className="text-[22px] font-bold tabular-nums text-[#22C55E] dark:text-[#4ADE80]">
+        <div className="flex-1 rounded-2xl bg-[var(--success-bg)] px-4 py-3 dark:bg-[var(--success-bg)]">
+          <div className="text-[22px] font-bold tabular-nums text-[var(--success)] dark:text-[var(--success)]">
             {data.todayReviewed}
           </div>
-          <div className="text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+          <div className="text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("今日复习")}
           </div>
         </div>
       </div>
 
       {/* 已学进度（认字口径）*/}
-      <div className="mb-1.5 flex items-center justify-between text-[12px] text-[#7C89A5] dark:text-[#64748B]">
+      <div className="mb-1.5 flex items-center justify-between text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
         <span>
           {tc("已学")} {data.learnedCount} / {data.totalWords}
         </span>
-        <span className="font-semibold tabular-nums text-[#2563EB] dark:text-[#60A5FA]">
+        <span className="font-semibold tabular-nums text-[var(--primary)] dark:text-[var(--primary)]">
           {pct}%
         </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
+      <div className="h-1.5 overflow-hidden rounded-full bg-[var(--border)] dark:bg-[var(--border)]">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] transition-all"
+          className="h-full rounded-full bg-[var(--primary)] transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>

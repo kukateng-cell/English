@@ -1,9 +1,13 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
 import Image from "next/image";
 import { speakEnglish } from "@/lib/speech";
+import { getSafeImageSrc } from "@/lib/image-policy";
 import { useLocale } from "@/components/LocaleProvider";
+import BottomSheet from "@/components/ui/BottomSheet";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
 
 interface WordFull {
   term: string;
@@ -24,9 +28,12 @@ interface HelpPanelProps {
 
 export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) {
   const { tc } = useLocale();
-  const speak = () => speakEnglish(word.term);
+  const [failedImageSrc, setFailedImageSrc] = useState<string | null>(null);
   const examples = Array.isArray(word.examples) ? word.examples : [];
-  // 过滤无意义的词性值（如 "0"、空、"null"、纯数字）
+  const safeImageSrc = getSafeImageSrc(word.imageUrl);
+
+  const imageFailed = Boolean(word.imageUrl && failedImageSrc === word.imageUrl);
+
   const meaningfulPos =
     word.pos &&
     word.pos.trim().length > 0 &&
@@ -36,111 +43,91 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
       : null;
 
   return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%" }}
-          transition={{ type: "spring", damping: 26, stiffness: 220 }}
-          className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-[28px] bg-[#EEF4FF] px-5 pb-10 pt-5 shadow-[0_-8px_40px_rgba(38,65,140,0.1)] dark:bg-[#0F1D32] dark:shadow-[0_-8px_40px_rgba(0,0,0,0.4)]"
+    <BottomSheet
+      open={visible}
+      onClose={onDismiss}
+      title={
+        <div className="coach-sheet-title">
+          <strong>{word.term}</strong>
+          {word.phonetic ? <span>{word.phonetic}</span> : null}
+        </div>
+      }
+      actions={
+        <Button
+          data-testid="help-panel-dismiss"
+          type="button"
+          className="coach-sheet-dismiss"
+          onClick={onDismiss}
         >
-          {/* Handle bar */}
-          <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-[#BFCBE3] dark:bg-[#334155]" />
+          {tc("我学会了，下一个")}
+          <Icon name="arrow-right" size={18} />
+        </Button>
+      }
+    >
+      <div className="coach-sheet-heading-row">
+        <span className="coach-sheet-kicker">{tc("教认字")}</span>
+        <button
+          type="button"
+          className="ui-icon-button coach-sheet-speak"
+          onClick={() => speakEnglish(word.term)}
+          aria-label={tc("发音")}
+        >
+          <Icon name="volume" size={19} />
+        </button>
+      </div>
 
-          {/* 单词 + 发音 */}
-          <div className="mb-5 flex items-center gap-3">
-            <div>
-              <h3 className="text-[26px] font-bold leading-tight text-[#17213C] dark:text-[#E2E8F0]">
-                {word.term}
-              </h3>
-              {word.phonetic && (
-                <p className="mt-0.5 text-sm text-[#7C89A5] dark:text-[#64748B]">{word.phonetic}</p>
-              )}
-            </div>
-            <button
-              onClick={speak}
-              className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#DBEAFE] text-lg transition hover:bg-[#BFDBFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/40"
-              aria-label={tc("发音")}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-              </svg>
-            </button>
-          </div>
+      <section className="coach-sheet-definition" aria-labelledby="coach-definition-label">
+        <p id="coach-definition-label" className="coach-sheet-label">{tc("释义")}</p>
+        <p className="coach-sheet-definition-text">{tc(word.definition)}</p>
+        {meaningfulPos ? <span className="coach-sheet-badge">{tc(meaningfulPos)}</span> : null}
+      </section>
 
-          {/* 释义 */}
-          <div className="mb-5 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
-            <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("释义")}</p>
-            <p className="text-[18px] font-medium leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">
-              {tc(word.definition)}
-            </p>
-            {meaningfulPos && (
-              <span className="mt-2 inline-block rounded-full bg-[#EEF4FF] px-3 py-1 text-xs font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-                {tc(meaningfulPos)}
-              </span>
-            )}
-          </div>
+      {examples.length > 0 ? (
+        <section className="coach-sheet-section" aria-labelledby="coach-examples-label">
+          <p id="coach-examples-label" className="coach-sheet-label">{tc("例句")}</p>
+          {examples.slice(0, 2).map((example, index) => (
+            <article key={`${example.en}-${index}`} className="coach-sheet-example">
+              <p>{example.en}</p>
+              <p>{tc(example.zh)}</p>
+            </article>
+          ))}
+        </section>
+      ) : null}
 
-          {/* 例句 */}
-          {examples.length > 0 && (
-            <div className="mb-5">
-              <p className="mb-3 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("例句")}</p>
-              {examples.slice(0, 2).map((ex, i) => (
-                <div key={i} className="mb-3 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
-                  <p className="text-[15px] leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">{ex.en}</p>
-                  <p className="mt-2 text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">{tc(ex.zh)}</p>
-                </div>
-              ))}
-            </div>
-          )}
+      {(word.synonyms?.length || word.antonyms?.length) ? (
+        <div className="coach-sheet-relations">
+          {word.synonyms && word.synonyms.length > 0 ? (
+            <section className="coach-sheet-relation">
+              <p className="coach-sheet-label">{tc("近义词")}</p>
+              <p className="coach-sheet-synonyms">{word.synonyms.map((item) => tc(item)).join(" · ")}</p>
+            </section>
+          ) : null}
+          {word.antonyms && word.antonyms.length > 0 ? (
+            <section className="coach-sheet-relation">
+              <p className="coach-sheet-label">{tc("反义词")}</p>
+              <p className="coach-sheet-antonyms">{word.antonyms.map((item) => tc(item)).join(" · ")}</p>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
 
-          {/* 近义词 / 反义词 */}
-          {(word.synonyms?.length || word.antonyms?.length) && (
-            <div className="mb-5 flex gap-6">
-              {word.synonyms && word.synonyms.length > 0 && (
-                <div className="flex-1 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
-                  <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("近义词")}</p>
-                  <p className="text-[14px] font-medium text-[#22C55E] dark:text-[#4ADE80]">
-                    {word.synonyms.map((s) => tc(s)).join(" · ")}
-                  </p>
-                </div>
-              )}
-              {word.antonyms && word.antonyms.length > 0 && (
-                <div className="flex-1 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(38,65,140,0.04)] dark:bg-[#111827] dark:shadow-none">
-                  <p className="mb-1 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{tc("反义词")}</p>
-                  <p className="text-[14px] font-medium text-[#EF6B6B] dark:text-[#F87171]">
-                    {word.antonyms.map((s) => tc(s)).join(" · ")}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 图片 */}
-          {word.imageUrl && (
-            <div className="relative mb-5 h-44 overflow-hidden rounded-2xl">
-              <Image
-                src={word.imageUrl}
-                alt={word.term}
-                fill
-                className="object-cover"
-              />
-            </div>
-          )}
-
-          {/* 学完了按钮：点击后进入「当前词」的测试，而非跳到下一个词 */}
-          <button
-            data-testid="help-panel-dismiss"
-            onClick={onDismiss}
-            className="mt-1 flex h-[44px] w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] dark:shadow-[0_8px_24px_rgba(37,99,235,0.1)]"
-          >
-            {tc("我学会了，下一个 →")}
-          </button>
-        </motion.div>
+      {safeImageSrc && !imageFailed ? (
+        <div className="coach-sheet-image">
+          <Image
+            src={safeImageSrc}
+            alt={tc(`${word.term} 配图`)}
+            fill
+            sizes="(max-width: 640px) 100vw, 440px"
+            className="object-cover"
+            onError={() => setFailedImageSrc(word.imageUrl ?? safeImageSrc)}
+          />
+        </div>
+      ) : (
+        <div className="coach-sheet-image-fallback" role="img" aria-label={tc("暂无可用图片") as string}>
+          <Icon name="book" size={28} />
+          <span>{tc("暂无可用图片")}</span>
+        </div>
       )}
-    </AnimatePresence>
+    </BottomSheet>
   );
 }

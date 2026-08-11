@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 
 export interface QuizOption {
   id: string;
@@ -85,7 +86,7 @@ export default function QuizCard({
     <div className="mx-auto w-full max-w-md px-5">
       {/* 题干标签 */}
       <div className="mb-4 text-center">
-        <span className="inline-block rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+        <span className="quiz-prompt-label inline-block rounded-full px-4 py-1.5 text-[13px] font-medium">
           {isEnZh ? tc("看英文，选中文") : tc("看中文，选英文")}
         </span>
       </div>
@@ -94,33 +95,29 @@ export default function QuizCard({
       <motion.div
         key={question.word.id + question.direction}
         {...cardMotion}
-        className="mb-6 flex min-h-[160px] flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white p-6 shadow-[0_12px_30px_rgba(38,65,140,0.08)] dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
+        className="quiz-card-surface mb-6 flex min-h-[160px] flex-col items-center justify-center rounded-[28px] border p-6"
       >
         {isEnZh ? (
           <>
             <h2
-              className="mb-2 text-center text-[#17213C] dark:text-[#E2E8F0]"
+              className="quiz-card-term mb-2 text-center"
               style={{ fontSize: "42px", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15 }}
             >
               {question.word.term}
             </h2>
             {question.word.phonetic && (
-              <p className="mb-3 text-[15px] text-[#7C89A5] dark:text-[#64748B]">{question.word.phonetic}</p>
+              <p className="quiz-card-phonetic mb-3 text-[15px]">{question.word.phonetic}</p>
             )}
             <button
               onClick={speak}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-lg transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/30"
+              className="quiz-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
               aria-label={tc("发音")}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-              </svg>
+              <Icon name="volume" size={18} />
             </button>
           </>
         ) : (
-          <p className="text-center text-[26px] font-semibold leading-relaxed text-[#17213C] dark:text-[#E2E8F0]">
+          <p className="quiz-card-term text-center text-[26px] font-semibold leading-relaxed">
             {tc(question.word.definition)}
           </p>
         )}
@@ -137,20 +134,16 @@ export default function QuizCard({
 
           // 动态样式
           let containerClass =
-            "flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-[15px] leading-snug transition-all duration-200";
+            "quiz-option flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-[15px] leading-snug transition-all duration-200";
 
           if (st === "idle") {
-            containerClass +=
-              " border-[#E7EDF8] bg-white text-[#17213C] hover:border-[#2563EB]/30 hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:hover:border-[#1E3A5F] dark:hover:bg-[#1A2332]";
+            containerClass += " active:scale-[0.98]";
           } else if (isCorrect) {
-            containerClass +=
-              " border-[#22C55E] bg-[#ECFDF5] text-[#15803D] dark:border-[#22C55E] dark:bg-[#052E16] dark:text-[#4ADE80]";
+            containerClass += " quiz-option-correct";
           } else if (isWrong) {
-            containerClass +=
-              " border-[#EF6B6B] bg-[#FEF2F2] text-[#DC2626] dark:border-[#EF6B6B] dark:bg-[#2D0B0B] dark:text-[#F87171]";
+            containerClass += " quiz-option-wrong";
           } else {
-            containerClass +=
-              " border-[#E7EDF8] bg-white opacity-40 dark:border-[#1E293B] dark:bg-[#111827]";
+            containerClass += " quiz-option-dim";
           }
 
           return (
@@ -158,6 +151,7 @@ export default function QuizCard({
               key={opt.id + i}
               data-testid="quiz-option"
               data-option-id={opt.id}
+              aria-pressed={selectedId === opt.id}
               onClick={() => handlePick(opt.id)}
               disabled={answered || disabled}
               whileTap={{ scale: answered || disabled ? 1 : 0.97 }}
@@ -165,12 +159,12 @@ export default function QuizCard({
             >
               {/* 圆形编号 */}
               <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                className={`quiz-option-index flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                   isCorrect
-                    ? "bg-[#22C55E] text-white"
+                    ? "quiz-option-index-correct"
                     : isWrong
-                      ? "bg-[#EF6B6B] text-white"
-                      : "border border-[#D1D5DB] text-[#7C89A5] dark:border-[#475569] dark:text-[#64748B]"
+                      ? "quiz-option-index-wrong"
+                      : ""
                 }`}
               >
                 {label}
@@ -183,7 +177,7 @@ export default function QuizCard({
                 <motion.span
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="text-lg text-[#22C55E] dark:text-[#4ADE80]"
+                  className="quiz-feedback-correct text-lg"
                 >
                   ✓
                 </motion.span>
@@ -192,7 +186,7 @@ export default function QuizCard({
                 <motion.span
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="text-lg text-[#EF6B6B] dark:text-[#F87171]"
+                  className="quiz-feedback-wrong text-lg"
                 >
                   ✕
                 </motion.span>
@@ -210,9 +204,9 @@ export default function QuizCard({
           className="mt-5 text-center text-[14px]"
         >
           {selectedId === question.correctId ? (
-            <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">{tc("✓ 答对了！")}</span>
+            <span className="quiz-feedback-correct font-medium">{tc("✓ 答对了！")}</span>
           ) : (
-            <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">
+            <span className="quiz-feedback-wrong font-medium">
               {tc("✕ 答错了，再试一次吧")}
             </span>
           )}

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import {
   advanceReleaseTimeline,
   boundedReleaseVelocity,
@@ -1146,14 +1147,14 @@ export default function WordCard({
         <span
           ref={leftLabelRef}
           style={{ opacity: 0 }}
-          className="text-[17px] font-semibold text-[#EF6B6B]"
+          className="text-[17px] font-semibold word-card-swipe-label-danger"
         >
           ← {tc("不认识")}
         </span>
         <span
           ref={rightLabelRef}
           style={{ opacity: 0 }}
-          className="text-[17px] font-semibold text-[#22C55E]"
+          className="text-[17px] font-semibold word-card-swipe-label-success"
         >
           {tc("认识")} ✓
         </span>
@@ -1167,11 +1168,11 @@ export default function WordCard({
           ref={dragLayerRef}
           data-testid="word-card-drag-layer"
           style={{ touchAction: "pan-y" }}
-          className="relative mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border border-[#E7EDF8] bg-white shadow-[0_12px_30px_rgba(38,65,140,0.08)] [will-change:transform] active:cursor-grabbing dark:border-[#1E293B] dark:bg-[#111827] dark:shadow-[0_12px_30px_rgba(38,65,140,0.3)]"
+          className="word-card-surface relative mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border [will-change:transform] active:cursor-grabbing"
         >
           {/* 单词 */}
           <h2
-            className="mb-2 text-[#17213C] dark:text-[#E2E8F0]"
+            className="word-card-term mb-2"
             style={{
               fontSize: "42px",
               fontWeight: 700,
@@ -1184,7 +1185,7 @@ export default function WordCard({
 
           {/* 音标 */}
           {word.phonetic && (
-            <p className="mb-3 text-[15px] text-[#7C89A5] dark:text-[#64748B]">
+            <p className="word-card-phonetic mb-3 text-[15px]">
               {word.phonetic}
             </p>
           )}
@@ -1192,23 +1193,10 @@ export default function WordCard({
           {/* 发音按钮 */}
           <button
             onClick={handleSpeak}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-lg transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:hover:bg-[#1E40AF]/30"
+            className="word-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
             aria-label={tc("发音")}
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#2563EB"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-            </svg>
+            <Icon name="volume" size={18} />
           </button>
 
           {/* 底部按钮区域 */}
@@ -1219,7 +1207,7 @@ export default function WordCard({
                 event.stopPropagation();
                 handleButtonSwipe(-1, onSwipeLeft);
               }}
-              className="flex h-12 items-center gap-1.5 rounded-full bg-[#FEF2F2] px-6 text-[15px] font-semibold text-[#EF6B6B] transition active:scale-[0.96] disabled:pointer-events-none dark:bg-[#2D0B0B]"
+              className="word-card-action word-card-action-danger flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
             >
               ← {tc("不认识")}
             </button>
@@ -1229,7 +1217,7 @@ export default function WordCard({
                 event.stopPropagation();
                 handleButtonSwipe(1, onSwipeRight);
               }}
-              className="flex h-12 items-center gap-1.5 rounded-full bg-[#ECFDF5] px-6 text-[15px] font-semibold text-[#22C55E] transition active:scale-[0.96] disabled:pointer-events-none dark:bg-[#052E16]"
+              className="word-card-action word-card-action-success flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
             >
               {tc("认识")} ✓
             </button>

@@ -102,22 +102,22 @@ export default function StreakCalendar({
   if (!streak) return null; // 未加载完成 / 无数据时先不渲染
 
   return (
-    <div className="w-full max-w-sm rounded-3xl border border-[#E7EDF8] bg-white p-5 text-left dark:border-[#1E293B] dark:bg-[#0F172A]">
+    <div className="w-full max-w-sm rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 text-left dark:border-[var(--border)] dark:bg-[var(--surface)]">
       <div className="mb-4 flex items-center justify-between">
-        <span className="text-[15px] font-bold text-[#17213C] dark:text-[#E2E8F0]">
+        <span className="text-[15px] font-bold text-[var(--text)] dark:text-[var(--text)]">
           {tc("连续学习")}
         </span>
         <div className="flex items-center gap-3 text-[13px]">
-          <span className="flex items-center gap-1 font-semibold text-[#F59E0B] dark:text-[#FBBF24]">
+          <span className="flex items-center gap-1 font-semibold text-[var(--warning)] dark:text-[var(--warning)]">
             🔥 {streak.count} {tc("天")}
           </span>
-          <span className="text-[#7C89A5] dark:text-[#64748B]">
+          <span className="text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("本月")} {grid.studiedThisMonth} {tc("天")}
           </span>
         </div>
       </div>
 
-      <div className="mb-2 text-center text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+      <div className="mb-2 text-center text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
         {grid.monthLabel}
       </div>
 
@@ -125,7 +125,7 @@ export default function StreakCalendar({
         {WEEK_LABELS.map((w) => (
           <div
             key={w}
-            className="text-center text-[11px] font-medium text-[#94A3B8] dark:text-[#64748B]"
+            className="text-center text-[11px] font-medium text-[var(--muted)] dark:text-[var(--muted)]"
           >
             {w}
           </div>
@@ -139,10 +139,10 @@ export default function StreakCalendar({
               className={[
                 "flex aspect-square items-center justify-center rounded-xl text-[13px] tabular-nums",
                 daysSet.has(c.key)
-                  ? "bg-gradient-to-br from-[#FF7A45] to-[#FFB020] font-semibold text-white shadow-[0_3px_8px_rgba(255,122,69,0.25)]"
+                  ? "bg-[var(--warning)] font-semibold text-[var(--color-surface)] shadow-sm"
                   : c.isToday
-                    ? "bg-[#EEF4FF] font-bold text-[#2563EB] ring-2 ring-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:ring-[#60A5FA]"
-                    : "bg-[#F6F8FC] text-[#7C89A5] dark:bg-[#1E293B] dark:text-[#64748B]",
+                    ? "bg-[var(--border-soft)] font-bold text-[var(--primary)] ring-2 ring-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)] dark:ring-[var(--primary)]"
+                    : "bg-[var(--border-soft)] text-[var(--muted)] dark:bg-[var(--border)] dark:text-[var(--muted)]",
               ].join(" ")}
               title={c.key}
             >
@@ -153,7 +153,7 @@ export default function StreakCalendar({
       </div>
 
       {!streak.studiedToday && streak.count > 0 && (
-        <p className="mt-3 text-center text-[12px] text-[#F59E0B] dark:text-[#FBBF24]">
+        <p className="mt-3 text-center text-[12px] text-[var(--warning)] dark:text-[var(--warning)]">
           {tc("今天还没打卡，学一个词就能续上 🔥")}
         </p>
       )}

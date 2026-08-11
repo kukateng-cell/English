@@ -339,7 +339,7 @@ function ResumeToast({ visible }: { visible: boolean }) {
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -12 }}
-          className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-[#17213C]/90 px-5 py-2.5 text-[13px] font-medium text-white shadow-lg backdrop-blur dark:bg-white/90 dark:text-[#17213C]"
+          className="study-toast fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full px-5 py-2.5 text-[13px] font-medium shadow-lg backdrop-blur"
         >
           💾 {tc("已恢复上次进度，继续答题吧")}
         </motion.div>
@@ -364,7 +364,7 @@ function AchievementToast({
           initial={{ opacity: 0, y: -16 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -16 }}
-          className="fixed left-1/2 top-16 z-50 flex -translate-x-1/2 flex-col items-center gap-1 rounded-2xl bg-[#17213C]/95 px-5 py-3 text-center text-white shadow-lg backdrop-blur dark:bg-white/95 dark:text-[#17213C]"
+          className="study-toast fixed left-1/2 top-16 z-50 flex -translate-x-1/2 flex-col items-center gap-1 rounded-2xl px-5 py-3 text-center shadow-lg backdrop-blur"
         >
           <div className="text-[13px] font-bold">🎉 {tc("解锁新成就")}</div>
           {items.map((a) => (
@@ -374,7 +374,7 @@ function AchievementToast({
           ))}
           <button
             onClick={onClose}
-            className="mt-1 text-[11px] text-[#94A3B8] underline dark:text-[#64748B]"
+            className="mt-1 text-[11px] text-[var(--muted)] underline"
           >
             {tc("知道了")}
           </button>
@@ -417,7 +417,7 @@ function PendingSyncBanner({
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
-          className="mx-auto mb-3 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl bg-[#FFF7E6] px-4 py-2.5 text-[12px] font-medium text-[#B45309] dark:bg-[#2A1E00] dark:text-[#FBBF24]"
+          className="study-warning-card mx-auto mb-3 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl px-4 py-2.5 text-[12px] font-medium"
         >
           <span className="flex items-center gap-1.5">
             <svg
@@ -441,13 +441,13 @@ function PendingSyncBanner({
           <span className="flex shrink-0 gap-1.5">
             {legacy > 0 ? (
               <>
-                <button onClick={onClaimLegacy} className="rounded-full bg-[#F59E0B] px-3 py-1 text-[11px] font-semibold text-white">{tc("归入我的记录")}</button>
-                <button onClick={onDiscardLegacy} className="rounded-full border border-[#F59E0B] px-3 py-1 text-[11px] font-semibold">{tc("不是我的")}</button>
+                <button onClick={onClaimLegacy} className="ui-button ui-button-small ui-button-primary">{tc("归入我的记录")}</button>
+                <button onClick={onDiscardLegacy} className="ui-button ui-button-small ui-button-secondary">{tc("不是我的")}</button>
               </>
             ) : blocked > 0 ? (
-              <button onClick={onDiscardBlocked} className="rounded-full border border-[#F59E0B] px-3 py-1 text-[11px] font-semibold">{tc("清除失败记录")}</button>
+              <button onClick={onDiscardBlocked} className="ui-button ui-button-small ui-button-secondary">{tc("清除失败记录")}</button>
             ) : (
-              <button onClick={onRetry} className="rounded-full bg-[#F59E0B] px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-[#D97706] active:scale-95 dark:bg-[#FBBF24] dark:text-[#2A1E00]">{tc("立即重试")}</button>
+              <button onClick={onRetry} className="ui-button ui-button-small ui-button-primary">{tc("立即重试")}</button>
             )}
           </span>
         </motion.div>
@@ -468,20 +468,20 @@ function RotationNotice({
   const { tc } = useLocale();
   if (!message) return null;
   return (
-    <div className="fixed inset-x-3 top-3 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-3 text-xs text-amber-900 shadow-lg backdrop-blur dark:border-amber-800 dark:bg-amber-950/95 dark:text-amber-100">
+    <div className="fixed inset-x-3 top-3 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-[var(--warning)] bg-[var(--warning-bg)] px-4 py-3 text-xs text-[var(--text)] shadow-[var(--shadow-elevated)] backdrop-blur">
       <span className="leading-relaxed">{tc(message)}</span>
       <span className="flex shrink-0 gap-1.5">
         <button
           type="button"
           onClick={onRetry}
-          className="rounded-full bg-amber-500 px-3 py-1.5 font-semibold text-white hover:bg-amber-600"
+          className="rounded-full bg-[var(--warning)] px-3 py-1.5 font-semibold text-[var(--color-surface)] hover:bg-[var(--primary-2)]"
         >
           {tc("重试")}
         </button>
         <button
           type="button"
           onClick={onReload}
-          className="rounded-full border border-amber-400 px-3 py-1.5 font-semibold"
+          className="rounded-full border border-[var(--warning)] px-3 py-1.5 font-semibold text-[var(--text)]"
         >
           {tc("重新载入")}
         </button>
@@ -2212,12 +2212,39 @@ export default function StudyPage() {
     studySession,
   ]);
 
+  const hasSyncWork = pendingSync + blockedSync + legacySync > 0;
+  useEffect(() => {
+    if (!hasSyncWork || typeof window === "undefined") return;
+    const message = tc("还有待同步记录，请先重试或处理阻塞项后再离开学习。");
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = message;
+    };
+    const onPopState = () => {
+      window.history.pushState({ studyNavigationGuard: true }, "", window.location.href);
+      setRotationNotice("还有待同步记录，请先处理后再离开学习");
+    };
+    window.history.pushState({ studyNavigationGuard: true }, "", window.location.href);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [hasSyncWork, tc]);
+
+  const guardStudyNavigation = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!hasSyncWork) return;
+    event.preventDefault();
+    setRotationNotice("还有待同步记录，请先处理后再离开学习");
+  };
+
   if (status === "loading" || loading) {
     return (
       <div className="flex min-h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
-          <span className="text-[14px] text-[#7C89A5] dark:text-[#64748B]">{tc("加载中...")}</span>
+          <div className="study-loading-spinner h-8 w-8 animate-spin rounded-full border-2" />
+          <span className="study-muted text-[14px]">{tc("加载中...")}</span>
         </div>
       </div>
     );
@@ -2286,6 +2313,10 @@ export default function StudyPage() {
 
   // 重新开始：清空状态并清除存档点，触发重新拉取
   const restart = () => {
+    if (hasSyncWork) {
+      setRotationNotice("还有待同步记录，请先处理后再重新开始");
+      return;
+    }
     if (userId) clearCheckpoint(userId, getUnitKey());
     setQueue([]);
     setPool([]);
@@ -2299,6 +2330,10 @@ export default function StudyPage() {
   // 单元；当前级别没有了，就跨到下一个已解锁、有未完成单元的级别。
   // 仅单元练习模式可用（全局今日学习模式没有「下一个单元」概念）。
   const goToNextUnit = async () => {
+    if (hasSyncWork) {
+      setRotationNotice("还有待同步记录，请先处理后再进入下一个单元");
+      return;
+    }
     const params = new URLSearchParams(window.location.search);
     const level = params.get("level");
     const category = params.get("category");
@@ -2376,24 +2411,26 @@ export default function StudyPage() {
   if (locked) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
-        <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#FEF3C7] dark:bg-[#291800]">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <div className="study-warning-card mb-5 flex h-20 w-20 items-center justify-center rounded-[28px]">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
         </div>
-        <h2 className="mb-2 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">{tc("单元尚未解锁")}</h2>
-        <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
+        <h2 className="mb-2 text-xl font-bold text-[var(--text)]">{tc("单元尚未解锁")}</h2>
+        <p className="study-muted mb-8 max-w-xs text-[14px] leading-relaxed">
           {tc("请先回到单元列表，按顺序把前面的单元认字率练到 80% 以上，即可解锁这个单元。")}
         </p>
         <div className="flex items-center gap-6 text-[14px]">
           <Link
-            href="/units"
-            className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
+            href={unitCategory ? "/units" : "/"}
+            aria-label={tc(unitCategory ? "退出单元学习" : "退出学习")}
+            onClick={guardStudyNavigation}
+            className="study-link-primary font-medium transition"
           >
             {tc("← 返回单元列表")}
           </Link>
-          <Link href="/" className="text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]">
+          <Link href="/" onClick={guardStudyNavigation} className="study-link-muted transition">
             {tc("返回首页")}
           </Link>
         </div>
@@ -2413,6 +2450,9 @@ export default function StudyPage() {
         data-known-count={knownWords.length}
         className="flex min-h-full flex-col pb-24"
       >
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {tc(`测试阶段：${quizTarget.term}。请选择一个答案。`)}
+        </div>
         <RotationNotice
           message={rotationNotice}
           onRetry={() => void rotateStudySession()}
@@ -2444,14 +2484,16 @@ export default function StudyPage() {
         {/* 顶部导航栏 */}
         <div className="mx-auto flex w-full max-w-md items-center justify-between px-5 pt-5 pb-3">
           <Link
-            href="/units"
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
+            href={unitCategory ? "/units" : "/"}
+            aria-label={tc(unitCategory ? "退出单元学习" : "退出学习")}
+            onClick={guardStudyNavigation}
+            className="study-icon-action flex h-9 w-9 items-center justify-center rounded-xl transition active:scale-[0.95]"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </Link>
-          <span className="text-[14px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+          <span className="study-muted text-[14px] font-medium">
             {tc("📝 测试中")}
           </span>
           <div className="flex items-center gap-2">
@@ -2463,7 +2505,7 @@ export default function StudyPage() {
         {/* 单元上下文 */}
         {unitCategory && (
           <div className="mx-auto mb-4 flex w-full max-w-md px-5">
-            <div className="flex items-center gap-2 rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
+            <div className="study-context flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium">
               <span>{tc(unitCategory)}</span>
             </div>
           </div>
@@ -2472,9 +2514,9 @@ export default function StudyPage() {
         {/* 进度条：只保留一条安静的位置感，不显示「第 N / 总数」
             以免给学生「还有好多要做」的压迫感。可以随时退出，进度会自动保留。 */}
         <div className="mx-auto mb-5 w-full max-w-md px-5">
-          <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
+          <div className="study-progress-track h-1.5 overflow-hidden rounded-full">
             <motion.div
-              className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
+              className="study-progress-value h-full rounded-full"
               style={{ width: `${progressPct}%` }}
               initial={{ width: 0 }}
               animate={{ width: `${progressPct}%` }}
@@ -2540,29 +2582,29 @@ export default function StudyPage() {
           onClaimLegacy={claimLegacy}
           onDiscardLegacy={discardLegacy}
         />
-        <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-[#ECFDF5] dark:bg-[#052E16]">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className="study-success-icon mb-5 flex h-20 w-20 items-center justify-center rounded-[28px]">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <path d="M8 12l3 3 5-5" />
           </svg>
         </div>
-        <h2 className="mb-2 text-xl font-bold text-[#17213C] dark:text-[#E2E8F0]">
+        <h2 className="mb-2 text-xl font-bold text-[var(--text)]">
           {hasQuiz ? tc("测试完成！") : tc("全部完成！")}
         </h2>
         {hasQuiz ? (
-          <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
+          <p className="study-muted mb-8 max-w-xs text-[14px] leading-relaxed">
             {tc(`本次共 ${knownWords.length + unknownWords.length} 词，你认识`)}{" "}
             {knownWords.length}{tc(` 个、不认识 `)}{unknownWords.length}{tc(` 个。`)}
             <br />
             {tc(`测试答对 ${quizStats.correct} 题、答错 ${quizStats.wrong} 题，全部攻克！`)}
           </p>
         ) : (
-          <p className="mb-8 max-w-xs text-[14px] leading-relaxed text-[#7C89A5] dark:text-[#64748B]">
+          <p className="study-muted mb-8 max-w-xs text-[14px] leading-relaxed">
             {tc("今天没有更多单词了，明天再来复习吧")}
           </p>
         )}
         {streak && streak.count > 0 && (
-          <div className="mb-6 flex items-center gap-2 rounded-2xl bg-[#FFF7E6] px-5 py-3 text-[14px] font-semibold text-[#F59E0B] dark:bg-[#2A1E00] dark:text-[#FBBF24]">
+          <div className="study-warning-card mb-6 flex items-center gap-2 rounded-2xl px-5 py-3 text-[14px] font-semibold">
             🔥 {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
           </div>
         )}
@@ -2576,11 +2618,11 @@ export default function StudyPage() {
             <button
               onClick={goToNextUnit}
               disabled={nextLoading}
-              className="flex h-[44px] min-w-[160px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] disabled:opacity-60"
+              className="study-primary-action flex h-[44px] min-w-[160px] items-center justify-center gap-2 rounded-2xl px-8 text-[15px] font-semibold transition-all active:scale-[0.98] disabled:opacity-60"
             >
               {nextLoading ? (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-surface)] border-t-transparent" />
                   {tc("加载中...")}
                 </>
               ) : (
@@ -2596,28 +2638,25 @@ export default function StudyPage() {
             // 全局今日学习模式：主按钮 = 刷新今日单词
             <button
               onClick={restart}
-              className="flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-8 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition-all hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
+              className="study-primary-action flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl px-8 text-[15px] font-semibold transition-all active:scale-[0.98]"
             >
               {tc("刷新单词")}
             </button>
           )}
           <div className="flex items-center gap-6 text-[14px]">
             <Link
-              href="/units"
-              className="font-medium text-[#2563EB] transition hover:text-[#1D4ED8] dark:text-[#60A5FA] dark:hover:text-[#93BBFD]"
+              href={unitCategory ? "/units" : "/"}
+              onClick={guardStudyNavigation}
+              className="study-link-primary font-medium transition"
             >
-              {tc("← 返回单元列表")}
+              {tc(unitCategory ? "← 返回单元列表" : "返回首页")}
             </Link>
-            <Link
-              href="/"
-              className="text-[#7C89A5] transition hover:text-[#17213C] dark:text-[#64748B] dark:hover:text-[#E2E8F0]"
-            >
-              {tc("返回首页")}
-            </Link>
+            {unitCategory ? <Link href="/" onClick={guardStudyNavigation} className="study-link-muted transition">{tc("返回首页")}</Link> : null}
           </div>
           <Link
             href="/achievements"
-            className="text-[13px] font-medium text-[#F59E0B] transition hover:text-[#FBBF24] dark:text-[#FBBF24]"
+            onClick={guardStudyNavigation}
+            className="study-link-primary text-[13px] font-medium transition"
           >
             🎖 {tc("查看我的成就")}
           </Link>
@@ -2631,6 +2670,9 @@ export default function StudyPage() {
   // ───────── 认字评估阶段渲染 ─────────
   return (
     <div className="flex min-h-full flex-col pb-8">
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {tc(`第 ${currentIndex + 1} 个单词：${current.word.term}。请选择“认识”或“不认识”。`)}
+      </div>
       <RotationNotice
         message={rotationNotice}
         onRetry={() => void rotateStudySession()}
@@ -2662,15 +2704,17 @@ export default function StudyPage() {
       {/* 顶部导航栏 */}
       <div className="mx-auto flex w-full max-w-md items-center justify-between px-4 pt-5 pb-3">
         <Link
-          href="/units"
-          className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition hover:bg-[#DBEAFE] active:scale-[0.95] dark:bg-[#1E3A5F] dark:text-[#60A5FA] dark:hover:bg-[#1E40AF]/30"
+          href={unitCategory ? "/units" : "/"}
+          aria-label={tc(unitCategory ? "退出单元学习" : "退出学习")}
+          onClick={guardStudyNavigation}
+          className="study-icon-action flex h-9 w-9 items-center justify-center rounded-xl transition active:scale-[0.95]"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </Link>
 
-        <span className="text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">
+        <span className="study-muted text-[13px] font-medium">
           {tc("今日学习 · 认识这个单词吗？")}
         </span>
 
@@ -2683,8 +2727,8 @@ export default function StudyPage() {
       {/* 单元上下文 */}
       {unitCategory && (
         <div className="mx-auto mb-4 flex w-full max-w-md px-4">
-          <div className="flex items-center gap-2 rounded-full bg-[#EEF4FF] px-4 py-1.5 text-[13px] font-medium text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-            <Link href="/units" className="hover:underline">
+          <div className="study-context flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium">
+            <Link href="/units" onClick={guardStudyNavigation} className="hover:underline">
               {tc("← 单元列表")}
             </Link>
             <span className="opacity-40">·</span>
@@ -2696,13 +2740,13 @@ export default function StudyPage() {
       {/* 进度信息 */}
       <div className="mx-auto mb-6 w-full max-w-md px-4">
         <div className="mb-2 flex items-center justify-center gap-3 text-[13px]">
-          <span className="font-medium text-[#22C55E] dark:text-[#4ADE80]">{tc("认识")} {knownWords.length}</span>
-          <span className="text-[#E7EDF8] dark:text-[#1E293B]">·</span>
-          <span className="font-medium text-[#EF6B6B] dark:text-[#F87171]">{tc("不认识")} {unknownWords.length}</span>
+          <span className="study-known font-medium">{tc("认识")} {knownWords.length}</span>
+          <span className="study-divider">·</span>
+          <span className="study-unknown font-medium">{tc("不认识")} {unknownWords.length}</span>
         </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-[#E7EDF8] dark:bg-[#1E293B]">
+        <div className="study-progress-track h-1.5 overflow-hidden rounded-full">
           <motion.div
-            className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
+            className="study-progress-value h-full rounded-full"
             style={{ width: `${((currentIndex + 1) / queue.length) * 100}%` }}
             initial={{ width: 0 }}
             animate={{ width: `${((currentIndex + 1) / queue.length) * 100}%` }}
