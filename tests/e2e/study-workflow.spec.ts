@@ -176,6 +176,97 @@ test("authenticated card dismissal enters one quiz exactly once", async ({
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
 });
 
+test("a superseded quiz credential preserves and replays the same answer operation", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const initialData = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const targetWordId = initialData.queue[0].word.id;
+  const freshSessionId = `fresh-session-${randomUUID()}`;
+  const freshNonce = `fresh-nonce-${randomUUID()}`;
+  const submissions: Array<{
+    operationId: string;
+    wordId: string;
+    quality: number;
+    studySessionId: string;
+    nonce: string;
+  }> = [];
+  let reloads = 0;
+  await page.route("**/api/study*", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (pathname !== "/api/study") {
+      await route.continue();
+      return;
+    }
+    if (request.method() === "GET") {
+      reloads += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...initialData,
+          studySession: {
+            ...initialData.studySession,
+            id: freshSessionId,
+            nonces: {
+              ...initialData.studySession.nonces,
+              [targetWordId]: freshNonce,
+            },
+          },
+        }),
+      });
+      return;
+    }
+    const body = JSON.parse(request.postData() ?? "{}") as (typeof submissions)[number];
+    submissions.push(body);
+    if (submissions.length === 1) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "学习 session 已由较新的凭证取代",
+          code: "SESSION_SUPERSEDED",
+          requiresQueueReload: true,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await page.getByRole("button", { name: /認識.*✓|认识.*✓/ }).click();
+  await expect(page.getByTestId("study-quiz-phase")).toBeVisible();
+  await page.locator(
+    `[data-testid="quiz-option"][data-option-id="${targetWordId}"]`,
+  ).click();
+  await expect.poll(() => submissions.length).toBe(2);
+  expect(reloads).toBeGreaterThanOrEqual(1);
+  expect(submissions[1]).toMatchObject({
+    operationId: submissions[0].operationId,
+    wordId: submissions[0].wordId,
+    quality: submissions[0].quality,
+    studySessionId: freshSessionId,
+    nonce: freshNonce,
+  });
+  const rows = await page.evaluate((ownerId) => {
+    const prefix = `study:review-item:${encodeURIComponent(ownerId)}:`;
+    return Object.keys(window.localStorage).filter((key) => key.startsWith(prefix));
+  }, userId);
+  expect(rows).toEqual([]);
+});
+
 test("reconciliation cancels a selected quiz answer before its delayed callback", async ({
   page,
 }) => {
@@ -476,6 +567,124 @@ test("reconciliation keeps its barrier until a second expired active row is hand
     releaseSecondRenewal();
   }
   await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+});
+
+test("a quiz answer does not release the barrier before active backlog reconciliation", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  expect(data.queue.length).toBeGreaterThanOrEqual(2);
+  const userId = await authenticatedUserId(page);
+  const currentWordId = data.queue[0].word.id;
+  const activeBacklogWordId = data.queue[1].word.id;
+  const unrelatedOperation = `quiz-unrelated-${randomUUID()}`;
+  const activeOperation = `quiz-active-${randomUUID()}`;
+  let renewalCalls = 0;
+  let releaseActiveRenewal!: () => void;
+  let markActiveRenewalStarted!: () => void;
+  const activeRenewalGate = new Promise<void>((resolve) => {
+    releaseActiveRenewal = resolve;
+  });
+  const activeRenewalStarted = new Promise<void>((resolve) => {
+    markActiveRenewalStarted = resolve;
+  });
+  const submittedWords: string[] = [];
+
+  await page.route("**/api/study/credentials", async (route) => {
+    renewalCalls += 1;
+    const body = JSON.parse(route.request().postData() ?? "{}") as {
+      operations: Array<{ operationId: string; wordId: string }>;
+    };
+    const operation = body.operations[0];
+    if (operation.operationId === activeOperation) {
+      markActiveRenewalStarted();
+      await activeRenewalGate;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        studySession: { id: `renewed-${operation.operationId}` },
+        credentials: [{ ...operation, nonce: `nonce-${operation.operationId}` }],
+      }),
+    });
+  });
+  await page.route("**/api/study", async (route) => {
+    const request = route.request();
+    if (request.method() === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as { wordId: string };
+      submittedWords.push(body.wordId);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "{}",
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.evaluate(
+    ({ ownerId, rows }) => {
+      for (const row of rows) {
+        window.localStorage.setItem(
+          `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(row.operationId)}`,
+          JSON.stringify({
+            ownerId,
+            operationId: row.operationId,
+            wordId: row.wordId,
+            quality: 5,
+            ts: row.ts,
+            attempts: 1,
+            status: "pending",
+            studySessionId: row.studySessionId,
+            credentialState: "expired",
+          }),
+        );
+      }
+    },
+    {
+      ownerId: userId,
+      rows: [
+        {
+          operationId: unrelatedOperation,
+          wordId: `outside-queue-${randomUUID()}`,
+          studySessionId: `expired-unrelated-${randomUUID()}`,
+          ts: Date.now() - 1_000,
+        },
+        {
+          operationId: activeOperation,
+          wordId: activeBacklogWordId,
+          studySessionId: `expired-active-${randomUUID()}`,
+          ts: Date.now(),
+        },
+      ],
+    },
+  );
+
+  await page.getByRole("button", { name: /認識.*✓|认识.*✓/ }).click();
+  await expect(page.getByTestId("study-quiz-phase")).toBeVisible();
+  await page.locator(
+    `[data-testid="quiz-option"][data-option-id="${currentWordId}"]`,
+  ).click();
+  await activeRenewalStarted;
+  try {
+    expect(renewalCalls).toBe(2);
+    expect(submittedWords[0]).toBe(currentWordId);
+    await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+    await expect(page.getByTestId("study-quiz-phase")).toHaveCount(0);
+  } finally {
+    releaseActiveRenewal();
+  }
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+  await expect.poll(() => submittedWords).toContain(activeBacklogWordId);
 });
 
 test("legacy row consuming the current nonce forces a fresh queue session", async ({
@@ -811,6 +1020,116 @@ test("an online flush cannot leave a consumed active nonce interactive", async (
   expect(
     freshResponse.queue.some((item) => item.word.id === activeWordId),
   ).toBe(false);
+});
+
+test("a tab opened during another tab's commit discards its stale startup snapshot", async ({
+  page,
+}) => {
+  const initialQueueResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const initialData = (await (await initialQueueResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const activeWordId = initialData.queue[0].word.id;
+  const operationId = `late-tab-${randomUUID()}`;
+  let releasePost!: () => void;
+  let markPostStarted!: () => void;
+  const postGate = new Promise<void>((resolve) => {
+    releasePost = resolve;
+  });
+  const postStarted = new Promise<void>((resolve) => {
+    markPostStarted = resolve;
+  });
+  await page.route("**/api/study", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    const body = JSON.parse(route.request().postData() ?? "{}") as {
+      operationId?: string;
+    };
+    if (body.operationId === operationId) {
+      markPostStarted();
+      await postGate;
+    }
+    await route.continue();
+  });
+  await page.evaluate(
+    ({ ownerId, operation, wordId, studySessionId, nonce }) => {
+      window.localStorage.setItem(
+        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        JSON.stringify({
+          ownerId,
+          operationId: operation,
+          wordId,
+          quality: 5,
+          ts: Date.now(),
+          attempts: 0,
+          status: "pending",
+          studySessionId,
+          nonce,
+          credentialState: "valid",
+        }),
+      );
+      window.dispatchEvent(new Event("online"));
+    },
+    {
+      ownerId: userId,
+      operation: operationId,
+      wordId: activeWordId,
+      studySessionId: initialData.studySession.id,
+      nonce: initialData.studySession.nonces[activeWordId],
+    },
+  );
+  await postStarted;
+  await page.evaluate((ownerId) => {
+    window.localStorage.removeItem(
+      `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
+    );
+  }, userId);
+
+  const lateTab = await page.context().newPage();
+  const lateTabQueueResponses: StudyWorkflowData[] = [];
+  await lateTab.route("**/api/study*", async (route) => {
+    const request = route.request();
+    if (
+      request.method() !== "GET" ||
+      new URL(request.url()).pathname !== "/api/study"
+    ) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    lateTabQueueResponses.push(await response.json());
+    await route.fulfill({ response });
+  });
+  try {
+    const firstLateSnapshot = lateTab.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/study" &&
+        response.ok(),
+    );
+    await lateTab.goto("/study");
+    await firstLateSnapshot;
+    await expect(lateTab.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  } finally {
+    releasePost();
+  }
+  await expect.poll(() => lateTabQueueResponses.length).toBeGreaterThanOrEqual(2);
+  await expect(lateTab.getByText(initialData.queue[0].word.term, { exact: true }))
+    .toHaveCount(0);
+  const freshSnapshot = lateTabQueueResponses.at(-1)!;
+  expect(freshSnapshot.studySession.nonces[activeWordId]).toBeUndefined();
+  expect(
+    freshSnapshot.queue.some((item) => item.word.id === activeWordId),
+  ).toBe(false);
+  await lateTab.unrouteAll({ behavior: "ignoreErrors" });
+  await lateTab.close();
 });
 
 test("an unrelated startup submission preserves a matching checkpoint", async ({

@@ -38,6 +38,12 @@ export interface StudyPostResult {
   streak?: unknown;
   newlyUnlocked?: unknown;
   reconciled?: boolean;
+  outcome?:
+    | "applied"
+    | "already-processed"
+    | "credential-refresh-required";
+  conflictCode?: "SESSION_SUPERSEDED" | "CREDENTIAL_ALREADY_RENEWED";
+  requiresQueueReload?: boolean;
 }
 
 export interface CredentialAttachmentResult {
@@ -747,12 +753,14 @@ async function flushPendingReviewsUnlocked(
   onDone?: (wordId: string, data: StudyPostResult) => void,
   onBeforeRequest?: () => void,
   leaseId?: string,
+  onlyOperationId?: string,
 ): Promise<{ remaining: number; mutatedWordIds: string[] }> {
   const now = Date.now();
   const queue = loadPendingReviews(userId)
     .filter(
       (r) =>
         r.status === "pending" &&
+        (!onlyOperationId || r.operationId === onlyOperationId) &&
         Boolean(r.studySessionId && r.nonce) &&
         (!r.nextAttemptAt || r.nextAttemptAt <= now),
     )
@@ -769,6 +777,9 @@ async function flushPendingReviewsUnlocked(
       message?: string;
       nextAttemptAt?: number;
       clearSessionNonce?: boolean;
+      refreshFromFreshSession?:
+        | "SESSION_SUPERSEDED"
+        | "CREDENTIAL_ALREADY_RENEWED";
     }
   >();
   let networkDown = false;
@@ -793,7 +804,10 @@ async function flushPendingReviewsUnlocked(
       });
       if (res.ok) {
         ok = true;
-        result = (await res.json().catch(() => null)) as StudyPostResult | null;
+        const payload = (await res.json().catch(() => null)) as
+          | StudyPostResult
+          | null;
+        result = { ...(payload ?? {}), outcome: "applied" };
       } else {
         const payload = (await res.json().catch(() => null)) as
           | { error?: unknown; code?: unknown; requiresQueueReload?: unknown }
@@ -804,15 +818,35 @@ async function flushPendingReviewsUnlocked(
             : `HTTP ${res.status}`;
         const sessionRejected =
           res.status === 403 && message === SESSION_REAUTH_ERROR;
-        const reconciledConflict =
+        const alreadyProcessed =
           res.status === 409 &&
-          (payload?.code === "REVIEW_ALREADY_PROCESSED" ||
-            payload?.code === "SESSION_SUPERSEDED" ||
-            payload?.code === "CREDENTIAL_ALREADY_RENEWED") &&
+          payload?.code === "REVIEW_ALREADY_PROCESSED" &&
           payload.requiresQueueReload === true;
-        if (reconciledConflict) {
+        const credentialRefreshCode =
+          res.status === 409 &&
+          (payload?.code === "SESSION_SUPERSEDED" ||
+            payload?.code === "CREDENTIAL_ALREADY_RENEWED") &&
+          payload.requiresQueueReload === true
+            ? payload.code
+            : null;
+        if (alreadyProcessed) {
           ok = true;
-          result = { reconciled: true };
+          result = {
+            reconciled: true,
+            outcome: "already-processed",
+            requiresQueueReload: true,
+          };
+        } else if (credentialRefreshCode) {
+          failedOperations.set(item.operationId, {
+            permanent: false,
+            message,
+            clearSessionNonce: true,
+            refreshFromFreshSession: credentialRefreshCode,
+          });
+          // A superseded credential says nothing about whether this answer was
+          // applied. Preserve the operation and stop using the stale session;
+          // a fresh queue/session must rebind it before another POST.
+          networkDown = true;
         } else {
           const permanent =
             res.status >= 400 &&
@@ -897,6 +931,8 @@ async function flushPendingReviewsUnlocked(
       status: failure.permanent ? "blocked" : item.status,
       credentialState: failure.permanent
         ? "blocked"
+        : failure.refreshFromFreshSession
+          ? "legacy-claimed"
         : failure.clearSessionNonce
           ? "expired"
           : item.credentialState,
@@ -911,6 +947,16 @@ async function flushPendingReviewsUnlocked(
     }
   }
   if (!storageAvailable) throw new ReviewQueueStorageError();
+  for (const [operationId, failure] of failedOperations) {
+    if (!failure.refreshFromFreshSession) continue;
+    const item = queueByOperation.get(operationId);
+    if (!item) continue;
+    onDone?.(item.wordId, {
+      outcome: "credential-refresh-required",
+      conflictCode: failure.refreshFromFreshSession,
+      requiresQueueReload: true,
+    });
+  }
   return {
     remaining: pendingReviewCount(userId),
     mutatedWordIds: succeededItems.map((item) => item.wordId),
@@ -922,7 +968,7 @@ async function reauthorizeRejectedReviews(
   onDone?: (wordId: string, data: StudyPostResult) => void,
   onBeforeRequest?: () => void,
   leaseId?: string,
-): Promise<"none" | "renewed" | "reconciled"> {
+): Promise<"none" | "renewed" | "reconciled" | "refresh-required"> {
   const now = Date.now();
   const candidates = loadPendingReviews(userId).filter(
     (item) =>
@@ -1004,13 +1050,11 @@ async function reauthorizeRejectedReviews(
         typeof payload?.error === "string"
           ? payload.error.slice(0, 200)
           : `HTTP ${response.status}`;
-      const reconciledConflict =
+      const alreadyProcessed =
         response.status === 409 &&
-        (payload?.code === "REVIEW_ALREADY_PROCESSED" ||
-          payload?.code === "SESSION_SUPERSEDED" ||
-          payload?.code === "CREDENTIAL_ALREADY_RENEWED") &&
+        payload?.code === "REVIEW_ALREADY_PROCESSED" &&
         payload.requiresQueueReload === true;
-      if (reconciledConflict) {
+      if (alreadyProcessed) {
         if (!publishReviewQueueMutation(
           userId,
           "server-mutated",
@@ -1024,9 +1068,43 @@ async function reauthorizeRejectedReviews(
           if (!removeReviewItem(userId, operation.operationId)) {
             throw new ReviewQueueStorageError();
           }
-          onDone?.(operation.wordId, { reconciled: true });
+          onDone?.(operation.wordId, {
+            reconciled: true,
+            outcome: "already-processed",
+            requiresQueueReload: true,
+          });
         }
         return "reconciled";
+      }
+      const credentialRefreshCode =
+        response.status === 409 &&
+        (payload?.code === "SESSION_SUPERSEDED" ||
+          payload?.code === "CREDENTIAL_ALREADY_RENEWED") &&
+        payload.requiresQueueReload === true
+          ? payload.code
+          : null;
+      if (credentialRefreshCode) {
+        for (const operation of operations) {
+          const current = loadPendingReviews(userId).find(
+            (item) => item.operationId === operation.operationId,
+          );
+          if (!current) continue;
+          if (!writeReviewItem(userId, {
+            ...current,
+            credentialState: "legacy-claimed",
+            nonce: undefined,
+            lastError: message,
+            nextAttemptAt: undefined,
+          })) {
+            throw new ReviewQueueStorageError();
+          }
+          onDone?.(operation.wordId, {
+            outcome: "credential-refresh-required",
+            conflictCode: credentialRefreshCode,
+            requiresQueueReload: true,
+          });
+        }
+        return "refresh-required";
       }
       if (
         response.status >= 400 &&
@@ -1122,6 +1200,88 @@ async function reauthorizeRejectedReviews(
 
 const localFlushes = new Map<string, Promise<number>>();
 
+async function withReviewQueueLock(
+  userId: string,
+  run: () => Promise<number>,
+): Promise<number> {
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return await navigator.locks.request(`study-review-queue:${userId}`, () =>
+      run(),
+    );
+  }
+  // Safari/older browsers without Web Locks still need a page-level mutex;
+  // every explicit caller is chained so newly enqueued work gets a later scan.
+  const active = localFlushes.get(userId);
+  const queued = active ? active.catch(() => 0).then(run) : run();
+  const tracked = queued.finally(() => {
+    if (localFlushes.get(userId) === tracked) localFlushes.delete(userId);
+  });
+  localFlushes.set(userId, tracked);
+  return tracked;
+}
+
+/**
+ * Flush only the newly-created answer operation. Historical backlog stays
+ * under the page reconciliation controller instead of being swept by a leaf
+ * QuizCard helper with no knowledge of the current queue generation.
+ */
+export function flushPendingReviewOperation(
+  userId: string,
+  operationId: string,
+  onDone?: (wordId: string, data: StudyPostResult) => void,
+  onWillMutate?: (plan: ReviewQueueMutationPlan) => void,
+): Promise<number> {
+  return withReviewQueueLock(userId, async () => {
+    const plan = planReviewQueueMutation(userId);
+    onWillMutate?.(plan);
+    const target = loadPendingReviews(userId).find(
+      (item) => item.operationId === operationId,
+    );
+    const canPostTarget = Boolean(
+      target &&
+      target.status === "pending" &&
+      target.studySessionId &&
+      target.nonce &&
+      (!target.nextAttemptAt || target.nextAttemptAt <= Date.now()),
+    );
+    if (!target || !canPostTarget) return pendingReviewCount(userId);
+    const leaseId = globalThis.crypto?.randomUUID?.() ??
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const heartbeat = () => {
+      if (!publishReviewQueueMutation(
+        userId,
+        "mutation-started",
+        [target.wordId],
+        target.studySessionId ? [target.studySessionId] : [],
+        leaseId,
+      )) {
+        throw new ReviewQueueStorageError();
+      }
+    };
+    heartbeat();
+    try {
+      const outcome = await flushPendingReviewsUnlocked(
+        userId,
+        onDone,
+        heartbeat,
+        leaseId,
+        operationId,
+      );
+      return outcome.remaining;
+    } finally {
+      if (!publishReviewQueueMutation(
+        userId,
+        "mutation-released",
+        [target.wordId],
+        [],
+        leaseId,
+      )) {
+        throw new ReviewQueueStorageError();
+      }
+    }
+  });
+}
+
 export async function flushPendingReviews(
   userId: string,
   onDone?: (wordId: string, data: StudyPostResult) => void,
@@ -1203,20 +1363,5 @@ export async function flushPendingReviews(
   };
   // 多个页面生命周期事件／浏览器分页面可同时触发 flush。Web Locks 可用时
   // 将同一用户的 flush 串行化；服务端 operationId 幂等仍是最后防线。
-  if (typeof navigator !== "undefined" && navigator.locks) {
-    return navigator.locks.request(`study-review-queue:${userId}`, () =>
-      run(),
-    );
-  }
-  // Safari/older browsers without Web Locks still need a page-level mutex;
-  // otherwise every quick answer starts another flush over the same operations.
-  // Every explicit call is chained: an item enqueued while the active scan is
-  // in-flight is therefore picked up by the trailing scan instead of waiting 30s.
-  const active = localFlushes.get(userId);
-  const queued = active ? active.catch(() => 0).then(run) : run();
-  const tracked = queued.finally(() => {
-    if (localFlushes.get(userId) === tracked) localFlushes.delete(userId);
-  });
-  localFlushes.set(userId, tracked);
-  return tracked;
+  return withReviewQueueLock(userId, run);
 }

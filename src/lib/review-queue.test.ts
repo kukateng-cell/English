@@ -5,6 +5,7 @@ import {
   rebindStudySessionCredentials,
   finalizeLegacyCredentialClaims,
   enqueuePendingReview,
+  flushPendingReviewOperation,
   flushPendingReviews,
   loadPendingReviews,
   pendingReviewCount,
@@ -212,7 +213,7 @@ test("already-processed nonce conflict reconciles instead of blocking", async ()
   }
 });
 
-test("superseded credential renewal reconciles instead of blocking", async () => {
+test("superseded credential preserves the answer for a fresh session", async () => {
   installStorage();
   enqueuePendingReview("user-a", "operation-stale", "word-1", 4, {
     studySessionId: "session-retired",
@@ -235,15 +236,77 @@ test("superseded credential renewal reconciles instead of blocking", async () =>
       { status: 409, headers: { "Content-Type": "application/json" } },
     );
   };
-  const completed: Array<{ wordId: string; reconciled?: boolean }> = [];
+  const completed: Array<{
+    wordId: string;
+    outcome?: string;
+    conflictCode?: string;
+  }> = [];
   try {
     const remaining = await flushPendingReviews("user-a", (wordId, result) => {
-      completed.push({ wordId, reconciled: result.reconciled });
+      completed.push({
+        wordId,
+        outcome: result.outcome,
+        conflictCode: result.conflictCode,
+      });
     });
-    assert.equal(remaining, 0);
+    assert.equal(remaining, 1);
     assert.equal(blockedReviewCount("user-a"), 0);
+    const [preserved] = loadPendingReviews("user-a");
+    assert.equal(preserved.operationId, "operation-stale");
+    assert.equal(preserved.status, "pending");
+    assert.equal(preserved.credentialState, "legacy-claimed");
+    assert.equal(preserved.nonce, undefined);
+    assert.deepEqual(completed, [{
+      wordId: "word-1",
+      outcome: "credential-refresh-required",
+      conflictCode: "SESSION_SUPERSEDED",
+    }]);
+
+    attachStudySessionCredentials("user-a", "session-fresh", {
+      "word-1": "nonce-fresh",
+    });
+    globalThis.fetch = async () => new Response("{}", { status: 200 });
+    assert.equal(await flushPendingReviews("user-a"), 0);
     assert.equal(loadPendingReviews("user-a").length, 0);
-    assert.deepEqual(completed, [{ wordId: "word-1", reconciled: true }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("operation-specific flush submits only the current answer", async () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-backlog", "word-old", 3, {
+    studySessionId: "session-old",
+    nonce: "nonce-old",
+  });
+  enqueuePendingReview("user-a", "operation-current", "word-current", 5, {
+    studySessionId: "session-current",
+    nonce: "nonce-current",
+  });
+  const originalFetch = globalThis.fetch;
+  const submittedOperations: string[] = [];
+  let plannedWords: string[] = [];
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as { operationId: string };
+    submittedOperations.push(body.operationId);
+    return new Response("{}", { status: 200 });
+  };
+  try {
+    const remaining = await flushPendingReviewOperation(
+      "user-a",
+      "operation-current",
+      undefined,
+      (plan) => {
+        plannedWords = plan.willMutateWordIds;
+      },
+    );
+    assert.equal(remaining, 1);
+    assert.deepEqual(submittedOperations, ["operation-current"]);
+    assert.deepEqual(new Set(plannedWords), new Set(["word-old", "word-current"]));
+    assert.deepEqual(
+      loadPendingReviews("user-a").map((item) => item.operationId),
+      ["operation-backlog"],
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -33,6 +33,7 @@ import {
   enqueuePendingReview,
   attachStudySessionCredentials,
   finalizeLegacyCredentialClaims,
+  flushPendingReviewOperation,
   flushPendingReviews,
   loadPendingReviews,
   rebindStudySessionCredentials,
@@ -49,6 +50,7 @@ import {
   reviewQueueItemStoragePrefix,
   reviewQueueMutationStorageKey,
   ReviewQueueStorageError,
+  type ReviewQueueMutationEvent,
   type ReviewQueueMutationPlan,
   type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
@@ -105,6 +107,7 @@ interface PendingFlushOutcome {
   remaining: number;
   submittedWordIds: string[];
   adoptedWordIds: string[];
+  credentialRefreshWordIds: string[];
   storageError: boolean;
 }
 
@@ -243,6 +246,7 @@ function submitQuizReview(
     begin: () => number;
     finish: (generation: number) => void;
     reload: (wordIds: string[], generation: number | null) => void;
+    reconcile: (generation: number | null) => Promise<void>;
   },
 ): boolean {
   const operationId = crypto.randomUUID();
@@ -262,13 +266,13 @@ function submitQuizReview(
   }
   onQueueChange?.();
   let reconciliationGeneration: number | null = null;
-  const affectedWordIds = new Set<string>();
-  void flushPendingReviews(userId, (_id, data) => {
+  const reloadWordIds = new Set<string>();
+  void flushPendingReviewOperation(userId, operationId, (_id, data) => {
     if (data?.streak && onDone) onDone(data.streak as StreakInfo);
     if (Array.isArray(data?.newlyUnlocked) && data.newlyUnlocked.length) {
       onAchievements?.(data.newlyUnlocked as AchievementDef[]);
     }
-    if (_id !== wordId || data.reconciled) affectedWordIds.add(_id);
+    if (data.requiresQueueReload || data.reconciled) reloadWordIds.add(_id);
   }, (plan) => {
     if (
       reconciliation &&
@@ -281,23 +285,28 @@ function submitQuizReview(
       reconciliationGeneration = reconciliation.begin();
     }
   })
+    .then(async () => {
+      if (!reconciliation) return;
+      const activeReloadWordIds = [...reloadWordIds].filter(
+        reconciliation.isActiveWord,
+      );
+      if (activeReloadWordIds.length > 0) {
+        reconciliation.reload(
+          activeReloadWordIds,
+          reconciliationGeneration,
+        );
+        return;
+      }
+      await reconciliation.reconcile(reconciliationGeneration);
+    })
     .catch((error) => {
       if (error instanceof ReviewQueueStorageError) onStorageError?.();
+      if (reconciliation && reconciliationGeneration !== null) {
+        reconciliation.finish(reconciliationGeneration);
+      }
     })
     .finally(() => {
       onQueueChange?.();
-      if (!reconciliation) return;
-      const affectedActiveWordIds = [...affectedWordIds].filter(
-        reconciliation.isActiveWord,
-      );
-      if (affectedActiveWordIds.length > 0) {
-        reconciliation.reload(
-          affectedActiveWordIds,
-          reconciliationGeneration,
-        );
-      } else if (reconciliationGeneration !== null) {
-        reconciliation.finish(reconciliationGeneration);
-      }
     });
   return true;
 }
@@ -529,6 +538,7 @@ export default function StudyPage() {
   const router = useRouter();
   const { tc } = useLocale();
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const activeQueueWordIdsRef = useRef(new Set<string>());
   const [pool, setPool] = useState<PoolWord[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [helpVisible, setHelpVisible] = useState(false);
@@ -615,6 +625,12 @@ export default function StudyPage() {
   useEffect(() => {
     rotationSessionRef.current = studySession;
   }, [studySession]);
+
+  useEffect(() => {
+    activeQueueWordIdsRef.current = new Set(
+      queue.map((item) => item.word.id),
+    );
+  }, [queue]);
 
   useEffect(() => {
     const enabled = new URLSearchParams(window.location.search).get("cardProbe") === "1";
@@ -880,6 +896,7 @@ export default function StudyPage() {
         remaining: 0,
         submittedWordIds: [],
         adoptedWordIds: [],
+        credentialRefreshWordIds: [],
         storageError: false,
       };
     }
@@ -901,6 +918,7 @@ export default function StudyPage() {
           remaining: attachment.pendingCount,
           submittedWordIds: [],
           adoptedWordIds,
+          credentialRefreshWordIds: [],
           storageError: true,
         };
       }
@@ -917,6 +935,7 @@ export default function StudyPage() {
           remaining: pendingReviewCount(userId),
           submittedWordIds: [],
           adoptedWordIds,
+          credentialRefreshWordIds: [],
           storageError: true,
         };
       }
@@ -925,10 +944,15 @@ export default function StudyPage() {
     // credentials (or provenance for reauthorization), so they still flush.
     // The queue library serializes concurrent callers and runs a trailing scan.
     const submittedWordIds = new Set<string>();
+    const credentialRefreshWordIds = new Set<string>();
     let remaining: number;
     try {
       remaining = await flushPendingReviews(userId, (wordId, data) => {
-        submittedWordIds.add(wordId);
+        if (data.outcome === "credential-refresh-required") {
+          credentialRefreshWordIds.add(wordId);
+        } else {
+          submittedWordIds.add(wordId);
+        }
         if (!canApply()) return;
         if (data?.streak) setStreak(data.streak as StreakInfo);
         const unlocked = data?.newlyUnlocked as AchievementDef[] | undefined;
@@ -945,6 +969,7 @@ export default function StudyPage() {
         remaining: pendingReviewCount(userId),
         submittedWordIds: [...submittedWordIds],
         adoptedWordIds,
+        credentialRefreshWordIds: [...credentialRefreshWordIds],
         storageError: true,
       };
     }
@@ -963,6 +988,7 @@ export default function StudyPage() {
       remaining,
       submittedWordIds: [...submittedWordIds],
       adoptedWordIds,
+      credentialRefreshWordIds: [...credentialRefreshWordIds],
       storageError: false,
     };
   }, [userId]);
@@ -970,7 +996,9 @@ export default function StudyPage() {
   // The queue library classifies a flush after it owns the cross-tab lock and
   // invokes onWillMutate synchronously before the first request. That closes
   // the TOCTOU window where a passive row could become due while waiting.
-  const flushAndReconcile = useCallback(async (): Promise<ReconcileResult> => {
+  const flushAndReconcile = useCallback(async (
+    ownedBarrierGeneration: number | null = null,
+  ): Promise<ReconcileResult> => {
     if (!userId) return { kind: "retryable-error" };
     const checkpoint = loadCheckpoint(userId, getUnitKey());
     const activeWordIds = new Set([
@@ -979,7 +1007,7 @@ export default function StudyPage() {
     ]);
     const activeSession = rotationSessionRef.current;
     const startingGeneration = reconciliationGenerationRef.current;
-    let barrierGeneration: number | null = null;
+    let barrierGeneration: number | null = ownedBarrierGeneration;
     const onWillMutate = (plan: ReviewQueueMutationPlan) => {
       if (
         barrierGeneration === null &&
@@ -1012,6 +1040,19 @@ export default function StudyPage() {
         if (outcome.storageError) {
           if (barrierGeneration !== null) endReconciliation(barrierGeneration);
           return { kind: "storage-error" };
+        }
+        const refreshActiveWordIds = outcome.credentialRefreshWordIds.filter(
+          (wordId) => activeWordIds.has(wordId),
+        );
+        if (refreshActiveWordIds.length > 0) {
+          reconciliationServerMutatedWordIdsRef.current = new Set(
+            refreshActiveWordIds,
+          );
+          if (barrierGeneration === null) {
+            barrierGeneration = beginReconciliation();
+          }
+          setReloadKey((key) => key + 1);
+          return { kind: "reload-started" };
         }
         const submittedActiveWordIds = [...submittedWordIds].filter(
           (wordId) => activeWordIds.has(wordId),
@@ -1171,8 +1212,13 @@ export default function StudyPage() {
       const affectsActiveQueue = mutation.wordIds.some((wordId) =>
         activeWordIds.has(wordId),
       );
+      // During first load there is no React queue or checkpoint to compare.
+      // Treat every mutation lease as relevant until the startup snapshot is
+      // fenced, otherwise a late-joining tab can accept a pre-commit GET.
+      const affectsMutationLifecycle =
+        loading || activeWordIds.size === 0 || affectsActiveQueue;
       if (mutation.kind === "mutation-started") {
-        if (!affectsActiveQueue) return;
+        if (!affectsMutationLifecycle) return;
         const leaseId = mutation.leaseId ?? mutation.revision;
         const leaseTimers = externalMutationLeaseTimersRef.current;
         if (leaseTimers.size === 0) beginReconciliation();
@@ -1195,9 +1241,11 @@ export default function StudyPage() {
         return;
       }
       if (mutation.kind === "mutation-released") {
-        if (!affectsActiveQueue) return;
         const leaseId = mutation.leaseId ?? mutation.revision;
         const leaseTimers = externalMutationLeaseTimersRef.current;
+        // Once this tab accepted a lease, its matching release must close it
+        // even if a fresh snapshot has already removed the affected word.
+        if (!leaseTimers.has(leaseId) && !affectsMutationLifecycle) return;
         const timer = leaseTimers.get(leaseId);
         if (timer) clearTimeout(timer);
         leaseTimers.delete(leaseId);
@@ -1247,9 +1295,13 @@ export default function StudyPage() {
         return;
       }
       if (mutation.kind !== "server-mutated") return;
-      const affectedWordIds = mutation.wordIds.filter((wordId) =>
-        activeWordIds.has(wordId),
+      const tracksMutationLease = Boolean(
+        mutation.leaseId &&
+        externalMutationLeaseTimersRef.current.has(mutation.leaseId),
       );
+      const affectedWordIds = loading || activeWordIds.size === 0 || tracksMutationLease
+        ? mutation.wordIds
+        : mutation.wordIds.filter((wordId) => activeWordIds.has(wordId));
       if (affectedWordIds.length === 0) return;
       affectedWordIds.forEach((wordId) =>
         externalMutationAffectedWordIdsRef.current.add(wordId),
@@ -1282,6 +1334,7 @@ export default function StudyPage() {
     userId,
     queue,
     studySession,
+    loading,
     refreshSyncCounts,
     beginReconciliation,
     invalidateInteractions,
@@ -1550,6 +1603,10 @@ export default function StudyPage() {
         // Start credentialed outbox recovery and queue loading together. The
         // page remains in its loading state until both phases reconcile, so a
         // stale queue/session can never become interactive.
+        const startupMutationBefore = parseReviewQueueMutationEvent(
+          userId,
+          window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
+        );
         const initialFlushPromise = flushPending(
           null,
           false,
@@ -1574,7 +1631,10 @@ export default function StudyPage() {
         ]);
         if (!canApply()) return;
         if (initialFlush.storageError || adoptionFlush.storageError) return;
-
+        const startupMutationAfter = parseReviewQueueMutationEvent(
+          userId,
+          window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
+        );
         const concurrentServerMutatedWordIds = new Set([
           ...initialFlush.submittedWordIds,
           ...adoptionFlush.submittedWordIds,
@@ -1590,6 +1650,25 @@ export default function StudyPage() {
         const firstQueueWordIds = new Set(
           (data.queue ?? []).map((item) => item.word.id),
         );
+        const startupSnapshotWordIds = new Set([
+          ...firstQueueWordIds,
+          ...(checkpoint?.queueSignature ?? []),
+        ]);
+        const touchesStartupSnapshot = (
+          mutation: ReviewQueueMutationEvent | null,
+        ) => Boolean(
+          mutation?.wordIds.some((wordId) =>
+            startupSnapshotWordIds.has(wordId),
+          ),
+        );
+        const startupMutationFenceChanged =
+          (startupMutationBefore?.kind === "mutation-started" &&
+            touchesStartupSnapshot(startupMutationBefore)) ||
+          (startupMutationAfter?.kind === "server-mutated" &&
+            touchesStartupSnapshot(startupMutationAfter)) ||
+          (startupMutationBefore?.revision !== startupMutationAfter?.revision &&
+            (touchesStartupSnapshot(startupMutationBefore) ||
+              touchesStartupSnapshot(startupMutationAfter)));
         const activeServerMutation = [...concurrentServerMutatedWordIds].some(
           (wordId) => firstQueueWordIds.has(wordId),
         );
@@ -1601,11 +1680,12 @@ export default function StudyPage() {
             !concurrentServerMutatedWordIds.has(wordId),
         );
         let restoreAllowed = true;
-        if (activeServerMutation) {
+        if (activeServerMutation || startupMutationFenceChanged) {
           // A startup submission changed SM-2 state, or consumed a nonce from
-          // the first response. Discard that response and request a wholly
-          // fresh queue/session, but retain the checkpoint until this request
-          // succeeds and we know whether the reconciled words affect it.
+          // the first response. A mutation revision change also means another
+          // tab held the queue lock while the first GET was in flight. Discard
+          // that response and request a wholly fresh queue/session without a
+          // resume snapshot.
           data = await requestQueue(
             new URLSearchParams(window.location.search),
           );
@@ -1844,7 +1924,7 @@ export default function StudyPage() {
                   saveNextCheckpoint,
                   {
                     isActiveWord: (candidateWordId) =>
-                      queue.some((item) => item.word.id === candidateWordId),
+                      activeQueueWordIdsRef.current.has(candidateWordId),
                     begin: beginReconciliation,
                     finish: endReconciliation,
                     reload: (affectedWordIds, generation) => {
@@ -1853,6 +1933,9 @@ export default function StudyPage() {
                       );
                       if (generation === null) beginReconciliation();
                       setReloadKey((key) => key + 1);
+                    },
+                    reconcile: async (generation) => {
+                      await flushAndReconcile(generation);
                     },
                   },
                 )
@@ -1890,6 +1973,7 @@ export default function StudyPage() {
       loading,
       beginReconciliation,
       endReconciliation,
+      flushAndReconcile,
     ]
   );
 

@@ -323,18 +323,35 @@ async function main() {
       [sessionWord.id],
       `rotate-${rotationFirstSource.id}`,
     );
+    const rotationFirstOperation = `rotation-first-renewal_${randomUUID()}`;
     await assertRejectsCode(
       () =>
         renewStudySessionCredentials(user.id, rotationFirstSource.id, [
           {
-            operationId: `rotation-first-renewal_${randomUUID()}`,
+            operationId: rotationFirstOperation,
             wordId: sessionWord.id,
           },
         ]),
       "SESSION_SUPERSEDED",
     );
-    if (!serializeStudySession(rotationFirstReplacement)?.nonces[sessionWord.id]) {
+    const rotationFirstNonce = serializeStudySession(rotationFirstReplacement)
+      ?.nonces[sessionWord.id];
+    if (!rotationFirstNonce) {
       throw new Error("rotation-first replacement lost its sole active credential");
+    }
+    await applyReviewEvent({
+      userId: user.id,
+      wordId: sessionWord.id,
+      quality: 5,
+      operationId: rotationFirstOperation,
+      studySessionId: rotationFirstReplacement.id,
+      nonce: rotationFirstNonce,
+    });
+    const reboundEvents = await prisma.reviewEvent.count({
+      where: { userId: user.id, operationId: rotationFirstOperation },
+    });
+    if (reboundEvents !== 1) {
+      throw new Error("superseded operation did not apply exactly once after rebinding");
     }
     await prisma.studySession.update({
       where: { id: rotationFirstReplacement.id },
