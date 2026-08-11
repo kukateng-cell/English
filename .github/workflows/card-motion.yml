@@ -23,6 +23,7 @@ on:
       - "prisma/schema.prisma"
       - "prisma/seed.ts"
       - "prisma/migrations/**"
+      - "scripts/**"
       - "src/proxy.ts"
       - "tests/e2e/auth.setup.ts"
       - "tests/e2e/study-workflow.spec.ts"

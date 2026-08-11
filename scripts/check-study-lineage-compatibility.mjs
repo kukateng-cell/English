@@ -41,8 +41,8 @@ try {
       source."wordId" AS "wordId",
       source."operationId" AS "operationId",
       source."renewedAt" AS "renewedAt",
-      EXISTS (
-        SELECT 1
+      (
+        SELECT COUNT(*)::int
         FROM "StudySessionItem" AS replacement
         JOIN "StudySession" AS replacement_session
           ON replacement_session."id" = replacement."sessionId"
@@ -53,8 +53,8 @@ try {
           AND replacement."renewedAt" IS NULL
           AND replacement_session."userId" = source_session."userId"
           AND replacement_session."retiredAt" IS NULL
-          AND replacement_session."expiresAt" > CURRENT_TIMESTAMP
-      ) AS "recoverableByOperationId",
+          AND replacement_session."expiresAt" > CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+      ) AS "operationCredentialCount",
       EXISTS (
         SELECT 1
         FROM "StudySessionItem" AS replacement
@@ -79,17 +79,25 @@ try {
 
   let recoverableByOperationId = 0;
   let recoverableByRotation = 0;
+  let ambiguousOperationCredentials = 0;
   let unresolved = 0;
   for (const gap of gaps.rows) {
-    const category = gap.recoverableByOperationId
-      ? "recoverable_by_operation_id"
-      : gap.recoverableByRotation
-        ? "recoverable_by_rotation"
-        : "unresolved_lineage_gap";
+    const operationCredentialCount = Number(gap.operationCredentialCount);
+    const category =
+      operationCredentialCount > 1
+        ? "ambiguous_operation_credentials"
+        : operationCredentialCount === 1
+          ? "recoverable_by_operation_id"
+          : gap.recoverableByRotation
+            ? "recoverable_by_rotation"
+            : "unresolved_lineage_gap";
     if (category === "recoverable_by_operation_id") {
       recoverableByOperationId += 1;
     } else if (category === "recoverable_by_rotation") {
       recoverableByRotation += 1;
+    } else if (category === "ambiguous_operation_credentials") {
+      ambiguousOperationCredentials += 1;
+      unresolved += 1;
     } else {
       unresolved += 1;
     }
@@ -101,6 +109,9 @@ try {
       `wordId=${gap.wordId}`,
       `operationId=${gap.operationId ?? "<null>"}`,
     ];
+    if (category === "ambiguous_operation_credentials") {
+      details.push(`operationCredentialCount=${operationCredentialCount}`);
+    }
     if (category === "unresolved_lineage_gap") {
       details.push(`renewedAt=${gap.renewedAt.toISOString()}`);
     }
@@ -111,6 +122,7 @@ try {
     `Study lineage compatibility scan: total=${gaps.rows.length}, ` +
       `recoverable_by_operation_id=${recoverableByOperationId}, ` +
       `recoverable_by_rotation=${recoverableByRotation}, ` +
+      `ambiguous_operation_credentials=${ambiguousOperationCredentials}, ` +
       `unresolved_lineage_gap=${unresolved}`,
   );
   if (unresolved > 0) {

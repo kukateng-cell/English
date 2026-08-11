@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 dotenv.config({ path: ".env.local" });
@@ -658,6 +659,71 @@ async function main() {
     ) {
       throw new Error(
         "cleanup-detached operation recovery minted a new credential instead of replaying its replacement",
+      );
+    }
+
+    // Test D: the compatibility gate must reject ambiguous operation-bound
+    // replacements instead of treating any single match as recoverable.
+    const ambiguousOperation = `ambiguous-lineage_${randomUUID()}`;
+    const ambiguousSource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `ambiguous-lineage-source-${suffix}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        items: {
+          create: {
+            wordId: sessionWord.id,
+            nonce: randomUUID(),
+            operationId: ambiguousOperation,
+            renewedAt: new Date(),
+          },
+        },
+      },
+    });
+    const ambiguousSourceItem = await prisma.studySessionItem.findUniqueOrThrow({
+      where: {
+        sessionId_wordId: {
+          sessionId: ambiguousSource.id,
+          wordId: sessionWord.id,
+        },
+      },
+    });
+    for (const replacementLabel of ["a", "b"]) {
+      await prisma.studySession.create({
+        data: {
+          userId,
+          queueFingerprint: `ambiguous-lineage-replacement-${replacementLabel}-${suffix}`,
+          expiresAt: new Date(Date.now() + 30 * 60_000),
+          items: {
+            create: {
+              wordId: sessionWord.id,
+              nonce: randomUUID(),
+              operationId: ambiguousOperation,
+            },
+          },
+        },
+      });
+    }
+    const ambiguousLineageScan = spawnSync(
+      process.execPath,
+      ["scripts/check-study-lineage-compatibility.mjs"],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        encoding: "utf8",
+      },
+    );
+    const ambiguousLineageOutput =
+      `${ambiguousLineageScan.stdout ?? ""}\n${ambiguousLineageScan.stderr ?? ""}`;
+    if (
+      ambiguousLineageScan.status === 0 ||
+      !ambiguousLineageOutput.includes(
+        `ambiguous_operation_credentials sourceItemId=${ambiguousSourceItem.id}`,
+      ) ||
+      !ambiguousLineageOutput.includes("operationCredentialCount=2")
+    ) {
+      throw new Error(
+        `compatibility scan did not block ambiguous operation credentials:\n${ambiguousLineageOutput}`,
       );
     }
 
