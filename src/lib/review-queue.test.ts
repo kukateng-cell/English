@@ -8,11 +8,13 @@ import {
   flushPendingReviewOperation,
   flushPendingReviews,
   loadPendingReviews,
+  parseReviewQueueActiveLease,
   pendingReviewCount,
   blockedReviewCount,
   parseReviewQueueMutationEvent,
   planReviewQueueMutation,
   reviewQueueMutationStorageKey,
+  reviewQueueActiveLeaseStoragePrefix,
   reviewQueueServerRevisionStorageKey,
   ReviewQueueStorageError,
   type ReviewQueueMutationEvent,
@@ -156,8 +158,16 @@ test("flush preserves an event enqueued while a request is in flight", async () 
 
 test("successful submission publishes and then releases its cross-tab mutation lease", async () => {
   const mutationEvents: ReviewQueueMutationEvent[] = [];
+  const leaseHeartbeats: string[] = [];
+  const removedLeases: string[] = [];
   const serverRevisions: string[] = [];
+  const activePrefix = reviewQueueActiveLeaseStoragePrefix("user-a");
   installStorage((key, value) => {
+    if (key.startsWith(activePrefix)) {
+      const lease = parseReviewQueueActiveLease("user-a", value);
+      if (lease) leaseHeartbeats.push(lease.leaseId);
+      return false;
+    }
     if (key === reviewQueueServerRevisionStorageKey("user-a")) {
       serverRevisions.push(value);
       return false;
@@ -165,6 +175,9 @@ test("successful submission publishes and then releases its cross-tab mutation l
     if (key !== reviewQueueMutationStorageKey("user-a")) return false;
     const event = parseReviewQueueMutationEvent("user-a", value);
     if (event) mutationEvents.push(event);
+    return false;
+  }, (key) => {
+    if (key.startsWith(activePrefix)) removedLeases.push(key);
     return false;
   });
   enqueuePendingReview("user-a", "operation-a1", "word-1", 5, {
@@ -178,12 +191,14 @@ test("successful submission publishes and then releases its cross-tab mutation l
     const serverEvent = mutationEvents.find(
       (event) => event.kind === "server-mutated",
     );
-    const releaseEvent = mutationEvents.at(-1);
     assert.ok(serverEvent);
     assert.deepEqual(serverEvent.wordIds, ["word-1"]);
     assert.deepEqual(serverEvent.sessionIds, ["session-valid"]);
-    assert.equal(releaseEvent?.kind, "mutation-released");
-    assert.equal(releaseEvent?.leaseId, serverEvent.leaseId);
+    assert.ok(leaseHeartbeats.length >= 2);
+    assert.equal(new Set(leaseHeartbeats).size, 1);
+    assert.equal(removedLeases.length, 1);
+    assert.ok(removedLeases[0].endsWith(encodeURIComponent(leaseHeartbeats[0])));
+    assert.equal(serverEvent.leaseId, leaseHeartbeats[0]);
     assert.equal(serverRevisions.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
@@ -274,8 +289,12 @@ test("superseded credential preserves the answer for a fresh session", async () 
     assert.equal(loadPendingReviews("user-a")[0].credentialState, "refresh-required");
     globalThis.fetch = async (input, init) => {
       if (String(input) === "/api/study/credentials") {
-        const body = JSON.parse(String(init?.body)) as { mode?: string };
+        const body = JSON.parse(String(init?.body)) as {
+          mode?: string;
+          operations?: Array<{ quality?: number }>;
+        };
         assert.equal(body.mode, "recover");
+        assert.equal(body.operations?.[0]?.quality, 4);
         return new Response(JSON.stringify({
           studySession: { id: "session-fresh" },
           credentials: [{
@@ -289,6 +308,88 @@ test("superseded credential preserves the answer for a fresh session", async () 
     };
     assert.equal(await flushPendingReviews("user-a"), 0);
     assert.equal(loadPendingReviews("user-a").length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("permanent recovery provenance errors become visible blocked rows", async () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-gone", "word-1", 4, {
+    studySessionId: "session-gone",
+    nonce: "nonce-gone",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input) === "/api/study") {
+      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      error: "学习 session 已由较新的凭证取代",
+      code: "SESSION_SUPERSEDED",
+      requiresQueueReload: true,
+    }), { status: 409, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    await flushPendingReviews("user-a");
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      error: "原学习 session 已被清理，无法恢复答案",
+      code: "SOURCE_SESSION_GONE",
+    }), { status: 404, headers: { "Content-Type": "application/json" } });
+    await flushPendingReviews("user-a");
+    const [blocked] = loadPendingReviews("user-a");
+    assert.equal(blocked.status, "blocked");
+    assert.equal(blocked.credentialState, "blocked");
+    assert.equal(blocked.nextAttemptAt, undefined);
+    assert.equal(blockedReviewCount("user-a"), 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("RECOVERY_BUSY keeps the exact answer pending until Retry-After", async () => {
+  installStorage();
+  enqueuePendingReview("user-a", "operation-busy", "word-1", 4, {
+    studySessionId: "session-busy",
+    nonce: "nonce-busy",
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input) === "/api/study") {
+      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      error: "学习 session 已由较新的凭证取代",
+      code: "SESSION_SUPERSEDED",
+      requiresQueueReload: true,
+    }), { status: 409, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    await flushPendingReviews("user-a");
+    const beforeRecovery = Date.now();
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      error: "恢复凭证正由另一项操作使用",
+      code: "RECOVERY_BUSY",
+    }), {
+      status: 409,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": "7",
+      },
+    });
+    await flushPendingReviews("user-a");
+    const [pending] = loadPendingReviews("user-a");
+    assert.equal(pending.operationId, "operation-busy");
+    assert.equal(pending.status, "pending");
+    assert.equal(pending.credentialState, "refresh-required");
+    assert.ok((pending.nextAttemptAt ?? 0) >= beforeRecovery + 7_000);
+    assert.equal(blockedReviewCount("user-a"), 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -358,21 +459,28 @@ test("operation-specific flush submits only the current answer", async () => {
 test("one lease heartbeats before every sequential review request", async () => {
   const heartbeats: Array<{ leaseId?: string; expiresAt?: number }> = [];
   const terminalEvents: Array<{ kind: string; leaseId?: string }> = [];
+  const releasedLeaseKeys: string[] = [];
+  const activePrefix = reviewQueueActiveLeaseStoragePrefix("user-a");
   installStorage((key, value) => {
+    if (key.startsWith(activePrefix)) {
+      const lease = parseReviewQueueActiveLease("user-a", value);
+      if (lease) {
+        heartbeats.push({ leaseId: lease.leaseId, expiresAt: lease.expiresAt });
+      }
+      return false;
+    }
     if (key !== reviewQueueMutationStorageKey("user-a")) return false;
     const event = JSON.parse(value) as {
       kind?: string;
       leaseId?: string;
       expiresAt?: number;
     };
-    if (event.kind === "mutation-started") {
-      heartbeats.push({ leaseId: event.leaseId, expiresAt: event.expiresAt });
-    } else if (
-      event.kind === "server-mutated" ||
-      event.kind === "mutation-released"
-    ) {
+    if (event.kind === "server-mutated") {
       terminalEvents.push({ kind: event.kind, leaseId: event.leaseId });
     }
+    return false;
+  }, (key) => {
+    if (key.startsWith(activePrefix)) releasedLeaseKeys.push(key);
     return false;
   });
   enqueuePendingReview("user-a", "operation-a1", "word-1", 5, credentials("operation-a1"));
@@ -396,12 +504,13 @@ test("one lease heartbeats before every sequential review request", async () => 
     );
     assert.deepEqual(
       terminalEvents.map((event) => event.kind),
-      ["server-mutated", "mutation-released"],
+      ["server-mutated"],
     );
     assert.ok(
       terminalEvents.every((event) => event.leaseId === heartbeats[0].leaseId),
       "mutation and release markers must close the same lease",
     );
+    assert.equal(releasedLeaseKeys.length, 1);
   } finally {
     Date.now = originalNow;
     globalThis.fetch = originalFetch;

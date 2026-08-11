@@ -68,6 +68,7 @@ export default defineConfig({
       name: "study-integration-webkit",
       testMatch: /study-workflow\.spec\.ts/,
       dependencies: ["auth-setup-webkit"],
+      fullyParallel: true,
       use: {
         ...devices["Desktop Safari"],
         storageState: "test-results/.auth/student-webkit.json",

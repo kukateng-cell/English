@@ -118,6 +118,43 @@ async function dispatchServerRevision(
   );
 }
 
+async function dispatchActiveLease(
+  page: Page,
+  userId: string,
+  leaseId: string,
+  wordId: string,
+  studySessionId: string,
+  active: boolean,
+) {
+  await page.evaluate(
+    ({ ownerId, id, affectedWordId, sessionId, isActive }) => {
+      const key = `study:review-active-lease:${encodeURIComponent(ownerId)}:${encodeURIComponent(id)}`;
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        newValue: isActive
+          ? JSON.stringify({
+              version: 1,
+              ownerId,
+              leaseId: id,
+              wordIds: [affectedWordId],
+              sessionIds: [sessionId],
+              expiresAt: Date.now() + 60_000,
+              revision: `lease-${Date.now()}`,
+            })
+          : null,
+        storageArea: window.localStorage,
+      }));
+    },
+    {
+      ownerId: userId,
+      id: leaseId,
+      affectedWordId: wordId,
+      sessionId: studySessionId,
+      isActive: active,
+    },
+  );
+}
+
 async function dispatchServerMutation(
   page: Page,
   userId: string,
@@ -177,11 +214,9 @@ test("a cross-tab mutation lease stays closed through server markers until relea
     }
     await route.continue();
   });
-  const dispatchMutation = async (
-    kind: "mutation-started" | "server-mutated" | "mutation-released",
-  ) => {
+  const dispatchServerMarker = async () => {
     await page.evaluate(
-      ({ ownerId, affectedWordId, sessionId, mutationKind, id }) => {
+      ({ ownerId, affectedWordId, sessionId, id }) => {
         const key = `study:review-mutation:${encodeURIComponent(ownerId)}`;
         window.dispatchEvent(
           new StorageEvent("storage", {
@@ -189,14 +224,11 @@ test("a cross-tab mutation lease stays closed through server markers until relea
             newValue: JSON.stringify({
               version: 1,
               ownerId,
-              kind: mutationKind,
+              kind: "server-mutated",
               wordIds: [affectedWordId],
               sessionIds: [sessionId],
-              revision: `${mutationKind}-${Date.now()}`,
+              revision: `server-mutated-${Date.now()}`,
               leaseId: id,
-              ...(mutationKind === "mutation-started"
-                ? { expiresAt: Date.now() + 60_000 }
-                : {}),
             }),
             storageArea: window.localStorage,
           }),
@@ -206,16 +238,17 @@ test("a cross-tab mutation lease stays closed through server markers until relea
         ownerId: userId,
         affectedWordId: wordId,
         sessionId: data.studySession.id,
-        mutationKind: kind,
         id: leaseId,
       },
     );
   };
 
-  await dispatchMutation("mutation-started");
+  await dispatchActiveLease(
+    page, userId, leaseId, wordId, data.studySession.id, true,
+  );
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
   await dispatchServerRevision(page, userId, wordId, data.studySession.id);
-  await dispatchMutation("server-mutated");
+  await dispatchServerMarker();
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
   await page.waitForTimeout(250);
   expect(freshGets).toBe(0);
@@ -226,7 +259,9 @@ test("a cross-tab mutation lease stays closed through server markers until relea
       new URL(response.url()).pathname === "/api/study" &&
       response.ok(),
   );
-  await dispatchMutation("mutation-released");
+  await dispatchActiveLease(
+    page, userId, leaseId, wordId, data.studySession.id, false,
+  );
   await freshResponse;
   expect(freshGets).toBe(1);
   await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
@@ -261,39 +296,111 @@ test("a failed cross-tab lease reopens interaction without a fresh GET", async (
     await route.continue();
   });
   const leaseId = `failed-lease-${randomUUID()}`;
-  const dispatch = async (kind: "mutation-started" | "mutation-released") => {
-    await page.evaluate(
-      ({ ownerId, wordId, sessionId, id, mutationKind }) => {
-        const key = `study:review-mutation:${encodeURIComponent(ownerId)}`;
-        window.dispatchEvent(new StorageEvent("storage", {
-          key,
-          newValue: JSON.stringify({
-            version: 1,
-            ownerId,
-            kind: mutationKind,
-            wordIds: [wordId],
-            sessionIds: [sessionId],
-            revision: `${mutationKind}-${Date.now()}`,
-            leaseId: id,
-            ...(mutationKind === "mutation-started"
-              ? { expiresAt: Date.now() + 60_000 }
-              : {}),
-          }),
-          storageArea: window.localStorage,
-        }));
-      },
-      {
-        ownerId: userId,
-        wordId: data.queue[0].word.id,
-        sessionId: data.studySession.id,
-        id: leaseId,
-        mutationKind: kind,
-      },
-    );
-  };
-  await dispatch("mutation-started");
+  await dispatchActiveLease(
+    page,
+    userId,
+    leaseId,
+    data.queue[0].word.id,
+    data.studySession.id,
+    true,
+  );
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
-  await dispatch("mutation-released");
+  await dispatchActiveLease(
+    page,
+    userId,
+    leaseId,
+    data.queue[0].word.id,
+    data.studySession.id,
+    false,
+  );
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+  expect(freshGets).toBe(0);
+});
+
+test("two no-Web-Locks leases keep one barrier until both finish", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const wordId = data.queue[0].word.id;
+  const firstLease = `parallel-a-${randomUUID()}`;
+  const secondLease = `parallel-b-${randomUUID()}`;
+  let freshGets = 0;
+  await page.route("**/api/study*", async (route) => {
+    if (
+      route.request().method() === "GET" &&
+      new URL(route.request().url()).pathname === "/api/study"
+    ) freshGets += 1;
+    await route.continue();
+  });
+  await dispatchActiveLease(
+    page, userId, firstLease, wordId, data.studySession.id, true,
+  );
+  await dispatchActiveLease(
+    page, userId, secondLease, wordId, data.studySession.id, true,
+  );
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  await dispatchServerRevision(page, userId, wordId, data.studySession.id);
+  await dispatchActiveLease(
+    page, userId, firstLease, wordId, data.studySession.id, false,
+  );
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  expect(freshGets).toBe(0);
+  await dispatchActiveLease(
+    page, userId, secondLease, wordId, data.studySession.id, false,
+  );
+  await expect.poll(() => freshGets).toBe(1);
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
+});
+
+test("two failed no-Web-Locks leases reopen without a random GET", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const wordId = data.queue[0].word.id;
+  const leases = [`failed-a-${randomUUID()}`, `failed-b-${randomUUID()}`];
+  let freshGets = 0;
+  await page.route("**/api/study*", async (route) => {
+    if (
+      route.request().method() === "GET" &&
+      new URL(route.request().url()).pathname === "/api/study"
+    ) freshGets += 1;
+    await route.continue();
+  });
+  for (const lease of leases) {
+    await dispatchActiveLease(
+      page, userId, lease, wordId, data.studySession.id, true,
+    );
+  }
+  for (const lease of leases) {
+    await dispatchActiveLease(
+      page, userId, lease, wordId, data.studySession.id, false,
+    );
+  }
   await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
   expect(freshGets).toBe(0);
 });
@@ -429,6 +536,7 @@ test("a superseded quiz credential preserves and replays the same answer operati
     operations: [{
       operationId: submissions[0].operationId,
       wordId: targetWordId,
+      quality: submissions[0].quality,
     }],
   });
   expect(submissions[1]).toMatchObject({
@@ -679,7 +787,7 @@ for (const startupFailure of [
   });
 }
 
-test("an expired startup mutation marker does not discard a resume snapshot", async ({
+test("an expired startup lease does not discard a resume snapshot", async ({
   page,
 }) => {
   const initialResponse = page.waitForResponse(
@@ -695,11 +803,10 @@ test("an expired startup mutation marker does not discard a resume snapshot", as
   await page.evaluate(
     ({ ownerId, wordId, sessionId }) => {
       window.localStorage.setItem(
-        `study:review-mutation:${encodeURIComponent(ownerId)}`,
+        `study:review-active-lease:${encodeURIComponent(ownerId)}:expired-startup-lease`,
         JSON.stringify({
           version: 1,
           ownerId,
-          kind: "mutation-started",
           wordIds: [wordId],
           sessionIds: [sessionId],
           revision: `expired-${Date.now()}`,
@@ -732,6 +839,79 @@ test("an expired startup mutation marker does not discard a resume snapshot", as
   expect(new URL(queueRequests[0]).searchParams.get("resumeSessionId")).toBe(
     data.studySession.id,
   );
+});
+
+test("startup follows lease heartbeats instead of a fixed deadline", async ({ page }) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  const leaseId = `heartbeat-${randomUUID()}`;
+  const initialLeaseDeadline = await page.evaluate(
+    ({ ownerId, id, wordId, sessionId }) => {
+      const key = `study:review-active-lease:${encodeURIComponent(ownerId)}:${encodeURIComponent(id)}`;
+      const expiresAt = Date.now() + 4_000;
+      window.localStorage.setItem(key, JSON.stringify({
+        version: 1,
+        ownerId,
+        leaseId: id,
+        wordIds: [wordId],
+        sessionIds: [sessionId],
+        expiresAt,
+        revision: `heartbeat-initial-${Date.now()}`,
+      }));
+      return expiresAt;
+    },
+    {
+      ownerId: userId,
+      id: leaseId,
+      wordId: data.queue[0].word.id,
+      sessionId: data.studySession.id,
+    },
+  );
+
+  await page.reload();
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  expect(Date.now()).toBeLessThan(initialLeaseDeadline);
+  await page.evaluate(
+    ({ ownerId, id, wordId, sessionId }) => {
+      const key = `study:review-active-lease:${encodeURIComponent(ownerId)}:${encodeURIComponent(id)}`;
+      window.localStorage.setItem(key, JSON.stringify({
+        version: 1,
+        ownerId,
+        leaseId: id,
+        wordIds: [wordId],
+        sessionIds: [sessionId],
+        expiresAt: Date.now() + 5_000,
+        revision: `heartbeat-extended-${Date.now()}`,
+      }));
+    },
+    {
+      ownerId: userId,
+      id: leaseId,
+      wordId: data.queue[0].word.id,
+      sessionId: data.studySession.id,
+    },
+  );
+  await page.waitForTimeout(
+    Math.max(0, initialLeaseDeadline - Date.now() + 250),
+  );
+  await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+
+  await page.evaluate(
+    ({ ownerId, id }) => {
+      window.localStorage.removeItem(
+        `study:review-active-lease:${encodeURIComponent(ownerId)}:${encodeURIComponent(id)}`,
+      );
+    },
+    { ownerId: userId, id: leaseId },
+  );
+  await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
 });
 
 test("an expired active row enters the barrier before slow credential renewal", async ({
@@ -1557,14 +1737,16 @@ test("an unrelated startup submission preserves a matching checkpoint", async ({
   await page.reload();
   await expect(page.getByText(/已恢復上次進度|已恢复上次进度/)).toBeVisible();
   await expect(page.getByText(/認識 1|认识 1/)).toBeVisible();
-  await expect.poll(() => queueRequests.length).toBe(1);
-  const resumeRequest = new URL(queueRequests[0]);
-  expect(resumeRequest.searchParams.get("resumeIds")).toBe(
-    initialData.queue.map((item) => item.word.id).join(","),
-  );
-  expect(resumeRequest.searchParams.get("resumeSessionId")).toBe(
-    initialData.studySession.id,
-  );
+  await expect.poll(() => queueRequests.length).toBe(2);
+  for (const requestUrl of queueRequests) {
+    const resumeRequest = new URL(requestUrl);
+    expect(resumeRequest.searchParams.get("resumeIds")).toBe(
+      initialData.queue.map((item) => item.word.id).join(","),
+    );
+    expect(resumeRequest.searchParams.get("resumeSessionId")).toBe(
+      initialData.studySession.id,
+    );
+  }
   const checkpoint = await page.evaluate((ownerId) => {
     const raw = window.localStorage.getItem(
       `study:checkpoint:${encodeURIComponent(ownerId)}:global`,
@@ -1573,6 +1755,88 @@ test("an unrelated startup submission preserves a matching checkpoint", async ({
   }, userId!);
   expect(checkpoint?.currentIndex).toBe(1);
   expect(checkpoint?.knownWordIds).toEqual([initialData.queue[0].word.id]);
+});
+
+test("a later unrelated revision cannot hide an earlier active-word revision", async ({
+  page,
+}) => {
+  const initialResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/study" &&
+      response.ok(),
+  );
+  await page.goto("/study");
+  const data = (await (await initialResponse).json()) as StudyWorkflowData;
+  const userId = await authenticatedUserId(page);
+  await installAssessCheckpoint(page, userId, data);
+  await page.evaluate((ownerId) => {
+    window.localStorage.setItem(
+      `study:review-server-revision:${encodeURIComponent(ownerId)}`,
+      JSON.stringify({
+        version: 1,
+        ownerId,
+        wordIds: [],
+        sessionIds: [],
+        revision: "revision-before-startup",
+      }),
+    );
+  }, userId);
+
+  const queueRequests: string[] = [];
+  let releaseFirst!: () => void;
+  let markFirstStarted!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
+  await page.route("**/api/study*", async (route) => {
+    const request = route.request();
+    if (
+      request.method() !== "GET" ||
+      new URL(request.url()).pathname !== "/api/study"
+    ) {
+      await route.continue();
+      return;
+    }
+    queueRequests.push(request.url());
+    if (queueRequests.length === 1) {
+      markFirstStarted();
+      await firstGate;
+    }
+    await route.continue();
+  });
+
+  const reload = page.reload();
+  await firstStarted;
+  await page.evaluate(
+    ({ ownerId, activeWordId }) => {
+      const key = `study:review-server-revision:${encodeURIComponent(ownerId)}`;
+      window.localStorage.setItem(key, JSON.stringify({
+        version: 1,
+        ownerId,
+        wordIds: [activeWordId],
+        sessionIds: [],
+        revision: "relevant-revision",
+      }));
+      window.localStorage.setItem(key, JSON.stringify({
+        version: 1,
+        ownerId,
+        wordIds: [`unrelated-${Date.now()}`],
+        sessionIds: [],
+        revision: "later-unrelated-revision",
+      }));
+    },
+    { ownerId: userId, activeWordId: data.queue[0].word.id },
+  );
+  releaseFirst();
+  await reload;
+  await expect.poll(() => queueRequests.length).toBe(2);
+  for (const requestUrl of queueRequests) {
+    expect(new URL(requestUrl).searchParams.get("resumeSessionId")).toBe(
+      data.studySession.id,
+    );
+  }
+  await expect(page.getByText(/已恢復上次進度|已恢复上次进度/)).toBeVisible();
+  await expect(page.getByText(/認識 1|认识 1/)).toBeVisible();
 });
 
 test("an affected fresh queue resets stale quiz and classification state", async ({

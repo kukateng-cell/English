@@ -45,10 +45,13 @@ import {
   legacyReviewCount,
   claimLegacyReviews,
   discardLegacyReviews,
+  loadActiveReviewLeases,
   parseReviewQueueMutationEvent,
+  parseReviewQueueActiveLease,
   parseReviewQueueServerRevision,
   planReviewQueueMutation,
   reviewQueueItemStoragePrefix,
+  reviewQueueActiveLeaseStoragePrefix,
   reviewQueueMutationStorageKey,
   reviewQueueServerRevisionStorageKey,
   ReviewQueueStorageError,
@@ -101,6 +104,7 @@ interface StudyQueueResponse {
   unitMode?: boolean;
   category?: string | null;
   streak?: StreakInfo | null;
+  resumedSession?: boolean;
   studySession?: StudySessionInfo | null;
 }
 
@@ -582,6 +586,7 @@ export default function StudyPage() {
   );
   const externalMutationAffectedWordIdsRef = useRef(new Set<string>());
   const externalBarrierGenerationRef = useRef<number | null>(null);
+  const startupFenceDirtyRef = useRef(false);
   const loadingRef = useRef(loading);
   const studySessionRef = useRef(studySession);
   const [interactionEpoch, setInteractionEpoch] = useState(0);
@@ -1202,6 +1207,7 @@ export default function StudyPage() {
     const effectLeaseTimers = externalMutationLeaseTimersRef.current;
     const effectAffectedWordIds = externalMutationAffectedWordIdsRef.current;
     const itemPrefix = reviewQueueItemStoragePrefix(userId);
+    const activeLeasePrefix = reviewQueueActiveLeaseStoragePrefix(userId);
     const mutationKey = reviewQueueMutationStorageKey(userId);
     const serverRevisionKey = reviewQueueServerRevisionStorageKey(userId);
     const finishExternalBarrier = () => {
@@ -1238,9 +1244,48 @@ export default function StudyPage() {
         refreshSyncCounts();
         return;
       }
+      if (event.key.startsWith(activeLeasePrefix)) {
+        const lease = parseReviewQueueActiveLease(userId, event.newValue);
+        const encodedLeaseId = event.key.slice(activeLeasePrefix.length);
+        let leaseId = encodedLeaseId;
+        try {
+          leaseId = decodeURIComponent(encodedLeaseId);
+        } catch {
+          // An invalid key cannot correspond to a lease accepted by this tab.
+        }
+        const leaseTimers = externalMutationLeaseTimersRef.current;
+        if (!lease) {
+          const timer = leaseTimers.get(leaseId);
+          if (timer) clearTimeout(timer);
+          leaseTimers.delete(leaseId);
+          finishExternalBarrier();
+          return;
+        }
+        if (!affectsCurrentLifecycle(lease.wordIds)) return;
+        if (lease.expiresAt <= Date.now()) return;
+        if (
+          leaseTimers.size === 0 &&
+          externalBarrierGenerationRef.current === null &&
+          !loadingRef.current
+        ) {
+          externalBarrierGenerationRef.current = beginReconciliation();
+        }
+        const existingTimer = leaseTimers.get(lease.leaseId);
+        if (existingTimer) clearTimeout(existingTimer);
+        leaseTimers.set(
+          lease.leaseId,
+          setTimeout(() => {
+            leaseTimers.delete(lease.leaseId);
+            finishExternalBarrier();
+          }, Math.max(0, lease.expiresAt - Date.now())),
+        );
+        return;
+      }
       if (event.key === serverRevisionKey) {
         const revision = parseReviewQueueServerRevision(userId, event.newValue);
-        if (!revision || !affectsCurrentLifecycle(revision.wordIds)) return;
+        if (!revision) return;
+        if (loadingRef.current) startupFenceDirtyRef.current = true;
+        if (!affectsCurrentLifecycle(revision.wordIds)) return;
         revision.wordIds.forEach((wordId) =>
           externalMutationAffectedWordIdsRef.current.add(wordId),
         );
@@ -1586,7 +1631,11 @@ export default function StudyPage() {
 
     const requestQueue = async (
       params: URLSearchParams,
-    ): Promise<StudyQueueResponse | null> => {
+    ): Promise<
+      | { kind: "ok"; data: StudyQueueResponse }
+      | { kind: "resume-invalid" }
+      | { kind: "failed" }
+    > => {
       const controller = new AbortController();
       controllers.add(controller);
       const timeout = window.setTimeout(
@@ -1597,23 +1646,29 @@ export default function StudyPage() {
         const res = await fetch(`/api/study?${params.toString()}`, {
           signal: controller.signal,
         });
-        if (!canApply()) return null;
+        if (!canApply()) return { kind: "failed" };
         if (res.status === 401) {
           router.push("/login");
-          return null;
+          return { kind: "failed" };
         }
         if (res.status === 403) {
           setLocked(true);
           setQueue([]);
           setPool([]);
           setUnitCategory(null);
-          return null;
+          return { kind: "failed" };
+        }
+        if (res.status === 409 && params.has("resumeIds")) {
+          return { kind: "resume-invalid" };
         }
         if (!res.ok) {
           setError(await responseErrorMessage(res));
-          return null;
+          return { kind: "failed" };
         }
-        return (await res.json()) as StudyQueueResponse;
+        return {
+          kind: "ok",
+          data: (await res.json()) as StudyQueueResponse,
+        };
       } finally {
         window.clearTimeout(timeout);
         controllers.delete(controller);
@@ -1643,10 +1698,7 @@ export default function StudyPage() {
         // Start credentialed outbox recovery and queue loading together. The
         // page remains in its loading state until both phases reconcile, so a
         // stale queue/session can never become interactive.
-        const startupMutationBefore = parseReviewQueueMutationEvent(
-          userId,
-          window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
-        );
+        startupFenceDirtyRef.current = false;
         const serverRevisionBefore = parseReviewQueueServerRevision(
           userId,
           window.localStorage.getItem(
@@ -1659,11 +1711,21 @@ export default function StudyPage() {
           undefined,
           canApply,
         );
-        let data = await requestQueue(params);
-        if (!data) {
+        let restoreAllowed = true;
+        let queueResult = await requestQueue(params);
+        if (queueResult.kind === "resume-invalid") {
+          clearCheckpoint(userId, getUnitKey());
+          checkpoint = null;
+          restoreAllowed = false;
+          params.delete("resumeIds");
+          params.delete("resumeSessionId");
+          queueResult = await requestQueue(params);
+        }
+        if (queueResult.kind !== "ok") {
           await initialFlushPromise;
           return;
         }
+        let data = queueResult.data;
         const firstSession = data.studySession ?? null;
         const adoptionPromise = flushPending(
           firstSession,
@@ -1677,43 +1739,15 @@ export default function StudyPage() {
         ]);
         if (!canApply()) return;
         if (initialFlush.storageError || adoptionFlush.storageError) return;
-        const startupMutationAfter = parseReviewQueueMutationEvent(
-          userId,
-          window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
-        );
-        const activeStartupLease = [
-          startupMutationAfter,
-          startupMutationBefore,
-        ].find((mutation) =>
-          (mutation?.kind === "mutation-started" ||
-            mutation?.kind === "server-mutated") &&
-          Boolean(mutation.leaseId) &&
-          (mutation.expiresAt ?? 0) > Date.now(),
-        );
-        if (activeStartupLease) {
-          const leaseId = activeStartupLease.leaseId ?? activeStartupLease.revision;
-          const deadline = activeStartupLease.expiresAt ?? Date.now();
-          while (canApply() && Date.now() < deadline) {
-            const current = parseReviewQueueMutationEvent(
-              userId,
-              window.localStorage.getItem(reviewQueueMutationStorageKey(userId)),
-            );
-            if (
-              current?.kind === "mutation-released" &&
-              (current.leaseId ?? current.revision) === leaseId
-            ) {
-              break;
-            }
+        const waitForActiveLeases = async () => {
+          while (canApply()) {
+            const activeLeases = loadActiveReviewLeases(userId);
+            if (activeLeases.length === 0) return true;
             await new Promise((resolve) => window.setTimeout(resolve, 50));
           }
-          if (!canApply()) return;
-        }
-        const serverRevisionAfter = parseReviewQueueServerRevision(
-          userId,
-          window.localStorage.getItem(
-            reviewQueueServerRevisionStorageKey(userId),
-          ),
-        );
+          return false;
+        };
+        if (!await waitForActiveLeases()) return;
         const concurrentServerMutatedWordIds = new Set([
           ...initialFlush.submittedWordIds,
           ...adoptionFlush.submittedWordIds,
@@ -1729,15 +1763,6 @@ export default function StudyPage() {
         const firstQueueWordIds = new Set(
           (data.queue ?? []).map((item) => item.word.id),
         );
-        const startupSnapshotWordIds = new Set([
-          ...firstQueueWordIds,
-          ...(checkpoint?.queueSignature ?? []),
-        ]);
-        const serverRevisionChanged =
-          serverRevisionBefore?.revision !== serverRevisionAfter?.revision &&
-          Boolean(serverRevisionAfter?.wordIds.some((wordId) =>
-            startupSnapshotWordIds.has(wordId),
-          ));
         const activeServerMutation = [...concurrentServerMutatedWordIds].some(
           (wordId) => firstQueueWordIds.has(wordId),
         );
@@ -1748,17 +1773,72 @@ export default function StudyPage() {
             firstQueueWordIds.has(wordId) &&
             !concurrentServerMutatedWordIds.has(wordId),
         );
-        let restoreAllowed = true;
-        if (activeServerMutation || serverRevisionChanged) {
-          // A startup submission changed SM-2 state, or consumed a nonce from
-          // the first response. A mutation revision change also means another
-          // tab held the queue lock while the first GET was in flight. Discard
-          // that response and request a wholly fresh queue/session without a
-          // resume snapshot.
-          data = await requestQueue(
-            new URLSearchParams(window.location.search),
-          );
-          if (!data || !canApply()) return;
+        let acceptedRevision = serverRevisionBefore?.revision ?? null;
+        let acceptedNonces = data.studySession?.nonces ?? {};
+        let needsOwnMutationRevalidation = activeServerMutation;
+        let stableSnapshot = false;
+        for (let fenceAttempt = 0; fenceAttempt < 5; fenceAttempt += 1) {
+          const revisionNow = parseReviewQueueServerRevision(
+            userId,
+            window.localStorage.getItem(
+              reviewQueueServerRevisionStorageKey(userId),
+            ),
+          )?.revision ?? null;
+          const mustRevalidate =
+            needsOwnMutationRevalidation ||
+            startupFenceDirtyRef.current ||
+            revisionNow !== acceptedRevision;
+          if (mustRevalidate) {
+            startupFenceDirtyRef.current = false;
+            let revalidated = await requestQueue(params);
+            if (revalidated.kind === "resume-invalid") {
+              clearCheckpoint(userId, getUnitKey());
+              checkpoint = null;
+              restoreAllowed = false;
+              params.delete("resumeIds");
+              params.delete("resumeSessionId");
+              revalidated = await requestQueue(params);
+            }
+            if (revalidated.kind !== "ok" || !canApply()) return;
+            const revalidatedNonces = revalidated.data.studySession?.nonces ?? {};
+            const consumedResumeCredential =
+              params.has("resumeIds") &&
+              Object.keys(acceptedNonces).some(
+                (wordId) => !(wordId in revalidatedNonces),
+              );
+            if (consumedResumeCredential) {
+              clearCheckpoint(userId, getUnitKey());
+              checkpoint = null;
+              restoreAllowed = false;
+              params.delete("resumeIds");
+              params.delete("resumeSessionId");
+              revalidated = await requestQueue(params);
+              if (revalidated.kind !== "ok" || !canApply()) return;
+            }
+            data = revalidated.data;
+            acceptedNonces = data.studySession?.nonces ?? {};
+            acceptedRevision = revisionNow;
+            needsOwnMutationRevalidation = false;
+          }
+          if (!await waitForActiveLeases()) return;
+          const finalRevision = parseReviewQueueServerRevision(
+            userId,
+            window.localStorage.getItem(
+              reviewQueueServerRevisionStorageKey(userId),
+            ),
+          )?.revision ?? null;
+          if (
+            !startupFenceDirtyRef.current &&
+            finalRevision === acceptedRevision &&
+            loadActiveReviewLeases(userId).length === 0
+          ) {
+            stableSnapshot = true;
+            break;
+          }
+        }
+        if (!stableSnapshot) {
+          setError("学习记录正在其他分页更新，请稍后重试");
+          return;
         }
         if (unresolvedSessionReservation) {
           setError(
@@ -1795,6 +1875,21 @@ export default function StudyPage() {
           setError(
             "目前学习队列仍有同一单词等待同步，请恢复网络后重试，避免重复记录学习进度",
           );
+          return;
+        }
+
+        const preApplyRevision = parseReviewQueueServerRevision(
+          userId,
+          window.localStorage.getItem(
+            reviewQueueServerRevisionStorageKey(userId),
+          ),
+        )?.revision ?? null;
+        if (
+          startupFenceDirtyRef.current ||
+          preApplyRevision !== acceptedRevision ||
+          loadActiveReviewLeases(userId).length > 0
+        ) {
+          setReloadKey((key) => key + 1);
           return;
         }
 

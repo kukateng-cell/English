@@ -44,3 +44,14 @@ test("strict production configuration rejects the old shared switch", () => {
     ["REQUIRE_STUDY_OPERATION_ID=0 is no longer permitted"],
   );
 });
+
+test("production configuration rejects the browser-test queue limit override", () => {
+  const errors = productionConfigurationErrors({
+    UPSTASH_REDIS_REST_URL: "https://example.invalid",
+    UPSTASH_REDIS_REST_TOKEN: "test-token",
+    CRON_SECRET: "local-check-secret",
+    SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
+    E2E_STUDY_QUEUE_LOAD_LIMIT: "1000",
+  });
+  assert.ok(errors.some((error) => error.includes("E2E_STUDY_QUEUE_LOAD_LIMIT")));
+});

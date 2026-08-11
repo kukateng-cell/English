@@ -89,6 +89,16 @@ export interface ReviewQueueServerRevision {
   revision: string;
 }
 
+export interface ReviewQueueActiveLease {
+  version: 1;
+  ownerId: string;
+  leaseId: string;
+  wordIds: string[];
+  sessionIds: string[];
+  expiresAt: number;
+  revision: string;
+}
+
 export interface ReviewQueueMutationPlan {
   /** Rows that can POST, renew then POST, or adopt the supplied session then POST now. */
   willMutateWordIds: string[];
@@ -111,6 +121,7 @@ const QUEUE_PREFIX = "study:review-queue:";
 const ITEM_PREFIX = "study:review-item:";
 const MUTATION_PREFIX = "study:review-mutation:";
 const SERVER_REVISION_PREFIX = "study:review-server-revision:";
+const ACTIVE_LEASE_PREFIX = "study:review-active-lease:";
 const LEGACY_QUEUE_KEY = "study:review-queue";
 const VERSION = 5;
 const MAX_FLUSH_BATCH = 20;
@@ -170,6 +181,97 @@ export function reviewQueueMutationStorageKey(userId: string): string {
 
 export function reviewQueueServerRevisionStorageKey(userId: string): string {
   return `${SERVER_REVISION_PREFIX}${encodeURIComponent(userId)}`;
+}
+
+export function reviewQueueActiveLeaseStoragePrefix(userId: string): string {
+  return `${ACTIVE_LEASE_PREFIX}${encodeURIComponent(userId)}:`;
+}
+
+export function reviewQueueActiveLeaseStorageKey(
+  userId: string,
+  leaseId: string,
+): string {
+  return `${reviewQueueActiveLeaseStoragePrefix(userId)}${encodeURIComponent(leaseId)}`;
+}
+
+export function parseReviewQueueActiveLease(
+  userId: string,
+  raw: string | null,
+): ReviewQueueActiveLease | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      value.version !== 1 ||
+      value.ownerId !== userId ||
+      typeof value.leaseId !== "string" ||
+      !Array.isArray(value.wordIds) ||
+      !value.wordIds.every((wordId) => typeof wordId === "string") ||
+      !Array.isArray(value.sessionIds) ||
+      !value.sessionIds.every((sessionId) => typeof sessionId === "string") ||
+      typeof value.expiresAt !== "number" ||
+      typeof value.revision !== "string"
+    ) return null;
+    return value as unknown as ReviewQueueActiveLease;
+  } catch {
+    return null;
+  }
+}
+
+export function loadActiveReviewLeases(userId: string): ReviewQueueActiveLease[] {
+  if (typeof window === "undefined") return [];
+  const prefix = reviewQueueActiveLeaseStoragePrefix(userId);
+  const active: ReviewQueueActiveLease[] = [];
+  const expiredKeys: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key?.startsWith(prefix)) continue;
+    const lease = parseReviewQueueActiveLease(
+      userId,
+      window.localStorage.getItem(key),
+    );
+    if (!lease || lease.expiresAt <= Date.now()) expiredKeys.push(key);
+    else active.push(lease);
+  }
+  for (const key of expiredKeys) window.localStorage.removeItem(key);
+  return active;
+}
+
+function publishReviewQueueActiveLease(
+  userId: string,
+  leaseId: string,
+  wordIds: string[],
+  sessionIds: string[],
+): boolean {
+  try {
+    const lease: ReviewQueueActiveLease = {
+      version: 1,
+      ownerId: userId,
+      leaseId,
+      wordIds: [...new Set(wordIds)],
+      sessionIds: [...new Set(sessionIds)],
+      expiresAt: Date.now() + REVIEW_REQUEST_TIMEOUT_MS + 5_000,
+      revision: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    };
+    window.localStorage.setItem(
+      reviewQueueActiveLeaseStorageKey(userId, leaseId),
+      JSON.stringify(lease),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function releaseReviewQueueActiveLease(userId: string, leaseId: string): boolean {
+  try {
+    window.localStorage.removeItem(
+      reviewQueueActiveLeaseStorageKey(userId, leaseId),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function parseReviewQueueServerRevision(
@@ -1359,6 +1461,7 @@ async function recoverRefreshRequiredReview(
         operations: [{
           operationId: operation.operationId,
           wordId: operation.wordId,
+          quality: operation.quality,
         }],
       }),
     });
@@ -1397,9 +1500,34 @@ async function recoverRefreshRequiredReview(
         });
         return "reconciled";
       }
-      // Ownership conflicts do not prove that this answer was applied. Keep
-      // the operation retryable and visible instead of converting it to a
-      // permanent client error.
+      const permanentCodes = new Set([
+        "SOURCE_SESSION_GONE",
+        "WORD_NOT_IN_SOURCE_SESSION",
+        "CREDENTIAL_RECOVERY_UNAVAILABLE",
+        "OPERATION_FINGERPRINT_MISMATCH",
+      ]);
+      if (
+        response.status === 403 ||
+        response.status === 404 ||
+        (typeof payload?.code === "string" && permanentCodes.has(payload.code))
+      ) {
+        const current = loadPendingReviews(userId).find(
+          (item) => item.operationId === operation.operationId,
+        );
+        if (current && !writeReviewItem(userId, {
+          ...current,
+          status: "blocked",
+          credentialState: "blocked",
+          attempts: current.attempts + 1,
+          lastError: message,
+          nextAttemptAt: undefined,
+        })) {
+          throw new ReviewQueueStorageError();
+        }
+        return "none";
+      }
+      // RECOVERY_BUSY, rate limits, and server failures retain the exact
+      // operation for a later ownership-safe retry.
       markRetry(message, retryAfterMs(response));
       return "none";
     }
@@ -1504,12 +1632,11 @@ export function flushPendingReviewOperation(
     const leaseId = globalThis.crypto?.randomUUID?.() ??
       `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const heartbeat = () => {
-      if (!publishReviewQueueMutation(
+      if (!publishReviewQueueActiveLease(
         userId,
-        "mutation-started",
+        leaseId,
         [target.wordId],
         target.studySessionId ? [target.studySessionId] : [],
-        leaseId,
       )) {
         throw new ReviewQueueStorageError();
       }
@@ -1525,13 +1652,7 @@ export function flushPendingReviewOperation(
       );
       return outcome.remaining;
     } finally {
-      if (!publishReviewQueueMutation(
-        userId,
-        "mutation-released",
-        [target.wordId],
-        [],
-        leaseId,
-      )) {
+      if (!releaseReviewQueueActiveLease(userId, leaseId)) {
         throw new ReviewQueueStorageError();
       }
     }
@@ -1551,12 +1672,11 @@ export async function flushPendingReviews(
     const announcedSessionIds = new Set<string>();
     const heartbeat = () => {
       if (!leaseActive) return;
-      if (!publishReviewQueueMutation(
+      if (!publishReviewQueueActiveLease(
         userId,
-        "mutation-started",
+        leaseId,
         [...announcedWordIds],
         [...announcedSessionIds],
-        leaseId,
       )) {
         throw new ReviewQueueStorageError();
       }
@@ -1623,13 +1743,7 @@ export async function flushPendingReviews(
     } finally {
       if (
         leaseActive &&
-        !publishReviewQueueMutation(
-          userId,
-          "mutation-released",
-          [...announcedWordIds],
-          [],
-          leaseId,
-        )
+        !releaseReviewQueueActiveLease(userId, leaseId)
       ) {
         throw new ReviewQueueStorageError();
       }

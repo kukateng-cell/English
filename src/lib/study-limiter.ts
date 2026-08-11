@@ -2,8 +2,21 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
 const MAX_EVENTS_PER_MINUTE = 90;
-const MAX_QUEUE_LOADS_PER_USER_PER_MINUTE = 60;
-const MAX_QUEUE_LOADS_PER_IP_PER_MINUTE = 120;
+const DEFAULT_MAX_QUEUE_LOADS_PER_USER_PER_MINUTE = 60;
+const DEFAULT_MAX_QUEUE_LOADS_PER_IP_PER_MINUTE = 120;
+const e2eQueueLimit = Number(process.env.E2E_STUDY_QUEUE_LOAD_LIMIT);
+const validE2eQueueLimit =
+  process.env.ENABLE_TEST_ROUTES === "1" &&
+  Number.isSafeInteger(e2eQueueLimit) &&
+  e2eQueueLimit >= DEFAULT_MAX_QUEUE_LOADS_PER_IP_PER_MINUTE &&
+  e2eQueueLimit <= 1_000;
+const MAX_QUEUE_LOADS_PER_USER_PER_MINUTE =
+  validE2eQueueLimit
+    ? e2eQueueLimit
+    : DEFAULT_MAX_QUEUE_LOADS_PER_USER_PER_MINUTE;
+const MAX_QUEUE_LOADS_PER_IP_PER_MINUTE = validE2eQueueLimit
+  ? e2eQueueLimit
+  : DEFAULT_MAX_QUEUE_LOADS_PER_IP_PER_MINUTE;
 const MAX_CREDENTIAL_RENEWALS_PER_USER_PER_MINUTE = 30;
 const MAX_CREDENTIAL_RENEWALS_PER_IP_PER_MINUTE = 120;
 const WINDOW_MS = 60_000;

@@ -35,6 +35,9 @@ export function productionConfigurationErrors(
   if (env.REQUIRE_STUDY_OPERATION_ID === "0") {
     errors.push("REQUIRE_STUDY_OPERATION_ID=0 is no longer permitted");
   }
+  if (env.E2E_STUDY_QUEUE_LOAD_LIMIT) {
+    errors.push("E2E_STUDY_QUEUE_LOAD_LIMIT is only permitted in local browser tests");
+  }
   if (
     env.STUDY_OPERATION_ID_COMPAT_UNTIL &&
     legacyOperationIdCompatibilityEndsAt(

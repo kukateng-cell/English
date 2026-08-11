@@ -48,7 +48,12 @@ export async function POST(req: Request) {
         typeof row.operationId !== "string" ||
         !ID_PATTERN.test(row.operationId) ||
         typeof row.wordId !== "string" ||
-        !/^[A-Za-z0-9_-]{1,128}$/.test(row.wordId)
+        !/^[A-Za-z0-9_-]{1,128}$/.test(row.wordId) ||
+        (mode === "recover" &&
+          (typeof row.quality !== "number" ||
+            !Number.isInteger(row.quality) ||
+            row.quality < 0 ||
+            row.quality > 5))
       );
     })
   ) {
@@ -58,6 +63,7 @@ export async function POST(req: Request) {
     const typedOperations = operations as Array<{
       operationId: string;
       wordId: string;
+      quality?: number;
     }>;
     const studySession = mode === "recover"
       ? await recoverStudySessionCredential(
@@ -80,9 +86,15 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     if (error instanceof StudyCredentialRenewalError) {
+      const retryAfter = typeof error.details.retryAfterSec === "number"
+        ? String(error.details.retryAfterSec)
+        : undefined;
       return NextResponse.json(
         { error: error.message, ...error.details },
-        { status: error.status },
+        {
+          status: error.status,
+          headers: retryAfter ? { "Retry-After": retryAfter } : undefined,
+        },
       );
     }
     throw error;

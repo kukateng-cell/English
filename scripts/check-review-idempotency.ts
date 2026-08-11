@@ -338,7 +338,7 @@ async function main() {
     const recoveredRotationFirst = await recoverStudySessionCredential(
       user.id,
       rotationFirstSource.id,
-      { operationId: rotationFirstOperation, wordId: sessionWord.id },
+      { operationId: rotationFirstOperation, wordId: sessionWord.id, quality: 5 },
     );
     if (recoveredRotationFirst.id !== rotationFirstReplacement.id) {
       throw new Error("recovery did not follow the rotation replacement lineage");
@@ -351,7 +351,7 @@ async function main() {
     const recoveredRotationReplay = await recoverStudySessionCredential(
       user.id,
       rotationFirstSource.id,
-      { operationId: rotationFirstOperation, wordId: sessionWord.id },
+      { operationId: rotationFirstOperation, wordId: sessionWord.id, quality: 5 },
     );
     if (
       recoveredRotationReplay.id !== recoveredRotationFirst.id ||
@@ -473,6 +473,16 @@ async function main() {
       nonce: renewedNonce,
     });
 
+    const capRecoverySource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `cap-recovery-source-${suffix}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        items: {
+          create: { wordId: sessionWord.id, nonce: randomUUID() },
+        },
+      },
+    });
     for (let index = 0; index < 7; index++) {
       await prisma.studySession.create({
         data: {
@@ -500,6 +510,168 @@ async function main() {
       throw new Error(
         `study session reuse/retirement failed: active=${activeSessionCount}, retired=${retainedRetiredSessionCount}`,
       );
+    }
+    const capSourceAfterRetirement = await prisma.studySession.findUniqueOrThrow({
+      where: { id: capRecoverySource.id },
+    });
+    if (!capSourceAfterRetirement.retiredAt) {
+      throw new Error("active-session cap did not retire the recovery source");
+    }
+    const capRecoveryOperation = `cap-recovery_${randomUUID()}`;
+    const capRecovered = await recoverStudySessionCredential(
+      user.id,
+      capRecoverySource.id,
+      {
+        operationId: capRecoveryOperation,
+        wordId: sessionWord.id,
+        quality: 4,
+      },
+    );
+    const capRecoveryNonce = serializeStudySession(capRecovered)
+      ?.nonces[sessionWord.id];
+    if (!capRecoveryNonce) {
+      throw new Error("cap-retired source did not issue a recovery credential");
+    }
+    const capRecoveryReplay = await recoverStudySessionCredential(
+      user.id,
+      capRecoverySource.id,
+      {
+        operationId: capRecoveryOperation,
+        wordId: sessionWord.id,
+        quality: 4,
+      },
+    );
+    if (
+      capRecoveryReplay.id !== capRecovered.id ||
+      serializeStudySession(capRecoveryReplay)?.nonces[sessionWord.id] !==
+        capRecoveryNonce
+    ) {
+      throw new Error("cap recovery response-loss replay changed its credential");
+    }
+    const sourceWithSuccessor = await prisma.studySessionItem.findUniqueOrThrow({
+      where: {
+        sessionId_wordId: {
+          sessionId: capRecoverySource.id,
+          wordId: sessionWord.id,
+        },
+      },
+      include: { successorItem: true },
+    });
+    if (sourceWithSuccessor.successorItem?.sessionId !== capRecovered.id) {
+      throw new Error("cap recovery did not persist item-level lineage");
+    }
+    await applyReviewEvent({
+      userId: user.id,
+      wordId: sessionWord.id,
+      quality: 4,
+      operationId: capRecoveryOperation,
+      studySessionId: capRecovered.id,
+      nonce: capRecoveryNonce,
+    });
+    const capRecoveryEventCount = await prisma.reviewEvent.count({
+      where: { userId: user.id, operationId: capRecoveryOperation },
+    });
+    if (capRecoveryEventCount !== 1) {
+      throw new Error(`cap recovery created ${capRecoveryEventCount} review events`);
+    }
+    await assertRejectsCode(
+      () => recoverStudySessionCredential(
+        user.id,
+        capRecoverySource.id,
+        {
+          operationId: `cap-recovery-other_${randomUUID()}`,
+          wordId: sessionWord.id,
+          quality: 4,
+        },
+      ),
+      "REVIEW_ALREADY_PROCESSED",
+    );
+    await assertRejectsCode(
+      () => recoverStudySessionCredential(
+        user.id,
+        capRecoverySource.id,
+        {
+          operationId: capRecoveryOperation,
+          wordId: sessionWord.id,
+          quality: 5,
+        },
+      ),
+      "OPERATION_FINGERPRINT_MISMATCH",
+    );
+    const expiredOwnerSource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `expired-owner-source-${suffix}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        retiredAt: new Date(),
+        items: { create: { wordId: sessionWord.id, nonce: randomUUID() } },
+      },
+    });
+    const firstOwnerRecovery = await recoverStudySessionCredential(
+      user.id,
+      expiredOwnerSource.id,
+      {
+        operationId: `expired-owner-first_${randomUUID()}`,
+        wordId: sessionWord.id,
+        quality: 3,
+      },
+    );
+    await prisma.studySession.update({
+      where: { id: firstOwnerRecovery.id },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    const transferredRecovery = await recoverStudySessionCredential(
+      user.id,
+      expiredOwnerSource.id,
+      {
+        operationId: `expired-owner-transfer_${randomUUID()}`,
+        wordId: sessionWord.id,
+        quality: 3,
+      },
+    );
+    if (!serializeStudySession(transferredRecovery)?.nonces[sessionWord.id]) {
+      throw new Error("expired unused recovery owner permanently blocked lineage");
+    }
+
+    const lineageRaceSource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: studyQueueFingerprint([sessionWord.id]),
+        expiresAt: new Date(Date.now() + 4 * 60_000),
+        items: { create: { wordId: sessionWord.id, nonce: randomUUID() } },
+      },
+    });
+    const lineageRaceResults = await Promise.allSettled([
+      rotateStudySession(
+        user.id,
+        lineageRaceSource.id,
+        [sessionWord.id],
+        `rotate-${lineageRaceSource.id}`,
+      ),
+      renewStudySessionCredentials(user.id, lineageRaceSource.id, [{
+        operationId: `lineage-renew_${randomUUID()}`,
+        wordId: sessionWord.id,
+      }]),
+      recoverStudySessionCredential(user.id, lineageRaceSource.id, {
+        operationId: `lineage-recover_${randomUUID()}`,
+        wordId: sessionWord.id,
+        quality: 3,
+      }),
+    ]);
+    const lineageRaceItem = await prisma.studySessionItem.findUniqueOrThrow({
+      where: {
+        sessionId_wordId: {
+          sessionId: lineageRaceSource.id,
+          wordId: sessionWord.id,
+        },
+      },
+      include: { successorItem: true },
+    });
+    if (
+      !lineageRaceItem.successorItem ||
+      !lineageRaceResults.some((result) => result.status === "fulfilled")
+    ) {
+      throw new Error("rotation/renewal/recovery race did not converge on one successor");
     }
 
     const legacyReplayAfter = new Date(Date.now() - 10 * 60_000);

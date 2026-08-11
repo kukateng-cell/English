@@ -309,11 +309,13 @@ export async function rotateStudySession(
               retiredAt: true,
               items: {
                 select: {
+                  id: true,
                   wordId: true,
                   nonce: true,
                   usedAt: true,
                   renewedAt: true,
                   operationId: true,
+                  successorItem: { select: { id: true } },
                 },
               },
             },
@@ -339,7 +341,6 @@ export async function rotateStudySession(
                 : "学习 session 已过期或已失效",
             );
           }
-
           const active = await tx.studySession.findMany({
             where: { userId, expiresAt: { gt: now }, retiredAt: null },
             orderBy: { createdAt: "desc" },
@@ -369,6 +370,7 @@ export async function rotateStudySession(
                   usedAt: item.usedAt,
                   renewedAt: item.renewedAt,
                   operationId: item.operationId,
+                  sourceItemId: item.successorItem ? undefined : item.id,
                 })),
               },
             },
@@ -435,6 +437,7 @@ export class StudyCredentialRenewalError extends Error {
 export interface StudyCredentialRenewalOperation {
   operationId: string;
   wordId: string;
+  quality?: number;
 }
 
 /**
@@ -448,10 +451,23 @@ export async function recoverStudySessionCredential(
   sourceSessionId: string,
   operation: StudyCredentialRenewalOperation,
 ): Promise<IssuedStudySession> {
+  if (
+    operation.quality === undefined ||
+    !Number.isInteger(operation.quality) ||
+    operation.quality < 0 ||
+    operation.quality > 5
+  ) {
+    throw new StudyCredentialRenewalError(
+      409,
+      "恢复操作指纹无效",
+      { code: "OPERATION_FINGERPRINT_MISMATCH" },
+    );
+  }
   for (let attempt = 0; attempt < SESSION_TRANSACTION_RETRIES; attempt++) {
     try {
       return await prisma.$transaction(
         async (tx) => {
+          const now = new Date();
           const lockedSource = await tx.$queryRaw<Array<{ id: string }>>(
             Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${sourceSessionId} AND "userId" = ${userId} FOR UPDATE`,
           );
@@ -459,6 +475,7 @@ export async function recoverStudySessionCredential(
             throw new StudyCredentialRenewalError(
               404,
               "原学习 session 已被清理，无法恢复答案",
+              { code: "SOURCE_SESSION_GONE" },
             );
           }
           const processed = await tx.reviewEvent.findUnique({
@@ -468,9 +485,24 @@ export async function recoverStudySessionCredential(
                 operationId: operation.operationId,
               },
             },
-            select: { submittedWordId: true },
+            select: {
+              submittedWordId: true,
+              quality: true,
+              eventKind: true,
+            },
           });
           if (processed) {
+            if (
+              processed.submittedWordId !== operation.wordId ||
+              processed.quality !== operation.quality ||
+              processed.eventKind !== "REVIEW"
+            ) {
+              throw new StudyCredentialRenewalError(
+                409,
+                "operationId 已用于不同的学习记录",
+                { code: "OPERATION_FINGERPRINT_MISMATCH" },
+              );
+            }
             throw new StudyCredentialRenewalError(
               409,
               "学习操作已经处理",
@@ -482,95 +514,87 @@ export async function recoverStudySessionCredential(
             );
           }
 
-          // A recovery response may have been lost after the operation was
-          // bound. Return that exact live credential on replay.
-          const existing = await tx.studySessionItem.findFirst({
+          const sourceItem = await tx.studySessionItem.findUnique({
             where: {
-              operationId: operation.operationId,
-              wordId: operation.wordId,
-              usedAt: null,
-              renewedAt: null,
-              session: {
-                userId,
-                retiredAt: null,
-                expiresAt: { gt: new Date() },
+              sessionId_wordId: {
+                sessionId: sourceSessionId,
+                wordId: operation.wordId,
               },
             },
-            orderBy: { session: { createdAt: "desc" } },
-            select: {
-              wordId: true,
-              nonce: true,
-              usedAt: true,
-              renewedAt: true,
-              operationId: true,
-              session: { select: { id: true, expiresAt: true } },
-            },
+            select: { id: true },
           });
-          if (existing) {
-            return {
-              id: existing.session.id,
-              expiresAt: existing.session.expiresAt,
-              items: [{
-                wordId: existing.wordId,
-                nonce: existing.nonce,
-                usedAt: existing.usedAt,
-                renewedAt: existing.renewedAt,
-                operationId: existing.operationId,
-              }],
-            };
+          if (!sourceItem) {
+            throw new StudyCredentialRenewalError(
+              403,
+              "恢复单词不属于原学习 session",
+              { code: "WORD_NOT_IN_SOURCE_SESSION" },
+            );
           }
 
-          let candidateId = sourceSessionId;
-          for (let hop = 0; hop < 8; hop += 1) {
+          let candidateItemId = sourceItem.id;
+          let followedLineage = false;
+          for (let hop = 0; hop < 16; hop += 1) {
             await tx.$queryRaw(
-              Prisma.sql`SELECT "id" FROM "StudySessionItem" WHERE "sessionId" = ${candidateId} FOR UPDATE`,
+              Prisma.sql`SELECT "id" FROM "StudySessionItem" WHERE "id" = ${candidateItemId} FOR UPDATE`,
             );
-            const candidate = await tx.studySession.findFirst({
-              where: { id: candidateId, userId },
+            const candidate = await tx.studySessionItem.findUnique({
+              where: { id: candidateItemId },
               select: {
                 id: true,
-                expiresAt: true,
-                retiredAt: true,
-                items: {
-                  where: { wordId: operation.wordId },
+                wordId: true,
+                nonce: true,
+                usedAt: true,
+                renewedAt: true,
+                operationId: true,
+                successorItem: { select: { id: true } },
+                session: {
                   select: {
                     id: true,
-                    wordId: true,
-                    nonce: true,
-                    usedAt: true,
-                    renewedAt: true,
-                    operationId: true,
+                    userId: true,
+                    expiresAt: true,
+                    retiredAt: true,
                   },
                 },
               },
             });
-            if (!candidate) {
+            if (!candidate || candidate.session.userId !== userId) {
               throw new StudyCredentialRenewalError(
                 404,
-                "原学习 session 已被清理，无法恢复答案",
+                "学习凭证继承链已失效",
+                { code: "CREDENTIAL_RECOVERY_UNAVAILABLE" },
               );
             }
-            const item = candidate.items[0];
-            if (!item) {
-              throw new StudyCredentialRenewalError(
-                403,
-                "恢复单词不属于原学习 session",
-              );
+            if (candidate.successorItem) {
+              followedLineage = true;
+              candidateItemId = candidate.successorItem.id;
+              continue;
             }
-            if (candidate.retiredAt !== null) {
-              const successor = await tx.studySession.findFirst({
+
+            // Bridge rotations created before the lineage migration, then
+            // persist the discovered edge so every later retry is item-based.
+            if (candidate.session.retiredAt !== null) {
+              const legacyRotation = await tx.studySessionItem.findFirst({
                 where: {
-                  userId,
-                  rotationKey: `rotate-${candidate.id}`,
+                  wordId: operation.wordId,
+                  sourceItemId: null,
+                  session: {
+                    userId,
+                    rotationKey: `rotate-${candidate.session.id}`,
+                  },
                 },
                 select: { id: true },
               });
-              if (successor) {
-                candidateId = successor.id;
+              if (legacyRotation) {
+                await tx.studySessionItem.update({
+                  where: { id: legacyRotation.id },
+                  data: { sourceItemId: candidate.id },
+                });
+                followedLineage = true;
+                candidateItemId = legacyRotation.id;
                 continue;
               }
             }
-            if (item.usedAt) {
+            if (candidate.usedAt) {
               throw new StudyCredentialRenewalError(
                 409,
                 "该学习题目已经提交",
@@ -581,57 +605,113 @@ export async function recoverStudySessionCredential(
                 },
               );
             }
-            if (
-              candidate.retiredAt !== null ||
-              candidate.expiresAt <= new Date() ||
-              item.renewedAt !== null ||
-              (item.operationId !== null &&
-                item.operationId !== operation.operationId)
-            ) {
+            const live =
+              candidate.session.retiredAt === null &&
+              candidate.session.expiresAt > now &&
+              candidate.renewedAt === null;
+            if (live && candidate.operationId !== null) {
+              if (candidate.operationId !== operation.operationId) {
+                throw new StudyCredentialRenewalError(
+                  409,
+                  "恢复凭证正由另一项操作使用",
+                  {
+                    code: "RECOVERY_BUSY",
+                    wordId: operation.wordId,
+                    requiresQueueReload: false,
+                    retryAfterSec: 5,
+                  },
+                );
+              }
+              // Compatibility for an operation bound by an older deployment
+              // before recovery always minted an item-lineage successor.
+              return {
+                id: candidate.session.id,
+                expiresAt: candidate.session.expiresAt,
+                items: [{
+                  wordId: candidate.wordId,
+                  nonce: candidate.nonce,
+                  usedAt: candidate.usedAt,
+                  renewedAt: candidate.renewedAt,
+                  operationId: operation.operationId,
+                }],
+              };
+            }
+
+            if (live && followedLineage) {
+              await tx.studySessionItem.update({
+                where: { id: candidate.id },
+                data: { operationId: operation.operationId },
+              });
+              return {
+                id: candidate.session.id,
+                expiresAt: candidate.session.expiresAt,
+                items: [{
+                  wordId: candidate.wordId,
+                  nonce: candidate.nonce,
+                  usedAt: candidate.usedAt,
+                  renewedAt: candidate.renewedAt,
+                  operationId: operation.operationId,
+                }],
+              };
+            }
+
+            if (candidate.renewedAt !== null) {
               throw new StudyCredentialRenewalError(
                 409,
-                "替代学习凭证已由另一项操作占用",
-                {
-                  code: "CREDENTIAL_OWNED_BY_OTHER_OPERATION",
-                  wordId: operation.wordId,
-                  requiresQueueReload: false,
-                },
+                "学习凭证继承关系不完整",
+                { code: "CREDENTIAL_RECOVERY_UNAVAILABLE" },
               );
             }
-            const bound = await tx.studySessionItem.updateMany({
-              where: {
-                id: item.id,
-                usedAt: null,
-                renewedAt: null,
-                OR: [
-                  { operationId: null },
-                  { operationId: operation.operationId },
-                ],
-              },
-              data: { operationId: operation.operationId },
+
+            const active = await tx.studySession.findMany({
+              where: { userId, expiresAt: { gt: now }, retiredAt: null },
+              orderBy: { createdAt: "desc" },
+              select: { id: true },
             });
-            if (bound.count !== 1) {
-              throw new StudyCredentialRenewalError(
-                409,
-                "替代学习凭证已由另一项操作占用",
-                {
-                  code: "CREDENTIAL_OWNED_BY_OTHER_OPERATION",
-                  wordId: operation.wordId,
-                  requiresQueueReload: false,
-                },
-              );
+            const retireIds = active
+              .slice(MAX_ACTIVE_STUDY_SESSIONS - 1)
+              .map((session) => session.id);
+            if (retireIds.length > 0) {
+              await tx.studySession.updateMany({
+                where: { id: { in: retireIds } },
+                data: { retiredAt: now },
+              });
             }
-            return {
-              id: candidate.id,
-              expiresAt: candidate.expiresAt,
-              items: [{
-                wordId: item.wordId,
-                nonce: item.nonce,
-                usedAt: item.usedAt,
-                renewedAt: item.renewedAt,
-                operationId: operation.operationId,
-              }],
-            };
+            await tx.studySessionItem.update({
+              where: { id: candidate.id },
+              data: {
+                renewedAt: now,
+                operationId: candidate.operationId ?? operation.operationId,
+              },
+            });
+            return tx.studySession.create({
+              data: {
+                userId,
+                queueFingerprint: studyQueueFingerprint([operation.wordId]),
+                expiresAt: new Date(now.getTime() + STUDY_SESSION_TTL_MS),
+                items: {
+                  create: {
+                    wordId: operation.wordId,
+                    nonce: randomUUID(),
+                    operationId: operation.operationId,
+                    sourceItemId: candidate.id,
+                  },
+                },
+              },
+              select: {
+                id: true,
+                expiresAt: true,
+                items: {
+                  select: {
+                    wordId: true,
+                    nonce: true,
+                    usedAt: true,
+                    renewedAt: true,
+                    operationId: true,
+                  },
+                },
+              },
+            });
           }
           throw new StudyCredentialRenewalError(
             409,
@@ -646,8 +726,11 @@ export async function recoverStudySessionCredential(
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (error) {
+      const uniqueConflict =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002";
       if (
-        !isRetryableTransactionConflict(error) ||
+        (!isRetryableTransactionConflict(error) && !uniqueConflict) ||
         attempt === SESSION_TRANSACTION_RETRIES - 1
       ) {
         throw error;
@@ -734,6 +817,7 @@ export async function renewStudySessionCredentials(
             const replacements = await tx.studySessionItem.findMany({
               where: {
                 operationId: { in: operations.map((item) => item.operationId) },
+                renewedAt: null,
                 session: { userId },
               },
               select: {
@@ -874,16 +958,29 @@ export async function renewStudySessionCredentials(
             throw new StudyCredentialRenewalError(409, "学习操作已经处理");
           }
 
-          const consumed = await tx.studySessionItem.updateMany({
-            where: {
-              id: { in: previous.items.map((item) => item.id) },
-              usedAt: null,
-              renewedAt: null,
-            },
-            data: { renewedAt: now },
-          });
-          if (consumed.count !== operations.length) {
-            throw new StudyCredentialRenewalError(409, "学习凭证已被其他请求续期");
+          for (const operation of operations) {
+            const sourceItem = itemByWord.get(operation.wordId)!;
+            const consumed = await tx.studySessionItem.updateMany({
+              where: {
+                id: sourceItem.id,
+                usedAt: null,
+                renewedAt: null,
+                OR: [
+                  { operationId: null },
+                  { operationId: operation.operationId },
+                ],
+              },
+              data: {
+                renewedAt: now,
+                operationId: operation.operationId,
+              },
+            });
+            if (consumed.count !== 1) {
+              throw new StudyCredentialRenewalError(
+                409,
+                "学习凭证已被其他请求续期",
+              );
+            }
           }
 
           const active = await tx.studySession.findMany({
@@ -911,6 +1008,7 @@ export async function renewStudySessionCredentials(
                   wordId: operation.wordId,
                   operationId: operation.operationId,
                   nonce: randomUUID(),
+                  sourceItemId: itemByWord.get(operation.wordId)!.id,
                 })),
               },
             },
