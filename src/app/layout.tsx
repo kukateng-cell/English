@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import Providers from "@/components/Providers";
 import {
@@ -12,16 +11,6 @@ import {
 } from "@/lib/i18n/config";
 import { convertText } from "@/lib/i18n/convert";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 /**
  * 站点标题/描述：以简体为来源，依请求 cookie 的语言偏好即时转繁。
@@ -64,10 +53,10 @@ export default async function RootLayout({
   return (
     <html
       lang={localeToHtmlLang(locale)}
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
-      <body className="min-h-full font-sans bg-[#F7F9FF] dark:bg-[#0B1120] text-[#17213C] dark:text-[#E2E8F0]">
+      <body className="min-h-full bg-background text-foreground font-sans">
         <script dangerouslySetInnerHTML={{ __html: initScript }} />
         <Providers initialLocale={locale}>{children}</Providers>
       </body>
