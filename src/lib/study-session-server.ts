@@ -468,16 +468,6 @@ export async function recoverStudySessionCredential(
       return await prisma.$transaction(
         async (tx) => {
           const now = new Date();
-          const lockedSource = await tx.$queryRaw<Array<{ id: string }>>(
-            Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${sourceSessionId} AND "userId" = ${userId} FOR UPDATE`,
-          );
-          if (lockedSource.length !== 1) {
-            throw new StudyCredentialRenewalError(
-              404,
-              "原学习 session 已被清理，无法恢复答案",
-              { code: "SOURCE_SESSION_GONE" },
-            );
-          }
           const processed = await tx.reviewEvent.findUnique({
             where: {
               userId_operationId: {
@@ -511,6 +501,93 @@ export async function recoverStudySessionCredential(
                 wordId: processed.submittedWordId,
                 requiresQueueReload: true,
               },
+            );
+          }
+
+          const operationCandidates = await tx.studySessionItem.findMany({
+            where: {
+              operationId: operation.operationId,
+              wordId: operation.wordId,
+              usedAt: null,
+              renewedAt: null,
+              session: {
+                userId,
+                retiredAt: null,
+                expiresAt: { gt: now },
+              },
+            },
+            orderBy: { id: "asc" },
+            take: 2,
+            select: { id: true },
+          });
+          if (operationCandidates.length > 1) {
+            throw new StudyCredentialRenewalError(
+              409,
+              "恢复操作对应多个有效学习凭证",
+              {
+                code: "CREDENTIAL_RECOVERY_UNAVAILABLE",
+                wordId: operation.wordId,
+                requiresQueueReload: false,
+              },
+            );
+          }
+          if (operationCandidates.length === 1) {
+            const [operationCandidate] = operationCandidates;
+            await tx.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "StudySessionItem" WHERE "id" = ${operationCandidate.id} FOR UPDATE`,
+            );
+            const lockedOperationCandidate =
+              await tx.studySessionItem.findUnique({
+                where: { id: operationCandidate.id },
+                select: {
+                  id: true,
+                  wordId: true,
+                  nonce: true,
+                  usedAt: true,
+                  renewedAt: true,
+                  operationId: true,
+                  session: {
+                    select: {
+                      id: true,
+                      userId: true,
+                      expiresAt: true,
+                      retiredAt: true,
+                    },
+                  },
+                },
+              });
+            if (
+              lockedOperationCandidate &&
+              lockedOperationCandidate.wordId === operation.wordId &&
+              lockedOperationCandidate.operationId === operation.operationId &&
+              lockedOperationCandidate.usedAt === null &&
+              lockedOperationCandidate.renewedAt === null &&
+              lockedOperationCandidate.session.userId === userId &&
+              lockedOperationCandidate.session.retiredAt === null &&
+              lockedOperationCandidate.session.expiresAt > now
+            ) {
+              return {
+                id: lockedOperationCandidate.session.id,
+                expiresAt: lockedOperationCandidate.session.expiresAt,
+                items: [{
+                  wordId: lockedOperationCandidate.wordId,
+                  nonce: lockedOperationCandidate.nonce,
+                  usedAt: null,
+                  renewedAt: null,
+                  operationId: operation.operationId,
+                }],
+              };
+            }
+          }
+
+          const lockedSource = await tx.$queryRaw<Array<{ id: string }>>(
+            Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${sourceSessionId} AND "userId" = ${userId} FOR UPDATE`,
+          );
+          if (lockedSource.length !== 1) {
+            throw new StudyCredentialRenewalError(
+              404,
+              "原学习 session 已被清理，无法恢复答案",
+              { code: "SOURCE_SESSION_GONE" },
             );
           }
 

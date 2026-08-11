@@ -44,4 +44,16 @@ const result = spawnSync(command, ["prisma", "migrate", "deploy"], {
 });
 
 if (result.error) throw result.error;
-process.exit(result.status ?? 1);
+if (result.status !== 0) process.exit(result.status ?? 1);
+
+const lineageCheck = spawnSync(
+  process.execPath,
+  ["scripts/check-study-lineage-compatibility.mjs"],
+  {
+    stdio: "inherit",
+    env: process.env,
+  },
+);
+
+if (lineageCheck.error) throw lineageCheck.error;
+process.exit(lineageCheck.status ?? 1);

@@ -417,6 +417,250 @@ async function main() {
       studySessionId: renewalFirstReplacement.id,
       nonce: renewalFirstNonce,
     });
+
+    // Test A: a replacement created by the pre-lineage renewal deployment
+    // remains recoverable by its operation binding even without sourceItemId.
+    const legacyRenewalOperation = `legacy-renewal_${randomUUID()}`;
+    const legacyRenewalSource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `legacy-renewal-source-${suffix}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        items: {
+          create: { wordId: sessionWord.id, nonce: randomUUID() },
+        },
+      },
+    });
+    const legacyRenewalSourceItem = await prisma.studySessionItem.findUniqueOrThrow({
+      where: {
+        sessionId_wordId: {
+          sessionId: legacyRenewalSource.id,
+          wordId: sessionWord.id,
+        },
+      },
+    });
+    await prisma.studySessionItem.update({
+      where: { id: legacyRenewalSourceItem.id },
+      data: {
+        renewedAt: new Date(),
+        operationId: legacyRenewalOperation,
+      },
+    });
+    const legacyRenewalReplacement = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: studyQueueFingerprint([sessionWord.id]),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        items: {
+          create: {
+            wordId: sessionWord.id,
+            nonce: randomUUID(),
+            operationId: legacyRenewalOperation,
+          },
+        },
+      },
+    });
+    const legacyRenewalSessionCountBefore = await prisma.studySession.count({
+      where: { userId },
+    });
+    const legacyRenewalItemCountBefore = await prisma.studySessionItem.count({
+      where: { session: { userId } },
+    });
+    const legacyRenewalRecovered = await recoverStudySessionCredential(
+      user.id,
+      legacyRenewalSource.id,
+      {
+        operationId: legacyRenewalOperation,
+        wordId: sessionWord.id,
+        quality: 5,
+      },
+    );
+    const legacyRenewalReplacementItem =
+      await prisma.studySessionItem.findUniqueOrThrow({
+        where: {
+          sessionId_wordId: {
+            sessionId: legacyRenewalReplacement.id,
+            wordId: sessionWord.id,
+          },
+        },
+      });
+    if (
+      legacyRenewalRecovered.id !== legacyRenewalReplacement.id ||
+      legacyRenewalRecovered.items[0]?.nonce !== legacyRenewalReplacementItem.nonce ||
+      (await prisma.studySession.count({ where: { userId } })) !==
+        legacyRenewalSessionCountBefore ||
+      (await prisma.studySessionItem.count({ where: { session: { userId } } })) !==
+        legacyRenewalItemCountBefore
+    ) {
+      throw new Error(
+        "legacy renewal recovery minted a new credential instead of replaying its replacement",
+      );
+    }
+
+    // Test B: ReviewEvent is authoritative after the source session cleanup.
+    const processedRecoveryOperation = `processed-recovery_${randomUUID()}`;
+    const processedRecoverySource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `processed-recovery-source-${suffix}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        items: {
+          create: { wordId: sessionWord.id, nonce: randomUUID() },
+        },
+      },
+    });
+    const processedRecoveryItem = await prisma.studySessionItem.findUniqueOrThrow({
+      where: {
+        sessionId_wordId: {
+          sessionId: processedRecoverySource.id,
+          wordId: sessionWord.id,
+        },
+      },
+    });
+    await applyReviewEvent({
+      userId: user.id,
+      wordId: sessionWord.id,
+      quality: 5,
+      operationId: processedRecoveryOperation,
+      studySessionId: processedRecoverySource.id,
+      nonce: processedRecoveryItem.nonce,
+    });
+    const processedRecoveryEvent = await prisma.reviewEvent.findUniqueOrThrow({
+      where: {
+        userId_operationId: {
+          userId,
+          operationId: processedRecoveryOperation,
+        },
+      },
+    });
+    if (
+      processedRecoveryEvent.submittedWordId !== sessionWord.id ||
+      processedRecoveryEvent.quality !== 5 ||
+      processedRecoveryEvent.eventKind !== "REVIEW"
+    ) {
+      throw new Error("processed recovery fixture did not create a REVIEW fingerprint");
+    }
+    await prisma.studySession.delete({
+      where: { id: processedRecoverySource.id },
+    });
+    if (
+      (await prisma.studySession.findUnique({
+        where: { id: processedRecoverySource.id },
+      })) !== null
+    ) {
+      throw new Error("processed recovery source session was not cleaned up");
+    }
+    await assertRejectsCode(
+      () =>
+        recoverStudySessionCredential(
+          user.id,
+          processedRecoverySource.id,
+          {
+            operationId: processedRecoveryOperation,
+            wordId: sessionWord.id,
+            quality: 5,
+          },
+        ),
+      "REVIEW_ALREADY_PROCESSED",
+    );
+    await assertRejectsCode(
+      () =>
+        recoverStudySessionCredential(
+          user.id,
+          processedRecoverySource.id,
+          {
+            operationId: processedRecoveryOperation,
+            wordId: sessionWord.id,
+            quality: 4,
+          },
+        ),
+      "OPERATION_FINGERPRINT_MISMATCH",
+    );
+
+    // Test C: a live operation-bound replacement survives source cleanup even
+    // when the self-relation's ON DELETE SET NULL detaches sourceItemId.
+    const detachedRecoveryOperation = `detached-recovery_${randomUUID()}`;
+    const detachedRecoverySource = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: `detached-recovery-source-${suffix}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        items: {
+          create: { wordId: sessionWord.id, nonce: randomUUID() },
+        },
+      },
+    });
+    const detachedRecoverySourceItem =
+      await prisma.studySessionItem.findUniqueOrThrow({
+        where: {
+          sessionId_wordId: {
+            sessionId: detachedRecoverySource.id,
+            wordId: sessionWord.id,
+          },
+        },
+      });
+    const detachedRecoveryReplacement = await prisma.studySession.create({
+      data: {
+        userId,
+        queueFingerprint: studyQueueFingerprint([sessionWord.id]),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        items: {
+          create: {
+            wordId: sessionWord.id,
+            nonce: randomUUID(),
+            operationId: detachedRecoveryOperation,
+            sourceItemId: detachedRecoverySourceItem.id,
+          },
+        },
+      },
+    });
+    const detachedRecoveryReplacementItem =
+      await prisma.studySessionItem.findUniqueOrThrow({
+        where: {
+          sessionId_wordId: {
+            sessionId: detachedRecoveryReplacement.id,
+            wordId: sessionWord.id,
+          },
+        },
+      });
+    await prisma.studySession.delete({
+      where: { id: detachedRecoverySource.id },
+    });
+    const detachedRecoveryAfterCleanup =
+      await prisma.studySessionItem.findUniqueOrThrow({
+        where: { id: detachedRecoveryReplacementItem.id },
+      });
+    if (detachedRecoveryAfterCleanup.sourceItemId !== null) {
+      throw new Error("source cleanup did not detach the replacement lineage edge");
+    }
+    const detachedRecoverySessionCountBefore = await prisma.studySession.count({
+      where: { userId },
+    });
+    const detachedRecoveryItemCountBefore = await prisma.studySessionItem.count({
+      where: { session: { userId } },
+    });
+    const detachedRecovery = await recoverStudySessionCredential(
+      user.id,
+      detachedRecoverySource.id,
+      {
+        operationId: detachedRecoveryOperation,
+        wordId: sessionWord.id,
+        quality: 4,
+      },
+    );
+    if (
+      detachedRecovery.id !== detachedRecoveryReplacement.id ||
+      detachedRecovery.items[0]?.nonce !== detachedRecoveryReplacementItem.nonce ||
+      (await prisma.studySession.count({ where: { userId } })) !==
+        detachedRecoverySessionCountBefore ||
+      (await prisma.studySessionItem.count({ where: { session: { userId } } })) !==
+        detachedRecoveryItemCountBefore
+    ) {
+      throw new Error(
+        "cleanup-detached operation recovery minted a new credential instead of replaying its replacement",
+      );
+    }
+
     await assertRejectsStatus(
       () =>
         rotateStudySession(
