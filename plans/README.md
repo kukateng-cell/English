@@ -11,7 +11,7 @@
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
-| [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 待審批 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |
+| [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 已完成 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |
 
 新增、改名、完成或取代計劃書時，必須同步更新此表。
 

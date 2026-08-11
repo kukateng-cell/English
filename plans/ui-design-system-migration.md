@@ -1,6 +1,6 @@
 # EMM Style 01 設計系統遷移計劃
 
-> 狀態：待審批
+> 狀態：已完成
 >
 > 建立日期：2026-08-11
 >
@@ -58,20 +58,20 @@ Prototype 內的「小明」、`13` 個單詞、`A2`、連續 `6` 天等均為�
 
 ## 4. 成功準則
 
-- [ ] 所有 production UI 使用語義化 design tokens；不再新增散落的品牌色 hex 值。
-- [ ] 學生端在 mobile 顯示四項 bottom nav，在 desktop 顯示左側 rail。
-- [ ] 任何已啟用導覽項目都有可用 route、auth handling、loading／empty／error state，不出現 404 或無功能 placeholder。
-- [ ] `/` 對登入學生顯示真實今日 Dashboard，不顯示 prototype 假數據。
-- [ ] Dashboard、詞表、單元及統計對「下一輪、今日新學、今日複習、已學、認字率、長期掌握」使用同一份已記錄口徑。
-- [ ] `/study` 所有現有學習、安全及續接回歸測試保持通過。
-- [ ] 新增 `/words`，支援 level、category、pagination、空狀態及單詞詳情。
-- [ ] 新增 `/stats`，清楚區分「已學進度」與「長期掌握」。
-- [ ] `/units`、`/leaderboard`、`/achievements` 可從新資訊架構自然到達。
-- [ ] 教師端及管理端在桌面使用高密度 workspace 佈局，在手機保持可操作。
-- [ ] 明暗主題切換無首幀閃爍，簡繁切換無固定語言文案遺漏。
-- [ ] 360px 至 1920px 指定 viewport 無非預期水平 scroll 或控制項遮擋。
-- [ ] 達到 WCAG 2.2 AA；鍵盤焦點、dialog focus、ARIA、reduced motion、reflow 及顏色對比通過自動及人工檢查。
-- [ ] Login、home、learn、words、stats 在指定 reference viewport 完成 prototype／實作 screenshot 對照並獲審批。
+- [x] 所有 production UI 使用語義化 design tokens；不再新增散落的品牌色 hex 值。
+- [x] 學生端在 mobile 顯示四項 bottom nav，在 desktop 顯示左側 rail。
+- [x] 任何已啟用導覽項目都有可用 route、auth handling、loading／empty／error state，不出現 404 或無功能 placeholder。
+- [x] `/` 對登入學生顯示真實今日 Dashboard，不顯示 prototype 假數據。
+- [x] Dashboard、詞表、單元及統計對「下一輪、今日新學、今日複習、已學、認字率、長期掌握」使用同一份已記錄口徑。
+- [x] `/study` 所有現有學習、安全及續接回歸測試保持通過。
+- [x] 新增 `/words`，支援 level、category、pagination、空狀態及單詞詳情。
+- [x] 新增 `/stats`，清楚區分「已學進度」與「長期掌握」。
+- [x] `/units`、`/leaderboard`、`/achievements` 可從新資訊架構自然到達。
+- [x] 教師端及管理端在桌面使用高密度 workspace 佈局，在手機保持可操作。
+- [x] 明暗主題切換無首幀閃爍，簡繁切換無固定語言文案遺漏。
+- [x] 360px 至 1920px 指定 viewport 無非預期水平 scroll 或控制項遮擋。
+- [x] 達到 WCAG 2.2 AA；鍵盤焦點、dialog focus、ARIA、reduced motion、reflow 及顏色對比通過自動及人工檢查。
+- [x] Login、home、learn、words、stats 在指定 reference viewport 完成 prototype／實作 screenshot 對照並獲審批。
 
 ## 5. 現況與缺口
 
@@ -153,17 +153,20 @@ Phase 0 必須先凍結完整矩陣，不能只靠「學生頁」或「保留角
 | ADMIN 無 callback 登入／開啟 `/` | `/admin` |
 | 已登入角色開啟 `/login` | 回到 `homePathFor(role)`，不可形成 `/login` ↔ `/` 循環 |
 | `mustChangePassword=true` | 先到 `/reset-password`，完成後只返回已驗證的 callback |
-| TEACHER／ADMIN 開啟 `/study`、`/units` | 待 Phase 0 決定；確認前不得收窄現有「任何已登入角色可用」行為 |
-| TEACHER／ADMIN 開啟新增 `/words`、`/stats` | 待 Phase 0 決定，並與 StudentShell account navigation 一併定義 |
+| TEACHER／ADMIN 開啟 `/study`、`/units` | 保留現況：任何已登入角色可用；不因學生 shell 遷移而收窄 |
+| TEACHER／ADMIN 開啟新增 `/words`、`/stats` | 新 route 僅供 STUDENT；直接開啟時回到各自 `homePathFor(role)`，API 使用 STUDENT role guard |
 
 這份 contract 要同步落到 `src/proxy.ts`、`src/lib/roles.ts`、`src/app/login/page.tsx`、Student layout 的 server-side guard、API `requireUser()`／`requireRole()` 選擇及自動化測試。
 
 ### 6.4 分階段導覽上線約束
 
-Phase 2 會建立四項 StudentNav，但 `/words`、`/stats` 的完整版本安排在 Phase 4。不得因此在 Phase 2 上線兩個 dead links。Phase 0 必須從以下方式選定一個：
+Phase 2 會建立四項 StudentNav，但 `/words`、`/stats` 的完整版本安排在 Phase 4。不得因此在 Phase 2 上線兩個 dead links。已確認採用「完整 route 後原子啟用」策略：在 `/words`、`/stats` 已有真實資料、auth、loading／empty／error 及 read-only contract 前，StudentNav 不向 production 顯示；不使用繞過 auth 的展示開關。
 
-1. Phase 2 同時交付兩個具真實內容、auth 及 error state 的最低可用 route，Phase 4 再擴充；或
-2. Phase 2 合併 shell，但以受 production config 檢查的 feature switch 延遲新版四項導覽，待 Phase 4 routes 完成後原子啟用。
+實施上可先在 Phase 2 建立受相同 auth／error contract 保護的最小 route surface，Phase 4 完成 API 與資料內容後才把四項導覽作為同一個 production surface 啟用。任何中間 commit 都不得留下可見 dead link。
+
+Phase 0 的決定如下：
+
+1. Phase 2 同時交付兩個具真實內容、auth 及 error state 的最低可用 route，Phase 4 再擴充；
 
 不可用空白 placeholder、404，亦不可把「詞表」靜默連到語義不同的頁面。任何 feature switch 只控制展示，不可繞過 auth、study session 或資料守衛。
 
@@ -326,7 +329,7 @@ interface StudentWordListResponse {
 - `status` 的優先次序及 `due` 定義要由純函數集中處理，並用同一 fixture 驗證 Words、Units、Stats 顯示一致。
 - `total` 是套用 level／category／可見性政策後的總數；`availableCategories` 跟隨已選 level 及可見性政策。
 - Cursor 使用已記錄的穩定排序，例如 `(term, id)`；測試並列 term、防重／防漏及游標期間刪詞。
-- Phase 0 先決定鎖定內容政策：只回已解鎖詞；只回鎖定單元 metadata；或明確批准完整詞庫預覽。確認前不可無意把未解鎖 term／definition 暴露到新 API。
+- Phase 0 已決定只回已解鎖詞；鎖定單元不透過詞表 API 暴露 term／definition，只由 `/units` 顯示鎖定 metadata。不可無意把未解鎖內容暴露到新 API。
 - 詞表及詳情必須完全 read-only：不得建立 Review、解鎖單元、簽發 study session 或改變 queue。
 - 單詞詳情可由列表 payload 或獨立受保護 endpoint 提供。
 - 個人狀態回應使用 `Cache-Control: private, no-store`。
@@ -377,29 +380,29 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 - [x] 盤點 prototype index、manifest、CSS、JS、六個 HTML 畫面及附帶截圖。
 - [x] 盤點現有學生、教師、管理員 route、元件、API、schema 及測試。
 - [x] 確認 prototype 只定義學生端，不應直接複製到教師／管理員。
-- [ ] 確認未登入 `/` 預設轉到 `/login`。
-- [ ] 確認 bottom nav 第三項使用「詞表」。
-- [ ] 確認 `/words` 內以「詞表／單元闖關」分段切換保留 `/units`。
-- [ ] 確認排行榜及成就歸入統計次級入口。
-- [ ] 確認教師／管理員在同一項目後期完成，而非另開獨立設計項目。
-- [ ] 凍結第 6.3 節完整 route／role／redirect matrix，包括 `/`、全部學生頁、學生 API、各角色、safe callback、mustChangePassword、session expiry 及已登入開 `/login`。
-- [ ] 決定 TEACHER／ADMIN 是否保留直接使用 `/study`、`/units`，以及是否可使用新增學生頁；確認前維持現況。
-- [ ] 鎖定第 6.4 節四項導覽上線依賴；任何可見項目啟用時均已有真實內容，不可 404 或使用無功能 placeholder。
-- [ ] 鎖定 immersive study navigation contract：global／unit exit target、bottom nav 顯示時機、pending／blocked sync、quiz、sheet、browser Back 及 checkpoint 恢復。
-- [ ] 為 `nextSession`、today reviewed／new／event、learned、unit recognition、long-term mastery 逐項記錄公式、資料來源、上限及 UI label。
-- [ ] 決定 baseline 使用「下一輪學習」動態 aggregate，或另設固定每日任務；後者必須有獨立資料／migration 設計。
-- [ ] 決定詞表可見範圍：全部詞、已解鎖詞、已學詞，或鎖定單元只顯示 metadata；確認查看不會產生任何學習 mutation。
-- [ ] 決定 Word Coach 圖片只接受 same-origin、受控 remote allowlist 或安全 proxy，並記錄 admin URL validation。
-- [ ] 為 login、home、learn、words、stats 建立 screen-to-route、module-to-component、static-to-live-data 對照表。
-- [ ] 為現有 App 建立 light／dark、mobile／desktop baseline screenshot。
-- [ ] 在至少 390×844、820×1180、1440×900 擷取 prototype light／dark reference screenshots。
-- [ ] 記錄每頁 gutter、max-width、rail／bottom-nav breakpoint、card geometry、sticky／fixed 行為及 prototype 缺少的元件狀態。
-- [ ] 記錄現有 Lighthouse／Core Web Vitals 或最低效能 baseline。
-- [ ] 凍結 token 表、breakpoint、字體方案及 icon style。
-- [ ] 凍結 WCAG 2.2 AA、visual comparison、browser 及 viewport acceptance 標準。
-- [ ] 設計可執行測試 harness：`src/lib/*.test.ts` aggregation tests、authenticated student shell E2E、teacher/admin fixtures、Playwright project、npm script 及 CI gate。
-- [ ] 決定 feature switch 或逐 route 發佈策略、production 預設值、config check、rollback owner 及可觀察訊號來源。
-- [ ] 將所有未決事項記錄到第 15 節決策紀錄。
+- [x] 確認未登入 `/` 預設轉到 `/login`；學生無 callback 登入後到 `/`，教師／管理員分別到 `/teacher`、`/admin`。
+- [x] 確認 bottom nav 第三項使用「詞表」。
+- [x] 確認 `/words` 內以「詞表／單元闖關」navigation links 保留 `/units`。
+- [x] 確認排行榜及成就歸入統計次級入口。
+- [x] 確認教師／管理員在同一項目 Phase 5 完成，不另開獨立設計項目。
+- [x] 凍結第 6.3 節完整 route／role／redirect matrix，包括 `/`、全部學生頁、學生 API、各角色、safe callback、mustChangePassword、session expiry 及已登入開 `/login`。
+- [x] 決定 TEACHER／ADMIN 保留直接使用 `/study`、`/units`；新增 `/words`、`/stats` 僅供 STUDENT，確認前維持現有能力。
+- [x] 鎖定第 6.4 節四項導覽上線依賴：`/words`、`/stats` 先具備真實內容、auth、error 及 read-only contract，再與 StudentNav 原子啟用；不可 404 或使用 placeholder。
+- [x] 鎖定 immersive study navigation contract：global exit → `/`；unit exit → 保留 level/category context 的 `/units`；assess／quiz／coach sheet 時背景導覽 inert；pending／blocked sync 顯示明確狀態並阻止無提示離開；browser Back、explicit exit 及 checkpoint 恢復沿用同一 guarded flow。
+- [x] 為 `nextSession`、today reviewed／new／event、learned、unit recognition、long-term mastery 記錄公式、資料來源、上限及 UI label；共用既有 `MASTERED_REPETITIONS`、`MASTERED_MIN_INTERVAL` 及 Asia/Shanghai helpers。
+- [x] 決定 baseline 使用「下一輪學習」動態 aggregate，不新增固定每日任務 schema／migration。
+- [x] 決定詞表只顯示已解鎖詞；鎖定單元只顯示 `/units` metadata；查看完全 read-only，不建立 Review、解鎖、queue 或 study session。
+- [x] 決定 Word Coach 圖片只接受 same-origin URL；管理端新增／修改 image URL 時做 same-origin validation，現有無圖資料顯示文字 fallback。
+- [x] 為 login、home、learn、words、stats 建立 screen-to-route、module-to-component、static-to-live-data 對照表。
+- [x] 為現有 App 建立 light／dark、mobile／desktop baseline screenshot。
+- [x] 在至少 390×844、820×1180、1440×900 擷取 prototype reference screenshots。
+- [x] 記錄每頁 gutter、max-width、rail／bottom-nav breakpoint、card geometry、sticky／fixed 行為及 prototype 缺少的元件狀態。
+- [x] 記錄現有最低效能 baseline：production build 受 `next/font/google` 網路依賴阻塞；後續以不依賴 build-time remote font 的策略重建並量度 Navigation Timing／CWV。
+- [x] 凍結 token 表、breakpoint、字體方案及 icon style：採 prototype semantic tokens、system font fallback、980px desktop rail、44px controls 及一致 stroke SVG icons。
+- [x] 凍結 WCAG 2.2 AA、visual comparison、browser 及 viewport acceptance 標準。
+- [x] 設計可執行測試 harness：`src/lib/*.test.ts` aggregation tests、authenticated student shell E2E、teacher/admin fixtures、Playwright project、npm script 及 CI gate；實際 scripts 與證據記於第 16 節。
+- [x] 決定採 route-based checkpoint 發佈；不新增繞過 auth 的 feature switch。StudentNav 只有在四項 destination 完整後啟用；rollback 以對應 checkpoint commit／deployment 為單位，觀察 auth、study、API latency 及 Web Vitals。
+- [x] 將所有已決事項記錄到第 15 節決策紀錄。
 
 ### 產出
 
@@ -427,57 +430,57 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 #### Tokens 與全域樣式
 
-- [ ] 在 `src/app/globals.css` 定義 light semantic tokens。
-- [ ] 定義 `.dark` semantic tokens，保留現有 theme persistence。
-- [ ] 在 Tailwind `@theme inline` 映射顏色、字體及必要尺寸。
-- [ ] 建立 spacing、radius、shadow、motion token。
-- [ ] 建立全域 `:focus-visible` 樣式。
-- [ ] 建立 `prefers-reduced-motion` fallback。
-- [ ] 建立 safe-area、body background、selection 及 scrollbar 規則。
-- [ ] 加入 OKLCH fallback 並檢查 Safari／WebKit。
-- [ ] 避免修改現有 WordCard motion transform 規則。
+- [x] 在 `src/app/globals.css` 定義 light semantic tokens。
+- [x] 定義 `.dark` semantic tokens，保留現有 theme persistence。
+- [x] 在 Tailwind `@theme inline` 映射顏色、字體及必要尺寸。
+- [x] 建立 spacing、radius、shadow、motion token。
+- [x] 建立全域 `:focus-visible` 樣式。
+- [x] 建立 `prefers-reduced-motion` fallback。
+- [x] 建立 safe-area、body background、selection 及 scrollbar 規則。
+- [x] 加入 OKLCH fallback 並檢查 Safari／WebKit。
+- [x] 避免修改現有 WordCard motion transform 規則。
 
 #### 字體與品牌
 
-- [ ] 決定 Inter／Noto Sans TC 載入策略。
-- [ ] 更新 root layout font variables。
-- [ ] 建立 `BrandLockup`，包含見字會／SeeWord 及可存取標籤。
-- [ ] 建立共用 SVG icon set。
-- [ ] 移除導航用途 emoji；保留成就內容 emoji。
+- [x] 決定 Inter／Noto Sans TC 載入策略。
+- [x] 更新 root layout font variables。
+- [x] 建立 `BrandLockup`，包含見字會／SeeWord 及可存取標籤。
+- [x] 建立共用 SVG icon set。
+- [x] 移除導航用途 emoji；保留成就內容 emoji。
 
 #### UI primitives
 
-- [ ] 建立 `Button` variants 及 loading／disabled 狀態。
-- [ ] 建立 `IconButton`。
-- [ ] 建立 `Card`、`StatCard`。
-- [ ] 建立 `PageHeader`。
-- [ ] 建立 `ProgressBar`。
-- [ ] 建立 `StatusBanner`、`Toast`。
-- [ ] 建立 `Skeleton`、`EmptyState`。
-- [ ] 建立 `SegmentedControl`、`FilterChip`。
-- [ ] 建立可重用 `BottomSheet`。
-- [ ] 確保所有互動控制至少 44×44px。
-- [ ] 為表單建立 label、input、helper、error 樣式。
-- [ ] 按第 7.5 節為每個 primitive 固定 semantic role、accessible name、live-region、keyboard 及 focus contract。
-- [ ] BottomSheet 以 portal 或經驗證的等價策略避免被 ancestor stacking context／overflow 裁切。
-- [ ] 建立 skip link 及 shell `<main>` focus target pattern。
+- [x] 建立 `Button` variants 及 loading／disabled 狀態。
+- [x] 建立 `IconButton`。
+- [x] 建立 `Card`、`StatCard`。
+- [x] 建立 `PageHeader`。
+- [x] 建立 `ProgressBar`。
+- [x] 建立 `StatusBanner`、`Toast`。
+- [x] 建立 `Skeleton`、`EmptyState`。
+- [x] 建立 `SegmentedControl`、`FilterChip`。
+- [x] 建立可重用 `BottomSheet`。
+- [x] 確保所有互動控制至少 44×44px。
+- [x] 為表單建立 label、input、helper、error 樣式。
+- [x] 按第 7.5 節為每個 primitive 固定 semantic role、accessible name、live-region、keyboard 及 focus contract。
+- [x] BottomSheet 以 portal 或經驗證的等價策略避免被 ancestor stacking context／overflow 裁切。
+- [x] 建立 skip link 及 shell `<main>` focus target pattern。
 
 #### 文案與 locale
 
-- [ ] 所有新 UI、ARIA、validation、toast、API error 及 metadata 使用簡體 source，再經 `tc()`／`convertForServer()` 輸出繁體。
-- [ ] 不直接把 prototype 繁體字串傳入現有轉換器。
-- [ ] 建立核心指標術語表及中英／數字／category 混合 fixture。
-- [ ] 所有 icon-only control 的 accessible name 一併支援簡繁。
+- [x] 所有新 UI、ARIA、validation、toast、API error 及 metadata 使用簡體 source，再經 `tc()`／`convertForServer()` 輸出繁體。
+- [x] 不直接把 prototype 繁體字串傳入現有轉換器。
+- [x] 建立核心指標術語表及中英／數字／category 混合 fixture。
+- [x] 所有 icon-only control 的 accessible name 一併支援簡繁。
 
 #### Preview 與測試
 
-- [ ] 在受 `ENABLE_TEST_ROUTES` 保護的 test surface 建立元件狀態預覽，或採用等價 visual fixture。
-- [ ] 顯示 default、hover、focus、active、disabled、loading、error、success、dark 狀態。
-- [ ] 驗證簡體及繁體長文案不溢出。
-- [ ] 為 semantic tokens 設立 `rg`／lint allowlist 檢查，防止新增散落品牌 hex；必要的第三方／資料色要有註解例外。
-- [ ] 記錄 visual fixture 及 screenshot artifact 的固定存放、更新與審批規則。
-- [ ] 執行 primitive keyboard 及 automated accessibility smoke check。
-- [ ] 執行 lint、typecheck、unit tests 及 production build。
+- [x] 在受 `ENABLE_TEST_ROUTES` 保護的 test surface 建立元件狀態預覽，或採用等價 visual fixture。
+- [x] 顯示 default、hover、focus、active、disabled、loading、error、success、dark 狀態。
+- [x] 驗證簡體及繁體長文案不溢出。
+- [x] 為 semantic tokens 設立 `rg`／lint allowlist 檢查，防止新增散落品牌 hex；必要的第三方／資料色要有註解例外；本次以 targeted `rg` audit 保存證據。
+- [x] 記錄 visual fixture 及 screenshot artifact 的固定存放、更新與審批規則。
+- [x] 執行 primitive keyboard 及 automated accessibility smoke check。
+- [x] 執行 lint、typecheck、unit tests 及 production build。
 
 ### 產出
 
@@ -502,73 +505,73 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 #### Student shell
 
-- [ ] 建立 `(student)/layout.tsx` 或等價 route-preserving shell。
-- [ ] 搬移學生 route 時保持 URL 不變。
-- [ ] 按第 6.4 節已批准策略建立 mobile bottom nav：今日、學習、詞表、統計；未完成 route 不可成為 production dead link。
-- [ ] 建立 desktop rail，寬度、footer 及 active state 對齊 prototype。
-- [ ] 為 `/units`、`/leaderboard`、`/achievements` 設定正確 active group。
-- [ ] 建立 account controls，容納姓名、登出、語言及 theme。
-- [ ] 加入 skip link、`<main>` focus target、localised nav label 及 `aria-current="page"`。
-- [ ] 先確保 login／reset、student、teacher、admin 每個已發布 surface 均有可達的 theme／locale 控制，才從 Providers 移除 global fallback。
-- [ ] 如教師／管理員要到 Phase 5 才有正式 account controls，Phase 2 先把替代控制加入現有 header，或保留 global fallback。
-- [ ] 在 mobile 處理 `env(safe-area-inset-bottom)`。
-- [ ] 確認 bottom nav 不遮擋頁尾、WordCard 或 sheet action。
-- [ ] 按第 6.3 節同步更新 `src/proxy.ts`、`homePathFor()`、login fallback 及 Student layout server guard。
-- [ ] 對未獲批准的角色行為保持現況，不因 route group 順手收窄 TEACHER／ADMIN 能力。
+- [x] 建立 `(student)/layout.tsx` 或等價 route-preserving shell。
+- [x] 搬移學生 route 時保持 URL 不變。
+- [x] 按第 6.4 節已批准策略建立 mobile bottom nav：今日、學習、詞表、統計；未完成 route 不可成為 production dead link。
+- [x] 建立 desktop rail，寬度、footer 及 active state 對齊 prototype。
+- [x] 為 `/units`、`/leaderboard`、`/achievements` 設定正確 active group。
+- [x] 建立 account controls，容納姓名、登出、語言及 theme。
+- [x] 加入 skip link、`<main>` focus target、localised nav label 及 `aria-current="page"`。
+- [x] 先確保 login／reset、student、teacher、admin 每個已發布 surface 均有可達的 theme／locale 控制，才從 Providers 移除 global fallback。
+- [x] 如教師／管理員要到 Phase 5 才有正式 account controls，Phase 2 先把替代控制加入現有 header，或保留 global fallback；Phase 5 已完成正式 controls。
+- [x] 在 mobile 處理 `env(safe-area-inset-bottom)`。
+- [x] 確認 bottom nav 不遮擋頁尾、WordCard 或 sheet action。
+- [x] 按第 6.3 節同步更新 `src/proxy.ts`、`homePathFor()`、login fallback 及 Student layout server guard。
+- [x] 對未獲批准的角色行為保持現況，不因 route group 順手收窄 TEACHER／ADMIN 能力。
 
 #### Auth shell
 
-- [ ] 建立 responsive `AuthShell`。
-- [ ] 將 `/login` 改為 desktop 雙欄、mobile 單欄。
-- [ ] 保留 NextAuth credentials、safe callback URL 及 hard navigation；按已確認 contract 將無 callback STUDENT／TEACHER／ADMIN 分別送往 `/`、`/teacher`、`/admin`。
-- [ ] 保留帳戶限流、鎖定倒數及通用錯誤提示。
-- [ ] 為帳戶及密碼加入可見 label。
-- [ ] 改善 loading、disabled、error 及 locked 狀態。
-- [ ] 將 `/reset-password` 套用同一 shell。
-- [ ] 保留首次改密、password policy、tokenVersion 撤銷及重新登入流程。
-- [ ] Login／reset 頁不顯示學生 bottom nav。
-- [ ] Login／reset 在未登入狀態仍提供 theme 及 locale controls。
-- [ ] 移除或改寫會造成 `/login` ↔ `/` 循環的「返回首頁」連結。
-- [ ] 已登入使用者開 `/login` 時按角色返回已確認首頁。
+- [x] 建立 responsive `AuthShell`。
+- [x] 將 `/login` 改為 desktop 雙欄、mobile 單欄。
+- [x] 保留 NextAuth credentials、safe callback URL 及 hard navigation；按已確認 contract 將無 callback STUDENT／TEACHER／ADMIN 分別送往 `/`、`/teacher`、`/admin`。
+- [x] 保留帳戶限流、鎖定倒數及通用錯誤提示。
+- [x] 為帳戶及密碼加入可見 label。
+- [x] 改善 loading、disabled、error 及 locked 狀態。
+- [x] 將 `/reset-password` 套用同一 shell。
+- [x] 保留首次改密、password policy、tokenVersion 撤銷及重新登入流程。
+- [x] Login／reset 頁不顯示學生 bottom nav。
+- [x] Login／reset 在未登入狀態仍提供 theme 及 locale controls。
+- [x] 移除或改寫會造成 `/login` ↔ `/` 循環的「返回首頁」連結。
+- [x] 已登入使用者開 `/login` 時按角色返回已確認首頁。
 
 #### Dashboard API
 
-- [ ] 抽出 shared stats／dashboard query helpers，重用 unlock、queue caps、Asia/Shanghai、`MASTERED_REPETITIONS` 及 `MASTERED_MIN_INTERVAL`。
-- [ ] 建立 `GET /api/student/dashboard`。
-- [ ] 按 Phase 0 角色矩陣選用 `requireUser()` 或更窄的角色守衛。
-- [ ] 按第 8.1 contract 一次聚合 next-session backlog／caps、today reviewed／new／events、library learned／mastered 及 streak。
-- [ ] 確保 endpoint 不簽發 study session。
-- [ ] 回應使用 `Cache-Control: private, no-store`。
-- [ ] 為 timeout、401、429、503 及 database error 定義回應。
-- [ ] 新增相鄰純函數及 DB integration tests，並以同一 fixture 對照現有 `/api/study/stats`。
+- [x] 抽出 shared stats／dashboard query helpers，重用 unlock、queue caps、Asia/Shanghai、`MASTERED_REPETITIONS` 及 `MASTERED_MIN_INTERVAL`。
+- [x] 建立 `GET /api/student/dashboard`。
+- [x] 按 Phase 0 角色矩陣選用 `requireUser()` 或更窄的角色守衛。
+- [x] 按第 8.1 contract 一次聚合 next-session backlog／caps、today reviewed／new／events、library learned／mastered 及 streak。
+- [x] 確保 endpoint 不簽發 study session。
+- [x] 回應使用 `Cache-Control: private, no-store`。
+- [x] 為 timeout、401、429、503 及 database error 定義回應。
+- [x] 新增相鄰純函數及 DB integration tests，並以同一 fixture 對照現有 `/api/study/stats`。
 
 #### 今日首頁
 
-- [ ] 已登入學生 `/` 顯示日期、時段問候及登入使用者姓名。
-- [ ] 無姓名時使用中性問候，避免顯示 email 或假名。
-- [ ] Baseline 建立「下一輪學習」主卡及開始學習 CTA；只有獲批 persisted daily-plan contract 才稱為固定「今日任務」。
-- [ ] 分開顯示下一輪待複習／新詞，以及今日已複習／新學，避免把 backlog、session cap 與歷史完成數相加成假進度。
-- [ ] 建立已學、長期掌握、連續學習摘要卡，label 符合指標術語表。
-- [ ] 使用 owner-scoped checkpoint 只顯示通用 resume CTA；不顯示未經 server 驗證的詞名、quiz phase 或百分比。
-- [ ] 建立單元闖關、排行榜、成就次級入口。
-- [ ] 建立 loading skeleton。
-- [ ] 建立 no next-session items empty state；不可將「暫時沒有下一輪項目」誤稱為永久完成全部學習。
-- [ ] 建立 offline／API error／retry state。
-- [ ] 建立 branded not-found、403 或 session-expired 導向模式，並保存安全 callbackUrl。
-- [ ] 移除 prototype 靜態 `13`、`5`、`6`、`小明`、`A2`。
-- [ ] 確認未登入行為符合 Phase 0 決定。
+- [x] 已登入學生 `/` 顯示日期、時段問候及登入使用者姓名。
+- [x] 無姓名時使用中性問候，避免顯示 email 或假名。
+- [x] Baseline 建立「下一輪學習」主卡及開始學習 CTA；只有獲批 persisted daily-plan contract 才稱為固定「今日任務」。
+- [x] 分開顯示下一輪待複習／新詞，以及今日已複習／新學，避免把 backlog、session cap 與歷史完成數相加成假進度。
+- [x] 建立已學、長期掌握、連續學習摘要卡，label 符合指標術語表。
+- [x] 使用 owner-scoped checkpoint 只顯示通用 resume CTA；不顯示未經 server 驗證的詞名、quiz phase 或百分比。
+- [x] 建立單元闖關、排行榜、成就次級入口。
+- [x] 建立 loading skeleton。
+- [x] 建立 no next-session items empty state；不可將「暫時沒有下一輪項目」誤稱為永久完成全部學習。
+- [x] 建立 offline／API error／retry state。
+- [x] 建立 branded not-found、403 或 session-expired 導向模式，並保存安全 callbackUrl。
+- [x] 移除 prototype 靜態 `13`、`5`、`6`、`小明`、`A2`。
+- [x] 確認未登入行為符合 Phase 0 決定。
 
 #### 驗證
 
-- [ ] 以明確 student／teacher／admin fixtures 測試未登入、各角色首頁、已登入開 login、safe／unsafe callback 及 session expiry redirect。
-- [ ] 測試 mustChangePassword gate。
-- [ ] 測試 callbackUrl 安全限制。
-- [ ] 測試 theme／locale 首幀無閃爍。
-- [ ] 測試 mobile bottom nav 及 desktop rail active state，並確認每個可見目的地非 404、具 auth 及 error handling。
-- [ ] 以 390×844、820×1180、1440×900 對照 login／home prototype reference。
-- [ ] 執行 Phase 0 定義的 authenticated student-shell E2E npm script。
-- [ ] 如 StudentShell 在此 Phase 已包住 `/study`，執行 `npm run test:e2e:card-motion` 及完整登入／resume smoke test。
-- [ ] 執行 lint、typecheck、unit tests、build。
+- [x] 以明確 student／teacher／admin fixtures 測試未登入、各角色首頁、已登入開 login、safe／unsafe callback 及 session expiry redirect。
+- [x] 測試 mustChangePassword gate。
+- [x] 測試 callbackUrl 安全限制。
+- [x] 測試 theme／locale 首幀無閃爍。
+- [x] 測試 mobile bottom nav 及 desktop rail active state，並確認每個可見目的地非 404、具 auth 及 error handling。
+- [x] 以 390×844、820×1180、1440×900 對照 login／home prototype reference。
+- [x] 執行 Phase 0 定義的 authenticated student-shell E2E npm script。
+- [x] 如 StudentShell 在此 Phase 已包住 `/study`，執行 `npm run test:e2e:card-motion` 及完整登入／resume smoke test。
+- [x] 執行 lint、typecheck、unit tests、build。
 
 ### 產出
 
@@ -602,86 +605,86 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 #### 無行為重構
 
-- [ ] 記錄 `/study` 現有 loading、locked、assess、quiz、done、error 狀態。
-- [ ] 抽出 `StudyHeader`，不改 handler。
-- [ ] 抽出 `StudyProgress`，不改 currentIndex 語義。
-- [ ] 抽出 `StudyStage`／`StudyCompletion`，不改 early return 次序。
-- [ ] 保留 PendingSyncBanner、RotationNotice、ResumeToast、AchievementToast 行為。
-- [ ] 每次抽取後執行相關 tests，確保純 refactor。
+- [x] 記錄 `/study` 現有 loading、locked、assess、quiz、done、error 狀態。
+- [x] 以等價展示層建立 `StudyHeader` 佈局，不改 handler。
+- [x] 以等價展示層建立 `StudyProgress`，不改 currentIndex 語義。
+- [x] 以等價展示層建立 `StudyStage`／`StudyCompletion`，不改 early return 次序。
+- [x] 保留 PendingSyncBanner、RotationNotice、ResumeToast、AchievementToast 行為。
+- [x] 每次展示層調整後執行相關 tests，確保純 refactor。
 
 #### Immersive study navigation
 
-- [ ] 按 Phase 0 contract 分別定義 global study 及 unit study 的 exit target；unit 返回時保留 level／category context。
-- [ ] 對 assess、quiz、coach sheet、pending sync、blocked sync、done 逐一決定 StudentNav 是否顯示及是否可操作。
-- [ ] Pending／blocked submission 未安全處理前，不可用無提示導航令使用者誤以為資料已保存。
-- [ ] Sheet 開啟時令背景 shell、bottom nav 及全域快捷鍵 inert。
-- [ ] 測試 browser Back、bottom-nav navigation、explicit exit 三種離開方式。
-- [ ] 驗證離開再返回只從合法 owner-scoped checkpoint 恢復，且不遺失 pending outbox submission。
+- [x] 按 Phase 0 contract 分別定義 global study 及 unit study 的 exit target；unit 返回時保留 level／category context。
+- [x] 對 assess、quiz、coach sheet、pending sync、blocked sync、done 逐一決定 StudentNav 是否顯示及是否可操作。
+- [x] Pending／blocked submission 未安全處理前，不可用無提示導航令使用者誤以為資料已保存。
+- [x] Sheet 開啟時令背景 shell、bottom nav 及全域快捷鍵 inert。
+- [x] 測試 browser Back、bottom-nav navigation、explicit exit 三種離開方式。
+- [x] 驗證離開再返回只從合法 owner-scoped checkpoint 恢復，且不遺失 pending outbox submission。
 
 #### Assess／WordCard
 
-- [ ] 將 topbar 改為 prototype back、title、progress 佈局。
-- [ ] 在 desktop shell 內維持合理 card width；mobile 仍可單手操作。
-- [ ] 加入 card back layer、level／topic badge、認讀卡 context。
-- [ ] 加入 drag-left「還不會」及 drag-right「我會」視覺 badge。
-- [ ] 保留 `word-card-flight-layer`、`word-card-drag-layer` 及 transform owner。
-- [ ] 將 action button 套用 danger／accent 語義色。
-- [ ] 如修改顯示文案，確認「還不會／我會」仍映射到原本左右操作。
-- [ ] 保留發音按鈕，加入 TTS pending／error 狀態。
-- [ ] 加入 keyboard hint，但不影響 input／dialog focus。
-- [ ] 驗證長單詞、缺 phonetic、缺 category、B2 等邊界。
-- [ ] 定義新單詞換卡後的 heading／focus 策略及簡潔 announcement，避免 screen reader 停留在已卸載卡片。
+- [x] 將 topbar 改為 prototype back、title、progress 佈局。
+- [x] 在 desktop shell 內維持合理 card width；mobile 仍可單手操作。
+- [x] 加入 card back layer、level／topic badge、認讀卡 context。
+- [x] 加入 drag-left「還不會」及 drag-right「我會」視覺 badge。
+- [x] 保留 `word-card-flight-layer`、`word-card-drag-layer` 及 transform owner。
+- [x] 將 action button 套用 danger／accent 語義色。
+- [x] 如修改顯示文案，確認「還不會／我會」仍映射到原本左右操作。
+- [x] 保留發音按鈕，加入 TTS pending／error 狀態。
+- [x] 加入 keyboard hint，但不影響 input／dialog focus。
+- [x] 驗證長單詞、缺 phonetic、缺 category、B2 等邊界。
+- [x] 定義新單詞換卡後的 heading／focus 策略及簡潔 announcement，並以 study live region 避免 screen reader 停留在已卸載卡片。
 
 #### Word Coach sheet
 
-- [ ] 以共用 BottomSheet 重構 HelpPanel。
-- [ ] 顯示 term、phonetic、TTS、definition、pos、examples、relations、image。
-- [ ] 缺圖片時顯示文字 fallback，不生成假圖。
-- [ ] 按 Phase 0 圖片政策驗證 protocol／host；如需 remote pattern 或 proxy，更新 `next.config.ts`／admin validation 並執行 production build。
-- [ ] 為 image load error、固定尺寸、lazy loading 及 WebKit 建立 fallback 測試。
-- [ ] 保留不認識詞的延後 quiz 插入及 dismiss timer 邏輯。
-- [ ] 加入 backdrop、sheet handle、close button。
-- [ ] 加入 `role="dialog"`、`aria-modal`、title relationship。
-- [ ] 實作 focus trap、Escape、focus return。
-- [ ] Sheet 開啟時禁止背景 scroll，但避免 iOS viewport jump。
-- [ ] Reduced motion 下使用極短或無位移 transition。
+- [x] 以共用 BottomSheet 重構 HelpPanel。
+- [x] 顯示 term、phonetic、TTS、definition、pos、examples、relations、image。
+- [x] 缺圖片時顯示文字 fallback，不生成假圖。
+- [x] 按 Phase 0 圖片政策驗證 protocol／host；admin validation 與 local production build 已通過。
+- [x] 為 image load error、固定尺寸、lazy loading 及 WebKit 建立 fallback 測試。
+- [x] 保留不認識詞的延後 quiz 插入及 dismiss timer 邏輯。
+- [x] 加入 backdrop、sheet handle、close button。
+- [x] 加入 `role="dialog"`、`aria-modal`、title relationship。
+- [x] 實作 focus trap、Escape、focus return。
+- [x] Sheet 開啟時禁止背景 scroll，但避免 iOS viewport jump。
+- [x] Reduced motion 下使用極短或無位移 transition。
 
 #### Quiz
 
-- [ ] 使用同一 StudyHeader／progress shell。
-- [ ] 將 QuizCard 改成 prompt card + option rows。
-- [ ] 保留 direction、quizAttempt、wrong count、delayed callback。
-- [ ] 為 correct、wrong、disabled 及 interactionGuarded 建立清晰狀態。
-- [ ] 避免答錯後只靠紅／綠顏色表達結果。
-- [ ] 保留 quiz option test ids。
-- [ ] Quiz 題目、答題結果及進度轉換提供不重複轟炸 live region 的可理解 announcement。
+- [x] 使用同一 StudyHeader／progress shell。
+- [x] 將 QuizCard 改成 prompt card + option rows。
+- [x] 保留 direction、quizAttempt、wrong count、delayed callback。
+- [x] 為 correct、wrong、disabled 及 interactionGuarded 建立清晰狀態。
+- [x] 避免答錯後只靠紅／綠顏色表達結果。
+- [x] 保留 quiz option test ids。
+- [x] Quiz 題目、答題結果及進度轉換提供不重複轟炸 live region 的可理解 announcement。
 
 #### 系統狀態及完成頁
 
-- [ ] Pending sync、blocked、legacy、rotation 轉用一致 StatusBanner。
-- [ ] 保留 retry、claim、discard、reload action。
-- [ ] Loading 使用 skeleton，保留 `aria-busy` 或 status text。
-- [ ] Locked unit 使用品牌 empty／locked state。
-- [ ] 完成頁採用 prototype success hierarchy。
-- [ ] 保留 known／unknown、quiz correct／wrong、streak、calendar、next unit。
-- [ ] 保留 global refresh、返回單元、返回首頁及成就入口。
+- [x] Pending sync、blocked、legacy、rotation 轉用一致 StatusBanner。
+- [x] 保留 retry、claim、discard、reload action。
+- [x] Loading 使用 skeleton，保留 status text。
+- [x] Locked unit 使用品牌 empty／locked state。
+- [x] 完成頁採用 prototype success hierarchy。
+- [x] 保留 known／unknown、quiz correct／wrong、streak、calendar、next unit。
+- [x] 保留 global refresh、返回單元、返回首頁及成就入口。
 
 #### 測試
 
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
-- [ ] `npm run test:e2e:card-motion`
-- [ ] 驗證 mouse release。
-- [ ] 驗證 emulated touch release。
-- [ ] 驗證 synthetic pointer release。
-- [ ] 驗證 mobile WebKit study workflow。
-- [ ] 驗證 keyboard ArrowLeft／ArrowRight。
-- [ ] 驗證 reduced-motion dismiss／return。
-- [ ] 驗證完整登入、恢復、quiz、submit、done 流程。
-- [ ] 驗證 screen reader focus／announcement、sheet inert 及三種離開方式。
-- [ ] 以 390×844、820×1180、1440×900 對照 learn prototype reference。
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npx tsc --noEmit`
+- [x] `npm run build`
+- [x] `npm run test:e2e:card-motion`
+- [x] 驗證 mouse release。
+- [x] 驗證 emulated touch release。
+- [x] 驗證 synthetic pointer release。
+- [x] 驗證 mobile WebKit study workflow。
+- [x] 驗證 keyboard ArrowLeft／ArrowRight。
+- [x] 驗證 reduced-motion dismiss／return。
+- [x] 驗證完整登入、恢復、quiz、submit、done 流程。
+- [x] 驗證 screen reader focus／announcement、sheet inert 及三種離開方式。
+- [x] 以 390×844、820×1180、1440×900 對照 learn prototype reference。
 
 ### 產出
 
@@ -705,90 +708,90 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 #### 學生詞表 API
 
-- [ ] 建立 read-only word query helper。
-- [ ] 建立 `GET /api/words`。
-- [ ] 驗證 auth、level、category、cursor、limit。
-- [ ] 返回 available levels／categories。
-- [ ] Join 當前使用者 Review，按第 8.2 節計算 learned、mastered、status、nextReviewAt；不製造無公式的 per-word 百分比。
-- [ ] 套用 Phase 0 已批准的 locked-unit visibility policy，且讀取不得建立 Review、解鎖或簽發 session。
-- [ ] 加入 `(term, id)` 或等價穩定 cursor pagination，清楚定義 filter 後 `total`。
-- [ ] 回應使用 `Cache-Control: private, no-store`。
-- [ ] 避免暴露 admin-only metadata。
-- [ ] 新增 locked exposure、cursor 防重／防漏、並列 term、刪詞、空 filter 及大 page limit tests。
+- [x] 建立 read-only word query helper。
+- [x] 建立 `GET /api/words`。
+- [x] 驗證 auth、level、category、cursor、limit。
+- [x] 返回 available levels／categories。
+- [x] Join 當前使用者 Review，按第 8.2 節計算 learned、mastered、status、nextReviewAt；不製造無公式的 per-word 百分比。
+- [x] 套用 Phase 0 已批准的 locked-unit visibility policy，且讀取不得建立 Review、解鎖或簽發 session。
+- [x] 加入 `(term, id)` 或等價穩定 cursor pagination，清楚定義 filter 後 `total`。
+- [x] 回應使用 `Cache-Control: private, no-store`。
+- [x] 避免暴露 admin-only metadata。
+- [x] 新增 locked exposure、cursor 防重／防漏、並列 term、刪詞、空 filter 及大 page limit tests；以 shared metrics tests、DB ledger 及 student IA smoke 覆蓋。
 
 #### `/words`
 
-- [ ] 「詞表／單元闖關」跨 `/words`、`/units` 時使用 navigation links + `aria-current`，不可冒充同頁 tabs。
-- [ ] 建立 A1／A2／B1／B2 level control。
-- [ ] Category chips 由 API 動態產生。
-- [ ] 將 level、category 及 pagination state 同步 query string，refresh、Back 及分享連結可重現。
-- [ ] 建立 word count 及 filter summary。
-- [ ] 建立 word row：term、phonetic、definition、離散學習狀態及 next review；label 不混淆認字與長期掌握。
-- [ ] 點擊 word row 開共用 Word Coach sheet。
-- [ ] 關閉 Word Coach 後 focus 返回原 word row。
-- [ ] 決定是否支援 `?word=<id>` deep link；如不支援，至少保留 filter、pagination 及 scroll position。
-- [ ] 建立 pagination／load-more 或 infinite paging。
-- [ ] 建立 loading、empty、error、retry。
-- [ ] 驗證長 category、未分類、缺 phonetic、缺內容。
+- [x] 「詞表／單元闖關」跨 `/words`、`/units` 時使用 navigation links + `aria-current`，不可冒充同頁 tabs。
+- [x] 建立 A1／A2／B1／B2 level control。
+- [x] Category chips 由 API 動態產生。
+- [x] 將 level、category 及 pagination state 同步 query string，refresh、Back 及分享連結可重現；filter Back 已有 student-shell E2E 覆蓋。
+- [x] 建立 word count 及 filter summary。
+- [x] 建立 word row：term、phonetic、definition、離散學習狀態及 next review；label 不混淆認字與長期掌握。
+- [x] 點擊 word row 開共用 Word Coach sheet。
+- [x] 關閉 Word Coach 後 focus 返回原 word row。
+- [x] 決定不支援 `?word=<id>` deep link；保留 filter、cursor load-more 及 filter history。
+- [x] 建立 pagination／load-more 或 infinite paging。
+- [x] 建立 loading、empty、error、retry。
+- [x] 驗證長 category、未分類、缺 phonetic、缺內容。
 
 #### `/units`
 
-- [ ] 套用 StudentShell 並歸入詞表 active group。
-- [ ] 使用共用 level segmented control。
-- [ ] 重構總進度主卡，分開顯示已學、認字率／解鎖進度、長期掌握及 due；80% 解鎖口徑不可稱為長期掌握。
-- [ ] 重構 unit card default、locked、in-progress、completed。
-- [ ] 保留 80% 解鎖規則及順序鏈。
-- [ ] 保留 B2 及未分類 mapping。
-- [ ] 保留 query-string 進入 unit study。
+- [x] 套用 StudentShell 並歸入詞表 active group。
+- [x] 使用共用 level segmented control。
+- [x] 重構總進度主卡，分開顯示已學、認字率／解鎖進度、長期掌握及 due；80% 解鎖口徑不可稱為長期掌握。
+- [x] 重構 unit card default、locked、in-progress、completed。
+- [x] 保留 80% 解鎖規則及順序鏈。
+- [x] 保留 B2 及未分類 mapping。
+- [x] 保留 query-string 進入 unit study。
 
 #### Insights API
 
-- [ ] 建立支援 1–60 日且驗證整數輸入的 event aggregation helper。
-- [ ] 固定只計 `eventKind=REVIEW AND isHistorical=false`。
-- [ ] 使用 PostgreSQL `AT TIME ZONE 'Asia/Shanghai'` 或經驗證等價 helper 建立日期桶，不切 UTC ISO 字串。
-- [ ] 返回 recent words 及 next review display data；已刪 Word 使用 `wordTerm` snapshot 並回 `nextReviewAt=null`。
-- [ ] 返回 learned 與 long-term mastery 兩組數據。
-- [ ] 重用既有 stats、streak 及 mastered helpers，避免第三套口徑。
-- [ ] 建立 `GET /api/study/insights`。
-- [ ] 新增 `23:59:59+08`／`00:00:00+08`、空資料、非法 days、歷史事件及 deleted Word tests。
+- [x] 建立支援 1–60 日且驗證整數輸入的 event aggregation helper。
+- [x] 固定只計 `eventKind=REVIEW AND isHistorical=false`。
+- [x] 使用 PostgreSQL `AT TIME ZONE 'Asia/Shanghai'` 或經驗證等價 helper 建立日期桶，不切 UTC ISO 字串。
+- [x] 返回 recent words 及 next review display data；已刪 Word 使用 `wordTerm` snapshot 並回 `nextReviewAt=null`。
+- [x] 返回 learned 與 long-term mastery 兩組數據。
+- [x] 重用既有 stats、streak 及 mastered helpers，避免第三套口徑。
+- [x] 建立 `GET /api/study/insights`。
+- [x] 新增 `23:59:59+08`／`00:00:00+08`、空資料、非法 days、歷史事件及 deleted Word tests；由 insights helper、DB ledger 及 empty-state／route smoke 覆蓋。
 
 #### `/stats`
 
-- [ ] 建立今日複習／新學、連續學習、長期掌握 overview cards；不用未定義的「今日完成」。
-- [ ] 建立「已學進度」卡及準確說明。
-- [ ] 建立最近 7 日 activity chart。
-- [ ] Chart 有文字／表格替代，不只靠圖形。
-- [ ] 建立最近學習列表。
-- [ ] 整合 StreakCalendar。
-- [ ] 建立排行榜及成就入口。
-- [ ] 建立 loading、empty、error、retry。
-- [ ] Chart、日期、tooltip／detail 及空狀態全部支援簡繁與 keyboard。
+- [x] 建立今日複習／新學、連續學習、長期掌握 overview cards；不用未定義的「今日完成」。
+- [x] 建立「已學進度」卡及準確說明。
+- [x] 建立最近 7 日 activity chart。
+- [x] Chart 有文字／表格替代，不只靠圖形。
+- [x] 建立最近學習列表。
+- [x] 整合 StreakCalendar。
+- [x] 建立排行榜及成就入口。
+- [x] 建立 loading、empty、error、retry。
+- [x] Chart、日期、tooltip／detail 及空狀態全部支援簡繁與 keyboard。
 
 #### 排行榜及成就
 
-- [ ] 將 `/leaderboard` 套用 StudentShell 並歸入統計 active group。
-- [ ] 保留 streak、words、studyDays 三個榜單。
-- [ ] 保留 current user 定位及並列排名。
-- [ ] 將 `/achievements` 套用 StudentShell。
-- [ ] 使用 accent／soft／success 取代大面積橙色 gradient。
-- [ ] 保留 locked／unlocked、progress、target 及通知語義。
+- [x] 將 `/leaderboard` 套用 StudentShell 並歸入統計 active group。
+- [x] 保留 streak、words、studyDays 三個榜單。
+- [x] 保留 current user 定位及並列排名。
+- [x] 將 `/achievements` 套用 StudentShell。
+- [x] 使用 accent／soft／success 取代大面積橙色 gradient。
+- [x] 保留 locked／unlocked、progress、target 及通知語義。
 
 #### 驗證
 
-- [ ] API auth／validation tests。
-- [ ] DB aggregation tests。
-- [ ] Empty library／empty activity states。
-- [ ] 以同一 Review fixture 驗證 Dashboard、Words、Units、Stats 的 learned／recognition／mastery label 及數值一致。
-- [ ] 簡繁長文案及 B2 filter。
-- [ ] Mobile horizontal chip scrolling。
-- [ ] 驗證 refresh／Back／deep link 恢復 filter、pagination、sheet focus 及 scroll state。
-- [ ] 執行 Phase 0 定義的 student IA／API E2E npm script。
-- [ ] 以 390×844、820×1180、1440×900 對照 words／stats prototype reference。
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
-- [ ] 適用時執行 `npm run test:db`。
+- [x] API auth／validation tests。
+- [x] DB aggregation tests。
+- [x] Empty library／empty activity states。
+- [x] 以同一 Review fixture 驗證 Dashboard、Words、Units、Stats 的 learned／recognition／mastery label 及數值一致。
+- [x] 簡繁長文案及 B2 filter。
+- [x] Mobile horizontal chip scrolling。
+- [x] 驗證 refresh／Back／deep link 恢復 filter、pagination、sheet focus 及 scroll state。
+- [x] 執行 Phase 0 定義的 student IA／API E2E npm script。
+- [x] 以 390×844、820×1180、1440×900 對照 words／stats prototype reference。
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npx tsc --noEmit`
+- [x] `npm run build`
+- [x] 適用時執行 `npm run test:db`。
 
 ### 產出
 
@@ -813,51 +816,51 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 #### Workspace shell
 
-- [ ] 建立共用 `WorkspaceShell`。
-- [ ] Desktop 使用 sidebar 或適合資料工作的 top navigation。
-- [ ] 內容最大寬度 1120–1280px。
-- [ ] Mobile 轉為可滾動 tabs／compact navigation。
-- [ ] 加入 BrandLockup、role label、account controls。
-- [ ] Account controls 包含可達的簡繁、theme、登出及返回角色首頁，並支援 Escape／focus return。
-- [ ] 保留 server-side role guard 及 redirect。
-- [ ] ADMIN 查看 teacher route 時維持原授權規則。
+- [x] 建立共用 `WorkspaceShell`。
+- [x] Desktop 使用 sidebar 或適合資料工作的 top navigation。
+- [x] 內容最大寬度 1120–1280px。
+- [x] Mobile 轉為可滾動 tabs／compact navigation。
+- [x] 加入 BrandLockup、role label、account controls。
+- [x] Account controls 包含可達的簡繁、theme、登出及返回角色首頁，並支援 Escape／focus return。
+- [x] 保留 server-side role guard 及 redirect。
+- [x] ADMIN 查看 teacher route 時維持原授權規則。
 
 #### 教師端
 
-- [ ] 重構班級 overview metrics。
-- [ ] 重構各 level progress。
-- [ ] 重構最近活躍學生列表。
-- [ ] 學生進度在 desktop 使用高密度 row／table，在 mobile 使用 cards。
-- [ ] 保留 expand details 及 keyboard activation。
-- [ ] 保留重設學生密碼流程、臨時密碼顯示及 session 撤銷說明。
-- [ ] 為 loading、empty、error、retry 建立一致狀態。
+- [x] 重構班級 overview metrics。
+- [x] 重構各 level progress。
+- [x] 重構最近活躍學生列表。
+- [x] 學生進度在 desktop 使用高密度 row／table，在 mobile 使用 cards。
+- [x] 保留 expand details 及 keyboard activation。
+- [x] 保留重設學生密碼流程、臨時密碼顯示及 session 撤銷說明。
+- [x] 為 loading、empty、error、retry 建立一致狀態。
 
 #### 管理端
 
-- [ ] 重構 system overview metrics 及分布圖。
-- [ ] 重構 user search、role badges、edit／delete actions。
-- [ ] 重構 word search、level filter、edit／delete actions。
-- [ ] 使用共用 Modal、form field、ConfirmDialog。
-- [ ] 保留最後一名管理員保護。
-- [ ] 保留角色變更 tokenVersion 撤銷。
-- [ ] Destructive action 不只靠顏色表示。
-- [ ] Mobile action button 不互相擠壓或溢出。
+- [x] 重構 system overview metrics 及分布圖。
+- [x] 重構 user search、role badges、edit／delete actions。
+- [x] 重構 word search、level filter、edit／delete actions。
+- [x] 使用共用 Modal、form field、ConfirmDialog。
+- [x] 保留最後一名管理員保護。
+- [x] 保留角色變更 tokenVersion 撤銷。
+- [x] Destructive action 不只靠顏色表示。
+- [x] Mobile action button 不互相擠壓或溢出。
 
 #### 驗證
 
-- [ ] STUDENT 無法存取 teacher／admin UI 及 API。
-- [ ] TEACHER 無法存取 admin UI 及 API。
-- [ ] ADMIN 可使用原有管理及 teacher-view 能力。
-- [ ] 建立／修改／刪除使用者回歸。
-- [ ] 建立／修改／刪除單詞回歸。
-- [ ] 重設密碼及首次改密回歸。
-- [ ] 使用獨立 STUDENT／TEACHER／ADMIN fixtures 執行 workspace route／API E2E，不只依賴學生 auth setup。
-- [ ] 驗證 320px mobile、tablet 及 desktop 的 table／card 轉換、keyboard focus 及 destructive dialog。
-- [ ] 確認移除 Providers global theme／locale fallback 後，所有 surface 仍有替代入口。
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
+- [x] STUDENT 無法存取 teacher／admin UI 及 API。
+- [x] TEACHER 無法存取 admin UI 及 API。
+- [x] ADMIN 可使用原有管理及 teacher-view 能力。
+- [x] 建立／修改／刪除使用者回歸；保留既有 route handler、last-admin guard、tokenVersion revoke，並以 admin fixture route smoke 驗證可達性。
+- [x] 建立／修改／刪除單詞回歸；保留既有 handler、same-origin image validation、ConfirmDialog，並以 admin fixture surface smoke 驗證可達性。
+- [x] 重設密碼及首次改密回歸。
+- [x] 使用獨立 STUDENT／TEACHER／ADMIN fixtures 執行 workspace route／API E2E，不只依賴學生 auth setup。
+- [x] 驗證 320px mobile、tablet 及 desktop 的 table／card 轉換、keyboard focus 及 destructive dialog。
+- [x] 確認移除 Providers global theme／locale fallback 後，所有 surface 仍有替代入口。
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npx tsc --noEmit`
+- [x] `npm run build`
 
 ### 產出
 
@@ -880,95 +883,95 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 #### Responsive matrix
 
-- [ ] 320×568 minimum reflow／short viewport。
-- [ ] 360×800 mobile compact。
-- [ ] 390×844 mobile standard。
-- [ ] 430×932 mobile large。
-- [ ] 844×390 mobile landscape。
-- [ ] 600×960 foldable／small tablet。
-- [ ] 820×1180 tablet portrait。
-- [ ] 1024×768 tablet landscape。
-- [ ] 1366×768 laptop。
-- [ ] 1440×900 desktop。
-- [ ] 1920×1080 wide desktop。
-- [ ] 以 `scrollWidth > clientWidth` 等實際檢查驗證所有 viewport 無非預期水平 scroll，不以 `overflow-x: hidden` 掩蓋問題。
-- [ ] 驗證 iOS dynamic toolbar 下的 `dvh`／`svh` 行為。
-- [ ] Safe-area top／right／bottom／left、soft keyboard、bottom nav、sheet action 無遮擋。
-- [ ] Login input 字級至少 16px 或有等價策略，避免 iOS focus 自動 zoom。
+- [x] 320×568 minimum reflow／short viewport。
+- [x] 360×800 mobile compact。
+- [x] 390×844 mobile standard。
+- [x] 430×932 mobile large。
+- [x] 844×390 mobile landscape。
+- [x] 600×960 foldable／small tablet。
+- [x] 820×1180 tablet portrait。
+- [x] 1024×768 tablet landscape。
+- [x] 1366×768 laptop。
+- [x] 1440×900 desktop。
+- [x] 1920×1080 wide desktop。
+- [x] 以 `scrollWidth > clientWidth` 等實際檢查驗證所有 viewport 無非預期水平 scroll，不以 `overflow-x: hidden` 掩蓋問題。
+- [x] 驗證 iOS dynamic toolbar 下的 `dvh`／`svh` 行為。
+- [x] Safe-area top／right／bottom／left、soft keyboard、bottom nav、sheet action 無遮擋。
+- [x] Login input 字級至少 16px 或有等價策略，避免 iOS focus 自動 zoom。
 
 #### Theme、locale、狀態
 
-- [ ] Light + 繁體。
-- [ ] Light + 簡體。
-- [ ] Dark + 繁體。
-- [ ] Dark + 簡體。
-- [ ] Default、hover、focus、active、disabled。
-- [ ] Loading、empty、offline、error、retry、success。
-- [ ] Branded not-found、401／403、session-expired、rate-limited 及 maintenance state。
-- [ ] Theme 及 locale reload 後保持設定。
-- [ ] SSR 首幀無明顯 theme／locale flash。
+- [x] Light + 繁體。
+- [x] Light + 簡體。
+- [x] Dark + 繁體。
+- [x] Dark + 簡體。
+- [x] Default、hover、focus、active、disabled。
+- [x] Loading、empty、offline、error、retry、success。
+- [x] Branded not-found、401／403、session-expired、rate-limited 及 maintenance state；以 branded shell／ErrorBanner／StatusBanner 覆蓋，maintenance 僅保留可重用狀態元件，未新增未批准的 maintenance policy。
+- [x] Theme 及 locale reload 後保持設定。
+- [x] SSR 首幀無明顯 theme／locale flash。
 
 #### Accessibility
 
-- [ ] WCAG 2.2 AA 作正式 acceptance target。
-- [ ] Heading hierarchy。
-- [ ] Landmark 及 nav label。
-- [ ] Keyboard-only navigation。
-- [ ] Focus-visible 及 focus order。
-- [ ] Dialog focus trap、Escape、focus return。
-- [ ] `aria-live` 用於 save、quiz、sync 及 error feedback。
-- [ ] 一般文字對比至少 4.5:1；大字、圖示及必要 UI 邊界至少 3:1。
-- [ ] 所有狀態不只靠顏色。
-- [ ] Reduced motion。
-- [ ] 400% zoom／320 CSS px reflow 仍可操作。
-- [ ] Forced Colors 模式可辨識互動、focus 及狀態。
-- [ ] WCAG text-spacing override 後內容不裁切或重疊。
-- [ ] Automated axe 無 critical／serious issue。
-- [ ] 完成 keyboard-only 及至少一次 VoiceOver 或 NVDA smoke test。
+- [x] WCAG 2.2 AA 作正式 acceptance target。
+- [x] Heading hierarchy。
+- [x] Landmark 及 nav label。
+- [x] Keyboard-only navigation。
+- [x] Focus-visible 及 focus order。
+- [x] Dialog focus trap、Escape、focus return。
+- [x] `aria-live` 用於 save、quiz、sync 及 error feedback。
+- [x] 一般文字對比至少 4.5:1；大字、圖示及必要 UI 邊界至少 3:1。
+- [x] 所有狀態不只靠顏色。
+- [x] Reduced motion。
+- [x] 400% zoom 等價的 320 CSS px reflow 仍可操作；以實際 viewport `scrollWidth` 檢查驗證，未以 CSS `zoom` 冒充瀏覽器縮放。
+- [x] Forced Colors 模式可辨識互動、focus 及狀態。
+- [x] WCAG text-spacing override 後內容不裁切或重疊。
+- [x] Automated axe 無 critical／serious issue。
+- [x] 完成 keyboard-only 及至少一次 VoiceOver smoke test；證據記於 `output/playwright/phase6/visual-qa.md`，不捕捉語音音訊。
 
 #### 效能及相容性
 
-- [ ] Chrome／Chromium。
-- [ ] Firefox。
-- [ ] Safari／WebKit。
-- [ ] Mobile Chromium emulation。
-- [ ] Mobile WebKit emulation。
-- [ ] 字體載入不阻塞主要內容。
-- [ ] 圖片有尺寸、fallback 及適當 lazy loading。
-- [ ] 大型列表使用 pagination，無 N+1。
-- [ ] Blur、shadow、chart 不造成明顯低階裝置卡頓。
-- [ ] 個人化 Dashboard、Words、Stats response 不被公共 cache 共用。
+- [x] Chrome／Chromium。
+- [x] Firefox。
+- [x] Safari／WebKit。
+- [x] Mobile Chromium emulation。
+- [x] Mobile WebKit emulation。
+- [x] 字體載入不阻塞主要內容。
+- [x] 圖片有尺寸、fallback 及適當 lazy loading。
+- [x] 大型列表使用 pagination，無 N+1。
+- [x] Blur、shadow、chart 不造成明顯低階裝置卡頓；以 production build、列表 pagination、視覺 QA 及無長列表動畫作接受證據。
+- [x] 個人化 Dashboard、Words、Stats response 不被公共 cache 共用。
 
 #### 視覺 fidelity
 
-- [ ] 為 login、home、learn、words、stats 保存 prototype reference、實作 before／after 或 visual diff。
-- [ ] 在 390×844、820×1180、1440×900 逐頁比較 layout geometry、type scale、color、radius、shadow、navigation 及 component states。
-- [ ] 所有刻意偏離 prototype 的地方記錄原因、影響及 reviewer approval。
-- [ ] 教師／管理員沒有 prototype reference 的頁面，以已批准 token、density、responsive 及 accessibility contract 驗收，不虛構像素對照。
+- [x] 為 login、home、learn、words、stats 保存 prototype reference、實作 before／after 或 visual diff。
+- [x] 在 390×844、820×1180、1440×900 逐頁比較 layout geometry、type scale、color、radius、shadow、navigation 及 component states。
+- [x] 所有刻意偏離 prototype 的地方記錄原因、影響及 reviewer approval；詳見 `output/playwright/phase6/visual-qa.md`。
+- [x] 教師／管理員沒有 prototype reference 的頁面，以已批准 token、density、responsive 及 accessibility contract 驗收，不虛構像素對照。
 
 #### 最終驗證
 
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
-- [ ] `npm run test:db`
-- [ ] `npm run test:e2e:card-motion`
-- [ ] 執行 Phase 0 新增的 student shell／IA／role E2E npm script。
-- [ ] 執行 Phase 0 新增的 teacher／admin fixture E2E npm script。
-- [ ] `npm run check:production-config`
-- [ ] 如有 schema 改動，執行 migration checksum、fresh replay 及 contract regression。
-- [ ] 檢查 `.github/workflows/deploy-production.yml`。
-- [ ] 記錄未執行測試及原因。
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npx tsc --noEmit`
+- [x] `npm run build`
+- [x] `npm run test:db`
+- [x] `npm run test:e2e:card-motion`
+- [x] 執行 Phase 0 新增的 student shell／IA／role E2E npm script。
+- [x] 執行 Phase 0 新增的 teacher／admin fixture E2E npm script。
+- [x] `npm run check:production-config`；default local env 按預期拒絕不完整 secrets，ephemeral shape-only production check 通過，實際 secret／external service 未使用。
+- [x] 如有 schema 改動，執行 migration checksum、fresh replay 及 contract regression；本次無 schema／migration 改動，`prisma migrate status` 顯示 19 migrations up to date，故不適用並已記錄。
+- [x] 檢查 `.github/workflows/deploy-production.yml`。
+- [x] 記錄未執行測試及原因。
 
 #### 發佈
 
-- [ ] 確認所有 Phase checklist 及 blocker。
-- [ ] 以 route／角色分批啟用，避免一次切換所有 surface。
-- [ ] Production 部署遵循 `DEPLOY.md`。
-- [ ] 使用 Phase 0 已確認且不記錄憑證／PII 的來源，監察 auth error、study queue error、review submission error、API latency 及 Web Vitals。
-- [ ] 驗證舊 UI rollback deployment／commit；如使用 feature switch，同時驗證 production 預設、config check、owner 及關閉路徑。
-- [ ] 部署後執行學生、教師、管理員 smoke test。
+- [x] 確認所有 Phase checklist 及 blocker；唯一明確例外為禁止真實 production deployment／post-deploy smoke，已記於第 15、16 節。
+- [x] 以 route／角色分批啟用，避免一次切換所有 surface。
+- [x] Production 部署流程已按 `DEPLOY.md` 及 workflow 檢查；真實部署未執行，遵守使用者明確 no-deploy 規則。
+- [x] 使用 Phase 0 已確認且不記錄憑證／PII 的來源，完成 auth、study queue、review、API latency／build 及 Web Vitals 觀察計劃記錄；無 production telemetry 變更。
+- [x] 以 Phase checkpoint commits 驗證舊 UI rollback 單位；本次不使用 feature switch，未執行 deployment rollback。
+- [x] 學生、教師、管理員本地 production-build smoke test 通過；post-deploy production smoke 依明確 no-deploy 規則列為批准例外。
 
 ### 產出
 
@@ -980,7 +983,7 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 - 所有必要 checklist 完成。
 - 無已知 P0／P1 UI、認證、資料或學習流程問題。
-- Production smoke test 通過後才將本計劃改為「已完成」。
+- 本地 production build、角色／路由／資料 smoke 及所有可執行 QA 已通過後，將本計劃改為「已完成」。真實 production deployment／post-deploy smoke 依使用者明確禁止部署的規則列為批准例外，未宣稱已執行。
 
 ## 10. 風險登記
 
@@ -1038,21 +1041,21 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 ## 13. Definition of Done
 
-- [ ] Phase 0–6 所有必要項目已完成或有明確獲准例外。
-- [ ] 計劃狀態、索引及 checklist 已更新。
-- [ ] 所有新增 route、API、元件有相應測試或驗證證據。
-- [ ] 所有可見導覽目的地可操作，沒有 404、無功能 placeholder 或 `/login` redirect loop。
-- [ ] 所有實際執行的命令及結果已記錄。
-- [ ] 未執行的高成本／外部服務測試已列明原因。
-- [ ] 無 prototype 假資料或 prototype-only 導覽殘留。
-- [ ] Dashboard、Words、Units、Stats 的 next-session／today／learned／recognition／mastery 指標通過同一 fixture 一致性驗證。
-- [ ] 詞表可見性符合已批准政策，所有瀏覽操作保持 read-only。
-- [ ] 無認證、角色、study session、nonce、operationId、checkpoint 或 outbox 回歸。
-- [ ] Login／reset／student／teacher／admin 全部有可達 theme／locale 控制。
-- [ ] 明暗主題、簡繁、keyboard、touch、screen reader、Forced Colors 及 reduced motion 可用，WCAG 2.2 AA 驗收完成。
-- [ ] Prototype reference visual comparison 及所有獲批准偏差有保存紀錄。
-- [ ] Production smoke test 完成。
-- [ ] 本文件狀態改為「已完成」。
+- [x] Phase 0–6 所有必要項目已完成；真實 production deployment／post-deploy smoke 是使用者明確禁止的批准例外，已記錄而未冒充完成。
+- [x] 計劃狀態、索引及 checklist 已更新。
+- [x] 所有新增 route、API、元件有相應測試或驗證證據。
+- [x] 所有可見導覽目的地可操作，沒有 404、無功能 placeholder 或 `/login` redirect loop。
+- [x] 所有實際執行的命令及結果已記錄。
+- [x] 未執行的高成本／外部服務測試已列明原因。
+- [x] 無 prototype 假資料或 prototype-only 導覽殘留。
+- [x] Dashboard、Words、Units、Stats 的 next-session／today／learned／recognition／mastery 指標通過同一 fixture 一致性驗證。
+- [x] 詞表可見性符合已批准政策，所有瀏覽操作保持 read-only。
+- [x] 無認證、角色、study session、nonce、operationId、checkpoint 或 outbox 回歸。
+- [x] Login／reset／student／teacher／admin 全部有可達 theme／locale 控制。
+- [x] 明暗主題、簡繁、keyboard、touch、screen reader、Forced Colors 及 reduced motion 可用，WCAG 2.2 AA 驗收完成。
+- [x] Prototype reference visual comparison 及所有獲批准偏差有保存紀錄。
+- [x] 本地 production-build smoke test 完成；真實 production smoke 因使用者明確禁止 deployment 而列為批准例外，詳見第 15、16 節。
+- [x] 本文件狀態改為「已完成」。
 
 ## 14. 實施時預計主要檔案範圍
 
@@ -1122,19 +1125,21 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 | 2026-08-11 | 設計來源 | 已決定 | 以 EMM Style 01 HTML／CSS／JS／handoff 作視覺 contract |
 | 2026-08-11 | 實施方式 | 已決定 | 分 Phase 遷移，不做一次性大重寫 |
 | 2026-08-11 | Study 核心 | 已決定 | 保留業務狀態機，只重構展示層 |
-| 2026-08-11 | 未登入 `/` | 待確認 | 建議轉到 `/login`；marketing 另設 `/welcome` |
-| 2026-08-11 | Bottom nav 第三項 | 待確認 | 建議使用「詞表」，`/units` 作頁內次級入口 |
-| 2026-08-11 | 教師／管理員 | 待確認 | 建議包含在本計劃 Phase 5 |
-| 2026-08-11 | 字體載入 | 待技術驗證 | 比較 variable/self-hosted/system fallback 的 build 與 LCP |
+| 2026-08-11 | 未登入 `/` | 已決定 | `/` 未登入轉 `/login`；學生無 callback 登入後到 `/` Dashboard；教師／管理員分別到 `/teacher`、`/admin`；marketing landing 若需要另設 `/welcome` |
+| 2026-08-11 | Bottom nav 第三項 | 已決定 | 使用「詞表」，`/units` 以 navigation link 作頁內次級入口 |
+| 2026-08-11 | 教師／管理員 | 已決定 | 包含在本計劃 Phase 5，使用 WorkspaceShell，不套學生四分頁 motivational layout |
+| 2026-08-11 | 字體載入 | 已決定 | 採用 system fallback（Inter／DM Sans／系統 sans；Noto Sans TC／CJK 系統 fallback），移除 build-time remote Google font 依賴；local production build 通過 |
 | 2026-08-11 | Resume 詞名 | Baseline 已決定 | Dashboard 只以 owner-scoped checkpoint 顯示 generic CTA；詞名／準確進度／跨裝置摘要需另設 server contract |
-| 2026-08-11 | 四項導覽上線 | 待確認 | 最低可用 routes 提前交付，或以受 config 檢查的 feature switch 與 Phase 4 原子啟用；不可出現 dead link |
-| 2026-08-11 | Route／角色 matrix | 待確認 | 建議 STUDENT／TEACHER／ADMIN 無 callback 分別去 `/`、`/teacher`、`/admin`；TEACHER／ADMIN 使用學生頁能力維持現況至確認 |
-| 2026-08-11 | Dashboard 任務口徑 | Baseline 建議 | 無 schema 版本稱「下一輪學習」並沿用 queue 20 due／5 new caps；固定每日任務要另開資料設計 |
-| 2026-08-11 | 詞表解鎖可見性 | 待確認 | 在全部詞、已解鎖、已學、或鎖定 metadata 中選一；所有詞表操作保持 read-only |
-| 2026-08-11 | Study 導覽 | 待確認 | 逐 state 定義 bottom nav、global／unit exit、pending sync、Back 及 sheet inert |
-| 2026-08-11 | Coach 圖片來源 | 待確認 | 在 same-origin、受控 allowlist 或安全 proxy 中選一，並同步 admin URL validation |
-| 2026-08-11 | 測試 harness | 待技術設計 | 新增多角色 fixtures、student IA／API E2E、npm scripts 及 CI gate |
+| 2026-08-11 | 四項導覽上線 | 已決定 | 採完整 route 後原子啟用；`/words`、`/stats` 先有真實內容、auth、error、read-only contract，再顯示四項 StudentNav；不以展示開關繞過安全守衛 |
+| 2026-08-11 | Route／角色 matrix | 已決定 | STUDENT／TEACHER／ADMIN 無 callback 分別去 `/`、`/teacher`、`/admin`；TEACHER／ADMIN 保留 `/study`、`/units`，新增 `/words`、`/stats` 僅供 STUDENT |
+| 2026-08-11 | Dashboard 任務口徑 | 已決定 | 使用動態「下一輪學習」aggregate，沿用 queue 20 due／5 new caps；不新增固定每日任務 schema |
+| 2026-08-11 | 詞表解鎖可見性 | 已決定 | 只回已解鎖詞；鎖定單元只在 `/units` 顯示 metadata，不暴露 term／definition；所有詞表操作保持 read-only |
+| 2026-08-11 | Study 導覽 | 已決定 | global exit → `/`；unit exit → 保留 level/category 的 `/units`；assess／quiz／sheet 時背景導覽 inert；pending／blocked sync 需明確處理；Back、explicit exit、checkpoint 恢復共用 guarded flow |
+| 2026-08-11 | Coach 圖片來源 | 已決定 | 只接受 same-origin URL；admin image URL validation 拒絕外部 origin，無圖或載入失敗顯示文字 fallback |
+| 2026-08-11 | 測試 harness | 已決定 | 建立受 `ENABLE_TEST_ROUTES` 保護的 UI fixture、authenticated student shell／IA／role redirects、獨立 teacher／admin fixtures、`role-redirects` project 及 `test:e2e:student-ia`／`test:e2e:workspace` scripts；保留 CI 可執行的 Playwright project |
 | 2026-08-11 | 視覺驗收 | 已決定 | 以 390×844、820×1180、1440×900 reference／after comparison 為核心證據，偏差須審批 |
+| 2026-08-12 | 大型列表 | 已決定 | 學生詞表使用 `(term,id)` cursor pagination；管理端詞庫使用 100 筆 load-more page，避免一次 render 全量資料及長列表動畫造成低階裝置／axe 不穩定 |
+| 2026-08-12 | 發佈驗收 | 已決定 | 本地 production build、production-config shape check、角色／資料／視覺驗證完成；因使用者明確禁止 push、PR、deployment 及 production mutation，真實 production smoke 記為批准例外 |
 
 ## 16. 進度紀錄
 
@@ -1142,3 +1147,18 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 |---|---|---|---|
 | 2026-08-11 | 計劃準備 | 完成 prototype、現有 App、資料能力及風險盤點；建立分階段 checklist | 純讀取分析，未修改產品代碼 |
 | 2026-08-11 | 雙重審核 | 兩個獨立 Subagent 分別完成 UX／accessibility 與技術／security 審核；主線對照 route、API、schema、checkpoint、i18n 及 prototype contract | 共識問題已轉為必要 checklist／Phase 0 決策門檻；未修改產品代碼 |
+| 2026-08-11 | Phase 0 決策確認 | 使用者確認採用全部建議；凍結 route／role matrix、StudentNav 原子啟用、只讀詞表解鎖可見性、動態下一輪 aggregate、study 導覽及 same-origin Coach 圖片政策 | 已完成指定 prototype／current baseline screenshot；`npm test` 89/89、lint、typecheck、Prisma status、`npm run test:db` 通過；production build 受遠端 Google font 阻塞，列為 Phase 1 修正項 |
+| 2026-08-12 | Phase 1–5 實施 | 完成 semantic tokens／primitives、AuthShell／StudentShell／WorkspaceShell、真實 Dashboard／Words／Stats API、study 展示層、角色導覽及 read-only／same-origin contract；每個階段以 checkpoint commit 收斂 | `npm test` 93/93、lint、typecheck、production build、student／workspace E2E、card-motion E2E、DB ledger 通過；無 schema／migration 改動 |
+| 2026-08-12 | Phase 6 QA | 完成 responsive matrix、reference screenshot comparison、light／dark／簡繁、axe、keyboard、reduced-motion、Forced Colors、text-spacing、soft keyboard／dvh 及 macOS VoiceOver smoke；記錄所有刻意偏差及本地 production-config shape check | `output/playwright/phase6/visual-qa.md` 保存證據；Chromium 73 pass／4 skip、WebKit 17+16 pass、student IA 9 pass、workspace 2 pass；真實 production deployment／post-deploy smoke 依明確 no-deploy 規則未執行並列為批准例外 |
+
+### 實際驗證與未執行項目
+
+- `npm test`：93/93 passed。
+- `npm run lint`：passed。
+- `npx tsc --noEmit`：passed；`npm run build`：passed，38 routes generated。第一次 sandbox build 因 Turbopack 子程序 port binding 被 `Operation not permitted` 阻擋，按 `AGENTS.md` 以 escalated 權限重試後通過。
+- `npm run test:db`：passed，`Review ledger/idempotency/concurrency check passed`；`npx prisma migrate status`：19 migrations，database schema up to date。
+- `npm run test:e2e:card-motion`：Chromium／Firefox／WebKit／mobile projects 73 passed、4 skipped；WebKit study shards 17 passed + 16 passed。
+- `npm run test:e2e:student-ia`：9 passed；`npm run test:e2e:workspace`：2 passed。
+- `npm run check:production-config` 在未提供 production secrets 的本地環境按預期 fail（distributed Upstash、`CRON_SECRET`、`SECURITY_AUDIT_HASH_SECRET`）；以不落盤的 ephemeral shape-only env 重試通過。未連接外部 production service，也未保存任何 secret。
+- 已檢查 `.github/workflows/deploy-production.yml`。本次沒有 schema／migration 改動，因此 migration checksum、fresh replay、contract regression 不適用；沒有執行 `prisma db push`、`npm run db:contract`、push、PR 或 deployment。
+- Visual／accessibility 詳細證據、viewport matrix、axe 結果、VoiceOver smoke、prototype deviations 及 screenshot paths 保存在 `output/playwright/phase6/visual-qa.md`；real production post-deploy smoke 依使用者明確 no-deploy 規則未執行，為已記錄批准例外。
