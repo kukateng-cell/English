@@ -13,42 +13,49 @@ datasource db {
 
 // ── 用户（账号+密码登录） ──
 model User {
-  id                 String            @id @default(cuid())
-  email              String            @unique
-  passwordHash       String
-  name               String?
-  role               Role              @default(STUDENT)
+  id                       String                    @id @default(cuid())
+  email                    String                    @unique
+  passwordHash             String
+  name                     String?
+  role                     Role                      @default(STUDENT)
   // 角色变更令牌版本号：管理员修改用户角色时 +1，
   // jwt 回调据此在下次请求时刷新缓存的角色（实时生效机制）。
-  tokenVersion       Int               @default(0)
+  tokenVersion             Int                       @default(0)
   // 首次登入強制改密碼：seed 的學生帳號預設 true，重設密碼後設 false。
-  mustChangePassword Boolean           @default(true)
-  createdAt          DateTime          @default(now())
-  reviews            Review[]
-  reviewEvents       ReviewEvent[]
-  studySessions      StudySession[]
-  securityEventsAsActor   SecurityEvent[] @relation("SecurityEventActor")
-  securityEventsAsSubject SecurityEvent[] @relation("SecurityEventSubject")
-  studyDays          StudyDay[]
-  achievements       UserAchievement[]
+  mustChangePassword       Boolean                   @default(true)
+  createdAt                DateTime                  @default(now())
+  reviews                  Review[]
+  reviewEvents             ReviewEvent[]
+  studySessions            StudySession[]
+  operationReceipts        OperationReceipt[]
+  evidenceObligations      EvidenceObligation[]
+  objectiveEvidenceTargets ObjectiveEvidenceTarget[]
+  securityEventsAsActor    SecurityEvent[]           @relation("SecurityEventActor")
+  securityEventsAsSubject  SecurityEvent[]           @relation("SecurityEventSubject")
+  studyDays                StudyDay[]
+  achievements             UserAchievement[]
 }
 
 // ── 单词（来自 word list.md + ECDICT） ──
 model Word {
-  id           String        @id @default(cuid())
-  term         String        @unique
-  phonetic     String?
-  pos          String?
-  definition   String
-  level        Level // A1 / A2 / B1 / B2
-  category     String? // 主题（Family / Colors ...）
-  examples     Json? // 例句数组 [{"en":"...","zh":"..."}]
-  synonyms     String[] // 近义词
-  antonyms     String[] // 反义词
-  imageUrl     String? // 助记图
-  reviews      Review[]
-  reviewEvents ReviewEvent[]
-  studySessionItems StudySessionItem[]
+  id                       String                      @id @default(cuid())
+  term                     String                      @unique
+  phonetic                 String?
+  pos                      String?
+  definition               String
+  level                    Level // A1 / A2 / B1 / B2
+  category                 String? // 主题（Family / Colors ...）
+  examples                 Json? // 例句数组 [{"en":"...","zh":"..."}]
+  synonyms                 String[] // 近义词
+  antonyms                 String[] // 反义词
+  imageUrl                 String? // 助记图
+  reviews                  Review[]
+  reviewEvents             ReviewEvent[]
+  studySessionItems        StudySessionItem[]
+  streamItems              StudyStreamItem[]
+  evidenceObligations      EvidenceObligation[]
+  objectiveEvidenceTargets ObjectiveEvidenceTarget[]
+  questionSnapshots        ObjectiveQuestionSnapshot[]
 
   @@index([level])
   @@index([category])
@@ -65,6 +72,7 @@ model Review {
   nextReviewDate DateTime
   lastReviewedAt DateTime?
   totalReviews   Int       @default(0)
+  revision       Int       @default(0)
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   word           Word      @relation(fields: [wordId], references: [id], onDelete: Cascade)
 
@@ -76,23 +84,32 @@ model Review {
 // operationId 由客户端为一次答题生成，并按用户唯一。服务端在 Serializable
 // transaction 内先查此表，确保响应丢失后的重试不会重复推进 SM-2。
 model ReviewEvent {
-  id                String   @id @default(cuid())
-  operationId       String
-  userId            String
-  submittedWordId   String
-  wordId            String?
+  id                          String                     @id @default(cuid())
+  operationId                 String
+  userId                      String
+  submittedWordId             String
+  wordId                      String?
   // 删除词库项目时仍保留审计／统计；以下快照不依赖当前 Word 行。
-  wordTerm          String
-  wordLevel         Level
-  eventKind         ReviewEventKind @default(REVIEW)
+  wordTerm                    String
+  wordLevel                   Level
+  eventKind                   ReviewEventKind            @default(REVIEW)
   // Non-REVIEW bridge/backfill rows use neutral quality=0; eventKind carries semantics.
-  quality           Int
-  newlyUnlockedKeys String[] @default([])
+  quality                     Int
+  newlyUnlockedKeys           String[]                   @default([])
   // 迁移前只有累计次数、没有逐次时间；这类回填不可进入日／周时间桶。
-  isHistorical      Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  word              Word?    @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  isHistorical                Boolean                    @default(false)
+  evidenceKind                String?
+  flowVersion                 String?
+  qualityPolicyVersion        String?
+  probePurpose                String?
+  itemConstructionVersion     String?
+  objectiveEvidenceTargetId   String?
+  objectiveQuestionSnapshotId String?
+  createdAt                   DateTime                   @default(now())
+  user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word                        Word?                      @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  objectiveEvidenceTarget     ObjectiveEvidenceTarget?   @relation("ObjectiveTargetReviewEvents", fields: [objectiveEvidenceTargetId], references: [id], onDelete: SetNull)
+  objectiveQuestionSnapshot   ObjectiveQuestionSnapshot? @relation("QuestionSnapshotReviewEvents", fields: [objectiveQuestionSnapshotId], references: [id], onDelete: SetNull)
 
   @@unique([userId, operationId])
   @@index([userId, createdAt])
@@ -125,20 +142,28 @@ enum SecurityEventType {
 // Server-issued study session. A client can only submit a scored answer for a
 // word that belongs to a live session and has an unused nonce.
 model StudySession {
-  id               String             @id @default(cuid())
-  userId           String
-  queueFingerprint String
+  id                    String             @id @default(cuid())
+  userId                String
+  queueFingerprint      String
   // Deterministic client retry key for an atomic near-expiry rotation.
-  rotationKey      String?            @unique
-  expiresAt        DateTime
-  retiredAt        DateTime?
-  createdAt        DateTime           @default(now())
-  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items            StudySessionItem[]
+  rotationKey           String?            @unique
+  expiresAt             DateTime
+  retiredAt             DateTime?
+  flowVersion           String             @default("v1")
+  learningPolicyVersion String?
+  mode                  String             @default("global")
+  scopeLevel            Level?
+  scopeCategory         String?
+  revision              Int                @default(0)
+  createdAt             DateTime           @default(now())
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items                 StudySessionItem[]
+  streamItems           StudyStreamItem[]
 
   @@index([userId, expiresAt])
   @@index([userId, queueFingerprint, expiresAt])
   @@index([userId, retiredAt, expiresAt])
+  @@index([userId, flowVersion, expiresAt])
   @@index([expiresAt])
 }
 
@@ -159,6 +184,136 @@ model StudySessionItem {
   @@unique([sessionId, wordId])
   @@index([sessionId, usedAt])
   @@index([operationId])
+}
+
+// V2 stream item identity. This table intentionally does not share the V1
+// [sessionId, wordId] unique constraint: one session may present the same word
+// as a Learning Card, an obligation probe and a remediation item.
+model StudyStreamItem {
+  id                          String                     @id @default(cuid())
+  sessionId                   String
+  streamItemKey               String
+  wordId                      String?
+  itemKind                    String
+  selectionReason             String
+  policyVersion               String
+  status                      String                     @default("LEASED")
+  leaseExpiresAt              DateTime
+  credentialDigest            String                     @unique
+  credentialExpiresAt         DateTime
+  usedAt                      DateTime?
+  operationId                 String?
+  clientRevision              Int?
+  objectiveEvidenceTargetId   String?
+  objectiveQuestionSnapshotId String?
+  sourceItemId                String?                    @unique
+  createdAt                   DateTime                   @default(now())
+  updatedAt                   DateTime                   @updatedAt
+  session                     StudySession               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  word                        Word?                      @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  objectiveEvidenceTarget     ObjectiveEvidenceTarget?   @relation(fields: [objectiveEvidenceTargetId], references: [id], onDelete: SetNull)
+  objectiveQuestionSnapshot   ObjectiveQuestionSnapshot? @relation(fields: [objectiveQuestionSnapshotId], references: [id], onDelete: SetNull)
+  sourceItem                  StudyStreamItem?           @relation("StudyStreamItemLineage", fields: [sourceItemId], references: [id], onDelete: SetNull)
+  successorItem               StudyStreamItem?           @relation("StudyStreamItemLineage")
+
+  @@unique([sessionId, streamItemKey])
+  @@index([sessionId, status, leaseExpiresAt])
+  @@index([sessionId, usedAt])
+  @@index([operationId])
+  @@index([objectiveEvidenceTargetId, status])
+}
+
+model EvidenceObligation {
+  id                      String                   @id @default(cuid())
+  userId                  String
+  wordId                  String?
+  kind                    String                   @default("EVIDENCE_OBLIGATION")
+  status                  String                   @default("PENDING")
+  sourceOperationId       String?
+  selectionReason         String
+  policyVersion           String
+  eligibleAt              DateTime
+  expiresAt               DateTime
+  leaseOwnerSessionId     String?
+  leaseExpiresAt          DateTime?
+  admittedAt              DateTime                 @default(now())
+  answeredAt              DateTime?
+  terminalReason          String?
+  activeKey               String?                  @unique
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word                    Word?                    @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  objectiveEvidenceTarget ObjectiveEvidenceTarget? @relation("ObligationTarget")
+
+  @@index([userId, status, eligibleAt, expiresAt])
+  @@index([userId, wordId, kind, status])
+}
+
+model ObjectiveEvidenceTarget {
+  id                      String                     @id @default(cuid())
+  userId                  String
+  wordId                  String?
+  purpose                 String
+  expectedReviewRevision  Int?
+  policyVersion           String
+  itemConstructionVersion String
+  status                  String                     @default("OPEN")
+  activeKey               String?                    @unique
+  obligationId            String?                    @unique
+  winningOperationId      String?
+  winningReviewEventId    String?
+  consumedAt              DateTime?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  user                    User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word                    Word?                      @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  obligation              EvidenceObligation?        @relation("ObligationTarget", fields: [obligationId], references: [id], onDelete: SetNull)
+  reviewEvents            ReviewEvent[]              @relation("ObjectiveTargetReviewEvents")
+  streamItems             StudyStreamItem[]
+  questionSnapshot        ObjectiveQuestionSnapshot? @relation("TargetQuestionSnapshot")
+
+  @@index([userId, status, purpose])
+  @@index([userId, wordId, expectedReviewRevision, purpose])
+}
+
+model ObjectiveQuestionSnapshot {
+  id                      String                   @id @default(cuid())
+  targetId                String?                  @unique
+  wordId                  String?
+  prompt                  String
+  wordTerm                String
+  wordDefinition          String
+  direction               String
+  options                 Json
+  correctOptionId         String
+  contentVersion          String
+  itemConstructionVersion String
+  createdAt               DateTime                 @default(now())
+  target                  ObjectiveEvidenceTarget? @relation("TargetQuestionSnapshot", fields: [targetId], references: [id], onDelete: SetNull)
+  word                    Word?                    @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  streamItems             StudyStreamItem[]
+  reviewEvents            ReviewEvent[]            @relation("QuestionSnapshotReviewEvents")
+
+  @@index([wordId, createdAt])
+}
+
+// Global idempotency receipt shared by V1 and V2 action namespaces.
+model OperationReceipt {
+  id                 String   @id @default(cuid())
+  userId             String
+  operationId        String
+  flowVersion        String
+  actionKind         String
+  requestFingerprint String
+  outcomeStatus      String
+  outcomeReference   String?
+  response           Json?
+  createdAt          DateTime @default(now())
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, operationId])
+  @@index([userId, createdAt])
 }
 
 model SecurityEvent {
