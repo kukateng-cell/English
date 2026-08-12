@@ -3,8 +3,8 @@
 > 類型：主計劃／Program Plan
 > 狀態：進行中
 > 父文件：[project-plan.md](./project-plan.md)
-> 實作基線：`codex/comprehensive-bug-fix`
-> 基線 commit：`7a3d15e9e618a7f943d0a1f6a71f617296cef247`
+> 實作基線：`codex/retrieval-first-learning-stream-v2`
+> 基線 commit：`cc7fd19`
 > 設計來源：`/Users/hangwong/Documents/Design/emm_style_02`
 > 產品里程碑：Learning Stream v2
 > 研究里程碑：Research-ready telemetry；其後才是 experiment-ready

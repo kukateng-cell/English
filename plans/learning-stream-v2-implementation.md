@@ -132,14 +132,14 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 
 ### Phase 0：Handoff、基線及契約凍結
 
-- [ ] 建立本 Phase 唯一擁有嘅
+- [x] 建立本 Phase 唯一擁有嘅
   `plans/artifacts/learning-stream-v2-handoff-addendum.md`，記錄 repo branch／commit、prototype
   commit／export、asset hashes、state inventory 及 precedence；
-- [ ] addendum 具名覆蓋原 handoff 中固定進度、完成頁、每三張 quick check、demo scoring 等
+- [x] addendum 具名覆蓋原 handoff 中固定進度、完成頁、每三張 quick check、demo scoring 等
   behavior，但保留原 handoff 作 presentation／motion reference；
-- [ ] Contract／Program 只以 gate 引用 addendum，唔另建重複 checklist；
-- [ ] 跑現有 unit／lint／typecheck／card-motion 基線並保存結果；
-- [ ] 將 Contract 參數同 API 未決項目收斂，獲批准先進 Phase 1。
+- [x] Contract／Program 只以 gate 引用 addendum，唔另建重複 checklist；
+- [x] 跑現有 unit／lint／typecheck／card-motion 基線並保存結果；
+- [x] 將 Contract 參數同 API 未決項目收斂，獲批准先進 Phase 1。
 
 ### Phase 1：Pure policy、state machine 及 isolated harness
 
@@ -270,8 +270,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-001 | Prototype override artifact owner | Phase 0 建立 `plans/artifacts/learning-stream-v2-handoff-addendum.md` | Phase 0 |
 | I-002 | Client item identity | 只公開 `streamItemId`，唔提供 alias | Contract 已定；Phase 1 type test |
 | I-003 | Scored 後 feedback resume | 未確認時恢復一次 read-only feedback | Phase 1 state test |
-| I-004 | Exact API path：新 `/api/study/stream|actions` 或現 route version dispatch | 偏向新 versioned boundary；先盤點 middleware／rate-limit／client consumers | Phase 0 review |
-| I-005 | Reveal 要唔要 operational durable action | self-rating 必定 durable；reveal 只喺 resume／research-independent product requirement 需要時保存 | Phase 1 state/data review |
+| I-004 | Exact API path：新 `/api/study/stream|actions` 或現 route version dispatch | 已決定使用新 `/api/study/stream`、`/api/study/actions`、`/api/study/sessions/renew`；保留 `/api/study` 作 V1 | Phase 0 |
+| I-005 | Reveal 要唔要 operational durable action | self-rating／probe answer 必定 durable；reveal 先保持 presentation state，只有 resume／獨立 operational requirement 才另加 typed durable action | Phase 1 state/data review |
 | I-006 | Pilot go／pause 數值 | 唔虛構；用 V1 baseline + internal soak 預先寫 runbook | Phase 5 前 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，

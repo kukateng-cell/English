@@ -320,11 +320,11 @@ npm run build
 |---|---|---|---|
 | M-001 | multiple occurrence model | Expand 新增 `StudyStreamItem`；V1 原表／unique 不動 | 已納入計劃，schema review 確認 |
 | M-002 | operation namespace | global `(userId, operationId)` receipt，V1／V2 共用 | Stage A threat／migration review |
-| M-003 | outbox credential attachment | opaque short-lived credential可 durable 保存，或 crash 後按 lineage attach；唔接受其他策略 | Phase 1 threat model 決定 |
+| M-003 | outbox credential attachment | V2 outbox durable 保存短效 opaque item credential；server 只保存 digest，crash 後以同一 credential／operationId retry；唔保存答案 key | Phase 0 handoff；Phase 1 threat model 驗證 |
 | M-004 | probe snapshot lifecycle | immutable snapshot 判分；一般詞庫改／刪不改已發題，安全撤回可 cancel | Stage A retention review |
 | M-005 | legacy ReviewEvent provenance | 無法證明者標 `LEGACY_UNKNOWN`，保留 continuity、排除 V2 accuracy | Stage A data audit |
 | M-006 | legacy table cleanup | 唔阻塞 pilot；所有 V1 flow／rollback window 退役後另行 contract approval | Stage E |
-| M-007 | snapshot exact retention／delete behavior | 至少覆蓋 retry、audit、dispute；日數同 `SetNull` schema待定 | Stage A privacy／ops review |
+| M-007 | snapshot exact retention／delete behavior | 至少覆蓋 retry、audit、dispute；exact 日數、SetNull／cancel cleanup 仍屬 production data-retention review，product release 不執行 destructive cleanup | production data-retention review |
 
 M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何 cleanup 都唔因本文
 狀態改變而取得 `db:contract` 執行授權。
