@@ -131,5 +131,25 @@ export default defineConfig({
         storageState: "test-results/.auth/student-chromium.json",
       },
     },
+    {
+      name: "student-spacing-desktop",
+      testMatch: /student-spacing\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
+      name: "student-spacing-mobile",
+      testMatch: /student-spacing\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
   ],
 });

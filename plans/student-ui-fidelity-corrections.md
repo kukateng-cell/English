@@ -322,17 +322,17 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 
 ### Checklist
 
-- [ ] 建立共用 student page stack／section stack class 或 primitive，名稱反映語義而非單一頁面。
-- [ ] 首頁 PageHeader、resume banner、next-session card、stats、library、links 及 empty state 使用同一垂直 stack。
-- [ ] 移除與 parent gap 重複的 `margin-bottom`，避免 margin collapse 或雙倍間距。
-- [ ] Card padding、內部 group gap、grid gap 與 section gap 分開 token 化。
-- [ ] 檢查 loading、error、empty、has-checkpoint、無-checkpoint、長文案及三個 stat cards 的 spacing。
-- [ ] 檢查 mobile 320/390/430、tablet 820 及 desktop 1440；不得以 `overflow-x:hidden` 掩蓋問題。
-- [ ] 以 DOM bounding boxes 自動 assert 主要 sibling gaps 在 approved tolerance（建議 ±1px）內。
-- [ ] 比較 Prototype 的視覺節奏；資料量造成的高度差異不應被誤判為 spacing 差異。
-- [ ] 檢查 400% reflow、WCAG text spacing override 及長繁體文案，避免卡片相撞或內容裁切。
-- [ ] 執行本 Phase visual regression、axe、lint、typecheck 及相關 E2E。
-- [ ] 更新本計劃及建立單一、可回退 checkpoint commit。
+- [x] 建立共用 student page stack／section stack class 或 primitive，名稱反映語義而非單一頁面。
+- [x] 首頁 PageHeader、resume banner、next-session card、stats、library、links 及 empty state 使用同一垂直 stack。
+- [x] 移除與 parent gap 重複的 `margin-bottom`，避免 margin collapse 或雙倍間距。
+- [x] Card padding、內部 group gap、grid gap 與 section gap 分開 token 化。
+- [x] 檢查 loading、error、empty、has-checkpoint、無-checkpoint、長文案及三個 stat cards 的 spacing。
+- [x] 檢查 mobile 320/390/430、tablet 820 及 desktop 1440；不得以 `overflow-x:hidden` 掩蓋問題。
+- [x] 以 DOM bounding boxes 自動 assert 主要 sibling gaps 在 approved tolerance（建議 ±1px）內。
+- [x] 比較 Prototype 的視覺節奏；資料量造成的高度差異不應被誤判為 spacing 差異。
+- [x] 檢查 400% reflow、WCAG text spacing override 及長繁體文案，避免卡片相撞或內容裁切。
+- [x] 執行本 Phase visual regression、axe、lint、typecheck 及相關 E2E。
+- [x] 更新本計劃及建立單一、可回退 checkpoint commit。
 
 ### 驗收
 
@@ -571,6 +571,10 @@ npm run check:production-config
 | 2026-08-12 | Phase 2 | 視覺 evidence | `output/playwright/phase2/study-nav-mobile-390x844.png`、`study-nav-desktop-1440x900.png` 已以 production build、real authenticated student、real queue 目視核對；mobile 四項 nav、active 學習、card/actions、safe-area 與語速控件沒有互相遮擋；desktop rail 與 study surface 同時可見 |
 | 2026-08-12 | Phase 2 | 自動化驗證已通過 | `npm run build`：pass，38 routes；focused navigation：13 passed（desktop 6 + mobile 7，desktop-only mobile tests 2 skipped）；`npm run test:e2e:student-ia`：19 passed、1 skipped；`npm run test:e2e:card-motion`：card/study primary 73 passed、4 skipped；WebKit study shard 1：17 passed，shard 2：16 passed；`npm test`：97 passed；`npm run lint`：pass；`npx tsc --noEmit`：pass |
 | 2026-08-12 | Phase 2 | 已知限制 | Playwright 可驗證 fixed nav 在 visual viewport 高度變更及 scroll 下的行為，但未啟動原生 iOS soft keyboard／實機 VoiceOver；原生 keyboard smoke 保留至 Phase 6。沒有 schema、migration、DB 寫入或 production deploy 改動 |
+| 2026-08-12 | Phase 3 | Parent-owned spacing rhythm 已實作 | 新增 `src/components/student/StudentPageStack.tsx`；Dashboard、Words、Stats 的 header、section、loading、error、empty、checkpoint 及 loaded siblings 均由語義 stack 管理。移除相鄰 student surface 的 child `margin-bottom`，保留 card 內 16px group、control 12px、desktop two-column 48px token gap；沒有使用 `overflow-x:hidden` |
+| 2026-08-12 | Phase 3 | 320px reflow 修正及自動化證據 | 新增 `tests/e2e/student-spacing.spec.ts` 及兩個 authenticated Playwright projects；`/`、`/words`、`/stats` 在 320/390/430/820/1440 的 page/section sibling gap 及 document width 通過 ±1px／no-overflow assertion。WCAG text-spacing override（line-height 1.5、letter-spacing 0.12em、word-spacing 0.16em、paragraph spacing 2em）在 320px 兩 project 通過；過程中發現 `/words` 6px min-content overflow，已以 page header、stack/card child 及 bottom-nav grid `min-width: 0`／`minmax(0, 1fr)` 修正 |
+| 2026-08-12 | Phase 3 | Visual／accessibility evidence | `output/playwright/phase3/home-spacing-mobile-390x844.png`、`home-spacing-tablet-820x1180.png`、`home-spacing-desktop-1440x900.png` 已以 real authenticated data 產生並目視核對；mobile、tablet、desktop 的 section rhythm、固定 nav 及 content separation 可解釋。axe WCAG 2A/2AA `/`、`/words`、`/stats`：兩個 project 均 0 violations |
+| 2026-08-12 | Phase 3 | 驗證結果及限制 | `npm run lint` pass；`npx tsc --noEmit` pass；`npm run build` pass（38 routes）；spacing／screenshot／reflow matrix：7 passed（含 auth setup）；axe smoke：3 passed（含 auth setup）。本 Phase 沒有 schema、migration、study gesture、DB 寫入或 production config 改動，故 `npm test`、`npm run test:db`、`npm run test:e2e:card-motion`、`npm run check:production-config` 留待 Phase 6／適用 scope；原生 VoiceOver/NVDA、實機 soft keyboard 仍是 Phase 6 驗收項目；Phase 3 checkpoint commit 已建立並可由 git history 回退 |
 
 實作開始後，每個 Phase 在此新增：
 

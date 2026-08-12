@@ -11,6 +11,7 @@ import SegmentedControl from "@/components/ui/SegmentedControl";
 import StatusBanner from "@/components/ui/StatusBanner";
 import Icon from "@/components/ui/Icon";
 import { EmptyState, RetryState, Skeleton } from "@/components/ui/Feedback";
+import { StudentPageStack, StudentSectionStack } from "@/components/student/StudentPageStack";
 
 interface Insights {
   days: number;
@@ -45,8 +46,8 @@ export default function StatsPage() {
     return () => controller.abort();
   }, [days, reloadKey]);
 
-  if (error && !data) return <div className="student-content-wide"><RetryState message={tc(error)} onRetry={() => setReloadKey((key) => key + 1)} /></div>;
-  if (!data) return <div className="student-content-wide"><PageHeader title={tc("学习统计")} description={tc("正在读取你的活动数据")} /><div className="dashboard-skeleton-grid"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div><Skeleton className="mt-5 h-64" label={tc("正在加载统计")}/></div>;
+  if (error && !data) return <div className="student-content-wide"><StudentPageStack><StudentSectionStack><RetryState message={tc(error)} onRetry={() => setReloadKey((key) => key + 1)} /></StudentSectionStack></StudentPageStack></div>;
+  if (!data) return <div className="student-content-wide"><StudentPageStack><PageHeader title={tc("学习统计")} description={tc("正在读取你的活动数据")} /><StudentSectionStack><div className="dashboard-skeleton-grid"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div><Skeleton className="h-64" label={tc("正在加载统计")}/></StudentSectionStack></StudentPageStack></div>;
 
   const maxActivity = Math.max(1, ...data.activity.map((day) => day.count));
   const formatDay = (day: string) => new Intl.DateTimeFormat(locale === "zh-Hans" ? "zh-CN" : "zh-TW", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric" }).format(new Date(`${day}T00:00:00+08:00`));
@@ -54,16 +55,18 @@ export default function StatsPage() {
 
   return (
     <div className="student-content-wide">
-      <PageHeader eyebrow={tc("数据") } title={tc("学习统计") } description={tc("已学进度、长期掌握和活动记录使用与学习页一致的真实数据口径。") } action={<div className="stats-secondary-links"><Link href="/leaderboard"><Icon name="bar-chart" size={16}/>{tc("排行榜")}</Link><Link href="/achievements"><Icon name="spark" size={16}/>{tc("成就")}</Link></div>} />
-      <div className="stats-range-row"><SegmentedControl label={tc("统计范围")} items={[{ value: "7", label: tc("近 7 天") }, { value: "30", label: tc("近 30 天") }]} value={days} onChange={setDays} /><span className="ui-field-helper">{tc("活动图只计真实 REVIEW 事件")}</span></div>
+      <StudentPageStack>
+        <PageHeader eyebrow={tc("数据") } title={tc("学习统计") } description={tc("已学进度、长期掌握和活动记录使用与学习页一致的真实数据口径。") } action={<div className="stats-secondary-links"><Link href="/leaderboard"><Icon name="bar-chart" size={16}/>{tc("排行榜")}</Link><Link href="/achievements"><Icon name="spark" size={16}/>{tc("成就")}</Link></div>} />
+        <StudentSectionStack>
+          <div className="stats-range-row"><SegmentedControl label={tc("统计范围")} items={[{ value: "7", label: tc("近 7 天") }, { value: "30", label: tc("近 30 天") }]} value={days} onChange={setDays} /><span className="ui-field-helper">{tc("活动图只计真实 REVIEW 事件")}</span></div>
 
-      <div className="dashboard-stats-grid stats-top-grid">
+          <div className="dashboard-stats-grid stats-top-grid">
         <StatCard label={tc("今日新学")} value={data.today.newWordCount} note={tc("首次复习")}/>
         <StatCard label={tc("今日复习词数")} value={data.today.reviewedWordCount} note={`${data.today.reviewEventCount} ${tc("次记录")}`}/>
         <StatCard label={tc("连续学习")} value={data.streak.count} note={data.streak.studiedToday ? tc("今天已打卡") : tc("截至最近一天")}/>
-      </div>
+          </div>
 
-      <div className="stats-two-column">
+          <div className="stats-two-column">
         <Card padded>
           <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("活动")}</span><h2>{tc("最近学习活动")}</h2></div><span className="ui-field-helper">{tc("Asia/Shanghai")}</span></div>
           {data.activity.every((day) => day.count === 0) ? <EmptyState title={tc("还没有活动记录")} description={tc("完成复习后，活动图会显示每天的 REVIEW 事件。")}/> : <>
@@ -76,15 +79,17 @@ export default function StatsPage() {
           <div className="stats-progress-stack"><ProgressBar label={tc("已学进度")} value={data.library.learnedCount} max={data.library.totalWords} showValue/><ProgressBar label={tc("长期掌握")} value={data.library.masteredCount} max={data.library.totalWords} showValue className="ui-progress-success"/></div>
           <div className="stats-progress-numbers"><span>{data.library.learnedCount} / {data.library.totalWords} {tc("已学")}</span><span>{data.library.masteredCount} / {data.library.totalWords} {tc("长期掌握")}</span></div>
         </Card>
-      </div>
+          </div>
 
-      <Card className="recent-learning-card" padded>
+          <Card className="recent-learning-card" padded>
         <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("记录")}</span><h2>{tc("最近学习的词")}</h2></div></div>
         {data.recent.length === 0 ? <p className="ui-field-helper">{tc("完成第一次复习后，这里会显示最近记录。")}</p> : <div className="recent-learning-list">{data.recent.map((item) => <div key={item.id} className="recent-learning-row"><span><strong>{item.term}</strong><small>{formatDateTime(item.reviewedAt)}</small></span><span>{item.nextReviewAt ? `${tc("下一次")} ${formatDateTime(item.nextReviewAt)}` : tc("等待下一次复习")}</span></div>)}</div>}
-      </Card>
+          </Card>
 
-      <Card className="stats-calendar-card" padded><div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("打卡")}</span><h2>{tc("最近学习日")}</h2></div></div><div className="study-day-grid" aria-label={tc("最近学习日") as string}>{data.studyDays.map((day) => <span key={day} className="study-day-dot" title={formatDay(day)}>{formatDay(day)}</span>)}</div></Card>
-      {error ? <StatusBanner variant="warning" live={false} message={tc(error)} action={<Button variant="quiet" size="small" onClick={() => setReloadKey((key) => key + 1)}>{tc("重试")}</Button>}/> : null}
+          <Card className="stats-calendar-card" padded><div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("打卡")}</span><h2>{tc("最近学习日")}</h2></div></div><div className="study-day-grid" aria-label={tc("最近学习日") as string}>{data.studyDays.map((day) => <span key={day} className="study-day-dot" title={formatDay(day)}>{formatDay(day)}</span>)}</div></Card>
+          {error ? <StatusBanner variant="warning" live={false} message={tc(error)} action={<Button variant="quiet" size="small" onClick={() => setReloadKey((key) => key + 1)}>{tc("重试")}</Button>}/> : null}
+        </StudentSectionStack>
+      </StudentPageStack>
     </div>
   );
 }
