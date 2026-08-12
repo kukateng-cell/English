@@ -315,7 +315,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   queue／action／credential limiter 的 production runtime guard 亦以缺少 backend 的
   child-process check 驗證；browser test 只喺明確 `ENABLE_TEST_ROUTES=1` 時使用 local
   fallback；backend failure logging 只保留 allowlisted error type，唔寫原始 exception／request
-  details。未進行正式部署。
+  details。`npm run audit:production` 經 network-enabled retry 通過，報告 0 vulnerabilities；
+  未進行正式部署。
 - `npm run test:e2e:card-motion`：Chromium 73 passed／4 skipped；WebKit 33 passed。
   另以 V2 internal assignment 執行 study-integration Chromium 32 passed，並手動驗證
   objective answer、read-only feedback ack、learning-card reveal／self-rating、合法離開、
