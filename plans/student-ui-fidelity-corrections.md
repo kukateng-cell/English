@@ -271,17 +271,17 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 
 ### Checklist
 
-- [ ] 移除 BrandLockup 內繞過 locale／brand contract 的硬編碼簡體 mark。
-- [ ] 依已批准決策統一可見品牌名、mark、ARIA label 及 metadata。
-- [ ] 核對 StudentNav「學習」、首頁標題、study 標題、按鈕及 status 文案全部由簡體 source 經 `tc()` 顯示。
-- [ ] 修正 localStorage／cookie／SSR locale 不一致時的 deterministic precedence；不得引入 hydration mismatch 或首幀語言閃爍。
-- [ ] 為首次使用、既有 Hant preference、既有 Hans preference、無效 preference 及 cookie/storage 衝突新增測試。
-- [ ] 加入 BrandLockup 繁簡 snapshot／DOM assertion，至少驗證可見文字與 ARIA。
-- [ ] 加入 `zh-Hant` 關鍵 route 漏字 smoke，覆蓋 `/`、`/study`、`/words`、`/stats`、login。
-- [ ] 驗證 DB definition/category、英文 term、phonetic、A1–B2 及混合字串不被錯轉。
-- [ ] 驗證 language control 在 mobile 可到達，且切換後 server/client 文案一致。
-- [ ] 執行本 Phase 測試、light/dark + Hans/Hant screenshots，修正所有本 Phase 引入問題。
-- [ ] 更新本計劃進度、實際結果、未執行項目及限制；建立單一、可回退 checkpoint commit。
+- [x] 移除 BrandLockup 內繞過 locale／brand contract 的硬編碼簡體 mark。
+- [x] 依已批准決策統一可見品牌名、mark、ARIA label 及 metadata。
+- [x] 核對 StudentNav「學習」、首頁標題、study 標題、按鈕及 status 文案全部由簡體 source 經 `tc()` 顯示。
+- [x] 修正 localStorage／cookie／SSR locale 不一致時的 deterministic precedence；不得引入 hydration mismatch 或首幀語言閃爍。
+- [x] 為首次使用、既有 Hant preference、既有 Hans preference、無效 preference 及 cookie/storage 衝突新增測試。
+- [x] 加入 BrandLockup 繁簡 DOM assertion，至少驗證可見文字與 ARIA。
+- [x] 加入 `zh-Hant` 關鍵 route 漏字 smoke，覆蓋 `/`、`/study`、`/words`、`/stats`、login。
+- [x] 驗證 DB definition/category、英文 term、phonetic、A1–B2 及混合字串不被錯轉。
+- [x] 驗證 language control 在 mobile 可到達，且切換後 server/client 文案一致。
+- [x] 執行本 Phase 測試、light/dark + Hans/Hant screenshots，修正所有本 Phase 引入問題。
+- [x] 更新本計劃進度、實際結果、未執行項目及限制；建立單一、可回退 checkpoint commit。
 
 ### 驗收
 
@@ -538,6 +538,7 @@ npm run check:production-config
 | 2026-08-12 | Home 導覽 root cause | 待重現 | 本地截圖有 nav，但實際 mobile 回饋沒有；先做 build／DOM／stacking／safe-area parity 核對 |
 | 2026-08-12 | 品牌專名 | 已確認 | Hant/Hans 兩種模式都固定「見字會 SeeWord」，mark 固定「見」 |
 | 2026-08-12 | Locale 支援 | 已決定 | 保留 Hant/Hans；新使用者預設 Hant，不把已明確選擇 Hans 的偏好靜默覆蓋 |
+| 2026-08-12 | Locale precedence | 已確認 | 以有效 cookie 作 SSR／首幀唯一來源；mount 後將 localStorage 對齊 cookie；只有使用者明確透過 language control 切換時才同時更新 cookie、localStorage、`<html lang>` 及 server refresh |
 | 2026-08-12 | Category 資料 | 已核對 | Prisma及現有 study response 已有 level/category；唯讀查詢共 5,532 詞，A1/A2/B1/B2 分別 599/1,444/1,575/1,914，category null 為 0（各 level null 均為 0）；Baseline 無需 migration |
 | 2026-08-12 | Category null | 已確認 | 顯示真實 level + 本地化「未分類」，不補 Prototype 假 category |
 | 2026-08-12 | Study 標題 | 已決定 | 主標題只保留「今日學習」 |
@@ -560,6 +561,11 @@ npm run check:production-config
 | 2026-08-12 | Phase 0 | 決策已確認 | 使用者確認採用四項建議：Study 導覽 state matrix、固定 Traditional 品牌、`<level> · 未分類` fallback、parent-owned spacing contract；Action hierarchy 及「今日學習」亦按既有回饋凍結 |
 | 2026-08-12 | Phase 0 | locale precedence baseline | production browser：Hant cookie/storage → `html lang=zh-Hant`、title「英語單詞認讀 · 中學生學習平臺」、brand mark=`见`；Hans cookie/storage → `html lang=zh-Hans`、title「英语单词认读 · 中学生学习平台」、品牌名称為 `见字会`。Conflict（cookie Hant、localStorage Hans）完成後 localStorage 優先、cookie 被同步為 Hans，確認需在 Phase 1 修正首幀一致性；沒有修改現有偏好資料 |
 | 2026-08-12 | Phase 0 | deployment parity limitation | 未獲 deployment URL／commit，未執行 push 或部署；以同一 HEAD 的 production build、authenticated E2E 及 390px browser baseline 作等價驗證。實際使用者 reported 的首頁完全無 nav 未能在此 build 重現，Phase 2 仍會加入固定層、safe-area、hit-test 及 active state regression |
+| 2026-08-12 | Phase 1 | 品牌與 locale contract 已實作 | `BrandLockup` 固定使用批准的「見字會 SeeWord」／「見」；SSR 首幀只採有效 locale cookie，mount 後同步 localStorage，明確切換才更新兩個 store、`<html lang>`、title 及 RSC refresh。沒有取消 Hant/Hans 支援，亦沒有改 Auth.js 或 study workflow |
+| 2026-08-12 | Phase 1 | 自動化驗證已通過 | `npm test`：97 passed；`npm run lint`：pass；`npx tsc --noEmit`：pass；`npm run build`：pass，38 routes；`npm run test:e2e:student-ia`：12 passed（包括 Hant/Hans、brand、role、student shell）；`npx playwright test tests/e2e/locale-routes.spec.ts --project=locale-student-chromium`：2 passed（含 auth setup dependency） |
+| 2026-08-12 | Phase 1 | locale／資料轉換測試已補齊 | 新增 `src/lib/i18n/config.test.ts`、`src/lib/i18n/convert.test.ts`；覆蓋 default、alias、invalid preference、cookie conversion、A1–B2、category shape、英文 term、phonetic 及混合字串；`npm test` script 已納入 `src/lib/i18n/*.test.ts`，避免 nested tests 漏跑 |
+| 2026-08-12 | Phase 1 | route 漏字與視覺 evidence | 新增 `tests/e2e/locale-routes.spec.ts`，逐一 smoke `/`、`/study`、`/words`、`/stats` 的 `zh-Hant` body；login fixture 在 390×844 產生 `output/playwright/phase1/login-zh-Hant-light-390x844.png`、`login-zh-Hant-dark-390x844.png`、`login-zh-Hans-light-390x844.png`、`login-zh-Hans-dark-390x844.png`，已逐張目視核對品牌、語系、明暗主題及 mobile language control |
+| 2026-08-12 | Phase 1 | 未執行項目及限制 | 本 Phase 沒有 Prisma schema／migration、study gesture、production config 或資料寫入改動，故未執行 `npm run test:db`、`npm run test:e2e:card-motion`、migration checks 或 `npm run check:production-config`；這些會在適用的後續 Phase／Phase 6 執行。未獲 deployment URL，仍保留 deployment parity limitation |
 
 實作開始後，每個 Phase 在此新增：
 

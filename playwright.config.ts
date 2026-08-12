@@ -97,5 +97,19 @@ export default defineConfig({
       testMatch: /role-redirects\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "locale-chromium",
+      testMatch: /locale\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "locale-student-chromium",
+      testMatch: /locale-routes\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
   ],
 });

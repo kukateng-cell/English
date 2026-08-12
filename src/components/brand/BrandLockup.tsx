@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useLocale } from "@/components/LocaleProvider";
+
+// The product name is a registered visual mark, not translatable UI copy.
+// Keep the mark and accessible name identical in both supported locales.
+const SEEWORD_BRAND_NAME = "見字會";
+const SEEWORD_BRAND_LABEL = "見字會 SeeWord";
 
 export default function BrandLockup({
   href = "/",
@@ -12,12 +16,11 @@ export default function BrandLockup({
   compact?: boolean;
   className?: string;
 }) {
-  const { tc } = useLocale();
   return (
-    <Link href={href} className={["brand-lockup", compact && "is-compact", className].filter(Boolean).join(" ")} aria-label={tc("见字会 SeeWord")}>
-      <span className="brand-mark" aria-hidden="true">见</span>
+    <Link href={href} className={["brand-lockup", compact && "is-compact", className].filter(Boolean).join(" ")} aria-label={SEEWORD_BRAND_LABEL}>
+      <span className="brand-mark" aria-hidden="true">見</span>
       <span className="brand-lockup-copy">
-        <span className="brand-name">{tc("见字会")}</span>
+        <span className="brand-name">{SEEWORD_BRAND_NAME}</span>
         <span className="brand-subtitle">SeeWord</span>
       </span>
     </Link>

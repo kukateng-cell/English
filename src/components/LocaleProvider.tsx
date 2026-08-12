@@ -14,7 +14,6 @@ import {
   LOCALE_COOKIE_KEY,
   LOCALE_STORAGE_KEY,
   localeToHtmlLang,
-  normalizeLocale,
   SITE_TITLE,
   type Locale,
 } from "@/lib/i18n/config";
@@ -51,8 +50,9 @@ interface LocaleProviderProps {
  * 语言提供者：负责把使用者的「繁体 / 简体」偏好持久化到 localStorage + cookie，
  * 并把对应的 BCP-47 语言标签写到 <html lang>。
  *
- * SSR 阶段根据 initialLocale 决定首帧语言；客户端挂载后再读 localStorage 接管。
- * 挂载后语言变化会即时反映到 <html lang>，满足「lang 跟随选择更新」。
+ * SSR 阶段根据 initialLocale 决定首帧语言；客户端挂载后把 localStorage
+ * 同步到同一语言，避免旧 localStorage 在 hydration 后覆盖 SSR 文案造成闪烁。
+ * 语言切换只经 setLocale 发生，并同时更新 cookie 与 localStorage。
  */
 export function LocaleProvider({ children, initialLocale }: LocaleProviderProps) {
   const router = useRouter();
@@ -62,26 +62,22 @@ export function LocaleProvider({ children, initialLocale }: LocaleProviderProps)
   );
   const [mounted, setMounted] = useState(false);
 
-  // 挂载后：读 localStorage（主要持久化来源），与 SSR 首帧协调。
+  // Cookie 是服务器可见的首帧来源；挂载后把旧版本／冲突的 localStorage
+  // 对齐到 SSR locale，而不是让它在 hydration 后改写页面语言。
   useEffect(() => {
     queueMicrotask(() => {
       try {
-        const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
-        if (stored) {
-          const next = normalizeLocale(stored);
-          setLocaleState((prev) => (prev === next ? prev : next));
-          if (next !== (initialLocale ?? DEFAULT_LOCALE)) {
-            document.cookie = `${LOCALE_COOKIE_KEY}=${encodeURIComponent(next)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
-            router.refresh();
-          }
-        }
+        localStorage.setItem(
+          LOCALE_STORAGE_KEY,
+          initialLocale ?? DEFAULT_LOCALE,
+        );
       } catch {
         // localStorage 不可用（隐私模式等）→ 维持 cookie/预设值。
       } finally {
         setMounted(true);
       }
     });
-  }, [initialLocale, router]);
+  }, [initialLocale]);
 
   // 把语言同步到 <html lang> 与 cookie（SSR 首帧由 layout 的 lang 属性提供，
   // 这里在挂载后与切换时接管）。localStorage 也在 setLocale 时写入。

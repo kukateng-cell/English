@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import Providers from "@/components/Providers";
 import {
   LOCALE_COOKIE_KEY,
-  LOCALE_STORAGE_KEY,
   localeToHtmlLang,
   normalizeLocale,
   SITE_TITLE,
@@ -30,14 +29,12 @@ export async function generateMetadata(): Promise<Metadata> {
  * 在 hydration 之前同步执行的脚本：
  *  1. 主题：根据 localStorage / 系统偏好给 <html> 加 .dark，避免刷新时「闪一下」。
  *     必须与 ThemeProvider 的初始逻辑保持一致。
- *  2. 语言：根据 localStorage 拿到使用者选择，更新 <html lang>。
- *     这样即使 SSR 用了 cookie/预设值，客户端若已有不同的 localStorage 记录，
- *     也会在首帧前就修正 lang，避免短暂显示错误语言标签。
+ *  2. 语言：<html lang> 直接使用 SSR 根据 cookie 计算的值。
+ *     cookie 是服务器和客户端共同可见的唯一首帧来源，避免 localStorage
+ *     在 hydration 后覆盖 SSR 文案造成语言闪烁。
  */
 const initScript = `(function(){try{
   var t=localStorage.getItem('theme');var d=t?(t==='dark'):(window.matchMedia('(prefers-color-scheme: dark)').matches);if(d){document.documentElement.classList.add('dark');}
-  var l=localStorage.getItem('${LOCALE_STORAGE_KEY}');
-  if(l){var m=/^zh[-_]?(hant|tw|mo|hk)/i.test(l)?'zh-Hant':(/^zh[-_]?(hans|cn|sg)/i.test(l)?'zh-Hans':null);if(m){document.documentElement.lang=m;}}
 }catch(e){}})();`;
 
 export default async function RootLayout({
