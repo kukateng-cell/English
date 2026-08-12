@@ -344,6 +344,11 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   已統一為 production／Vercel production fail-closed，只有明確 local browser-test runtime
   可使用 memory fallback；production build、shape-only config gate 及 child-process guard
   checks 均通過；`npm run audit:production` 經 network-enabled retry 報告 0 vulnerabilities。
+- Study quality／production verification workflow 已補上 V2 DB integration、3-iteration
+  bounded soak、student IA／accessibility QA 及 V2 source／test path filters；本地按 workflow
+  順序驗證 integration passed、soak 3/3 passed、student-qa 21 passed／1 skipped、unit 124
+  passed、lint／typecheck 及兩份 workflow YAML parse。這只證明 automation coverage，未構成
+  GitHub production deployment、學生 pilot 或正式 observability observation。
 - 已驗證的核心行為包括 C-001 direct mature probe、C-002 admission control、C-003
   objective recognition wording、C-004 versioned quality、C-005 global／unit stream、
   C-006 quality 4／2、C-007 bounded debt／spacing、C-008 target＋immutable snapshot、

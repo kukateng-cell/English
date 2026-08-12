@@ -29,9 +29,12 @@ Run from the repository root with local PostgreSQL available:
 ```bash
 npm run check:study-credential-v2
 node scripts/check-study-lineage-compatibility.mjs
+npm run test:db:stream-v2
 npm run check:study-stream-v2:soak
 npm run test:db
 npm run test:e2e:card-motion
+npm run test:e2e:student-ia
+npm run test:e2e:student-qa
 ```
 
 `check:study-stream-v2:soak` runs the cleanup-backed V2 integration fixture three times by

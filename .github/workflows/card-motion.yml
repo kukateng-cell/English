@@ -8,10 +8,12 @@ on:
       - "package-lock.json"
       - "playwright.config.ts"
       - "src/app/study/page.tsx"
+      - "src/app/(student)/study/**"
       - "src/app/api/study/**"
       - "src/app/api/auth/**"
       - "src/app/login/**"
       - "src/components/WordCard.tsx"
+      - "src/components/study-stream/**"
       - "src/app/test/word-card-motion/**"
       - "src/lib/auth.ts"
       - "src/lib/login-limiter.ts"
@@ -19,15 +21,24 @@ on:
       - "src/lib/review-queue.ts"
       - "src/lib/session.ts"
       - "src/lib/study-*.ts"
+      - "src/lib/learning-policy/**"
+      - "src/lib/study-stream/**"
+      - "src/lib/production-config.ts"
+      - "src/lib/production-config.test.ts"
+      - "src/lib/student-metrics.ts"
+      - "src/lib/leaderboard.ts"
+      - "src/lib/achievements.ts"
       - "src/lib/swipe-motion.ts"
       - "prisma/schema.prisma"
       - "prisma/seed.ts"
       - "prisma/migrations/**"
+      - "prisma/contract-migrations/**"
       - "scripts/**"
       - "src/proxy.ts"
       - "tests/e2e/auth.setup.ts"
       - "tests/e2e/study-workflow.spec.ts"
       - "tests/e2e/word-card-release.spec.ts"
+      - "tests/e2e/**"
   pull_request:
     branches:
       - main
@@ -114,11 +125,22 @@ jobs:
       - name: Seed the card-motion test account and words
         run: npm run seed
 
+      - name: Run V2 stream integration and bounded soak
+        run: |
+          npm run test:db:stream-v2
+          STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Verify cross-browser emulated card release motion
         run: npm run test:e2e:card-motion
+
+      - name: Verify student IA regression
+        run: npm run test:e2e:student-ia
+
+      - name: Verify student accessibility and fidelity regression
+        run: npm run test:e2e:student-qa
 
       - name: Upload Playwright failure artifacts
         if: failure()

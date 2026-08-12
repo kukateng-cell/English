@@ -184,6 +184,8 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [x] answered probe、expired lease、stale checkpoint 唔會重現為新可答題；
 - [x] answered probe 未確認 feedback 時，resume 一次 read-only authoritative feedback；
 - [x] migration、production config、build、card-motion E2E、rollback rehearsal 通過。
+- [x] CI quality gate 已納入 V2 DB integration／bounded soak 及 student IA／accessibility
+  regression；production workflow 仍保持 V2 assignment 關閉，唔將 CI gate 當成正式 rollout。
 
 ### Phase 5：Pilot 及 rollout
 
@@ -278,6 +280,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-006 | Pilot go／pause 數值 | 唔虛構；用 V1 baseline + internal soak 預先寫 runbook | Phase 5 前 |
 | I-007 | Cross-tab credential rotation | item 保留 bounded、短效 credential digest lineage；bootstrap／renew 發出 successor 時不撤銷仍有效的 predecessor，action 仍由 item status、operation receipt、target／Review CAS authoritative 決定 | Phase 4 reliability；需 expand migration |
 | I-008 | Shared rate-limit backend 故障策略 | production／Vercel production runtime 一律 fail closed；memory fallback 只限非-production local 或明確 `ENABLE_TEST_ROUTES=1` test runtime；login、password change、study queue／action／credential renewal 共用同一 runtime 判定；backend failure log 只記 allowlisted error type，唔記原始 exception／request details | Phase 2 security regression |
+| I-009 | V2 CI／release preflight coverage | Study quality workflow 同 production verification job 必須喺 seed 後執行 `npm run test:db:stream-v2` 及 bounded `STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak`；path filter 覆蓋 V2 source／tests；assignment 仍 deny-by-default | Phase 4 automation gate；唔等同 production deploy／student pilot |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -349,6 +352,12 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   disabled feedback、read-only ACK、Learning Card reveal／self-rating 及 authoritative
   next-item transition；V2 route metrics 只出現 allowlisted route／flow／status／outcome／
   action kind。此項仍不等同 native screen-reader 或 physical-device acceptance。
+- CI／release automation gate 已補上 V2 source／test path filters、`npm run test:db:stream-v2`、
+  `STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak`、`test:e2e:student-ia`
+  及 `test:e2e:student-qa`。本地按 workflow 順序重跑：V2 integration passed、3/3 soak
+  passed（p50 1,311 ms、p95 2,133 ms、max 2,133 ms）、student-qa 21 passed／1 skipped；
+  兩份 workflow YAML、package JSON、lint、typecheck 及 `npm test` 124 passed。CI 尚未喺
+  GitHub production workflow 實際執行，故 production deploy gate 仍保持未完成。
 
 未勾選項目及限制：原生 screen-reader／手機實機驗收、production observability threshold、
 正式 production deploy、學生 pilot、研究 telemetry／consent、old-binary compatibility

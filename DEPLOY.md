@@ -123,6 +123,9 @@ npx prisma migrate deploy
 npm run db:deploy
 # migration 後的 V1／V2 credential、receipt、provenance、index 兼容性 gate：
 npm run check:study-credential-v2
+# CI／production verification 亦會執行 V2 transaction／compatibility integration 及 bounded soak：
+npm run test:db:stream-v2
+STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak
 ```
 
 这会用 `MIGRATE_URL`（Session pooler，5432）连 Supabase，按顺序执行

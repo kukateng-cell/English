@@ -79,11 +79,22 @@ jobs:
       - name: Seed the card-motion test account and words
         run: npm run seed
 
+      - name: Run V2 stream integration and bounded soak
+        run: |
+          npm run test:db:stream-v2
+          STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Verify mouse and touch card release motion
         run: npm run test:e2e:card-motion
+
+      - name: Verify student IA regression
+        run: npm run test:e2e:student-ia
+
+      - name: Verify student accessibility and fidelity regression
+        run: npm run test:e2e:student-qa
 
   migrate-and-deploy:
     name: Migrate database, then trigger Vercel
