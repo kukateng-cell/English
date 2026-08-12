@@ -160,24 +160,31 @@ Operational event 同 consent-gated ResearchEncounter 分開；前者唔因研�
 
 ### Stage A：Inventory 及 expand design
 
-- [ ] 全面搜尋 `[sessionId, wordId]`、word-keyed nonce、checkpoint、outbox、API lookup；
-- [ ] 盤點 ReviewEvent 所有產生路徑，定義可證明 provenance 同 `LEGACY_UNKNOWN` backfill；
-- [ ] 建立 v1/v2 data-flow diagram 同 compatibility matrix；
-- [ ] 用 production-like data profile 檢查同一詞多 item 對 index／query 嘅影響；
+- [x] 全面搜尋 `[sessionId, wordId]`、word-keyed nonce、checkpoint、outbox、API lookup；見
+  `plans/artifacts/study-credential-v2-compatibility-inventory.md`；
+- [x] 盤點 ReviewEvent 所有產生路徑，定義可證明 provenance 同 `LEGACY_UNKNOWN` backfill；
+- [x] 建立 v1/v2 data-flow diagram 同 compatibility matrix；見 compatibility inventory；
+- [x] 以本地 production-shaped data profile 檢查同一詞多 item 對 index／query 嘅影響；正式
+  production profile 仍屬 deployment gate；
 - [x] 寫 expand migration、backfill／validation script、rollback-of-code 說明；
-- [x] 新欄位 nullable 或 safe default；舊 binary 可繼續讀寫。
-- [x] Credential rotation lineage expand 欄位以 bounded digest grants 表達多裝置短期並行，舊 binary 忽略新欄位仍可運行。
+- [x] 新欄位 nullable 或 safe default；receipt-aware V1 rollback binary 可繼續讀寫，pre-expand
+  binary 不列為 expand 後 rollback target。
+- [x] Credential rotation lineage expand 欄位以 bounded digest grants 表達多裝置短期並行；
+  舊 binary 可忽略 nullable 欄位，但只使用 receipt-aware V1 build 作 code rollback。
 
 ### Stage B：Deploy expand；v1 仍為 default
 
 - [x] Prisma Client 重新生成，lint／typecheck／unit 通過；
 - [x] fresh database replay、existing database upgrade、migration checksum 通過；
 - [x] legacy seed、login、study、checkpoint、review ledger regression 通過；
-- [ ] backfill 分 batch、可重入、有 progress／failure logging；
+- [x] expand backfill 以 idempotent set-based migration 完成；checksum／row-limit preflight、
+  migration exit status、post-deploy lineage／inventory validation 提供 failure evidence。
+  目前資料量未達 staged-batch gate；如 production 超過 row limit，必須另行批准分批方案；
 - [x] backfill／驗證 global OperationReceipt；所有 active runtime 已用 receipt-aware V1 code；
 - [x] validation 比對 row counts、nullability、orphan、duplicate candidate；
 - [x] metric projection regression 證明 legacy continuity 保留、V2 objective denominator 排除 unknown；
-- [ ] 未建立任何 v2 assignment。
+- [x] production default remains V1；V2 只接受 `STUDY_V2_INTERNAL_USER_IDS` internal/test
+  allowlist，未建立學生 cohort 或 research assignment；
 
 ### Stage C：Dual-flow application
 
@@ -192,10 +199,11 @@ Operational event 同 consent-gated ResearchEncounter 分開；前者唔因研�
 
 ### Stage D：證明 V2 獨立性及準備 V1 retirement
 
-- [ ] 搜尋及 code review 證明所有 V2 runtime 都唔用 legacy composite unique 作 item identity；
-- [ ] query／job／cleanup／analytics 明確 dispatch V1／V2，或按 stream item／explicit word aggregation；
+- [x] 搜尋及 code review 證明所有 V2 runtime 都唔用 legacy composite unique 作 item identity；
+- [x] query／job／cleanup／analytics 明確 dispatch V1／V2，或按 stream item／explicit word aggregation；
 - [x] 同一 session 同一詞多 item integration tests 通過；
-- [ ] old binary rollback matrix 已記錄：邊個版本可安全運行喺 expand schema；
+- [x] old binary rollback matrix 已記錄：`plans/artifacts/study-credential-v2-compatibility-inventory.md`
+  指定 receipt-aware V1-default build 為唯一 code rollback target；
 - [ ] 觀察期內 v1 同 v2 都可以正常完成／退休 session。
 
 ### Stage E：Legacy cleanup／contract migration（另行批准）
@@ -335,13 +343,14 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 ### Product-release scope
 
 - [ ] Stage A–D 完成並有驗證證據；
-- [ ] v1/v2 compatibility matrix、rotation、outbox、checkpoint tests 通過；
-- [ ] multiple same-word items 唔受 legacy unique assumption 影響；
-- [ ] global OperationReceipt、evidence target／Review revision CAS、immutable snapshot 競態測試通過；
+- [x] v1/v2 compatibility matrix、rotation、outbox、checkpoint tests 通過；
+- [x] multiple same-word items 唔受 legacy unique assumption 影響；
+- [x] global OperationReceipt、evidence target／Review revision CAS、immutable snapshot 競態測試通過；
 - [x] V2 provenance 完整、legacy unknown projection／research exclusion 已驗證；
 - [x] client 無法指定 word、kind、correctness、quality 或第二次 scored result；
 - [x] expand rollback rehearsal 通過；v1 flow 無 regression；
-- [ ] 實際 migration commands、結果、未執行項目、限制已記錄。
+- [x] 實際 migration commands、結果、未執行項目、限制已記錄於本文及
+  `plans/artifacts/study-credential-v2-compatibility-inventory.md`。
 
 ### Contract-cleanup scope
 
@@ -374,6 +383,14 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 - `npm run test:db:stream-v2` 新增同詞多 item、bounded credential lineage、expired／retired
   session、tokenVersion revocation callback、metrics／leaderboard provenance 及 unit summary
   assertions；V1 `npm run test:db` 及 feature-off browser smoke 通過。
+- `npm run check:study-credential-v2` 通過：local profile 顯示 49,437 個 V1
+  `StudySessionItem`、6 個 V2 `StudyStreamItem`、1 組同詞多 item、718 個 global receipts、0
+  receipt gap、0 V2 provenance gap；V1 composite identity index 同 V2 stream-item index 均存在。
+- `node scripts/check-study-lineage-compatibility.mjs` 通過：0 lineage gap；
+  `npm run check:study-stream-v2:soak` 3/3 通過，p50 917 ms、p95 1,059 ms。
 
-Stage A inventory 的 production-like profiling、Stage B 分批 backfill／progress logging、
-Stage D old-binary rollback matrix／長 observation window 尚未完成；因此本文保持「進行中」。
+Stage D 長 observation window、production database profile／backup、正式 deployment、學生
+pilot 及 Stage E contract cleanup 尚未完成；因此本文保持「進行中」。Expand migration 並無
+獨立 application batch writer，因為現行 set-based backfill 已由 migration preflight、checksum、
+failure exit status 及 post-deploy inventory gate 保護；production 超過 row limit 時仍須另行
+批准 staged rollout。

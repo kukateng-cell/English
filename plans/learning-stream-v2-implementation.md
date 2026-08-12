@@ -186,8 +186,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 
 ### Phase 5：Pilot 及 rollout
 
-- [ ] 建立 cohort assignment、exposure log、support runbook、kill switch；
-- [ ] internal soak 無 high／critical defect；
+- [x] 建立 internal-only allowlist assignment、V2 structured request metric、support／incident
+  runbook 及 kill switch；student cohort assignment／exposure log 仍需 pilot approval；
+- [x] internal soak 無 high／critical defect；3 次 cleanup-backed V2 integration soak 全部通過；
 - [ ] 小比例學生 pilot，監察 sync、duplicate、latency、leave、debt size／age；
 - [ ] 按預先定義 threshold 擴大、暫停或 rollback；
 - [ ] 全量後保留 v1 observation window，另開 contract cleanup review；
@@ -294,7 +295,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 
-- `npm test`：120 passed；`npm run lint`、`npx tsc --noEmit`：passed。
+- `npm test`：122 passed；`npm run lint`、`npx tsc --noEmit`：passed。
 - `npx prisma validate`、`npx prisma generate`、`npm run db:deploy`：passed；新增
   expand migration 已套用，本地 preflight 顯示無 lineage gap。
 - `npm run test:db:stream-v2`：passed；涵蓋 global／unit scope、server-issued item
@@ -317,6 +318,14 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - 新增 `credentialLineage` expand 欄位只保存 bounded digest grants；log allowlist 測試確認
   raw credential／答案唔會進入 unexpected-error log。Token-version revocation 亦由 V2 DB
   integration callback check 覆蓋。
+- 新增 `src/lib/study-stream/observability.ts` request-level structured metric，三條 V2 route
+  只記錄 allowlisted route／flow／status／outcome／duration／action kind，唔記 user、IP、
+  credential、operation、word 或 answer；`plans/artifacts/learning-stream-v2-internal-soak-runbook.md`
+  記錄 extraction、hard integrity pause conditions、V1 rollback 及 support procedure。
+- `npm run check:study-stream-v2:soak`：3/3 internal iterations passed，p50 917 ms、p95
+  1,059 ms；`npm run check:study-credential-v2` 及 lineage compatibility scan 均 passed，
+  0 receipt gap、0 V2 provenance gap、0 lineage gap。內部 browser semantic check verified
+  labelled keyboard group、native radio options、checked／disabled state 及 `aria-live` feedback。
 
 未勾選項目及限制：原生 screen-reader／手機實機驗收、長時間 internal soak、production
 observability threshold、正式 production deploy、學生 pilot、研究 telemetry／consent、

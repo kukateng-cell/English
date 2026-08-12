@@ -378,7 +378,10 @@ npm run seed
 stream、Learning Card reveal gate、Objective Probe immutable snapshot、server scoring、
 Evidence Obligation cap／delay／expiry、StudyEncounter、item credential、global
 OperationReceipt、outbox／checkpoint 及 legacy metrics 分栏。self-rating 不直接更新
-Review／mastery；objective recognition 才产生带 provenance 的 V2 ReviewEvent。
+Review／mastery；objective recognition 才产生带 provenance 的 V2 ReviewEvent。新增
+credential compatibility inventory、bounded internal soak、request-level structured
+observability 及 support／incident runbook；本地 inventory 顯示 0 receipt／provenance／
+lineage gap。
 
 本地 feature-off rollback smoke 已完成；正式 production deploy、学生 pilot、研究
 telemetry／consent 及 contract cleanup 尚未执行。後者仍是

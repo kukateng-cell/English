@@ -173,7 +173,7 @@ Stable operational encounter contract + consent／governance
 ### Milestone P0：Framework freeze
 
 - [ ] Contract v1 所有未決事項已處理；
-- [ ] Implementation Phase 0 擁有嘅 versioned handoff addendum 已記錄可重現 source、
+- [x] Implementation Phase 0 擁有嘅 versioned handoff addendum 已記錄可重現 source、
   state manifest、precedence 及所有 intentional deviations，並通過 Contract gate；
 - [x] 三份 product-side 文件獲使用者批准並改成「進行中」。
 
@@ -337,7 +337,9 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - Unit／lint／typecheck、Prisma generate／validate、DB stream integration、V1 ledger
   regression、fresh migration replay、checksum、temporary-schema contract regression、
   production-config fixture、Chromium／WebKit browser regression 及 feature-off rollback
-  smoke 均已通過；詳細結果見四份 controlled sub-plans。
+  smoke 均已通過；credential compatibility inventory、lineage scan、3-run internal soak
+  及 V2 structured observability／support runbook 亦已完成；詳細結果見四份 controlled
+  sub-plans 及 `plans/artifacts/`。
 - 已驗證的核心行為包括 C-001 direct mature probe、C-002 admission control、C-003
   objective recognition wording、C-004 versioned quality、C-005 global／unit stream、
   C-006 quality 4／2、C-007 bounded debt／spacing、C-008 target＋immutable snapshot、

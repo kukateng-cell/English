@@ -1,7 +1,7 @@
 # Learning Stream v2 Handoff Addendum
 
 > 類型：Phase 0 versioned handoff addendum
-> 狀態：已建立；供 Contract gate 及 dependent implementation 使用
+> 狀態：已通過 source／manifest Contract review；native screen-reader／手機實機仍屬獨立 acceptance gate
 > 日期：2026-08-12
 > 所屬計劃：[learning-stream-v2-implementation.md](../learning-stream-v2-implementation.md)
 
@@ -128,3 +128,26 @@ test permission and passed. This is an environment fact, not a product failure.
   untouched during product release.
 - Exact snapshot retention/deletion days remain a production data-retention gate; no destructive
   cleanup or contract migration is authorized by this addendum.
+
+## 7. Contract gate review evidence
+
+On 2026-08-12 the 13 listed design source hashes were recalculated with:
+
+```bash
+shasum -a 256 \
+  /Users/hangwong/Documents/Design/emm_style_02/DESIGN-HANDOFF.md \
+  /Users/hangwong/Documents/Design/emm_style_02/DESIGN-MANIFEST.json \
+  /Users/hangwong/Documents/Design/emm_style_02/assets/see-word.css \
+  /Users/hangwong/Documents/Design/emm_style_02/assets/see-word.js \
+  /Users/hangwong/Documents/Design/emm_style_02/assets/theme.js \
+  /Users/hangwong/Documents/Design/emm_style_02/brand-spec.md \
+  /Users/hangwong/Documents/Design/emm_style_02/{home,index,learn,learn-v2,login,stats,words}.html
+```
+
+All values match Section 1. The Contract review also checked precedence, the state inventory,
+the intentional production deviations, the V1／V2 route split, and the no-research assignment
+boundary against current code and tests. The semantic browser evidence now covers the labelled
+keyboard card group, native Objective Probe radio semantics, checked／disabled states and the
+polite feedback live region. This review does not claim native screen-reader, physical-device
+mobile, production observability or student-pilot acceptance; those gates remain open in the
+controlled plans.

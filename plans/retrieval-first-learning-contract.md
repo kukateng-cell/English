@@ -339,7 +339,7 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 
 - [x] C-001 至 C-010 已獲批准；
 - [x] glossary 已同步到 implementation、migration、research plan；
-- [ ] Implementation Phase 0 擁有嘅 versioned handoff addendum 已獲 Contract review；
+- [x] Implementation Phase 0 擁有嘅 versioned handoff addendum 已獲 Contract review；
 - [x] scheduler simulation 規格包含 combined cap、atomic admission、dedupe、delay、age、
   active-user liveness、mode switching、remediation、reopen gaming及無候選情況；
 - [x] API／schema review 證明 client 無法自行指定 word、item kind、正確答案或 score；
@@ -352,7 +352,7 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 
 ### 2026-08-12：Contract acceptance evidence
 
-- `npm test` 120 passed，涵蓋 state machine、scheduler long sequence、combined cap、
+- `npm test` 122 passed，涵蓋 state machine、scheduler long sequence、combined cap、
   per-word dedupe、eligible delay、mode scope、remediation、construction fail-closed、
   correct=4／wrong=2 及 typed action boundary。
 - `npm run test:db:stream-v2` passed，補充 Serializable admission lock、V2 provenance、
@@ -363,6 +363,11 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
   recognition 分母。研究功能及 research-only exposure 仍關閉。
 - `npm run test:e2e:card-motion`、V2 Playwright CLI manual matrix、offline outbox recovery、
   cross-tab credential／checkpoint reconciliation 及 feature-off V1 rollback smoke 已通過。
+- Phase 0 handoff addendum 嘅 13 個 design source SHA-256 已重新計算並與
+  `plans/artifacts/learning-stream-v2-handoff-addendum.md` 完全一致；precedence、state
+  inventory 及 intentional production deviations 已按 Contract review。新增 semantic browser
+  evidence 亦確認 labelled keyboard group、native radio group、checked／disabled state 及
+  `aria-live` feedback；internal soak 3/3 passed。
 
 仍未完成：原生 screen-reader／手機實機驗收、長時間 production observability、正式文案
 review、production deployment／student pilot 及 research governance gate；相關 checklist
