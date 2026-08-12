@@ -203,6 +203,7 @@ model StudyStreamItem {
   leaseExpiresAt              DateTime
   credentialDigest            String                     @unique
   credentialExpiresAt         DateTime
+  revealedAt                  DateTime?
   usedAt                      DateTime?
   feedbackAcknowledgedAt      DateTime?
   operationId                 String?
