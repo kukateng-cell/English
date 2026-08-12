@@ -338,12 +338,13 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 ## 十四、Definition of Done
 
 - [x] C-001 至 C-010 已獲批准；
-- [ ] glossary 已同步到 implementation、migration、research plan；
+- [x] glossary 已同步到 implementation、migration、research plan；
 - [ ] Implementation Phase 0 擁有嘅 versioned handoff addendum 已獲 Contract review；
 - [x] scheduler simulation 規格包含 combined cap、atomic admission、dedupe、delay、age、
   active-user liveness、mode switching、remediation、reopen gaming及無候選情況；
 - [x] API／schema review 證明 client 無法自行指定 word、item kind、正確答案或 score；
-- [ ] accessibility、metrics 及 reliability acceptance criteria 可被自動或手動驗證；
+- [x] metrics 及 reliability acceptance criteria 已由 unit／DB／browser／manual evidence 驗證；
+- [ ] 原生 screen-reader、手機實機及完整 accessibility acceptance matrix 已驗證；
 - [x] 文件經兩路 review，由「草擬中」轉為「待審批」；
 - [x] 使用者已明確批准本 Contract 同 dependent plans；Implementation 可按 gate 開始。
 
@@ -351,7 +352,7 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 
 ### 2026-08-12：Contract acceptance evidence
 
-- `npm test` 119 passed，涵蓋 state machine、scheduler long sequence、combined cap、
+- `npm test` 120 passed，涵蓋 state machine、scheduler long sequence、combined cap、
   per-word dedupe、eligible delay、mode scope、remediation、construction fail-closed、
   correct=4／wrong=2 及 typed action boundary。
 - `npm run test:db:stream-v2` passed，補充 Serializable admission lock、V2 provenance、
@@ -360,7 +361,9 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 - Contract boundary review 已確認 client 不可指定 word、item kind、quality、correctness
   或第二次 scored result；V1 legacy unknown 保留 continuity，未計入 V2 objective
   recognition 分母。研究功能及 research-only exposure 仍關閉。
+- `npm run test:e2e:card-motion`、V2 Playwright CLI manual matrix、offline outbox recovery、
+  cross-tab credential／checkpoint reconciliation 及 feature-off V1 rollback smoke 已通過。
 
-仍未完成：完整 V2 accessibility／reduced-motion／offline browser matrix、正式文案 review、
-production observability／rollback rehearsal 及 research governance gate；相關 checklist
+仍未完成：原生 screen-reader／手機實機驗收、長時間 production observability、正式文案
+review、production deployment／student pilot 及 research governance gate；相關 checklist
 保持未勾選。

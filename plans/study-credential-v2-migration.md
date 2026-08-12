@@ -166,6 +166,7 @@ Operational event 同 consent-gated ResearchEncounter 分開；前者唔因研�
 - [ ] 用 production-like data profile 檢查同一詞多 item 對 index／query 嘅影響；
 - [x] 寫 expand migration、backfill／validation script、rollback-of-code 說明；
 - [x] 新欄位 nullable 或 safe default；舊 binary 可繼續讀寫。
+- [x] Credential rotation lineage expand 欄位以 bounded digest grants 表達多裝置短期並行，舊 binary 忽略新欄位仍可運行。
 
 ### Stage B：Deploy expand；v1 仍為 default
 
@@ -193,7 +194,7 @@ Operational event 同 consent-gated ResearchEncounter 分開；前者唔因研�
 
 - [ ] 搜尋及 code review 證明所有 V2 runtime 都唔用 legacy composite unique 作 item identity；
 - [ ] query／job／cleanup／analytics 明確 dispatch V1／V2，或按 stream item／explicit word aggregation；
-- [ ] 同一 session 同一詞多 item integration tests 通過；
+- [x] 同一 session 同一詞多 item integration tests 通過；
 - [ ] old binary rollback matrix 已記錄：邊個版本可安全運行喺 expand schema；
 - [ ] 觀察期內 v1 同 v2 都可以正常完成／退休 session。
 
@@ -337,9 +338,9 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 - [ ] v1/v2 compatibility matrix、rotation、outbox、checkpoint tests 通過；
 - [ ] multiple same-word items 唔受 legacy unique assumption 影響；
 - [ ] global OperationReceipt、evidence target／Review revision CAS、immutable snapshot 競態測試通過；
-- [ ] V2 provenance 完整、legacy unknown projection／research exclusion 已驗證；
-- [ ] client 無法指定 word、kind、correctness、quality 或第二次 scored result；
-- [ ] expand rollback rehearsal 通過；v1 flow 無 regression；
+- [x] V2 provenance 完整、legacy unknown projection／research exclusion 已驗證；
+- [x] client 無法指定 word、kind、correctness、quality 或第二次 scored result；
+- [x] expand rollback rehearsal 通過；v1 flow 無 regression；
 - [ ] 實際 migration commands、結果、未執行項目、限制已記錄。
 
 ### Contract-cleanup scope
@@ -351,12 +352,12 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 
 ## 十五、實際驗證紀錄
 
-### 2026-08-12：Product-release expand／dual-flow evidence
+### 2026-08-12：Product-release expand／dual-flow／reliability evidence
 
 - 已完成並驗證 `20260812000000_add_retrieval_stream_v2`、
   `20260812010000_add_retrieval_encounter_feedback`、
-  `20260812020000_add_retrieval_reveal_state` 及
-  `20260812030000_link_stream_work` expand migrations；Prisma validate／generate、fresh
+  `20260812020000_add_retrieval_reveal_state`、`20260812030000_link_stream_work` 及
+  `20260812040000_add_stream_credential_lineage` expand migrations；Prisma validate／generate、fresh
   replay、existing upgrade、checksum 及 production migration preflight 通過。
 - V1 `/api/study` 以 global `OperationReceipt` bridge 保留 idempotency；review ledger
   regression、V1 browser workflow 及 V2 integration 均通過。V2 assignment 由
@@ -366,9 +367,13 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
   objective snapshot、evidence target、Review revision CAS、server scoring、outbox／
   checkpoint、lease completion 及 concurrent admission cap 已有 code review／unit／DB
   evidence。
-- `npm run test:migrations:contract` 只在 temporary schema 做 expand／contract regression；
-  未執行 `npm run db:contract`，亦未進行 production snapshot、正式部署或 schema cleanup。
+- `npm run test:migrations`、`npm run test:migration-checksums`、`npm run test:migrations:contract`、
+  `npx prisma migrate status` 均通過；contract regression 只在 temporary schema 做
+  expand／contract regression，未執行 `npm run db:contract`，亦未進行 production snapshot、
+  正式部署或 schema cleanup。
+- `npm run test:db:stream-v2` 新增同詞多 item、bounded credential lineage、expired／retired
+  session、tokenVersion revocation callback、metrics／leaderboard provenance 及 unit summary
+  assertions；V1 `npm run test:db` 及 feature-off browser smoke 通過。
 
 Stage A inventory 的 production-like profiling、Stage B 分批 backfill／progress logging、
-Stage D old-binary rollback matrix／長 observation window、multiple same-word item 的專項
-競態證據及 expand rollback rehearsal 尚未完成；因此本文保持「進行中」。
+Stage D old-binary rollback matrix／長 observation window 尚未完成；因此本文保持「進行中」。

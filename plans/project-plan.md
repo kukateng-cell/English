@@ -380,9 +380,9 @@ Evidence Obligation cap／delay／expiry、StudyEncounter、item credential、gl
 OperationReceipt、outbox／checkpoint 及 legacy metrics 分栏。self-rating 不直接更新
 Review／mastery；objective recognition 才产生带 provenance 的 V2 ReviewEvent。
 
-正式 production deploy、学生 pilot、rollback rehearsal、研究 telemetry／consent 及
-contract cleanup 尚未执行；这些仍是 `plans/retrieval-first-learning-program.md` 及其受控
-子计划的外部 gates。
+本地 feature-off rollback smoke 已完成；正式 production deploy、学生 pilot、研究
+telemetry／consent 及 contract cleanup 尚未执行。後者仍是
+`plans/retrieval-first-learning-program.md` 及其受控子計劃的外部 gates。
 
 ---
 

@@ -180,7 +180,7 @@ Stable operational encounter contract + consent／governance
 ### Milestone P1：Foundations
 
 - [x] 純 learning policy／state machine 通過 unit tests；
-- [ ] isolated UI harness 通過 mouse、touch、synthetic pointer、keyboard、reduced motion；
+- [x] isolated UI harness 通過 mouse、touch、synthetic pointer、keyboard、reduced motion；
 - [x] Credential v2 expand schema、dual-read／dual-flow compatibility 通過；
 - [x] legacy production flow 無 regression。
 
@@ -189,16 +189,16 @@ Stable operational encounter contract + consent／governance
 - [x] V2 action API、operational outbox、StudyEncounter、EvidenceObligation 及
   ObjectiveEvidenceTarget 完成；
 - [x] Global `/study` 只對 internal／test accounts 開啟；
-- [ ] Dashboard、streak、achievement、unit mode 使用新 glossary；
+- [x] Dashboard、streak、achievement、unit mode 使用新 glossary；
 - [x] server-side scoring、idempotency、task lease recovery 通過。
 
 ### Milestone P3：Reliability gate
 
-- [ ] checkpoint v2、舊 checkpoint invalidation、session rotation 完成；
-- [ ] answered probe 唔會重做；pending action 唔會重複 scored；
-- [ ] cross-tab／cross-device／offline／storage unavailable 測試通過；
+- [x] checkpoint v2、舊 checkpoint invalidation、session rotation 完成；
+- [x] answered probe 唔會重做；pending action 唔會重複 scored；
+- [x] cross-tab／cross-device／offline／storage unavailable 測試通過；
 - [x] migration fresh replay、checksum、contract regression 通過；
-- [ ] rollback 演練通過。
+- [x] rollback 演練通過。
 
 ### Milestone P4：Student pilot 及 rollout
 
@@ -298,6 +298,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-002 | Product rollout 同 Research rollout 使用獨立完成閘門 | 已確認 |
 | P-003 | Contract 變更先於 dependent implementation 變更 | 已確認 |
 | P-004 | Prototype 只負責 presentation／interaction reference，唔覆蓋 production safety | 已確認 |
+| P-005 | V2 item credential rotation 以 server-recorded digest lineage 保留短效並行 grants，容許跨分頁／跨裝置 bootstrap 唔互相撤銷；action 仍以 item／revision／target CAS 決定唯一結果 | 實作中；expand-only migration，未涉及 contract cleanup |
 
 ## 十四、計劃審查紀錄
 
@@ -328,22 +329,22 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 
 ## 十五、實際驗證紀錄
 
-### 2026-08-12：獲授權 product implementation handoff
+### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 
 - Product-side V2 implementation 已在 `codex/retrieval-first-learning-stream-v2` 完成至
   internal／test gate；V1 default、server assignment、flowVersion pinning、expand-only
   migration 及 feature-off rollback path 保留。
 - Unit／lint／typecheck、Prisma generate／validate、DB stream integration、V1 ledger
   regression、fresh migration replay、checksum、temporary-schema contract regression、
-  production-config fixture、Chromium／WebKit browser regression 均已通過；詳細結果見四份
-  controlled sub-plans。
+  production-config fixture、Chromium／WebKit browser regression 及 feature-off rollback
+  smoke 均已通過；詳細結果見四份 controlled sub-plans。
 - 已驗證的核心行為包括 C-001 direct mature probe、C-002 admission control、C-003
   objective recognition wording、C-004 versioned quality、C-005 global／unit stream、
   C-006 quality 4／2、C-007 bounded debt／spacing、C-008 target＋immutable snapshot、
   C-010 legacy unknown projection。C-009 research-only path 沒有實作，保持關閉。
 
-仍未完成或未獲授權的 gate：Contract 全量 review／部分 accessibility matrix、V2 offline／
-cross-device browser soak、rollback rehearsal、production deploy、正式學生 pilot、外部
-observability threshold、research ethics／家長 permission／學生 assent／資料收集，以及
-`npm run db:contract`。因此 P3 部分、P4、R1、R2 及 Program DoD 保持未完成；不可把本次
-internal handoff 說成正式 rollout 或 research-ready。
+仍未完成或未獲授權的 gate：Contract 全量 review／原生 screen-reader 及手機實機 matrix、
+長時間 internal soak、production deploy、正式學生 pilot、外部 observability threshold、
+research ethics／家長 permission／學生 assent／資料收集，以及 `npm run db:contract`。
+因此 P4、R1、R2 及 Program DoD 保持未完成；不可把本次 internal handoff 說成正式 rollout
+或 research-ready。
