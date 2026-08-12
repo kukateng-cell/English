@@ -12,6 +12,7 @@
 |---|---|---|---|
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
 | [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 已完成 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |
+| [student-ui-fidelity-corrections.md](./student-ui-fidelity-corrections.md) | 修正計劃 | 待審批 | 修正 mobile 導覽、繁簡／品牌、學生頁 spacing 及認字卡 Prototype fidelity |
 
 新增、改名、完成或取代計劃書時，必須同步更新此表。
 
