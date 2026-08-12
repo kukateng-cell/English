@@ -399,6 +399,11 @@ gate 及 self-rating；`STUDY_V2_ASSIGNMENT_MODE=off` V1 rollback、production c
 reject-all guard、DB／migration／build／unit／lint／typecheck 亦通過。production、pilot、
 research 及 destructive contract cleanup 按 scope 保持 deferred。
 
+其後使用者 visual review 開出同一 V2 scope 內嘅 UI correction：Learning Card 改為卡面 tap
+（排除發音 control）揭示及 one-way flip，self-rating actions 移到卡下並與卡片同寬，學生帳戶
+名稱於繁體 locale 顯示繁體字。呢項 correction 尚未實作／驗證，完成前唔將 local V2 final
+polish 再次標記為完成；不涉及 learning、evidence 或資料庫 contract。
+
 ---
 
 ## 八、参考文献

@@ -196,6 +196,11 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   support／incident runbook 及 kill switch；production 對 all-user mode fail closed；
 - [x] internal soak 無 high／critical defect；20 次 cleanup-backed V2 integration soak 全部通過；
 - [x] local all-user browser／DB／resume／rollback acceptance 通過；
+- [ ] 按 visual review 修正 V2 Learning Card：卡面任意非發音區域 tap-to-reveal、front／back
+  flip presentation、答案面保留英文／音標／中文意思／例句／發音，self-rating actions 移到卡下
+  並與卡片同寬；reveal 前不提供 self-rating；
+- [ ] 學生帳戶名稱及 avatar initial 於 zh-Hant 顯示繁體、zh-Hans 顯示簡體；只改 display layer，
+  不改 stored identity；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -211,6 +216,7 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 | Projection | self-rating 零 mastery effect；objective event 正確更新現有 projection | Phase 3 |
 | Resume | refresh、offline replay、checkpoint v1/v2、rotation、cross-device | Phase 4 |
 | Browser | mouse、emulated touch、synthetic pointer、完整登入學習流程 | Phase 4 |
+| UI correction | 卡面 tap 與發音 button 分離、低位移 tap 唔誤判 swipe、flip front／back、卡下同寬 self-rating、zh-Hant／zh-Hans account display | Phase 5 local correction |
 | Production | lint、typecheck、unit、build、production config、migration suites | Phase 4 |
 
 按改動範圍最少執行：
@@ -247,7 +253,8 @@ Go／pause／rollback 數值要喺 pilot 前用基線及 internal soak 寫入 ru
 
 1. local development 以 `STUDY_V2_ASSIGNMENT_MODE=all` 將所有 authenticated account pin 到 V2；
 2. session 建立後唔中途轉 flow，V1 仍由 `off`／internal allowlist 保留作 rollback；
-3. local browser／DB／offline／cross-device 驗證通過後，視為 local product-complete。
+3. local browser／DB／offline／cross-device 驗證及後續 UI correction acceptance 通過後，視為
+   local product-complete。
 
 ### External delivery（deferred）
 
@@ -291,6 +298,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-008 | Shared rate-limit backend 故障策略 | production／Vercel production runtime 一律 fail closed；memory fallback 只限非-production local 或明確 `ENABLE_TEST_ROUTES=1` test runtime；login、password change、study queue／action／credential renewal 共用同一 runtime 判定；backend failure log 只記 allowlisted error type，唔記原始 exception／request details | Phase 2 security regression |
 | I-009 | V2 CI／release preflight coverage | Study quality workflow 同 production verification job 必須喺 seed 後執行 `npm run test:db:stream-v2` 及 bounded `STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak`；path filter 覆蓋 V2 source／tests；assignment 仍 deny-by-default | Phase 4 automation gate；唔等同 production deploy／student pilot |
 | I-010 | Local full V2 cutover scope | `STUDY_V2_ASSIGNMENT_MODE=all` 只可喺 local development，或明確 `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 啟用；`off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail closed | Phase 5 local product-complete |
+| I-011 | Visual review follow-up：Learning Card reveal／rating placement／account display | 不改 Contract 語義或 server action；V2 card body（排除發音 control）以 tap 揭示並以 one-way front／back flip 顯示答案；self-rating actions 移到卡下同寬 row；學生名稱 display 經 `tc()` 轉換，stored identity 不變；低位移 tap 唔可誤觸 swipe | Phase 5 local UI correction；完成前不得勾選相關 local DoD |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -302,6 +310,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] v1 未獲 cleanup approval 前仍可安全使用（V1 DB／browser regression、V1 default 及 feature-off rollback evidence）；
 - [ ] production feature flag、runbook、alerts、rollback rehearsal 已驗證；
 - [x] 無 client-controlled word／item／score／correct-answer boundary（typed parser、route validation、server-owned scoring 及 DB assertions）；
+- [ ] visual review follow-up 已通過 card-body reveal、audio exclusion、flip、same-width rating actions、簡繁 account display 及 V1／V2 gesture regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -312,6 +321,10 @@ product-complete；但本計劃仍保持「進行中」，直到 local acceptanc
 ## 十五、實際驗證紀錄
 
 ### 2026-08-13：Local product-complete V2 cutover evidence
+
+其後 visual review 發現現有 V2 Learning Card 雖然已符合 reveal gate，但仍以卡下獨立揭示掣、
+卡內 self-rating hint 及未轉換嘅學生 display name 呈現；因此新增 I-011 local UI correction
+scope。以下原有證據仍然有效，但唔代表 I-011 已完成。
 
 - 新增 `STUDY_V2_ASSIGNMENT_MODE=all`：只喺 local development，或明確
   `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 生效；
