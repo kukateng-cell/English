@@ -3,9 +3,14 @@
 import type { ReactNode } from "react";
 import StudentNav from "./StudentNav";
 import AccountControls from "./AccountControls";
+import {
+  StudentNavigationProvider,
+  useStudentNavigation,
+} from "./StudentNavigationContext";
 import BrandLockup from "@/components/brand/BrandLockup";
 import type { Role } from "@/lib/roles";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 
 export default function StudentShell({
@@ -16,22 +21,56 @@ export default function StudentShell({
   user: { name: string | null; email: string; role: Role };
 }) {
   const pathname = usePathname();
-  const { tc } = useLocale();
-  const immersive = pathname.startsWith("/study");
+  const isStudyRoute = pathname.startsWith("/study");
   return (
-    <div className={immersive ? "student-shell is-immersive" : "student-shell"}>
+    <StudentNavigationProvider>
+      <StudentShellFrame isStudyRoute={isStudyRoute} user={user}>
+        {children}
+      </StudentShellFrame>
+    </StudentNavigationProvider>
+  );
+}
+
+function StudentShellFrame({
+  children,
+  isStudyRoute,
+  user,
+}: {
+  children: ReactNode;
+  isStudyRoute: boolean;
+  user: { name: string | null; email: string; role: Role };
+}) {
+  const { tc } = useLocale();
+  const {
+    state: navigationState,
+    resetStudyNavigationState,
+  } = useStudentNavigation();
+
+  useEffect(() => {
+    if (!isStudyRoute) resetStudyNavigationState();
+  }, [isStudyRoute, resetStudyNavigationState]);
+
+  const backgroundInert = navigationState.dialogOpen;
+  return (
+    <div
+      className={isStudyRoute ? "student-shell is-study" : "student-shell"}
+      data-study-navigation-phase={navigationState.active ? navigationState.phase ?? undefined : undefined}
+      data-study-navigation-blocked={navigationState.navigationBlocked ? "true" : undefined}
+    >
       <a className="skip-link" href="#main-content">{tc("跳到主要内容")}</a>
-      <aside className="student-rail" aria-label={tc("学生导航")}>
+      <aside className="student-rail" aria-label={tc("学生导航")} inert={backgroundInert || undefined}>
         <div className="student-rail-top">
           <BrandLockup />
-          {immersive ? null : <StudentNav mode="rail" />}
+          <StudentNav mode="rail" />
         </div>
         <AccountControls user={user} compact />
       </aside>
       <div className="student-surface">
-        {immersive ? null : <header className="student-mobile-header"><BrandLockup compact /><AccountControls user={user} /></header>}
+        {!isStudyRoute ? <header className="student-mobile-header"><BrandLockup compact /><AccountControls user={user} /></header> : null}
         <main id="main-content" className="student-main" tabIndex={-1}>{children}</main>
-        {immersive ? null : <StudentNav mode="bottom" />}
+        <div className="student-nav-bottom-layer" data-testid="student-nav-bottom-layer" inert={backgroundInert || undefined}>
+          <StudentNav mode="bottom" />
+        </div>
       </div>
     </div>
   );

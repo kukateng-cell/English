@@ -446,8 +446,9 @@ button:disabled,
 .student-surface { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .student-mobile-header { align-items: center; display: none; justify-content: space-between; padding: 16px 20px 8px; }
 .student-main { flex: 1; margin: 0 auto; max-width: var(--wide-width); padding: 48px 32px 72px; width: 100%; }
-.student-shell.is-immersive .student-rail, .student-shell.is-immersive .student-mobile-header, .student-shell.is-immersive .student-nav-bottom { display: none; }
-.student-shell.is-immersive .student-main { max-width: none; padding: 0; }
+.student-shell.is-study .student-mobile-header { display: none; }
+.student-shell.is-study .student-main { max-width: none; padding: 0 0 72px; }
+.student-nav-bottom-layer { display: contents; }
 .student-nav { display: grid; gap: 6px; }
 .student-nav-link { align-items: center; border-radius: var(--radius-control); color: var(--muted); display: flex; font-size: 0.9375rem; font-weight: 700; gap: 12px; min-height: 48px; padding: 10px 14px; text-decoration: none; transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease; }
 .student-nav-link:hover { background: var(--border-soft); color: var(--text); }
@@ -624,11 +625,13 @@ button:disabled,
   .student-rail { display: none; }
   .student-mobile-header { display: flex; }
   .student-main { padding: 24px 20px calc(96px + env(safe-area-inset-bottom)); }
+  .student-shell.is-study .student-main { padding: 0 0 calc(96px + env(safe-area-inset-bottom)); }
   .student-nav-bottom { background: var(--surface); border-top: 1px solid var(--border); bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); left: 0; padding: 6px 8px max(6px, env(safe-area-inset-bottom)); position: fixed; right: 0; z-index: 25; }
   .student-nav-bottom .student-nav-link { flex-direction: column; font-size: 0.6875rem; gap: 2px; justify-content: center; min-height: 52px; padding: 5px 2px; }
   .student-nav-bottom .student-nav-link.is-active { background: transparent; }
   .student-nav-bottom .student-nav-link.is-active::before { background: var(--primary); border-radius: var(--radius-full); content: ""; height: 3px; left: 50%; position: absolute; top: 0; transform: translateX(-50%); width: 28px; }
   .student-nav-bottom .student-nav-link { position: relative; }
+  .study-speech-rate-control { bottom: calc(76px + env(safe-area-inset-bottom)); }
   .account-controls:not(.account-controls-compact) { align-items: center; display: flex; }
   .account-controls:not(.account-controls-compact) .account-trigger { width: auto; }
   .account-controls:not(.account-controls-compact) .account-trigger-copy, .account-controls:not(.account-controls-compact) .account-trigger > .ui-icon { display: none; }

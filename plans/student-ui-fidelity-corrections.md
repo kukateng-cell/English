@@ -295,20 +295,20 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 
 ### Checklist
 
-- [ ] 將 `immersive` 的「全部不 render nav」改為明確 route/state 導覽策略，而非單一 pathname boolean。
-- [ ] 首頁 mobile bottom nav 固定顯示，bounding box 完整落在 visual viewport 內。
-- [ ] 認字 assess 畫面顯示 mobile bottom nav；desktop 按批准 contract 顯示 rail。
-- [ ] StudentNav active state 在 `/study` 正確標示「學習」。
-- [ ] bottom nav／rail navigation 連接既有 guarded exit；不得繞過 checkpoint、pending outbox 或 blocked sync 判斷。
-- [ ] quiz、Coach dialog、pending、blocked、done 逐一實作第 6.1 節 approved state。
-- [ ] dialog 開啟時 nav inert，不能 tab 到背景 link，關閉後 focus 正確返回。
-- [ ] 內容 bottom padding 由實際 nav 高度 + safe-area 計算，最後一項內容及 action 不被遮擋。
-- [ ] 驗證 iOS dynamic viewport、soft keyboard、手機橫向及 scroll 時 nav 不跳走、不消失。
-- [ ] 驗證 320px 寬仍有四個至少 44×44px hit target，label 不裁切。
-- [ ] 驗證所有四個 destination 有真實內容、auth、loading/empty/error state，無 404／placeholder／login loop。
-- [ ] 新增首頁與 `/study` mobile nav visibility、hit testing、active state、safe-area 及 guarded exit E2E。
-- [ ] 執行 student IA、study workflow、card motion 相關測試，修正所有本 Phase 引入問題。
-- [ ] 更新本計劃及建立單一、可回退 checkpoint commit。
+- [x] 將 `immersive` 的「全部不 render nav」改為明確 route/state 導覽策略，而非單一 pathname boolean。
+- [x] 首頁 mobile bottom nav 固定顯示，bounding box 完整落在 visual viewport 內。
+- [x] 認字 assess 畫面顯示 mobile bottom nav；desktop 按批准 contract 顯示 rail。
+- [x] StudentNav active state 在 `/study` 正確標示「學習」。
+- [x] bottom nav／rail navigation 連接既有 guarded exit；不得繞過 checkpoint、pending outbox 或 blocked sync 判斷。
+- [x] quiz、Coach dialog、pending、blocked、done 逐一實作第 6.1 節 approved state。
+- [x] dialog 開啟時 nav inert，不能 tab 到背景 link，關閉後 focus 正確返回。
+- [x] 內容 bottom padding 由實際 nav 高度 + safe-area 計算，最後一項內容及 action 不被遮擋；語速浮動控件亦移至 nav 上方。
+- [x] 以 Playwright mobile viewport resize 模擬 dynamic visual viewport／keyboard-like height change，並驗證手機橫向及 scroll 時 nav 不跳走、不消失；原生 iOS keyboard 未在此環境開啟，列入 Phase 6 device smoke。
+- [x] 驗證 320px 寬仍有四個至少 44×44px hit target，label 不裁切。
+- [x] 驗證所有四個 destination 有真實內容、auth、loading/empty/error state，無 404／placeholder／login loop。
+- [x] 新增首頁與 `/study` mobile nav visibility、hit testing、active state、safe-area 及 guarded exit E2E。
+- [x] 執行 student IA、study workflow、card motion 相關測試，修正所有本 Phase 引入問題。
+- [x] 更新本計劃及建立單一、可回退 checkpoint commit。
 
 ### 驗收
 
@@ -566,6 +566,11 @@ npm run check:production-config
 | 2026-08-12 | Phase 1 | locale／資料轉換測試已補齊 | 新增 `src/lib/i18n/config.test.ts`、`src/lib/i18n/convert.test.ts`；覆蓋 default、alias、invalid preference、cookie conversion、A1–B2、category shape、英文 term、phonetic 及混合字串；`npm test` script 已納入 `src/lib/i18n/*.test.ts`，避免 nested tests 漏跑 |
 | 2026-08-12 | Phase 1 | route 漏字與視覺 evidence | 新增 `tests/e2e/locale-routes.spec.ts`，逐一 smoke `/`、`/study`、`/words`、`/stats` 的 `zh-Hant` body；login fixture 在 390×844 產生 `output/playwright/phase1/login-zh-Hant-light-390x844.png`、`login-zh-Hant-dark-390x844.png`、`login-zh-Hans-light-390x844.png`、`login-zh-Hans-dark-390x844.png`，已逐張目視核對品牌、語系、明暗主題及 mobile language control |
 | 2026-08-12 | Phase 1 | 未執行項目及限制 | 本 Phase 沒有 Prisma schema／migration、study gesture、production config 或資料寫入改動，故未執行 `npm run test:db`、`npm run test:e2e:card-motion`、migration checks 或 `npm run check:production-config`；這些會在適用的後續 Phase／Phase 6 執行。未獲 deployment URL，仍保留 deployment parity limitation |
+| 2026-08-12 | Phase 2 | 導覽 state adapter 已實作 | 新增 `StudentNavigationProvider`，把 `/study` 導覽狀態（loading／assess／quiz／done／error／locked）、guard、dialog inert 和 `StudentNav` 共用；移除 `is-immersive` 對 rail／bottom nav 的全隱藏行為。desktop study 顯示 rail，mobile study 顯示 bottom nav，`/study` active item 具 `aria-current=page` |
+| 2026-08-12 | Phase 2 | 導覽安全與 accessibility regression | 新增 `tests/e2e/study-navigation.spec.ts`：assess、quiz guarded exit、pending sync、done、Coach dialog inert/focus trap/focus return、browser Back、mobile hit target、safe-area padding、orientation/visual-viewport-like resize、scroll；blocked/pending 不會觸發離開。更新 `SpeechRateControl` 的 mobile offset，避免覆蓋第一項 nav，並將新增 ARIA／文案改走 `tc()` |
+| 2026-08-12 | Phase 2 | 視覺 evidence | `output/playwright/phase2/study-nav-mobile-390x844.png`、`study-nav-desktop-1440x900.png` 已以 production build、real authenticated student、real queue 目視核對；mobile 四項 nav、active 學習、card/actions、safe-area 與語速控件沒有互相遮擋；desktop rail 與 study surface 同時可見 |
+| 2026-08-12 | Phase 2 | 自動化驗證已通過 | `npm run build`：pass，38 routes；focused navigation：13 passed（desktop 6 + mobile 7，desktop-only mobile tests 2 skipped）；`npm run test:e2e:student-ia`：19 passed、1 skipped；`npm run test:e2e:card-motion`：card/study primary 73 passed、4 skipped；WebKit study shard 1：17 passed，shard 2：16 passed；`npm test`：97 passed；`npm run lint`：pass；`npx tsc --noEmit`：pass |
+| 2026-08-12 | Phase 2 | 已知限制 | Playwright 可驗證 fixed nav 在 visual viewport 高度變更及 scroll 下的行為，但未啟動原生 iOS soft keyboard／實機 VoiceOver；原生 keyboard smoke 保留至 Phase 6。沒有 schema、migration、DB 寫入或 production deploy 改動 |
 
 實作開始後，每個 Phase 在此新增：
 

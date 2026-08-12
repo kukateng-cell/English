@@ -20,6 +20,7 @@ import { useLocale } from "@/components/LocaleProvider";
 import StreakBadge from "@/components/StreakBadge";
 import LogoutButton from "@/components/LogoutButton";
 import StreakCalendar from "@/components/StreakCalendar";
+import { useStudentNavigation } from "@/components/student/StudentNavigationContext";
 import type { StreakInfo } from "@/lib/streak";
 import type { AchievementDef } from "@/lib/achievements";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
@@ -468,7 +469,7 @@ function RotationNotice({
   const { tc } = useLocale();
   if (!message) return null;
   return (
-    <div className="fixed inset-x-3 top-3 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-[var(--warning)] bg-[var(--warning-bg)] px-4 py-3 text-xs text-[var(--text)] shadow-[var(--shadow-elevated)] backdrop-blur">
+    <div data-testid="study-navigation-notice" role="status" aria-live="polite" className="fixed inset-x-3 top-3 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-[var(--warning)] bg-[var(--warning-bg)] px-4 py-3 text-xs text-[var(--text)] shadow-[var(--shadow-elevated)] backdrop-blur">
       <span className="leading-relaxed">{tc(message)}</span>
       <span className="flex shrink-0 gap-1.5">
         <button
@@ -542,6 +543,10 @@ export default function StudyPage() {
   const userId = session?.user?.id ?? null;
   const router = useRouter();
   const { tc } = useLocale();
+  const {
+    setStudyNavigationState,
+    registerNavigationGuard,
+  } = useStudentNavigation();
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const activeQueueWordIdsRef = useRef(new Set<string>());
   const [pool, setPool] = useState<PoolWord[]>([]);
@@ -2213,16 +2218,57 @@ export default function StudyPage() {
   ]);
 
   const hasSyncWork = pendingSync + blockedSync + legacySync > 0;
+  const studyNavigationBlocked = hasSyncWork || wordStep === "quiz";
+  const studyNavigationMessage = hasSyncWork
+    ? "还有待同步记录，请先处理后再离开学习"
+    : "当前测试尚未完成，请先完成测试后再离开学习";
+  const studyNavigationPhase = loading
+    ? "loading"
+    : error
+      ? "error"
+      : locked
+        ? "locked"
+        : done || (queue.length === 0 && !loading)
+          ? "done"
+          : wordStep;
+
   useEffect(() => {
-    if (!hasSyncWork || typeof window === "undefined") return;
-    const message = tc("还有待同步记录，请先重试或处理阻塞项后再离开学习。");
+    if (status !== "authenticated") return;
+    setStudyNavigationState({
+      active: true,
+      phase: studyNavigationPhase,
+      navigationBlocked: studyNavigationBlocked,
+      dialogOpen: helpVisible,
+    });
+  }, [
+    helpVisible,
+    setStudyNavigationState,
+    status,
+    studyNavigationBlocked,
+    studyNavigationPhase,
+  ]);
+
+  const canLeaveStudy = useCallback((href: string) => {
+    if (href === "/study" || !studyNavigationBlocked) return true;
+    setRotationNotice(studyNavigationMessage);
+    return false;
+  }, [studyNavigationBlocked, studyNavigationMessage]);
+
+  useEffect(() => {
+    registerNavigationGuard(canLeaveStudy);
+    return () => registerNavigationGuard(null);
+  }, [canLeaveStudy, registerNavigationGuard]);
+
+  useEffect(() => {
+    if (!studyNavigationBlocked || typeof window === "undefined") return;
+    const message = tc(`${studyNavigationMessage}。`);
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = message;
     };
     const onPopState = () => {
       window.history.pushState({ studyNavigationGuard: true }, "", window.location.href);
-      setRotationNotice("还有待同步记录，请先处理后再离开学习");
+      setRotationNotice(studyNavigationMessage);
     };
     window.history.pushState({ studyNavigationGuard: true }, "", window.location.href);
     window.addEventListener("beforeunload", onBeforeUnload);
@@ -2231,12 +2277,12 @@ export default function StudyPage() {
       window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("popstate", onPopState);
     };
-  }, [hasSyncWork, tc]);
+  }, [setRotationNotice, studyNavigationBlocked, studyNavigationMessage, tc]);
 
   const guardStudyNavigation = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!hasSyncWork) return;
-    event.preventDefault();
-    setRotationNotice("还有待同步记录，请先处理后再离开学习");
+    if (!canLeaveStudy(event.currentTarget.getAttribute("href") ?? "")) {
+      event.preventDefault();
+    }
   };
 
   if (status === "loading" || loading) {
@@ -2399,6 +2445,11 @@ export default function StudyPage() {
   if (error) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
+        <RotationNotice
+          message={rotationNotice}
+          onRetry={() => void rotateStudySession()}
+          onReload={reloadStudyQueue}
+        />
         <ErrorBanner
           message={error}
           onRetry={reloadStudyQueue}

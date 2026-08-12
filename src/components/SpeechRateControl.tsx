@@ -78,12 +78,12 @@ export default function SpeechRateControl() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-40">
+    <div className="study-speech-rate-control fixed bottom-4 left-4 z-40">
       <button
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label="调整朗读语速"
+        aria-label={tc("调整朗读语速")}
         className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)]/90 px-3 py-1.5 text-xs font-medium text-[var(--muted)] shadow-[var(--shadow-sm)] backdrop-blur transition hover:bg-[var(--border-soft)] active:scale-95"
       >
         <span>🔊</span>
@@ -118,7 +118,7 @@ export default function SpeechRateControl() {
               value={rate}
               onChange={(e) => commit(Number(e.target.value))}
               className="w-full accent-[var(--primary)]"
-              aria-label="语速滑杆"
+              aria-label={tc("语速滑杆")}
             />
             <div className="mt-1 flex justify-between text-[10px] text-[var(--muted)]">
               <span>{tc("慢")}</span>
@@ -153,12 +153,12 @@ export default function SpeechRateControl() {
                 onClick={preview}
                 className="flex-1 rounded-lg bg-[var(--primary)] py-2 text-xs font-medium text-[var(--color-surface)] transition hover:bg-[var(--primary-2)] active:scale-[0.98]"
               >
-                ▶ 试听
+                ▶ {tc("试听")}
               </button>
               <button
                 type="button"
                 onClick={stopSpeech}
-                aria-label="停止朗读"
+                aria-label={tc("停止朗读")}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition hover:bg-[var(--border-soft)]"
               >
                 ■
@@ -166,7 +166,7 @@ export default function SpeechRateControl() {
             </div>
 
             <p className="mt-2 text-center text-[10px] text-[var(--muted)]">
-              设置会自动保存，所有朗读都会套用
+              {tc("设置会自动保存，所有朗读都会套用")}
             </p>
           </motion.div>
         )}
