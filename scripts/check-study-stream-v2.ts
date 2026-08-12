@@ -15,6 +15,7 @@ async function main() {
     createStudyStreamCredential,
     digestStudyStreamCredential,
   } = await import("../src/lib/study-stream/contracts");
+  const { getStudentLearningMetrics } = await import("../src/lib/student-metrics");
   const suffix = randomUUID();
   let userId: string | null = null;
   const wordIds: string[] = [];
@@ -258,6 +259,11 @@ async function main() {
     assert.equal(answeredRemediation.activeKey, null);
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 8);
     assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 12);
+    const metrics = await getStudentLearningMetrics(user.id);
+    assert.equal(metrics.reviewEventCount, 1);
+    assert.equal(metrics.objectiveRecognitionCount, 1);
+    assert.equal(metrics.selfRatedEncounterCount, 8);
+    assert.equal(metrics.legacyUnknownEventCount, 0);
 
     // The helper is intentionally exercised so this gate also catches accidental
     // replacement of opaque random credentials with a client-chosen value.
