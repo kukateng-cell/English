@@ -114,6 +114,11 @@ The local browser semantic check on 2026-08-12 verified:
   available as a named button;
 - reduced-motion, mouse, emulated touch and synthetic pointer suites remain covered by the
   existing E2E matrix.
+- Supplemental automated evidence on 2026-08-12: `test:e2e:student-ia` passed 24/26; the
+  student-final-qa, study-action-fidelity and study-card-fidelity projects passed 21/22,
+  including axe WCAG 2A/2AA, accessibility-tree, keyboard, 400% zoom, forced-colors and
+  Pixel 7 emulation checks. A temporary internal V2 smoke also observed native radios,
+  server-scored feedback／ACK and Learning Card reveal／self-rating transitions.
 
 This is semantic browser evidence only. Native screen-reader testing and physical-device mobile
 acceptance remain required external gates.

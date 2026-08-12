@@ -338,6 +338,16 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   cross-device browser paths。`pg@9` warning 已以 traced run 定位至 Prisma PostgreSQL
   adapter transaction path，仍係 non-fatal runtime hygiene limitation，唔係 application
   assertion failure。
+- 補充執行 `npm run test:e2e:student-ia`：24 passed／2 skipped，覆蓋 student shell、role
+  boundary、locale／theme、study navigation、dialog focus／inert 及 Pixel 7 emulation
+  geometry；另執行 `student-final-qa`、study action fidelity、study card fidelity projects：
+  21 passed／1 skipped，包含 axe WCAG 2A/2AA、accessibility tree、skip link、live status、
+  keyboard、400% zoom、forced-colors 及 desktop／mobile emulation。
+- Temporary internal-only V2 browser smoke（命令環境注入單一 test user allowlist，未寫入
+  `.env`）通過：V2 objective radiogroup／native radios、server-scored answer、checked／
+  disabled feedback、read-only ACK、Learning Card reveal／self-rating 及 authoritative
+  next-item transition；V2 route metrics 只出現 allowlisted route／flow／status／outcome／
+  action kind。此項仍不等同 native screen-reader 或 physical-device acceptance。
 
 未勾選項目及限制：原生 screen-reader／手機實機驗收、production observability threshold、
 正式 production deploy、學生 pilot、研究 telemetry／consent、old-binary compatibility

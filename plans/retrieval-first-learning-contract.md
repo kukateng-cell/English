@@ -369,6 +369,12 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
   evidence 亦確認 labelled keyboard group、native radio group、checked／disabled state 及
   `aria-live` feedback；bounded internal soak 20/20 passed，p50 869 ms、p95 1,137 ms、max
   1,309 ms。
+- 補充 accessibility／mobile automation：`npm run test:e2e:student-ia` 24 passed／2 skipped；
+  `student-final-qa`、study action fidelity、study card fidelity projects 21 passed／1 skipped，
+  包含 axe WCAG 2A/2AA、accessibility tree、keyboard、400% zoom、forced-colors、locale／
+  theme 及 Pixel 7 emulation。V2 internal browser smoke 亦驗證 objective native radios、
+  server feedback／ACK 及 Learning Card reveal／self-rating；native screen-reader、實機
+  mobile 及完整 acceptance matrix 仍保持未完成。
 
 仍未完成：原生 screen-reader／手機實機驗收、長時間 production observability、正式文案
 review、production deployment／student pilot 及 research governance gate；相關 checklist
