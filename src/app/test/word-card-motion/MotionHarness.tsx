@@ -30,14 +30,16 @@ export default function MotionHarness({
           {probe ? JSON.stringify(probe) : "none"}
         </pre>
       </div>
-      <WordCard
-        word={{ term: "continuity", phonetic: "/ˌkɒntɪˈnjuːəti/" }}
-        onSwipeLeft={() => recordCallback("left")}
-        onSwipeRight={() => recordCallback("right")}
-        onMotionProbe={setProbe}
-        timelineLeadEnabled={timelineLeadEnabled}
-        immediateReleasePoseEnabled={immediateReleasePoseEnabled}
-      />
+      <div className="motion-harness-card">
+        <WordCard
+          word={{ term: "continuity", phonetic: "/ˌkɒntɪˈnjuːəti/" }}
+          onSwipeLeft={() => recordCallback("left")}
+          onSwipeRight={() => recordCallback("right")}
+          onMotionProbe={setProbe}
+          timelineLeadEnabled={timelineLeadEnabled}
+          immediateReleasePoseEnabled={immediateReleasePoseEnabled}
+        />
+      </div>
     </main>
   );
 }

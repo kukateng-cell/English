@@ -387,9 +387,35 @@ button:disabled,
 .study-divider { color: var(--border); }
 .study-toast { background: color-mix(in oklch, var(--text) 92%, transparent); color: var(--surface); }
 .study-loading-spinner { border-color: var(--primary); border-top-color: transparent; }
+.word-card-frame { margin: 0 auto; max-width: 672px; padding-inline: 16px; position: relative; width: 100%; }
+.motion-harness-card .word-card-frame { max-width: 448px; }
+.word-card-swipe-labels { z-index: 0; }
+.word-card-swipe-label { font-size: 1.0625rem; font-weight: 700; }
+.word-card-stack { min-height: 428px; position: relative; width: 100%; }
+.word-card-flight-layer { position: relative; }
+.word-card-back { background: var(--border-soft); border: 1px solid var(--border); border-radius: 30px; bottom: -8px; height: calc(100% - 8px); left: 9px; pointer-events: none; position: absolute; right: 9px; transform: rotate(2deg); z-index: 1; }
 .word-card-surface, .quiz-card-surface { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-card); color: var(--text); }
+.word-card-draggable { align-items: center; border: 1px solid var(--border); border-radius: 30px; cursor: grab; display: flex; flex-direction: column; height: min(58vh, 496px); justify-content: space-between; min-height: 420px; overflow: hidden; padding: var(--space-4); position: relative; user-select: none; width: 100%; will-change: transform; }
+.word-card-draggable::after { border: 1px solid color-mix(in oklch, var(--primary) 28%, transparent); border-radius: 50%; content: ""; height: 160px; pointer-events: none; position: absolute; right: -85px; top: -82px; width: 160px; }
+.word-card-draggable:active { cursor: grabbing; }
+.word-card-top { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; position: relative; width: 100%; z-index: 1; }
+.level-badge { align-items: center; background: var(--border-soft); border: 1px solid transparent; border-radius: var(--radius-full); color: var(--primary); display: inline-flex; font-family: var(--font-display); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; min-height: 30px; padding: 0 10px; }
+.word-context { color: var(--muted); font-size: 0.875rem; }
+.word-card-center { align-items: center; display: grid; gap: var(--space-3); justify-items: center; padding: var(--space-4) 0; position: relative; text-align: center; width: 100%; z-index: 1; }
+.word-card-term { color: var(--text); font-family: var(--font-display); font-size: clamp(2.625rem, 12vw, 5.375rem); font-weight: 700; letter-spacing: -0.055em; line-height: 1.08; margin: 0; max-width: 100%; overflow-wrap: anywhere; }
+.word-card-hint { color: var(--muted); font-size: 1rem; margin: 0; }
+.word-card-phonetic { color: var(--muted); font-size: 0.9375rem; margin: 0; }
+.word-card-drag-badge { align-items: center; border: 1px solid currentColor; border-radius: var(--radius-full); display: inline-flex; font-size: 0.8125rem; font-weight: 700; min-height: 34px; padding: 0 12px; pointer-events: none; position: absolute; top: 72px; z-index: 4; }
+.word-card-drag-badge-left { color: var(--danger); left: 24px; transform: rotate(-6deg); }
+.word-card-drag-badge-right { color: var(--primary); right: 24px; transform: rotate(6deg); }
+.word-card-bottom { align-items: center; color: var(--muted); display: grid; gap: var(--space-1); justify-items: center; padding-bottom: 72px; pointer-events: none; position: relative; text-align: center; width: 100%; z-index: 1; }
+.word-card-queue-note { font-size: 0.875rem; }
+.keyboard-hint { align-items: center; display: inline-flex; font-size: 0.8125rem; gap: var(--space-1); }
+.keycap { align-items: center; background: var(--surface); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 7px; color: var(--muted); display: inline-flex; font-family: var(--font-display); font-size: 0.6875rem; justify-content: center; min-height: 25px; min-width: 26px; padding: 0 6px; }
 .word-card-term, .quiz-card-term { color: var(--text); }
-.word-card-phonetic, .quiz-card-phonetic { color: var(--muted); }
+.word-context, .word-card-hint, .word-card-phonetic, .word-card-queue-note, .keyboard-hint { color: color-mix(in oklch, var(--muted) 52%, var(--text)); }
+.word-card-phonetic, .quiz-card-phonetic { color: color-mix(in oklch, var(--muted) 52%, var(--text)); }
+.word-card-queue-note { color: var(--text); }
 .word-card-speak, .quiz-card-speak { background: var(--border-soft); color: var(--primary); }
 .word-card-speak:hover, .quiz-card-speak:hover { background: color-mix(in oklch, var(--primary) 12%, var(--surface)); }
 .word-card-swipe-label-danger { color: var(--danger); }
@@ -397,6 +423,14 @@ button:disabled,
 .word-card-action { border: 1px solid transparent; }
 .word-card-action-danger { background: var(--danger-bg); color: var(--danger); }
 .word-card-action-success { background: var(--success-bg); color: var(--success); }
+.dark .word-card-back { background: color-mix(in oklch, var(--surface) 70%, var(--border-soft)); }
+
+@media (forced-colors: active) {
+  .word-card-back { background: Canvas; border-color: CanvasText; }
+  .word-card-draggable::after { border-color: CanvasText; }
+  .level-badge, .keycap { background: Canvas; border-color: CanvasText; color: CanvasText; }
+}
+
 .quiz-prompt-label { background: var(--border-soft); color: var(--primary); }
 .quiz-option { border-color: var(--border); background: var(--surface); color: var(--text); }
 .quiz-option:hover:not(:disabled) { border-color: var(--primary); background: var(--border-soft); }
@@ -627,6 +661,9 @@ button:disabled,
 
 @media (max-width: 480px) {
   .student-main { padding-inline: 16px; }
+  .word-card-stack { min-height: 408px; }
+  .word-card-draggable { height: min(58vh, 400px); min-height: 400px; padding: 20px; }
+  .word-card-action { font-size: 0.875rem; padding-inline: 12px; }
   .words-filter-row { grid-template-columns: 1fr; }
   .words-ia-switch, .stats-secondary-links { max-width: 100%; }
   .words-ia-switch a, .stats-secondary-links a { padding-inline: 9px; }

@@ -160,9 +160,11 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 - `src/app/(student)/study/page.tsx`
 - `src/components/WordCard.tsx`
 - `src/app/globals.css`
+- `src/app/test/word-card-fidelity/*`（只在 `ENABLE_TEST_ROUTES=1` 可用的 fidelity fixtures）
 - `tests/e2e/student-shell.spec.ts`
 - `tests/e2e/study-workflow.spec.ts`
 - `tests/e2e/word-card-release.spec.ts`
+- `tests/e2e/word-card-fidelity-fixtures.spec.ts`
 - 新增的 visual／locale／spacing regression fixtures（實際路徑在 Phase 0 凍結）
 
 ## 6. 目標 contract
@@ -346,20 +348,20 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 
 ### Checklist
 
-- [ ] 主標題改為「今日學習」；不再把「認識這個單詞嗎？」串入 h1。
-- [ ] 輔助提示如保留，使用 Prototype 對應位置、較低 hierarchy 及短句。
-- [ ] 擴充 `WordCard` presentation type，安全接收 `level`、`category` 及必要 context。
-- [ ] 卡片顯示真實 `<level> · <category>`，category null 按 approved fallback 顯示。
-- [ ] 中文 category 經 `tc()`；English／mixed category 及 level 不被錯轉。
-- [ ] 顯示「認讀卡」context，對應 ARIA 不重複朗讀無用裝飾。
-- [ ] 新增 decorative back card，對齊 Prototype 的 offset、rotation、radius、border 及 surface。
-- [ ] 恢復主卡右上裝飾弧線，dark mode 及 Forced Colors 仍可辨識但不搶焦點。
-- [ ] 調整卡片高度、padding、term scale、hint、queue note 及 keyboard hint，使 390×844 幾何接近 reference。
-- [ ] 長單詞、B2、null category、長 category、缺 phonetic、Hant/Hans 及 text spacing fixtures 不 overflow。
-- [ ] 背卡及裝飾層使用 `aria-hidden`／pointer-inert，不參與 gesture geometry。
-- [ ] 保留 drag layer、flight layer、test IDs、interaction epoch 及 release motion ownership。
-- [ ] 執行 card-motion 全矩陣、study workflow、visual diff、axe 及 reduced-motion 驗證。
-- [ ] 更新本計劃及建立單一、可回退 checkpoint commit。
+- [x] 主標題改為「今日學習」；不再把「認識這個單詞嗎？」串入 h1。
+- [x] 輔助提示如保留，使用 Prototype 對應位置、較低 hierarchy 及短句。
+- [x] 擴充 `WordCard` presentation type，安全接收 `level`、`category` 及必要 context。
+- [x] 卡片顯示真實 `<level> · <category>`，category null 按 approved fallback 顯示。
+- [x] 中文 category 經 `tc()`；English／mixed category 及 level 不被錯轉。
+- [x] 顯示「認讀卡」context，對應 ARIA 不重複朗讀無用裝飾。
+- [x] 新增 decorative back card，對齊 Prototype 的 offset、rotation、radius、border 及 surface。
+- [x] 恢復主卡右上裝飾弧線，dark mode 及 Forced Colors 仍可辨識但不搶焦點。
+- [x] 調整卡片高度、padding、term scale、hint、queue note 及 keyboard hint，使 390×844 幾何接近 reference。
+- [x] 長單詞、B2、null category、長 category、缺 phonetic、Hant/Hans 及 text spacing fixtures 不 overflow。
+- [x] 背卡及裝飾層使用 `aria-hidden`／pointer-inert，不參與 gesture geometry。
+- [x] 保留 drag layer、flight layer、test IDs、interaction epoch 及 release motion ownership。
+- [x] 執行 card-motion 全矩陣、study workflow、visual diff、axe 及 reduced-motion 驗證。
+- [x] 更新本計劃及建立單一、可回退 checkpoint commit。
 
 ### 驗收
 
@@ -575,6 +577,10 @@ npm run check:production-config
 | 2026-08-12 | Phase 3 | 320px reflow 修正及自動化證據 | 新增 `tests/e2e/student-spacing.spec.ts` 及兩個 authenticated Playwright projects；`/`、`/words`、`/stats` 在 320/390/430/820/1440 的 page/section sibling gap 及 document width 通過 ±1px／no-overflow assertion。WCAG text-spacing override（line-height 1.5、letter-spacing 0.12em、word-spacing 0.16em、paragraph spacing 2em）在 320px 兩 project 通過；過程中發現 `/words` 6px min-content overflow，已以 page header、stack/card child 及 bottom-nav grid `min-width: 0`／`minmax(0, 1fr)` 修正 |
 | 2026-08-12 | Phase 3 | Visual／accessibility evidence | `output/playwright/phase3/home-spacing-mobile-390x844.png`、`home-spacing-tablet-820x1180.png`、`home-spacing-desktop-1440x900.png` 已以 real authenticated data 產生並目視核對；mobile、tablet、desktop 的 section rhythm、固定 nav 及 content separation 可解釋。axe WCAG 2A/2AA `/`、`/words`、`/stats`：兩個 project 均 0 violations |
 | 2026-08-12 | Phase 3 | 驗證結果及限制 | `npm run lint` pass；`npx tsc --noEmit` pass；`npm run build` pass（38 routes）；spacing／screenshot／reflow matrix：7 passed（含 auth setup）；axe smoke：3 passed（含 auth setup）。本 Phase 沒有 schema、migration、study gesture、DB 寫入或 production config 改動，故 `npm test`、`npm run test:db`、`npm run test:e2e:card-motion`、`npm run check:production-config` 留待 Phase 6／適用 scope；原生 VoiceOver/NVDA、實機 soft keyboard 仍是 Phase 6 驗收項目；Phase 3 checkpoint commit 已建立並可由 git history 回退 |
+| 2026-08-12 | Phase 4 | 認字資訊層級及真實資料已實作 | Study 標題改為 `今日學習`；`WordCard` 接收並呈現現有 `/api/study` queue 的 level/category，category 採 `tc()`，null fallback 為本地化 `未分類`，沒有加入 Prototype 示例資料；新增 `認讀卡` context、真實 queue position note 及短 hint |
+| 2026-08-12 | Phase 4 | Prototype card stack 已實作 | 新增 pointer-inert、`aria-hidden` decorative back card、右上 arc、Prototype card proportion、badge、shadow、radius 及 dark/Forced Colors 規則；drag layer 仍是唯一 transform／pointer capture owner。isolated motion harness 保留原有約 400px geometry，避免 production card 擴至 Prototype desktop 約 640px 後改變既有 gesture threshold contract |
+| 2026-08-12 | Phase 4 | Visual／accessibility evidence | `output/playwright/phase4/learn-card-mobile-390x844.png`、`learn-card-tablet-820x1180.png`、`learn-card-desktop-1440x900.png` 以 real authenticated student、real queue 產生並目視核對；study-card fidelity：8 passed、1 desktop-only capture skipped；desktop/mobile real-data structure、dark/reduced-motion/Forced Colors、geometry、axe WCAG 2A/2AA 均通過 |
+| 2026-08-12 | Phase 4 | Fixture、回歸及限制 | `npm run lint` pass；`npx tsc --noEmit` pass；`npm run build` pass（39 routes）；`word-card-fidelity-fixtures` 320/390：4 passed，覆蓋 B2、null category、長 category、缺 phonetic、Hant/Hans 及 WCAG text-spacing no-overflow；`npm run test:e2e:card-motion` primary 73 passed、4 skipped，WebKit study shard 1/2 分別 17/16 passed。過程中發現並修正展示層 pointer hit-test 覆蓋 study actions 及 motion harness geometry regression，修正後全套通過。Phase 5 仍負責將 actions 移到 card 外；VoiceOver/NVDA、原生 soft keyboard、完整 viewport/safe-area matrix 留待 Phase 6；沒有 schema、migration、DB 寫入或 production config 改動；Phase 4 checkpoint commit 將隨本次記錄更新建立 |
 
 實作開始後，每個 Phase 在此新增：
 

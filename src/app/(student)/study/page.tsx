@@ -2765,8 +2765,8 @@ export default function StudyPage() {
           </svg>
         </Link>
 
-        <span className="study-muted text-[13px] font-medium">
-          {tc("今日学习 · 认识这个单词吗？")}
+        <span data-testid="study-assess-title" className="study-muted text-[13px] font-medium">
+          {tc("今日学习")}
         </span>
 
         <div className="flex items-center gap-2">
@@ -2817,6 +2817,7 @@ export default function StudyPage() {
         >
           <WordCard
             word={current.word}
+            queueNote={tc(`今日队列第 ${currentIndex + 1} 个单词`)}
             onSwipeLeft={handleSwipeLeft}
             onSwipeRight={handleSwipeRight}
             disabled={helpVisible || interactionGuarded}

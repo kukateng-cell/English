@@ -66,10 +66,16 @@ export interface WordCardMotionProbe {
 }
 
 interface WordCardProps {
-  word: { term: string; phonetic?: string | null };
+  word: {
+    term: string;
+    phonetic?: string | null;
+    level?: string | null;
+    category?: string | null;
+  };
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
   children?: ReactNode;
+  queueNote?: ReactNode;
   disabled?: boolean;
   /** Monotonic page generation; changes invalidate every in-flight gesture. */
   interactionEpoch?: number;
@@ -223,11 +229,17 @@ function writeDragFrame(
   card: HTMLElement,
   leftLabel: HTMLElement | null,
   rightLabel: HTMLElement | null,
+  leftBadge: HTMLElement | null,
+  rightBadge: HTMLElement | null,
   position: number,
 ) {
   card.style.transform = cardTransform(position);
-  if (leftLabel) leftLabel.style.opacity = String(leftLabelOpacity(position));
-  if (rightLabel) rightLabel.style.opacity = String(rightLabelOpacity(position));
+  const leftOpacity = String(leftLabelOpacity(position));
+  const rightOpacity = String(rightLabelOpacity(position));
+  if (leftLabel) leftLabel.style.opacity = leftOpacity;
+  if (rightLabel) rightLabel.style.opacity = rightOpacity;
+  if (leftBadge) leftBadge.style.opacity = leftOpacity;
+  if (rightBadge) rightBadge.style.opacity = rightOpacity;
 }
 
 function measureCardGeometry(
@@ -253,6 +265,7 @@ export default function WordCard({
   onSwipeLeft,
   onSwipeRight,
   children,
+  queueNote,
   disabled,
   interactionEpoch = 0,
   onMotionProbe,
@@ -263,6 +276,8 @@ export default function WordCard({
   const dragLayerRef = useRef<HTMLDivElement>(null);
   const leftLabelRef = useRef<HTMLSpanElement>(null);
   const rightLabelRef = useRef<HTMLSpanElement>(null);
+  const leftBadgeRef = useRef<HTMLSpanElement>(null);
+  const rightBadgeRef = useRef<HTMLSpanElement>(null);
   const geometryRef = useRef<CardGeometry | null>(null);
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
   const captureGenerationRef = useRef(0);
@@ -347,6 +362,8 @@ export default function WordCard({
       dragLayer,
       leftLabelRef.current,
       rightLabelRef.current,
+      leftBadgeRef.current,
+      rightBadgeRef.current,
       position,
     );
   }, []);
@@ -1140,87 +1157,97 @@ export default function WordCard({
     speakEnglish(word.term);
   };
 
+  const level = ["A1", "A2", "B1", "B2"].includes(word.level ?? "")
+    ? word.level
+    : null;
+  const category = word.category?.trim() || null;
+
   return (
-    <div className="relative mx-auto w-full max-w-md select-none px-4">
+    <div className="word-card-frame select-none">
       {/* 背景提示文字 */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-12">
+      <div className="word-card-swipe-labels pointer-events-none absolute inset-0 flex items-center justify-between px-12">
         <span
           ref={leftLabelRef}
           style={{ opacity: 0 }}
-          className="text-[17px] font-semibold word-card-swipe-label-danger"
+          className="word-card-swipe-label word-card-swipe-label-danger"
         >
           ← {tc("不认识")}
         </span>
         <span
           ref={rightLabelRef}
           style={{ opacity: 0 }}
-          className="text-[17px] font-semibold word-card-swipe-label-success"
+          className="word-card-swipe-label word-card-swipe-label-success"
         >
           {tc("认识")} ✓
         </span>
       </div>
 
-      <div
-        data-testid="word-card-flight-layer"
-        className="relative z-10 w-full"
-      >
+      <div data-testid="word-card-stack" className="word-card-stack">
+        <div data-testid="word-card-back" className="word-card-back" aria-hidden="true" />
         <div
-          ref={dragLayerRef}
-          data-testid="word-card-drag-layer"
-          style={{ touchAction: "pan-y" }}
-          className="word-card-surface relative mx-auto flex h-[58vh] min-h-[320px] max-h-[480px] w-full cursor-grab flex-col items-center justify-center rounded-[28px] border [will-change:transform] active:cursor-grabbing"
+          data-testid="word-card-flight-layer"
+          className="word-card-flight-layer relative z-10 w-full"
         >
-          {/* 单词 */}
-          <h2
-            className="word-card-term mb-2"
-            style={{
-              fontSize: "42px",
-              fontWeight: 700,
-              letterSpacing: "-0.03em",
-              lineHeight: 1.15,
-            }}
+          <div
+            ref={dragLayerRef}
+            data-testid="word-card-drag-layer"
+            role="group"
+            aria-label={tc("可左右拖曳的单词卡")}
+            style={{ touchAction: "pan-y" }}
+            className="word-card-surface word-card-draggable"
           >
-            {word.term}
-          </h2>
-
-          {/* 音标 */}
-          {word.phonetic && (
-            <p className="word-card-phonetic mb-3 text-[15px]">
-              {word.phonetic}
-            </p>
-          )}
-
-          {/* 发音按钮 */}
-          <button
-            onClick={handleSpeak}
-            className="word-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
-            aria-label={tc("发音")}
-          >
-            <Icon name="volume" size={18} />
-          </button>
-
-          {/* 底部按钮区域 */}
-          <div className="absolute bottom-5 flex w-full items-center justify-between px-5">
-            <button
-              disabled={disabled}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleButtonSwipe(-1, onSwipeLeft);
-              }}
-              className="word-card-action word-card-action-danger flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
-            >
+            <span ref={leftBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-left" aria-hidden="true">
               ← {tc("不认识")}
-            </button>
-            <button
-              disabled={disabled}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleButtonSwipe(1, onSwipeRight);
-              }}
-              className="word-card-action word-card-action-success flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
-            >
-              {tc("认识")} ✓
-            </button>
+            </span>
+            <span ref={rightBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-right" aria-hidden="true">
+              {tc("认识")} →
+            </span>
+
+            <div className="word-card-top">
+              {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(category ?? "未分类")}</span> : null}
+              <span data-testid="word-card-context" className="word-context">{tc("认读卡")}</span>
+            </div>
+
+            <div className="word-card-center">
+              <h2 className="word-card-term">{word.term}</h2>
+              <p className="word-card-hint">{tc("认得它的中文意思吗？")}</p>
+              {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
+              <button
+                onClick={handleSpeak}
+                className="word-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
+                aria-label={tc("发音")}
+              >
+                <Icon name="volume" size={18} />
+              </button>
+            </div>
+
+            <div className="word-card-bottom">
+              {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
+              <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("不认识")} <span className="keycap">→</span> {tc("认识")}</span>
+            </div>
+
+            <div className="absolute bottom-5 flex w-full items-center justify-between px-5">
+              <button
+                disabled={disabled}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleButtonSwipe(-1, onSwipeLeft);
+                }}
+                className="word-card-action word-card-action-danger flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
+              >
+                ← {tc("不认识")}
+              </button>
+              <button
+                disabled={disabled}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleButtonSwipe(1, onSwipeRight);
+                }}
+                className="word-card-action word-card-action-success flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
+              >
+                {tc("认识")} ✓
+              </button>
+            </div>
           </div>
         </div>
       </div>
