@@ -93,6 +93,12 @@ export interface PublicStreamActionResponse {
   requiresFeedbackAck: boolean;
   feedback?: PublicStreamItemBase["feedback"];
   learningCard?: PublicStreamItemBase["learningCard"];
+  evidenceObligation?: {
+    created: boolean;
+    disposition: "accepted" | "already-active" | "debt-cap" | "not-required";
+    obligationId: string | null;
+  };
+  newlyUnlocked?: string[];
   nextItem: PublicStreamItemBase | null;
 }
 

@@ -38,5 +38,8 @@ export async function GET() {
     learnedRate: metrics.learnedRate,
     masteredCount: metrics.masteredCount,
     mastery: metrics.mastery,
+    objectiveRecognitionCount: metrics.objectiveRecognitionCount,
+    selfRatedEncounterCount: metrics.selfRatedEncounterCount,
+    legacyUnknownEventCount: metrics.legacyUnknownEventCount,
   });
 }

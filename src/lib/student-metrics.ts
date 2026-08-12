@@ -61,6 +61,9 @@ export interface StudentDashboardResponse {
     reviewedWordCount: number;
     newWordCount: number;
     reviewEventCount: number;
+    objectiveRecognitionCount: number;
+    selfRatedEncounterCount: number;
+    legacyUnknownEventCount: number;
   };
   library: {
     totalWords: number;
@@ -81,6 +84,9 @@ export interface StudentLearningMetrics {
   reviewedWordCount: number;
   newWordCount: number;
   reviewEventCount: number;
+  objectiveRecognitionCount: number;
+  selfRatedEncounterCount: number;
+  legacyUnknownEventCount: number;
   learnedCount: number;
   learnedRate: number;
   masteredCount: number;
@@ -100,6 +106,9 @@ export async function getStudentLearningMetrics(
     reviewedWordCount,
     newWordCount,
     reviewEventCount,
+    objectiveRecognitionCount,
+    selfRatedEncounterCount,
+    legacyUnknownEventCount,
     learnedCount,
     masteredCount,
   ] = await Promise.all([
@@ -108,6 +117,9 @@ export async function getStudentLearningMetrics(
     prisma.review.count({ where: { userId, lastReviewedAt: { gte: todayStart } } }),
     prisma.review.count({ where: { userId, totalReviews: 1, lastReviewedAt: { gte: todayStart } } }),
     prisma.reviewEvent.count({ where: { userId, eventKind: "REVIEW", isHistorical: false, createdAt: { gte: todayStart } } }),
+    prisma.reviewEvent.count({ where: { userId, flowVersion: "v2", objectiveEvidenceTargetId: { not: null }, isHistorical: false, createdAt: { gte: todayStart } } }),
+    prisma.studyEncounter.count({ where: { userId, createdAt: { gte: todayStart } } }),
+    prisma.reviewEvent.count({ where: { userId, evidenceKind: "LEGACY_UNKNOWN", isHistorical: false, createdAt: { gte: todayStart } } }),
     prisma.review.count({ where: { userId, repetitions: { gte: MASTERED_REPETITIONS } } }),
     prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL } } }),
   ]);
@@ -117,6 +129,9 @@ export async function getStudentLearningMetrics(
     reviewedWordCount,
     newWordCount,
     reviewEventCount,
+    objectiveRecognitionCount,
+    selfRatedEncounterCount,
+    legacyUnknownEventCount,
     learnedCount,
     learnedRate: totalWords > 0 ? Math.round((learnedCount / totalWords) * 100) : 0,
     masteredCount,
@@ -156,6 +171,9 @@ export async function getStudentDashboard(
       reviewedWordCount: metrics.reviewedWordCount,
       newWordCount: metrics.newWordCount,
       reviewEventCount: metrics.reviewEventCount,
+      objectiveRecognitionCount: metrics.objectiveRecognitionCount,
+      selfRatedEncounterCount: metrics.selfRatedEncounterCount,
+      legacyUnknownEventCount: metrics.legacyUnknownEventCount,
     },
     library: {
       totalWords: metrics.totalWords,

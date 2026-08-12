@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { prisma, Prisma, type Word } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import {
@@ -656,6 +656,18 @@ export async function applyReviewEvent(input: {
     try {
       return await prisma.$transaction(
         async (tx) => {
+          const globalReceipt = await tx.operationReceipt.findUnique({
+            where: {
+              userId_operationId: {
+                userId: input.userId,
+                operationId: input.operationId,
+              },
+            },
+            select: { flowVersion: true },
+          });
+          if (globalReceipt && globalReceipt.flowVersion !== "v1") {
+            throw new StudyRequestError(409, "operationId 已用于不同的学习流程");
+          }
           let processed = await tx.reviewEvent.findUnique({
             where: {
               userId_operationId: {
@@ -863,7 +875,7 @@ export async function applyReviewEvent(input: {
 
           await checkInStudyDay(input.userId, tx);
           const newlyUnlocked = await checkAchievements(input.userId, tx);
-          await tx.reviewEvent.create({
+          const event = await tx.reviewEvent.create({
             data: {
               userId: input.userId,
               submittedWordId: input.wordId,
@@ -874,6 +886,34 @@ export async function applyReviewEvent(input: {
               eventKind: "REVIEW",
               quality: input.quality,
               newlyUnlockedKeys: newlyUnlocked.map((a) => a.key),
+            },
+          });
+          await tx.operationReceipt.create({
+            data: {
+              userId: input.userId,
+              operationId: input.operationId,
+              flowVersion: "v1",
+              actionKind: "REVIEW",
+              requestFingerprint: createHash("sha256")
+                .update(JSON.stringify({
+                  flowVersion: "v1",
+                  actionKind: "REVIEW",
+                  wordId: input.wordId,
+                  quality: input.quality,
+                  studySessionId: input.studySessionId ?? null,
+                  nonce: input.nonce ?? null,
+                }))
+                .digest("hex"),
+              outcomeStatus: "SCORED",
+              outcomeReference: event.id,
+              response: {
+                nextState: {
+                  ...nextState,
+                  nextReviewDate: nextState.nextReviewDate.toISOString(),
+                  lastReviewedAt: nextState.lastReviewedAt?.toISOString() ?? null,
+                },
+                newlyUnlocked: newlyUnlocked.map((achievement) => achievement.key),
+              },
             },
           });
 
