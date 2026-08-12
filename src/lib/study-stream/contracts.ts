@@ -75,12 +75,19 @@ export interface PublicStreamSession {
   expiresAt: string;
 }
 
+export interface PublicStreamUnitSummary {
+  totalWordCount: number;
+  encounteredWordCount: number;
+  objectiveRecognitionCount: number;
+}
+
 export interface PublicStreamResponse {
   ok: true;
   assigned: true;
   session: PublicStreamSession;
   item: PublicStreamItemBase | null;
   resumedFeedback: boolean;
+  unitSummary?: PublicStreamUnitSummary;
 }
 
 export interface PublicStreamActionResponse {

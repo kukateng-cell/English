@@ -22,6 +22,8 @@ import {
   resetStudyStreamAction,
   saveStudyStreamCheckpoint,
   StudyStreamOutboxCorruptError,
+  studyStreamCheckpointStorageKey,
+  studyStreamOutboxStorageKey,
   updateStudyStreamAction,
 } from "@/lib/study-stream/outbox";
 
@@ -51,6 +53,9 @@ function errorText(value: unknown): string {
   if (value instanceof StudyStreamOutboxCorruptError) {
     return "本机待同步学习操作已损坏，学习流已暂停；请保留此页面并联系支持人员恢复同步。";
   }
+  if (value instanceof TypeError && /fetch/i.test(value.message)) {
+    return "网络暂时不可用；待同步操作已保留，请恢复网络后重试。";
+  }
   if (value instanceof Error && value.message) return value.message;
   return "学习同步暂时不可用，请检查网络后重试";
 }
@@ -76,6 +81,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const { tc } = useLocale();
   const [session, setSession] = useState<PublicStreamResponse["session"] | null>(null);
   const [item, setItem] = useState<PublicStreamItemBase | null>(null);
+  const [unitSummary, setUnitSummary] = useState<PublicStreamResponse["unitSummary"]>();
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState(false);
   const [syncBlocked, setSyncBlocked] = useState(false);
@@ -120,6 +126,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const applyBootstrap = useCallback((data: PublicStreamResponse) => {
     setSession(data.session);
     setItem(data.item);
+    setUnitSummary(data.unitSummary);
     setSelectedOptionId(data.item?.feedback?.selectedOptionId ?? null);
     updateCheckpoint(data.item, data.session);
   }, [updateCheckpoint]);
@@ -332,8 +339,11 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     try {
       pending = loadStudyStreamOutbox(userId)[0];
     } catch (error) {
+      // Defer the state transition so React's effect lint rule remains
+      // satisfied. Do not cancel this callback: in Strict Mode the first
+      // effect is cleaned up before its microtask runs, but it is still the
+      // only bootstrap attempt after the corrupt-storage fail-closed branch.
       queueMicrotask(() => {
-        if (cancelled) return;
         setSyncBlocked(true);
         setSyncError(errorText(error));
         setLoading(false);
@@ -362,6 +372,23 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     window.addEventListener("online", handleOnline);
     return () => window.removeEventListener("online", handleOnline);
   }, [actionPending, retrySync]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      const outboxKey = studyStreamOutboxStorageKey(userId);
+      const checkpointKey = studyStreamCheckpointStorageKey(userId, scopeCheckpointKey());
+      if (event.key === outboxKey) {
+        refreshOutbox();
+        return;
+      }
+      if (event.key === checkpointKey || event.key === null) {
+        refreshOutbox();
+        if (!actionPending) void reloadStream();
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [actionPending, refreshOutbox, reloadStream, userId]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -402,6 +429,13 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       )}
       {outboxCount > 0 && !syncBlocked ? <p className="mx-auto mb-3 w-full max-w-md px-5 text-center text-[12px] text-[var(--muted)]">{tc(`待同步 ${outboxCount} 项`)}</p> : null}
 
+      {unitSummary ? (
+        <div className="mx-auto mb-4 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[12px] text-[var(--muted)]" aria-label={tc("单元学习摘要") as string}>
+          <span>{tc("覆盖词数")} {unitSummary.encounteredWordCount}/{unitSummary.totalWordCount}</span>
+          <span>{tc("客观认读证据")} {unitSummary.objectiveRecognitionCount}</span>
+        </div>
+      ) : null}
+
       <div className="flex-1 px-2 pt-2">
         {item ? (
           item.kind === "LEARNING_CARD" ? (
@@ -426,7 +460,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           )
         ) : (
           <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center text-center">
-            <p className="mb-4 text-[var(--muted)]">{tc("目前没有可安全安排的学习项目")}</p>
+            <p className="mb-4 text-[var(--muted)]">{tc(unitSummary ? "本单元目前没有可安全安排的学习项目" : "目前没有可安全安排的学习项目")}</p>
             <button type="button" onClick={() => void reloadStream()} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold">{tc("重新载入")}</button>
           </div>
         )}

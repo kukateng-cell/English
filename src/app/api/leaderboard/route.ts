@@ -4,7 +4,7 @@ import { getLeaderboard } from "@/lib/leaderboard";
 
 /**
  * GET /api/leaderboard
- * 返回学生排行榜（连续天数 / 掌握词数 / 累计打卡三个榜单）。
+ * 返回学生排行榜（客观认读连续天数 / 掌握词数 / 累计打卡三个榜单）。
  */
 export async function GET() {
   const auth = await requireUser();

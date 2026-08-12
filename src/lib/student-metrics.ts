@@ -117,7 +117,7 @@ export async function getStudentLearningMetrics(
     prisma.review.count({ where: { userId, lastReviewedAt: { gte: todayStart } } }),
     prisma.review.count({ where: { userId, totalReviews: 1, lastReviewedAt: { gte: todayStart } } }),
     prisma.reviewEvent.count({ where: { userId, eventKind: "REVIEW", isHistorical: false, createdAt: { gte: todayStart } } }),
-    prisma.reviewEvent.count({ where: { userId, flowVersion: "v2", objectiveEvidenceTargetId: { not: null }, isHistorical: false, createdAt: { gte: todayStart } } }),
+    prisma.reviewEvent.count({ where: { userId, eventKind: "REVIEW", evidenceKind: "OBJECTIVE_PROBE", flowVersion: "v2", objectiveEvidenceTargetId: { not: null }, isHistorical: false, createdAt: { gte: todayStart } } }),
     prisma.studyEncounter.count({ where: { userId, createdAt: { gte: todayStart } } }),
     prisma.reviewEvent.count({ where: { userId, evidenceKind: "LEGACY_UNKNOWN", isHistorical: false, createdAt: { gte: todayStart } } }),
     prisma.review.count({ where: { userId, repetitions: { gte: MASTERED_REPETITIONS } } }),

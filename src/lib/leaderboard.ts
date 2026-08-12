@@ -1,5 +1,5 @@
 /**
- * 排行榜：三个榜单（连续天数 / 掌握词数 / 累计打卡），基于现有数据实时计算。
+ * 排行榜：三个榜单（客观认读连续天数 / 掌握词数 / 累计打卡），基于现有数据实时计算。
  *
  * 数据量小（学生数十人），直接全量读取 StudyDay / Review 在内存聚合，
  * 不做快照表，保持简单且实时。
@@ -89,9 +89,19 @@ export async function getLeaderboard(
     u.name || u.email;
 
   // 全量取 StudyDay / Review，在内存聚合
-  const [studyDays, reviews] = await Promise.all([
+  const [studyDays, reviews, objectiveEvents] = await Promise.all([
     prisma.studyDay.findMany({ select: { userId: true, date: true } }),
     prisma.review.findMany({ select: { userId: true, interval: true } }),
+    prisma.reviewEvent.findMany({
+      where: {
+        eventKind: "REVIEW",
+        evidenceKind: "OBJECTIVE_PROBE",
+        flowVersion: "v2",
+        objectiveEvidenceTargetId: { not: null },
+        isHistorical: false,
+      },
+      select: { userId: true, createdAt: true },
+    }),
   ]);
 
   // 按用户聚合打卡日期
@@ -109,10 +119,20 @@ export async function getLeaderboard(
     }
   }
 
+  // Personal learning-day streaks intentionally remain in StudyDay for the
+  // dashboard. The leaderboard's scored streak is a separate projection and
+  // only counts provenance-complete V2 objective ledger events.
+  const objectiveDatesByUser = new Map<string, Set<string>>();
+  for (const event of objectiveEvents) {
+    const set = objectiveDatesByUser.get(event.userId) ?? new Set<string>();
+    set.add(todayKey(event.createdAt));
+    objectiveDatesByUser.set(event.userId, set);
+  }
+
   const streakValues = users.map((u) => ({
     userId: u.id,
     name: displayName(u),
-    value: countStreak(datesByUser.get(u.id) ?? new Set()),
+    value: countStreak(objectiveDatesByUser.get(u.id) ?? new Set()),
   }));
   const wordsValues = users.map((u) => ({
     userId: u.id,
@@ -128,7 +148,7 @@ export async function getLeaderboard(
   const lists: LeaderboardList[] = [
     {
       type: "streak",
-      label: "连续天数",
+      label: "客观认读连续天数",
       icon: "🔥",
       entries: trimToTop(rankEntries(streakValues, userId)),
     },

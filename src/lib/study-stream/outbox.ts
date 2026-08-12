@@ -4,6 +4,7 @@ import {
 } from "@/lib/study-stream/contracts";
 
 const STORAGE_PREFIX = "english:study-stream-v2:outbox:";
+export const STUDY_STREAM_OUTBOX_MAX_ROWS = 20;
 
 export type StudyStreamQueuedAction = {
   action: StudyStreamActionInput;
@@ -24,13 +25,19 @@ function storageKey(userId: string): string {
   return `${STORAGE_PREFIX}${userId}`;
 }
 
+export function studyStreamOutboxStorageKey(userId: string): string {
+  return storageKey(userId);
+}
+
 function read(userId: string): StudyStreamQueuedAction[] {
   if (typeof window === "undefined") return [];
   const raw = window.localStorage.getItem(storageKey(userId));
   if (!raw) return [];
   try {
     const value: unknown = JSON.parse(raw);
-    if (!Array.isArray(value)) throw new StudyStreamOutboxCorruptError();
+    if (!Array.isArray(value) || value.length > STUDY_STREAM_OUTBOX_MAX_ROWS) {
+      throw new StudyStreamOutboxCorruptError();
+    }
     const rows: StudyStreamQueuedAction[] = [];
     for (const entry of value) {
       if (typeof entry !== "object" || entry === null) throw new StudyStreamOutboxCorruptError();
@@ -62,7 +69,10 @@ function read(userId: string): StudyStreamQueuedAction[] {
 
 function write(userId: string, rows: StudyStreamQueuedAction[]): void {
   if (typeof window === "undefined") throw new Error("STUDY_STREAM_STORAGE_UNAVAILABLE");
-  window.localStorage.setItem(storageKey(userId), JSON.stringify(rows.slice(-20)));
+  if (rows.length > STUDY_STREAM_OUTBOX_MAX_ROWS) {
+    throw new Error("STUDY_STREAM_OUTBOX_CAPACITY");
+  }
+  window.localStorage.setItem(storageKey(userId), JSON.stringify(rows));
 }
 
 export function loadStudyStreamOutbox(userId: string): StudyStreamQueuedAction[] {
@@ -76,6 +86,9 @@ export function enqueueStudyStreamAction(
   try {
     const rows = read(userId);
     if (!rows.some((row) => row.action.operationId === action.operationId)) {
+      if (rows.length >= STUDY_STREAM_OUTBOX_MAX_ROWS) {
+        return { ok: false, error: "待同步学习操作已达安全上限；请先恢复同步后再继续学习" };
+      }
       rows.push({ action, status: "pending", attempts: 0, lastError: null, updatedAt: Date.now() });
       write(userId, rows);
     }
@@ -135,6 +148,10 @@ function checkpointKey(userId: string, scopeKey: string): string {
   return `english:study-stream-v2:checkpoint:${userId}:${scopeKey}`;
 }
 
+export function studyStreamCheckpointStorageKey(userId: string, scopeKey: string): string {
+  return checkpointKey(userId, scopeKey);
+}
+
 export function loadStudyStreamCheckpoint(userId: string, scopeKey: string): StudyStreamCheckpoint | null {
   if (typeof window === "undefined") return null;
   try {
@@ -146,7 +163,12 @@ export function loadStudyStreamCheckpoint(userId: string, scopeKey: string): Stu
     if (
       candidate.version !== 1 || typeof candidate.sessionId !== "string" ||
       (candidate.streamItemId !== null && typeof candidate.streamItemId !== "string") ||
-      typeof candidate.clientRevision !== "number" || typeof candidate.phase !== "string"
+      typeof candidate.clientRevision !== "number" ||
+      !Number.isSafeInteger(candidate.clientRevision) ||
+      candidate.clientRevision < 0 ||
+      (candidate.phase !== "learning-card" && candidate.phase !== "objective-probe" &&
+        candidate.phase !== "feedback" && candidate.phase !== "sync-blocked") ||
+      typeof candidate.updatedAt !== "number" || !Number.isFinite(candidate.updatedAt)
     ) return null;
     return candidate as StudyStreamCheckpoint;
   } catch {
@@ -161,11 +183,30 @@ export function saveStudyStreamCheckpoint(
 ): { ok: true } | { ok: false; error: string } {
   try {
     if (typeof window === "undefined") throw new Error("storage unavailable");
-    window.localStorage.setItem(checkpointKey(userId, scopeKey), JSON.stringify({
+    const key = checkpointKey(userId, scopeKey);
+    const serialized = JSON.stringify({
       ...checkpoint,
       version: 1,
       updatedAt: Date.now(),
-    }));
+    });
+    const previous = window.localStorage.getItem(key);
+    let previousCheckpoint: Partial<StudyStreamCheckpoint> | null = null;
+    if (previous) {
+      try {
+        previousCheckpoint = JSON.parse(previous) as Partial<StudyStreamCheckpoint>;
+      } catch {
+        // Replace a corrupt checkpoint with the new authoritative pointer.
+      }
+    }
+    if (
+      previousCheckpoint &&
+      previousCheckpoint.version === 1 &&
+      previousCheckpoint.sessionId === checkpoint.sessionId &&
+      previousCheckpoint.streamItemId === checkpoint.streamItemId &&
+      previousCheckpoint.clientRevision === checkpoint.clientRevision &&
+      previousCheckpoint.phase === checkpoint.phase
+    ) return { ok: true };
+    window.localStorage.setItem(key, serialized);
     return { ok: true };
   } catch {
     return { ok: false, error: "浏览器无法保存学习续接点，请允许网站存储后重试" };
