@@ -10,14 +10,20 @@ async function main() {
   const {
     applyStudyStreamAction,
     getOrCreateStudyStream,
+    renewStudyStreamCredential,
+    StudyStreamError,
   } = await import("../src/lib/study-stream/server");
   const {
     createStudyStreamCredential,
     digestStudyStreamCredential,
   } = await import("../src/lib/study-stream/contracts");
-  const { getStudentLearningMetrics } = await import("../src/lib/student-metrics");
+  const { getStudentDashboard, getStudentLearningMetrics } = await import("../src/lib/student-metrics");
+  const { getLeaderboard } = await import("../src/lib/leaderboard");
+  const { todayKey } = await import("../src/lib/streak");
+  const { authOptions, validateAuthTokenVersion } = await import("../src/lib/auth");
   const suffix = randomUUID();
   let userId: string | null = null;
+  let studyDayOnlyUserId: string | null = null;
   const wordIds: string[] = [];
 
   try {
@@ -29,6 +35,32 @@ async function main() {
       },
     });
     userId = user.id;
+
+    const jwtCallback = authOptions.callbacks?.jwt;
+    assert.ok(jwtCallback);
+    type JwtCallbackInput = Parameters<typeof jwtCallback>[0];
+    const initialToken = await jwtCallback({
+      token: {},
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        tokenVersion: user.tokenVersion,
+        mustChangePassword: user.mustChangePassword,
+      },
+      account: null,
+      profile: undefined,
+      trigger: "signIn",
+      isNewUser: false,
+    } satisfies JwtCallbackInput);
+    await prisma.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } } });
+    await assert.rejects(
+      validateAuthTokenVersion(initialToken),
+      /SESSION_INVALIDATED/,
+    );
+    await prisma.user.update({ where: { id: user.id }, data: { tokenVersion: user.tokenVersion } });
+
     for (let index = 0; index < 8; index += 1) {
       const word = await prisma.word.create({
         data: {
@@ -60,6 +92,10 @@ async function main() {
     assert.ok(unitBootstrap.item);
     assert.equal(unitBootstrap.item.kind, "LEARNING_CARD");
     assert.ok(unitBootstrap.item.prompt.length > 0);
+    assert.ok(unitBootstrap.unitSummary);
+    assert.ok(unitBootstrap.unitSummary.totalWordCount > 0);
+    assert.equal(unitBootstrap.unitSummary.objectiveRecognitionCount, 0);
+    assert.equal(unitBootstrap.unitSummary.encounteredWordCount, 0);
 
     const revealInput: StudyStreamActionInput = {
       flowVersion: "v2",
@@ -156,6 +192,190 @@ async function main() {
     assert.equal(
       await prisma.evidenceObligation.count({ where: { userId: user.id, status: { in: ["PENDING", "LEASED"] } } }),
       5,
+    );
+
+    // Two devices submitting the same stream item with different operationIds
+    // must converge on one committed encounter. The loser must receive a
+    // visible conflict instead of a second scored/acknowledged outcome.
+    const raceCredential = createStudyStreamCredential();
+    const raceSession = await prisma.studySession.create({
+      data: {
+        userId: user.id,
+        queueFingerprint: `same-item-race-${suffix}`,
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        flowVersion: "v2",
+        learningPolicyVersion: "retrieval-v1",
+        mode: "global",
+        revision: 0,
+        streamItems: {
+          create: {
+            streamItemKey: `same-item-race-${suffix}`,
+            wordId: wordIds[7],
+            itemKind: "LEARNING_CARD",
+            selectionReason: "concurrency-test",
+            policyVersion: "retrieval-v1",
+            status: "LEASED",
+            leaseExpiresAt: new Date(Date.now() + 15 * 60_000),
+            credentialDigest: digestStudyStreamCredential(raceCredential),
+            credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+            revealedAt: new Date(),
+            clientRevision: 0,
+          },
+        },
+      },
+      include: { streamItems: true },
+    });
+    const raceItem = raceSession.streamItems[0];
+    assert.ok(raceItem);
+    const sameWordSecondItem = await prisma.studyStreamItem.create({
+      data: {
+        sessionId: raceSession.id,
+        streamItemKey: `same-item-second-${suffix}`,
+        wordId: wordIds[7],
+        itemKind: "LEARNING_CARD",
+        selectionReason: "same-word-identity-test",
+        policyVersion: "retrieval-v1",
+        status: "ACKNOWLEDGED",
+        leaseExpiresAt: new Date(Date.now() + 15 * 60_000),
+        credentialDigest: digestStudyStreamCredential(createStudyStreamCredential()),
+        credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+        revealedAt: new Date(),
+        usedAt: new Date(),
+        feedbackAcknowledgedAt: new Date(),
+        operationId: `same-word-second-${suffix}`,
+        clientRevision: 0,
+      },
+    });
+    assert.notEqual(sameWordSecondItem.id, raceItem.id);
+    assert.equal(
+      await prisma.studyStreamItem.count({ where: { sessionId: raceSession.id, wordId: wordIds[7] } }),
+      2,
+    );
+    const firstRaceRenewal = await renewStudyStreamCredential(user.id, {
+      studySessionId: raceSession.id,
+      streamItemId: raceItem.id,
+      itemCredential: raceCredential,
+      clientKnownRevision: 0,
+    });
+    const secondRaceRenewal = await renewStudyStreamCredential(user.id, {
+      studySessionId: raceSession.id,
+      streamItemId: raceItem.id,
+      itemCredential: raceCredential,
+      clientKnownRevision: 0,
+    });
+    assert.notEqual(firstRaceRenewal.itemCredential, secondRaceRenewal.itemCredential);
+    const raceLineage = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: raceItem.id },
+      select: { credentialLineage: true },
+    });
+    assert.ok(Array.isArray(raceLineage.credentialLineage));
+    assert.ok(raceLineage.credentialLineage.length >= 3);
+    const raceCredentials = [firstRaceRenewal.itemCredential, secondRaceRenewal.itemCredential];
+    const raceResults = await Promise.allSettled([0, 1].map((index) => applyStudyStreamAction(user.id, {
+      flowVersion: "v2",
+      studySessionId: raceSession.id,
+      streamItemId: raceItem.id,
+      operationId: `same-item-race-${suffix}-${index}`,
+      itemCredential: raceCredentials[index],
+      actionKind: "SELF_RATING",
+      clientKnownRevision: 0,
+      payload: { selfRating: "selfForgot" },
+    })));
+    const raceSuccesses = raceResults.filter((result) => result.status === "fulfilled");
+    const raceFailures = raceResults.filter((result) => result.status === "rejected");
+    assert.equal(raceSuccesses.length, 1);
+    assert.equal(raceFailures.length, 1);
+    assert.ok(raceFailures[0]?.status === "rejected" && raceFailures[0].reason instanceof StudyStreamError);
+    if (raceFailures[0]?.status === "rejected" && raceFailures[0].reason instanceof StudyStreamError) {
+      assert.equal(raceFailures[0].reason.status, 409);
+    }
+
+    const expiredCredential = createStudyStreamCredential();
+    const expiredSession = await prisma.studySession.create({
+      data: {
+        userId: user.id,
+        queueFingerprint: `expired-lease-${suffix}`,
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        flowVersion: "v2",
+        learningPolicyVersion: "retrieval-v1",
+        mode: "global",
+        revision: 0,
+        streamItems: {
+          create: {
+            streamItemKey: `expired-lease-${suffix}`,
+            wordId: wordIds[6],
+            itemKind: "LEARNING_CARD",
+            selectionReason: "expiry-test",
+            policyVersion: "retrieval-v1",
+            status: "LEASED",
+            leaseExpiresAt: new Date(Date.now() - 1_000),
+            credentialDigest: digestStudyStreamCredential(expiredCredential),
+            credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+            revealedAt: new Date(),
+            clientRevision: 0,
+          },
+        },
+      },
+      include: { streamItems: true },
+    });
+    const expiredItem = expiredSession.streamItems[0];
+    assert.ok(expiredItem);
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: expiredSession.id,
+        streamItemId: expiredItem.id,
+        operationId: `expired-lease-action-${suffix}`,
+        itemCredential: expiredCredential,
+        actionKind: "SELF_RATING",
+        clientKnownRevision: 0,
+        payload: { selfRating: "selfForgot" },
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.details.code === "EXPIRED_ITEM_LEASE",
+    );
+    const renewed = await renewStudyStreamCredential(user.id, {
+      studySessionId: expiredSession.id,
+      streamItemId: expiredItem.id,
+      itemCredential: expiredCredential,
+      clientKnownRevision: 0,
+    });
+    assert.notEqual(renewed.itemCredential, expiredCredential);
+    const renewedRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: expiredItem.id },
+      select: { leaseExpiresAt: true, credentialExpiresAt: true },
+    });
+    assert.ok(renewedRow.leaseExpiresAt.getTime() > Date.now());
+    assert.ok(renewedRow.credentialExpiresAt.getTime() > Date.now());
+    await prisma.studySession.update({ where: { id: expiredSession.id }, data: { retiredAt: new Date() } });
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: expiredSession.id,
+        streamItemId: expiredItem.id,
+        operationId: `retired-session-action-${suffix}`,
+        itemCredential: renewed.itemCredential,
+        actionKind: "SELF_RATING",
+        clientKnownRevision: 0,
+        payload: { selfRating: "selfForgot" },
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403,
+    );
+    await prisma.studySession.update({
+      where: { id: expiredSession.id },
+      data: { retiredAt: null, expiresAt: new Date(Date.now() - 1_000) },
+    });
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: expiredSession.id,
+        streamItemId: expiredItem.id,
+        operationId: `expired-session-action-${suffix}`,
+        itemCredential: renewed.itemCredential,
+        actionKind: "SELF_RATING",
+        clientKnownRevision: 0,
+        payload: { selfRating: "selfForgot" },
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403,
     );
 
     await prisma.evidenceObligation.update({
@@ -257,13 +477,43 @@ async function main() {
     });
     assert.equal(answeredRemediation.status, "ANSWERED");
     assert.equal(answeredRemediation.activeKey, null);
-    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 8);
-    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 12);
+    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 9);
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 13);
     const metrics = await getStudentLearningMetrics(user.id);
     assert.equal(metrics.reviewEventCount, 1);
     assert.equal(metrics.objectiveRecognitionCount, 1);
-    assert.equal(metrics.selfRatedEncounterCount, 8);
+    assert.equal(metrics.selfRatedEncounterCount, 9);
     assert.equal(metrics.legacyUnknownEventCount, 0);
+    const dashboard = await getStudentDashboard(user.id);
+    assert.equal(dashboard.today.objectiveRecognitionCount, 1);
+    assert.equal(dashboard.today.selfRatedEncounterCount, 9);
+    assert.equal(dashboard.library.masteredCount, 0);
+    const unitSummaryAfter = await getOrCreateStudyStream(user.id, {
+      mode: "unit",
+      level: "A1",
+      category: "Hello and Goodbye",
+    });
+    assert.equal(unitSummaryAfter.unitSummary?.objectiveRecognitionCount, 1);
+    assert.ok((unitSummaryAfter.unitSummary?.encounteredWordCount ?? 0) > 0);
+
+    // A personal learning day is not a scored leaderboard streak. This
+    // fixture has a StudyDay but no provenance-complete objective event.
+    const studyDayOnlyUser = await prisma.user.create({
+      data: {
+        email: `codex-study-day-only-${suffix}`,
+        passwordHash: "not-a-login-account",
+        mustChangePassword: false,
+      },
+    });
+    studyDayOnlyUserId = studyDayOnlyUser.id;
+    await prisma.studyDay.create({ data: { userId: studyDayOnlyUser.id, date: todayKey() } });
+    const leaderboard = await getLeaderboard(user.id);
+    const scoredStreak = leaderboard.lists.find((list) => list.type === "streak");
+    assert.equal(scoredStreak?.label, "客观认读连续天数");
+    assert.equal(scoredStreak?.entries.find((entry) => entry.userId === user.id)?.value, 1);
+    const studyDayOnlyLeaderboard = await getLeaderboard(studyDayOnlyUser.id);
+    const studyDayOnlyStreak = studyDayOnlyLeaderboard.lists.find((list) => list.type === "streak");
+    assert.equal(studyDayOnlyStreak?.entries.find((entry) => entry.userId === studyDayOnlyUser.id)?.value, 0);
 
     // The helper is intentionally exercised so this gate also catches accidental
     // replacement of opaque random credentials with a client-chosen value.
@@ -271,6 +521,7 @@ async function main() {
     console.log("study stream v2 integration checks passed");
   } finally {
     if (userId) await prisma.user.delete({ where: { id: userId } });
+    if (studyDayOnlyUserId) await prisma.user.delete({ where: { id: studyDayOnlyUserId } });
     if (wordIds.length > 0) await prisma.word.deleteMany({ where: { id: { in: wordIds } } });
     await prisma.$disconnect();
   }

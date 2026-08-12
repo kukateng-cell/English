@@ -1,4 +1,5 @@
 import type { NextAuthOptions } from "next-auth";
+import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -8,6 +9,37 @@ import {
   resetAccount,
   getClientIp,
 } from "@/lib/login-limiter";
+
+/**
+ * Revalidate the account-bound claims used by protected routes. Keeping this
+ * boundary callable outside the NextAuth callback makes token-version
+ * revocation testable without fabricating a login event.
+ */
+export async function validateAuthTokenVersion(token: JWT): Promise<JWT> {
+  const userId = token.id as string | undefined;
+  if (!userId) return token;
+
+  // Session validity is a security decision: a transient DB failure keeps the
+  // cookie but marks it unavailable so protected APIs fail closed with 503.
+  let dbUser;
+  try {
+    dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, tokenVersion: true, mustChangePassword: true },
+    });
+  } catch (error) {
+    console.error("[auth] session validation database unavailable", error);
+    token.authUnavailable = true;
+    return token;
+  }
+  if (!dbUser) throw new Error("SESSION_INVALIDATED");
+  if (dbUser.tokenVersion !== token.tokenVersion || dbUser.role !== token.role) {
+    throw new Error("SESSION_INVALIDATED");
+  }
+  token.mustChangePassword = dbUser.mustChangePassword;
+  token.authUnavailable = false;
+  return token;
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -91,49 +123,9 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
-      // 后续请求：user 不存在（只在登录时传入）。
-      // 用 token.id 查库校验会话是否仍有效：
-      //   - 用户已被删除（dbUser 不存在）→ 旧会话失效；
-      //   - tokenVersion 已变化（管理员改角色 / 重置密码）→ 旧会话失效，需重新登录。
-      // 实现：jwt 回调抛错会让 NextAuth 的 session 处理清除会话 cookie
-      // （见 node_modules/next-auth/core/routes/session.js 的 catch 分支），
-      // 前端 useSession / 服务端 getServerSession 随之视为未登录。
-      const userId = token.id as string | undefined;
-      if (userId) {
-        // 会话有效性是安全判断：DB 无法验证时保留 cookie，但把会话标成
-        // unavailable；受保护 API 会返回 503，既不误登出也不会继续授权。
-        let dbUser;
-        try {
-          dbUser = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { role: true, tokenVersion: true, mustChangePassword: true },
-          });
-        } catch (error) {
-          // A transient database outage is not proof that the account was
-          // deleted or revoked. Preserve the JWT, mark it unavailable, and let
-          // protected APIs return 503 until a later request can verify it.
-          console.error("[auth] session validation database unavailable", error);
-          token.authUnavailable = true;
-          return token;
-        }
-        if (!dbUser) {
-          // 用户已被删除 → 会话失效。
-          throw new Error("SESSION_INVALIDATED");
-        }
-        if (
-          dbUser.tokenVersion !== token.tokenVersion ||
-          dbUser.role !== token.role
-        ) {
-          // 版本号或角色快照变化 → 旧会话失效。角色比较是纵深防御：即使某个
-          // 离线维护脚本漏了递增 tokenVersion，也不能继续信任旧的特权 JWT。
-          throw new Error("SESSION_INVALIDATED");
-        }
-        // mustChangePassword 可能被用户自己（重设密码）或管理员修改，
-        // 每次都从 DB 刷新，确保重设密码后立即生效。
-        token.mustChangePassword = dbUser.mustChangePassword;
-        token.authUnavailable = false;
-      }
-      return token;
+      // 后续请求：user 不存在（只在登录时传入）。JWT callback 抛出
+      // SESSION_INVALIDATED 时，NextAuth 会清除失效 session cookie。
+      return validateAuthTokenVersion(token);
     },
     async session({ session, token }) {
       if (session.user) {

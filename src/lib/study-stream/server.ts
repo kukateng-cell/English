@@ -44,6 +44,7 @@ import {
   type PublicStreamActionResponse,
   type PublicStreamItemBase,
   type PublicStreamResponse,
+  type PublicStreamUnitSummary,
   type StudyStreamActionInput,
 } from "@/lib/study-stream/contracts";
 import {
@@ -55,6 +56,7 @@ const STREAM_SESSION_TTL_MS = 30 * 60_000;
 const STREAM_ITEM_LEASE_MS = 15 * 60_000;
 const MAX_TRANSACTION_ATTEMPTS = 5;
 const MAX_CANDIDATES = 80;
+const MAX_CREDENTIAL_LINEAGE_GRANTS = 8;
 
 type StreamTransaction = Prisma.TransactionClient;
 
@@ -110,6 +112,13 @@ interface ActionTransactionResult {
   duplicate: boolean;
 }
 
+interface CredentialGrant {
+  digest: string;
+  issuedAt: number;
+  expiresAt: number;
+  parentDigest: string | null;
+}
+
 type AdmissionDisposition = "accepted" | "already-active" | "debt-cap" | "not-required";
 
 interface AdmissionOutcome {
@@ -126,6 +135,83 @@ async function lockStreamUser(tx: StreamTransaction, userId: string): Promise<vo
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCredentialDigest(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+function parseCredentialLineage(value: Prisma.JsonValue | null): CredentialGrant[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const parentDigest = entry.parentDigest;
+    if (
+      !isCredentialDigest(entry.digest) ||
+      typeof entry.issuedAt !== "number" || !Number.isFinite(entry.issuedAt) ||
+      typeof entry.expiresAt !== "number" || !Number.isFinite(entry.expiresAt) ||
+      (parentDigest !== null && !isCredentialDigest(parentDigest))
+    ) return [];
+    return [{
+      digest: entry.digest,
+      issuedAt: entry.issuedAt,
+      expiresAt: entry.expiresAt,
+      parentDigest,
+    }];
+  }).slice(-MAX_CREDENTIAL_LINEAGE_GRANTS);
+}
+
+function initialCredentialLineage(
+  digest: string,
+  issuedAt: Date,
+  expiresAt: Date,
+): Prisma.InputJsonValue {
+  return [{
+    digest,
+    issuedAt: issuedAt.getTime(),
+    expiresAt: expiresAt.getTime(),
+    parentDigest: null,
+  }];
+}
+
+function rotatedCredentialLineage(
+  item: StudyStreamItem,
+  newDigest: string,
+  issuedAt: Date,
+  expiresAt: Date,
+  parentDigest: string,
+): Prisma.InputJsonValue {
+  const now = issuedAt.getTime();
+  const known = parseCredentialLineage(item.credentialLineage)
+    .filter((grant) => grant.expiresAt > now);
+  const current = known.some((grant) => grant.digest === item.credentialDigest)
+    ? known
+    : [...known, {
+        digest: item.credentialDigest,
+        issuedAt: now,
+        expiresAt: item.credentialExpiresAt.getTime(),
+        parentDigest: null,
+      }];
+  const next = [...current, {
+    digest: newDigest,
+    issuedAt: now,
+    expiresAt: expiresAt.getTime(),
+    parentDigest,
+  }];
+  const unique = new Map<string, CredentialGrant>();
+  for (const grant of next) unique.set(grant.digest, grant);
+  return [...unique.values()].slice(-MAX_CREDENTIAL_LINEAGE_GRANTS) as unknown as Prisma.InputJsonValue;
+}
+
+function acceptsCredential(
+  item: StudyStreamItem,
+  suppliedCredential: string,
+  now: Date,
+): boolean {
+  const digest = digestStudyStreamCredential(suppliedCredential);
+  if (digest === item.credentialDigest && item.credentialExpiresAt > now) return true;
+  return parseCredentialLineage(item.credentialLineage)
+    .some((grant) => grant.digest === digest && grant.expiresAt > now.getTime());
 }
 
 function asFeedback(value: unknown): StoredFeedback | null {
@@ -545,7 +631,11 @@ async function ensureCredential(
     suppliedCredential !== undefined &&
     suppliedDigest === item.credentialDigest &&
     item.credentialExpiresAt > now;
-  if (canReuse) {
+  const canReuseLineage =
+    suppliedCredential !== null &&
+    suppliedCredential !== undefined &&
+    acceptsCredential(item, suppliedCredential, now);
+  if (canReuse || canReuseLineage) {
     if (item.usedAt === null) {
       await tx.studyStreamItem.update({
         where: { id: item.id },
@@ -556,11 +646,19 @@ async function ensureCredential(
   }
 
   const credential = createStudyStreamCredential();
+  const credentialExpiresAt = new Date(now.getTime() + STUDY_STREAM_CREDENTIAL_TTL_MS);
   const updated = await tx.studyStreamItem.update({
     where: { id: item.id },
     data: {
       credentialDigest: digestStudyStreamCredential(credential),
-      credentialExpiresAt: new Date(now.getTime() + STUDY_STREAM_CREDENTIAL_TTL_MS),
+      credentialExpiresAt,
+      credentialLineage: rotatedCredentialLineage(
+        item,
+        digestStudyStreamCredential(credential),
+        now,
+        credentialExpiresAt,
+        item.credentialDigest,
+      ),
       leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
     },
     include: {
@@ -739,6 +837,11 @@ async function createStreamItem(
       leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
       credentialDigest: digestStudyStreamCredential(credential),
       credentialExpiresAt,
+      credentialLineage: initialCredentialLineage(
+        digestStudyStreamCredential(credential),
+        now,
+        credentialExpiresAt,
+      ),
       clientRevision: session.revision,
       objectiveEvidenceTargetId: targetId,
       objectiveQuestionSnapshotId: snapshotId,
@@ -768,8 +871,9 @@ function streamResponse(
   session: StudySession,
   item: PublicStreamItemBase | null,
   resumedFeedback: boolean,
+  unitSummary: PublicStreamUnitSummary | undefined,
 ): PublicStreamResponse {
-  return {
+  const response: PublicStreamResponse = {
     ok: true,
     assigned: true,
     session: {
@@ -782,6 +886,49 @@ function streamResponse(
     },
     item,
     resumedFeedback,
+  };
+  if (unitSummary) response.unitSummary = unitSummary;
+  return response;
+}
+
+async function getUnitSummary(
+  tx: StreamTransaction,
+  userId: string,
+  scope: StreamScope,
+): Promise<PublicStreamUnitSummary | undefined> {
+  if (scope.mode !== "unit") return undefined;
+  const words = await tx.word.findMany({
+    where: scope.where,
+    select: { id: true },
+  });
+  const wordIds = words.map((word) => word.id);
+  if (wordIds.length === 0) {
+    return {
+      totalWordCount: 0,
+      encounteredWordCount: 0,
+      objectiveRecognitionCount: 0,
+    };
+  }
+  const encountered = await tx.studyEncounter.findMany({
+    where: { userId, wordId: { in: wordIds } },
+    select: { wordId: true },
+    distinct: ["wordId"],
+  });
+  const objectiveRecognitionCount = await tx.reviewEvent.count({
+    where: {
+      userId,
+      wordId: { in: wordIds },
+      eventKind: "REVIEW",
+      evidenceKind: "OBJECTIVE_PROBE",
+      flowVersion: STUDY_STREAM_FLOW_VERSION,
+      objectiveEvidenceTargetId: { not: null },
+      isHistorical: false,
+    },
+  });
+  return {
+    totalWordCount: wordIds.length,
+    encounteredWordCount: encountered.filter((row) => row.wordId !== null).length,
+    objectiveRecognitionCount,
   };
 }
 
@@ -800,6 +947,7 @@ export async function getOrCreateStudyStream(
           // makes the cross-tab bootstrap invariant observable and bounded.
           await lockStreamUser(tx, userId);
           const session = await ensureSession(tx, userId, scope, now);
+          const unitSummary = await getUnitSummary(tx, userId, scope);
           await tx.$queryRaw(
             Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${session.id} FOR UPDATE`,
           );
@@ -815,6 +963,7 @@ export async function getOrCreateStudyStream(
               session,
               item,
               ensured.item.itemKind === "OBJECTIVE_PROBE" && ensured.item.usedAt !== null,
+              unitSummary,
             );
           }
 
@@ -843,13 +992,13 @@ export async function getOrCreateStudyStream(
               const created = await createStreamItem(tx, userId, session, decision.candidate, scope, now);
               const item = toPublicItem(created.item, created.credential);
               if (!item) throw new StudyStreamError(409, "学习项目已失效，请重新载入");
-              return streamResponse(session, item, false);
+              return streamResponse(session, item, false, unitSummary);
             } catch (error) {
               if (!(error instanceof StudyStreamError) || error.details.code !== "NO_VALID_OBJECTIVE_SNAPSHOT") throw error;
               excluded.add(decision.candidate.id);
             }
           }
-          return streamResponse(session, null, false);
+          return streamResponse(session, null, false, unitSummary);
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -874,7 +1023,6 @@ async function loadActionItem(
     where: {
       id: input.streamItemId,
       sessionId: input.studySessionId,
-      credentialDigest: digestStudyStreamCredential(input.itemCredential),
     },
     include: {
       word: true,
@@ -886,7 +1034,10 @@ async function loadActionItem(
   if (!item || item.session.userId !== userId || item.session.flowVersion !== STUDY_STREAM_FLOW_VERSION) {
     throw new StudyStreamError(403, "学习项目凭证无效或不属于当前账户");
   }
-  if (item.session.retiredAt !== null || item.session.expiresAt <= now || item.credentialExpiresAt <= now) {
+  if (!acceptsCredential(item, input.itemCredential, now)) {
+    throw new StudyStreamError(403, "学习项目凭证无效或已过期");
+  }
+  if (item.session.retiredAt !== null || item.session.expiresAt <= now) {
     throw new StudyStreamError(403, "学习 session 已过期或已撤销");
   }
   if (item.usedAt === null && item.leaseExpiresAt <= now) {
@@ -1070,6 +1221,8 @@ async function processSelfRating(
     where: {
       userId,
       wordId: item.word.id,
+      eventKind: "REVIEW",
+      evidenceKind: "OBJECTIVE_PROBE",
       flowVersion: STUDY_STREAM_FLOW_VERSION,
       objectiveEvidenceTargetId: { not: null },
       isHistorical: false,
@@ -1401,7 +1554,6 @@ export async function renewStudyStreamCredential(
         where: {
           id: input.streamItemId,
           sessionId: input.studySessionId,
-          credentialDigest: digestStudyStreamCredential(input.itemCredential),
         },
         include: {
           word: true,
@@ -1416,6 +1568,9 @@ export async function renewStudyStreamCredential(
       if (item.session.retiredAt !== null || item.session.expiresAt <= now) {
         throw new StudyStreamError(403, "学习 session 已过期或已撤销");
       }
+      if (!acceptsCredential(item, input.itemCredential, now)) {
+        throw new StudyStreamError(403, "学习项目凭证无效或已过期");
+      }
       if (item.clientRevision !== input.clientKnownRevision) {
         throw new StudyStreamError(409, "学习项目版本已更新", { code: "STALE_STREAM_ITEM" });
       }
@@ -1429,6 +1584,13 @@ export async function renewStudyStreamCredential(
         data: {
           credentialDigest: digestStudyStreamCredential(credential),
           credentialExpiresAt: expiresAt,
+          credentialLineage: rotatedCredentialLineage(
+            item,
+            digestStudyStreamCredential(credential),
+            now,
+            expiresAt,
+            digestStudyStreamCredential(input.itemCredential),
+          ),
           leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
         },
         include: {

@@ -7,6 +7,7 @@ import {
   renewStudyStreamCredential,
   StudyStreamError,
 } from "@/lib/study-stream/server";
+import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -35,7 +36,7 @@ function errorResponse(error: unknown): NextResponse {
   if (error instanceof StudyStreamError) {
     return NextResponse.json({ error: error.message, ...error.details }, { status: error.status });
   }
-  console.error("[study-stream] credential renewal failed", error);
+  console.error("[study-stream] credential renewal failed", describeStudyStreamFailure(error));
   return NextResponse.json({ error: "学习凭证暂时不可用，请稍后重试" }, { status: 503 });
 }
 

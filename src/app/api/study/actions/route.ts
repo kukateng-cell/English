@@ -7,12 +7,13 @@ import {
   StudyStreamError,
 } from "@/lib/study-stream/server";
 import { parseStudyStreamAction } from "@/lib/study-stream/contracts";
+import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
 
 function errorResponse(error: unknown): NextResponse {
   if (error instanceof StudyStreamError) {
     return NextResponse.json({ error: error.message, ...error.details }, { status: error.status });
   }
-  console.error("[study-stream] action failed", error);
+  console.error("[study-stream] action failed", describeStudyStreamFailure(error));
   return NextResponse.json({ error: "学习操作暂时不可用，请稍后重试" }, { status: 503 });
 }
 

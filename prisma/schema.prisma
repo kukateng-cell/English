@@ -203,6 +203,10 @@ model StudyStreamItem {
   leaseExpiresAt              DateTime
   credentialDigest            String                     @unique
   credentialExpiresAt         DateTime
+  // Short-lived digest-only grants retained for concurrent tabs/devices. The
+  // current digest remains the fast-path; this expand-only field records the
+  // bounded parent/successor lineage without storing bearer credentials.
+  credentialLineage           Json?
   revealedAt                  DateTime?
   usedAt                      DateTime?
   feedbackAcknowledgedAt      DateTime?
