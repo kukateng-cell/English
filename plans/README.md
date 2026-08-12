@@ -11,11 +11,33 @@
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
+| [retrieval-first-learning-program.md](./retrieval-first-learning-program.md) | 主計劃／Program Plan | 進行中 | Retrieval-first Learning Program 總入口、跨文件里程碑及 release gates |
+| [retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md) | RFC／產品及學習規範 | 進行中 | 卡片語義、gesture、客觀證據、bounded verification debt、metrics 及 policy version |
+| [learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md) | 核心學習流程實施計劃 | 進行中 | Continuous stream、UI state machine、API、outbox、checkpoint、pilot 及 rollout |
+| [study-credential-v2-migration.md](./study-credential-v2-migration.md) | 安全／資料遷移計劃 | 進行中 | Stream-item credential、v1/v2 coexistence、rotation 及 expand-contract migration |
+| [research-learning-framework.md](./research-learning-framework.md) | 研究治理／telemetry 計劃 | 待審批 | Consent、privacy、diagnostic sampling、research telemetry 及 experiment readiness |
 | [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 已完成 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |
 | [student-ui-fidelity-corrections.md](./student-ui-fidelity-corrections.md) | 修正計劃 | 已完成 | 修正 mobile 導覽、繁簡／品牌、學生頁 spacing 及認字卡 Prototype fidelity |
 | [study-header-floating-navigation.md](./study-header-floating-navigation.md) | 修正計劃 | 已完成 | 對齊認字頁 header，並把 mobile bottom navigation 改為 floating surface |
 
 新增、改名、完成或取代計劃書時，必須同步更新此表。
+
+### Retrieval-first Learning Program 文件關係
+
+五份文件都放喺 `plans/`，但唔係五份平排又重複嘅 implementation plan：
+
+```text
+retrieval-first-learning-program.md              總入口及跨計劃 release gates
+├── retrieval-first-learning-contract.md         規範產品／學習語義
+├── learning-stream-v2-implementation.md         落實 UI、API、續接及 rollout
+├── study-credential-v2-migration.md              落實安全、資料及 compatibility
+└── research-learning-framework.md                獨立嘅研究治理及研究里程碑
+```
+
+主計劃唔重複子計劃 checklist；gesture／evidence 變更先更新 Contract，API／schema／
+migration 變更更新對應實施計劃，研究 consent／retention／assignment 變更更新 Research
+Framework。第一份正式 experiment protocol 獲批准時，先建立並索引
+`research/protocols/<study-name>.md`。
 
 ## 文件命名
 
