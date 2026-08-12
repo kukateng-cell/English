@@ -30,6 +30,7 @@ model User {
   operationReceipts        OperationReceipt[]
   evidenceObligations      EvidenceObligation[]
   objectiveEvidenceTargets ObjectiveEvidenceTarget[]
+  studyEncounters          StudyEncounter[]
   securityEventsAsActor    SecurityEvent[]           @relation("SecurityEventActor")
   securityEventsAsSubject  SecurityEvent[]           @relation("SecurityEventSubject")
   studyDays                StudyDay[]
@@ -56,6 +57,7 @@ model Word {
   evidenceObligations      EvidenceObligation[]
   objectiveEvidenceTargets ObjectiveEvidenceTarget[]
   questionSnapshots        ObjectiveQuestionSnapshot[]
+  studyEncounters          StudyEncounter[]
 
   @@index([level])
   @@index([category])
@@ -202,6 +204,7 @@ model StudyStreamItem {
   credentialDigest            String                     @unique
   credentialExpiresAt         DateTime
   usedAt                      DateTime?
+  feedbackAcknowledgedAt      DateTime?
   operationId                 String?
   clientRevision              Int?
   objectiveEvidenceTargetId   String?
@@ -215,6 +218,7 @@ model StudyStreamItem {
   objectiveQuestionSnapshot   ObjectiveQuestionSnapshot? @relation(fields: [objectiveQuestionSnapshotId], references: [id], onDelete: SetNull)
   sourceItem                  StudyStreamItem?           @relation("StudyStreamItemLineage", fields: [sourceItemId], references: [id], onDelete: SetNull)
   successorItem               StudyStreamItem?           @relation("StudyStreamItemLineage")
+  encounter                   StudyEncounter?
 
   @@unique([sessionId, streamItemKey])
   @@index([sessionId, status, leaseExpiresAt])
@@ -245,6 +249,7 @@ model EvidenceObligation {
   user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   word                    Word?                    @relation(fields: [wordId], references: [id], onDelete: SetNull)
   objectiveEvidenceTarget ObjectiveEvidenceTarget? @relation("ObligationTarget")
+  encounters              StudyEncounter[]
 
   @@index([userId, status, eligibleAt, expiresAt])
   @@index([userId, wordId, kind, status])
@@ -296,6 +301,30 @@ model ObjectiveQuestionSnapshot {
   reviewEvents            ReviewEvent[]            @relation("QuestionSnapshotReviewEvents")
 
   @@index([wordId, createdAt])
+}
+
+model StudyEncounter {
+  id                      String              @id @default(cuid())
+  userId                  String
+  wordId                  String?
+  streamItemId            String              @unique
+  operationId             String
+  selfRating              String
+  selectionReason         String
+  policyVersion           String
+  requiresVerification    Boolean
+  verificationDisposition String?
+  evidenceObligationId    String?
+  createdAt               DateTime            @default(now())
+  acknowledgedAt          DateTime            @default(now())
+  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word                    Word?               @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  streamItem              StudyStreamItem     @relation(fields: [streamItemId], references: [id], onDelete: Cascade)
+  evidenceObligation      EvidenceObligation? @relation(fields: [evidenceObligationId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, operationId])
+  @@index([userId, createdAt])
+  @@index([userId, wordId, createdAt])
 }
 
 // Global idempotency receipt shared by V1 and V2 action namespaces.
