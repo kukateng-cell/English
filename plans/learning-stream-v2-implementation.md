@@ -188,7 +188,7 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 
 - [x] 建立 internal-only allowlist assignment、V2 structured request metric、support／incident
   runbook 及 kill switch；student cohort assignment／exposure log 仍需 pilot approval；
-- [x] internal soak 無 high／critical defect；3 次 cleanup-backed V2 integration soak 全部通過；
+- [x] internal soak 無 high／critical defect；20 次 cleanup-backed V2 integration soak 全部通過；
 - [ ] 小比例學生 pilot，監察 sync、duplicate、latency、leave、debt size／age；
 - [ ] 按預先定義 threshold 擴大、暫停或 rollback；
 - [ ] 全量後保留 v1 observation window，另開 contract cleanup review；
@@ -322,13 +322,14 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   只記錄 allowlisted route／flow／status／outcome／duration／action kind，唔記 user、IP、
   credential、operation、word 或 answer；`plans/artifacts/learning-stream-v2-internal-soak-runbook.md`
   記錄 extraction、hard integrity pause conditions、V1 rollback 及 support procedure。
-- `npm run check:study-stream-v2:soak`：3/3 internal iterations passed，p50 917 ms、p95
-  1,059 ms；`npm run check:study-credential-v2` 及 lineage compatibility scan 均 passed，
+- `STUDY_STREAM_SOAK_ITERATIONS=20 npm run check:study-stream-v2:soak`：20/20 bounded internal
+  iterations passed，p50 869 ms、p95 1,137 ms、max 1,309 ms；`npm run check:study-credential-v2`
+  及 lineage compatibility scan 均 passed，
   0 receipt gap、0 V2 provenance gap、0 lineage gap。內部 browser semantic check verified
   labelled keyboard group、native radio options、checked／disabled state 及 `aria-live` feedback。
 
-未勾選項目及限制：原生 screen-reader／手機實機驗收、長時間 internal soak、production
-observability threshold、正式 production deploy、學生 pilot、研究 telemetry／consent、
+未勾選項目及限制：原生 screen-reader／手機實機驗收、production observability threshold、
+正式 production deploy、學生 pilot、研究 telemetry／consent、
 old-binary compatibility window 及 contract cleanup 尚未完成。`pg@9` integration path
 仍會輸出一個 non-fatal overlapping `client.query()` deprecation warning，列為後續 runtime
 hygiene 工作。

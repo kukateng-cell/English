@@ -367,7 +367,8 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
   `plans/artifacts/learning-stream-v2-handoff-addendum.md` 完全一致；precedence、state
   inventory 及 intentional production deviations 已按 Contract review。新增 semantic browser
   evidence 亦確認 labelled keyboard group、native radio group、checked／disabled state 及
-  `aria-live` feedback；internal soak 3/3 passed。
+  `aria-live` feedback；bounded internal soak 20/20 passed，p50 869 ms、p95 1,137 ms、max
+  1,309 ms。
 
 仍未完成：原生 screen-reader／手機實機驗收、長時間 production observability、正式文案
 review、production deployment／student pilot 及 research governance gate；相關 checklist

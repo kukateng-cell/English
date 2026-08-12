@@ -337,7 +337,7 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - Unit／lint／typecheck、Prisma generate／validate、DB stream integration、V1 ledger
   regression、fresh migration replay、checksum、temporary-schema contract regression、
   production-config fixture、Chromium／WebKit browser regression 及 feature-off rollback
-  smoke 均已通過；credential compatibility inventory、lineage scan、3-run internal soak
+  smoke 均已通過；credential compatibility inventory、lineage scan、20-run bounded internal soak
   及 V2 structured observability／support runbook 亦已完成；詳細結果見四份 controlled
   sub-plans 及 `plans/artifacts/`。
 - 已驗證的核心行為包括 C-001 direct mature probe、C-002 admission control、C-003
@@ -346,7 +346,7 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   C-010 legacy unknown projection。C-009 research-only path 沒有實作，保持關閉。
 
 仍未完成或未獲授權的 gate：Contract 全量 review／原生 screen-reader 及手機實機 matrix、
-長時間 internal soak、production deploy、正式學生 pilot、外部 observability threshold、
+production deploy、正式學生 pilot、外部 observability threshold、
 research ethics／家長 permission／學生 assent／資料收集，以及 `npm run db:contract`。
 因此 P4、R1、R2 及 Program DoD 保持未完成；不可把本次 internal handoff 說成正式 rollout
 或 research-ready。

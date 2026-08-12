@@ -36,10 +36,13 @@ npm run test:e2e:card-motion
 
 `check:study-stream-v2:soak` runs the cleanup-backed V2 integration fixture three times by
 default. It asserts server scoring, global receipt idempotency, CAS/concurrency, admission cap,
-credential renewal/lineage, unit/global scope, projections and cleanup on every iteration.
+credential renewal/lineage, unit/global scope, projections and cleanup on every iteration. The
+runner accepts `STUDY_STREAM_SOAK_ITERATIONS=1..20` for a bounded longer internal run.
 
 The 2026-08-12 local result was 3/3 passed, p50 917 ms, p95 1,059 ms, maximum 1,059 ms. This is
-a synthetic local baseline, not a student-facing SLO.
+a synthetic local baseline, not a student-facing SLO. A later 20/20 bounded internal run also
+passed, p50 869 ms, p95 1,137 ms, maximum 1,309 ms; it remains local reliability evidence and
+does not establish a production observation window or pilot threshold.
 
 ## 4. Operational metric contract
 

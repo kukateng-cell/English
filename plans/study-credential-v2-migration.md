@@ -388,7 +388,8 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
   724、V2 11）、0 receipt gap、0 V2 provenance gap；V1 composite identity index 同 V2
   stream-item index 均存在。測試流程會增加本地測試資料，數字不代表 production snapshot。
 - `node scripts/check-study-lineage-compatibility.mjs` 通過：0 lineage gap；
-  `npm run check:study-stream-v2:soak` 3/3 通過，p50 917 ms、p95 1,059 ms。
+  `STUDY_STREAM_SOAK_ITERATIONS=20 npm run check:study-stream-v2:soak` 20/20 通過，p50 869 ms、
+  p95 1,137 ms、max 1,309 ms。
 
 Stage D 長 observation window、production database profile／backup、正式 deployment、學生
 pilot 及 Stage E contract cleanup 尚未完成；因此本文保持「進行中」。Expand migration 並無
