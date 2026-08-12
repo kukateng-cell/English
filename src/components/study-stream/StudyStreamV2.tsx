@@ -490,26 +490,47 @@ function LearningCardView({
         word={{ term: item.prompt, phonetic: item.learningCard?.phonetic }}
         onSwipeLeft={() => onSelfRating("selfForgot")}
         onSwipeRight={() => onSelfRating("selfRecalled")}
-        disabled={!revealed || disabled}
-        showInteractionHint={revealed}
-        interactionEpoch={epoch}
-        queueNote={tc("可随时离开，进度会安全保留")}
-      >
-        {!revealed ? (
-          <button type="button" onClick={onReveal} disabled={disabled} className="study-primary-action mx-auto mt-5 flex min-h-[44px] items-center justify-center rounded-2xl px-7 text-sm font-semibold disabled:opacity-50">
-            {tc("揭示中文意思")}
-          </button>
-        ) : (
-          <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 text-center">
+        disabled={disabled}
+        cardBackContent={revealed ? (
+          <div className="word-card-answer-definition">
             <p className="mb-2 text-xs font-semibold text-[var(--muted)]">{tc("中文意思")}</p>
             <p className="text-base font-semibold leading-relaxed text-[var(--text)]">{tc(item.learningCard?.definition ?? "")}</p>
             {item.learningCard?.examples.length ? <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]">{item.learningCard.examples[0].en}</p> : null}
-            <div className="mt-4 flex justify-center gap-3">
-              <button type="button" onClick={() => onSelfRating("selfForgot")} disabled={disabled} className="rounded-2xl border border-[var(--danger)] px-4 py-2.5 text-sm font-semibold text-[var(--danger)] disabled:opacity-50">← {tc("还不会")}</button>
-              <button type="button" onClick={() => onSelfRating("selfRecalled")} disabled={disabled} className="study-primary-action rounded-2xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{tc("我会")} →</button>
+          </div>
+        ) : null}
+        isFlipped={revealed}
+        onCardTap={revealed ? undefined : onReveal}
+        swipeEnabled={revealed}
+        showInteractionHint={false}
+        interactionEpoch={epoch}
+        queueNote={tc("可随时离开，进度会安全保留")}
+      >
+        {revealed ? (
+          <div data-testid="study-stream-self-rating-actions" className="word-card-actions">
+            <div className="swipe-actions">
+              <button
+                type="button"
+                data-testid="study-stream-self-rating-left"
+                onClick={() => onSelfRating("selfForgot")}
+                disabled={disabled}
+                className="swipe-action swipe-action-left"
+              >
+                <Icon name="arrow-left" size={22} />
+                {tc("还不会")}
+              </button>
+              <button
+                type="button"
+                data-testid="study-stream-self-rating-right"
+                onClick={() => onSelfRating("selfRecalled")}
+                disabled={disabled}
+                className="swipe-action swipe-action-right"
+              >
+                {tc("我会")}
+                <Icon name="arrow-right" size={22} />
+              </button>
             </div>
           </div>
-        )}
+        ) : null}
       </WordCard>
     </div>
   );

@@ -10,19 +10,59 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
   await page.goto("/study");
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const reveal = page.getByRole("button", { name: "揭示中文意思" });
-    const selfRecall = page.getByRole("button", { name: "我會 →" });
-    if (await reveal.isVisible().catch(() => false)) {
-      const card = page.getByRole("group", { name: "單詞卡，請先揭示中文意思" });
-      await expect(card).toHaveAttribute("aria-disabled", "true");
-      await expect(card).not.toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
-      await expect(page.getByRole("button", { name: "我會 →" })).toHaveCount(0);
+    const card = page.getByTestId("word-card-drag-layer");
+    const flip = page.getByTestId("word-card-flip");
+    const selfRecall = page.getByRole("button", { name: "我會" });
+    if (await card.isVisible().catch(() => false)) {
+      const isFlipped = await flip.getAttribute("data-flipped");
+      if (isFlipped === "false") {
+        const front = page.getByTestId("word-card-front");
+        const term = (await front.locator(".word-card-term").textContent())?.trim() ?? "";
+        await expect(card).toHaveRole("button");
+        await expect(card).toHaveAttribute("aria-label", "單詞卡，請點擊揭示中文意思");
+        await expect(card).not.toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
+        await expect(page.locator("button").filter({ hasText: "揭示中文意思" })).toHaveCount(0);
+        await expect(page.getByTestId("study-stream-self-rating-actions")).toHaveCount(0);
 
-      await reveal.click();
-      await expect(selfRecall).toBeVisible();
-      await expect(page.getByRole("button", { name: "← 還不會" })).toBeVisible();
-      await selfRecall.click();
-      return;
+        await front.getByRole("button", { name: "發音" }).click();
+        await expect(flip).toHaveAttribute("data-flipped", "false");
+        await expect(page.getByTestId("word-card-back-face")).toHaveCount(0);
+
+        await front.locator(".word-card-hint").click();
+        await expect(flip).toHaveAttribute("data-flipped", "true");
+        const back = page.getByTestId("word-card-back-face");
+        await expect(back).toBeVisible();
+        await expect(back.locator(".word-card-term")).toHaveText(term);
+        await expect(back.locator(".word-card-answer-content")).toContainText("中文意思");
+        await expect(back.getByRole("button", { name: "發音" })).toBeVisible();
+        await expect(card).toHaveRole("group");
+        await expect(card).toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
+
+        const actions = page.getByTestId("study-stream-self-rating-actions");
+        await expect(actions).toBeVisible();
+        await expect(actions.getByRole("button", { name: "還不會" })).toBeVisible();
+        await expect(actions.getByRole("button", { name: "我會" })).toBeVisible();
+        const metrics = await page.evaluate(() => {
+          const cardElement = document.querySelector<HTMLElement>('[data-testid="word-card-drag-layer"]');
+          const actionsElement = document.querySelector<HTMLElement>('[data-testid="study-stream-self-rating-actions"]');
+          if (!cardElement || !actionsElement) return null;
+          return {
+            cardWidth: cardElement.getBoundingClientRect().width,
+            actionsWidth: actionsElement.getBoundingClientRect().width,
+            nestedInCard: Boolean(actionsElement.closest('[data-testid="word-card-drag-layer"]')),
+          };
+        });
+        expect(metrics).not.toBeNull();
+        expect(Math.abs((metrics?.cardWidth ?? 0) - (metrics?.actionsWidth ?? 0))).toBeLessThanOrEqual(1);
+        expect(metrics?.nestedInCard).toBe(false);
+        await selfRecall.click();
+        return;
+      }
+
+      if (isFlipped === "true") {
+        await selfRecall.click();
+        return;
+      }
     }
 
     if (await selfRecall.isVisible().catch(() => false)) {
@@ -30,11 +70,23 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
       return;
     }
 
+    if (await card.isVisible().catch(() => false)) {
+      await expect(card).not.toHaveAttribute("aria-disabled", "true");
+    }
+
+    /*
+     * Objective Probe may be resumed in an answered, read-only state before
+     * the stream reaches a Learning Card. Acknowledge it and continue.
+     */
     const probe = page.getByRole("radiogroup", { name: "客觀題選項" });
     if (await probe.isVisible().catch(() => false)) {
       const acknowledge = page.getByRole("button", { name: "我看到了，繼續" });
       if (await acknowledge.isVisible().catch(() => false)) {
-        await acknowledge.click();
+        if (await acknowledge.isEnabled().catch(() => false)) {
+          await acknowledge.click();
+          continue;
+        }
+        await page.waitForTimeout(250);
         continue;
       }
       const options = page.getByRole("radio");
@@ -45,7 +97,6 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
       }
       await options.first().locator("xpath=..").click();
       await expect(acknowledge).toBeVisible();
-      await acknowledge.click();
       continue;
     }
 
@@ -53,4 +104,25 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
   }
 
   throw new Error("The local V2 stream did not expose a Learning Card within 12 items");
+});
+
+test("student account names follow the selected Chinese locale", async ({ page, context }) => {
+  for (const locale of ["zh-Hant", "zh-Hans"] as const) {
+    await context.addCookies([
+      { name: "locale", value: locale, url: "http://127.0.0.1:3100/" },
+    ]);
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
+    const account = page.locator(".account-trigger").first();
+    await account.click();
+    const heading = page.locator(".account-menu-heading");
+    await expect(heading).toBeVisible();
+    const headingText = (await heading.textContent()) ?? "";
+    if (locale === "zh-Hant") {
+      expect(headingText).not.toContain("学生");
+    } else {
+      expect(headingText).not.toContain("學生");
+    }
+    await expect(account.locator(".account-avatar")).toHaveText(headingText.slice(0, 1));
+  }
 });

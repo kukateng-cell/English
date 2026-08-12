@@ -30,7 +30,8 @@ export default function AccountControls({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const label = user.name?.trim() || user.email;
+  const rawLabel = user.name?.trim() || user.email;
+  const label = tc(rawLabel);
   const initials = label.slice(0, 1).toUpperCase();
 
   useEffect(() => {

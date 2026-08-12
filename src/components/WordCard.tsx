@@ -82,10 +82,18 @@ interface WordCardProps {
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
   children?: ReactNode;
+  /** Optional answer face rendered inside the card's front/back flip. */
+  cardBackContent?: ReactNode;
+  /** Keep the answer face visible after a presentation-only reveal. */
+  isFlipped?: boolean;
+  /** Activate the card body for reveal or another presentation-only action. */
+  onCardTap?: () => void;
+  /** Disable horizontal dismissal while keeping a card-body tap available. */
+  swipeEnabled?: boolean;
   queueNote?: ReactNode;
   actionControllerRef?: { current: WordCardActionControls | null };
   disabled?: boolean;
-  /** Hide swipe/self-rating affordances while a gated card awaits reveal. */
+  /** Show in-card swipe/self-rating affordances; external actions may still remain visible. */
   showInteractionHint?: boolean;
   /** Monotonic page generation; changes invalidate every in-flight gesture. */
   interactionEpoch?: number;
@@ -275,6 +283,10 @@ export default function WordCard({
   onSwipeLeft,
   onSwipeRight,
   children,
+  cardBackContent,
+  isFlipped = false,
+  onCardTap,
+  swipeEnabled = true,
   queueNote,
   actionControllerRef,
   disabled,
@@ -340,6 +352,7 @@ export default function WordCard({
     interactionEpoch,
     onSwipeLeft,
     onSwipeRight,
+    swipeEnabled,
     onMotionProbe,
     timelineLeadEnabled,
     immediateReleasePoseEnabled,
@@ -351,6 +364,7 @@ export default function WordCard({
       interactionEpoch,
       onSwipeLeft,
       onSwipeRight,
+      swipeEnabled,
       onMotionProbe,
       timelineLeadEnabled,
       immediateReleasePoseEnabled,
@@ -360,6 +374,7 @@ export default function WordCard({
     interactionEpoch,
     onSwipeLeft,
     onSwipeRight,
+    swipeEnabled,
     onMotionProbe,
     timelineLeadEnabled,
     immediateReleasePoseEnabled,
@@ -847,6 +862,12 @@ export default function WordCard({
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.target instanceof HTMLElement && event.target.closest("button")) return;
       if (disabled) return;
+      if ((event.key === "Enter" || event.key === " ") && onCardTap && !swipeEnabled) {
+        event.preventDefault();
+        onCardTap();
+        return;
+      }
+      if (!swipeEnabled) return;
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         handleLeftAction();
@@ -855,7 +876,16 @@ export default function WordCard({
         handleRightAction();
       }
     },
-    [disabled, handleLeftAction, handleRightAction],
+    [disabled, handleLeftAction, handleRightAction, onCardTap, swipeEnabled],
+  );
+
+  const handleCardClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (disabled || !onCardTap || swipeEnabled) return;
+      if (event.target instanceof Element && event.target.closest("button")) return;
+      onCardTap();
+    },
+    [disabled, onCardTap, swipeEnabled],
   );
 
   const cancelActiveInteraction = useCallback(() => {
@@ -958,7 +988,12 @@ export default function WordCard({
 
     const handlePointerDown = (event: PointerEvent) => {
       const { disabled: isDisabled } = interactionPropsRef.current;
-      if (isDisabled || dismissingRef.current || activeDragRef.current) return;
+      if (
+        isDisabled ||
+        !interactionPropsRef.current.swipeEnabled ||
+        dismissingRef.current ||
+        activeDragRef.current
+      ) return;
       if (event.button !== 0 || event.isPrimary === false) return;
       if (event.target instanceof Element && event.target.closest("button")) {
         return;
@@ -1211,26 +1246,52 @@ export default function WordCard({
     ? word.level
     : null;
   const category = word.category?.trim() || null;
+  const revealTapEnabled = Boolean(onCardTap && !swipeEnabled);
+  const cardLabel = revealTapEnabled
+    ? tc("单词卡，请点击揭示中文意思")
+    : isFlipped
+      ? tc("已揭示的单词卡，可左右拖曳")
+      : tc("可左右拖曳的单词卡");
+
+  const renderSpeakButton = (tabIndex: number) => (
+    <button
+      onClick={handleSpeak}
+      tabIndex={tabIndex}
+      className="word-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
+      aria-label={tc("发音")}
+    >
+      <Icon name="volume" size={18} />
+    </button>
+  );
+
+  const renderCardMeta = () => (
+    <div className="word-card-top">
+      {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(category ?? "未分类")}</span> : null}
+      <span data-testid="word-card-context" className="word-context">{tc("认读卡")}</span>
+    </div>
+  );
 
   return (
     <div className="word-card-frame select-none">
       {/* 背景提示文字 */}
-      <div aria-hidden="true" className="word-card-swipe-labels pointer-events-none absolute inset-0 flex items-center justify-between px-12">
-        <span
-          ref={leftLabelRef}
-          style={{ opacity: 0 }}
-          className="word-card-swipe-label word-card-swipe-label-danger"
-        >
-          ← {tc("还不会")}
-        </span>
-        <span
-          ref={rightLabelRef}
-          style={{ opacity: 0 }}
-          className="word-card-swipe-label word-card-swipe-label-success"
-        >
-          {tc("我会")} →
-        </span>
-      </div>
+      {showInteractionHint ? (
+        <div aria-hidden="true" className="word-card-swipe-labels pointer-events-none absolute inset-0 flex items-center justify-between px-12">
+          <span
+            ref={leftLabelRef}
+            style={{ opacity: 0 }}
+            className="word-card-swipe-label word-card-swipe-label-danger"
+          >
+            ← {tc("还不会")}
+          </span>
+          <span
+            ref={rightLabelRef}
+            style={{ opacity: 0 }}
+            className="word-card-swipe-label word-card-swipe-label-success"
+          >
+            {tc("我会")} →
+          </span>
+        </div>
+      ) : null}
 
       <div data-testid="word-card-stack" className="word-card-stack">
         <div data-testid="word-card-back" className="word-card-back" aria-hidden="true" />
@@ -1241,44 +1302,61 @@ export default function WordCard({
           <div
             ref={dragLayerRef}
             data-testid="word-card-drag-layer"
-            role="group"
-            aria-label={tc(showInteractionHint ? "可左右拖曳的单词卡" : "单词卡，请先揭示中文意思")}
-            aria-keyshortcuts={showInteractionHint ? "ArrowLeft ArrowRight" : undefined}
+            role={revealTapEnabled ? "button" : "group"}
+            aria-label={cardLabel}
+            aria-keyshortcuts={swipeEnabled ? "ArrowLeft ArrowRight" : undefined}
             aria-disabled={disabled || undefined}
             tabIndex={0}
+            onClick={handleCardClick}
             onKeyDown={handleCardKeyDown}
-            style={{ touchAction: "pan-y" }}
-            className="word-card-surface word-card-draggable"
+            style={{ touchAction: swipeEnabled ? "pan-y" : "manipulation" }}
+            className={`word-card-surface word-card-draggable${revealTapEnabled ? " is-tap-to-reveal" : ""}`}
           >
-            <span ref={leftBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-left" aria-hidden="true">
-              ← {tc("还不会")}
-            </span>
-            <span ref={rightBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-right" aria-hidden="true">
-              {tc("我会")} →
-            </span>
+            {showInteractionHint ? (
+              <>
+                <span ref={leftBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-left" aria-hidden="true">
+                  ← {tc("还不会")}
+                </span>
+                <span ref={rightBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-right" aria-hidden="true">
+                  {tc("我会")} →
+                </span>
+              </>
+            ) : null}
 
-            <div className="word-card-top">
-              {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(category ?? "未分类")}</span> : null}
-              <span data-testid="word-card-context" className="word-context">{tc("认读卡")}</span>
-            </div>
+            <div
+              data-testid="word-card-flip"
+              data-flipped={isFlipped ? "true" : "false"}
+              className={`word-card-flip${isFlipped ? " is-flipped" : ""}`}
+            >
+              <div data-testid="word-card-front" className="word-card-face word-card-face-front" aria-hidden={isFlipped}>
+                {renderCardMeta()}
+                <div className="word-card-center">
+                  <h2 className="word-card-term">{word.term}</h2>
+                  <p className="word-card-hint">{tc(revealTapEnabled ? "点击卡片查看中文意思" : "认得它的中文意思吗？")}</p>
+                  {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
+                  {renderSpeakButton(isFlipped ? -1 : 0)}
+                </div>
+                <div className="word-card-bottom">
+                  {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
+                  {showInteractionHint ? (
+                    <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("还不会")} <span className="keycap">→</span> {tc("我会")}</span>
+                  ) : null}
+                </div>
+              </div>
 
-            <div className="word-card-center">
-              <h2 className="word-card-term">{word.term}</h2>
-              <p className="word-card-hint">{tc("认得它的中文意思吗？")}</p>
-              {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
-              <button
-                onClick={handleSpeak}
-                className="word-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
-                aria-label={tc("发音")}
-              >
-                <Icon name="volume" size={18} />
-              </button>
-            </div>
-
-            <div className="word-card-bottom">
-              {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
-              {showInteractionHint ? (
-                <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("还不会")} <span className="keycap">→</span> {tc("我会")}</span>
+              {cardBackContent ? (
+                <div data-testid="word-card-back-face" className="word-card-face word-card-face-back" aria-hidden={!isFlipped}>
+                  {renderCardMeta()}
+                  <div className="word-card-center word-card-answer-center">
+                    <h2 className="word-card-term">{word.term}</h2>
+                    {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
+                    <div className="word-card-answer-content">{cardBackContent}</div>
+                    {renderSpeakButton(isFlipped ? 0 : -1)}
+                  </div>
+                  <div className="word-card-bottom">
+                    {queueNote ? <span data-testid="word-card-queue-note-back">{queueNote}</span> : null}
+                  </div>
+                </div>
               ) : null}
             </div>
           </div>
