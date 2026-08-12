@@ -70,6 +70,9 @@ jobs:
       - name: Deploy migrations to the CI database
         run: npm run db:deploy
 
+      - name: Verify V1/V2 credential compatibility inventory
+        run: npm run check:study-credential-v2
+
       - name: Run review ledger and concurrency checks
         run: npm run test:db
 

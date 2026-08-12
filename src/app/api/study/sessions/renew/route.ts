@@ -8,6 +8,7 @@ import {
   StudyStreamError,
 } from "@/lib/study-stream/server";
 import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
+import { observeStudyStreamRequest } from "@/lib/study-stream/observability";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -42,24 +43,33 @@ function errorResponse(error: unknown): NextResponse {
 
 /** POST /api/study/sessions/renew — V2 item credential lineage only. */
 export async function POST(req: Request) {
-  const auth = await requireUser();
-  if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
-  if (!isStudyStreamV2Assigned(auth.userId)) {
-    return NextResponse.json({ error: "当前账户未分配 Retrieval-first Learning Stream" }, { status: 404 });
-  }
-  const body = await req.json().catch(() => null);
-  const input = parseRenewInput(body);
-  if (!input) return NextResponse.json({ error: "凭证续期请求格式错误" }, { status: 400 });
-  const rate = await checkStudyCredentialRate(auth.userId, getClientIp(req.headers));
-  if (!rate.ok) {
-    return NextResponse.json(
-      { error: "学习凭证请求过于频繁，请稍后再试" },
-      { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } },
-    );
-  }
-  try {
-    return NextResponse.json(await renewStudyStreamCredential(auth.userId, input));
-  } catch (error) {
-    return errorResponse(error);
-  }
+  const context: {
+    flowVersion?: "v2";
+    outcome?: "assignment-off" | "rate-limited";
+  } = {};
+  return observeStudyStreamRequest("credential-renewal", async () => {
+    const auth = await requireUser();
+    if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+    context.flowVersion = "v2";
+    if (!isStudyStreamV2Assigned(auth.userId)) {
+      context.outcome = "assignment-off";
+      return NextResponse.json({ error: "当前账户未分配 Retrieval-first Learning Stream" }, { status: 404 });
+    }
+    const body = await req.json().catch(() => null);
+    const input = parseRenewInput(body);
+    if (!input) return NextResponse.json({ error: "凭证续期请求格式错误" }, { status: 400 });
+    const rate = await checkStudyCredentialRate(auth.userId, getClientIp(req.headers));
+    if (!rate.ok) {
+      context.outcome = "rate-limited";
+      return NextResponse.json(
+        { error: "学习凭证请求过于频繁，请稍后再试" },
+        { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } },
+      );
+    }
+    try {
+      return NextResponse.json(await renewStudyStreamCredential(auth.userId, input));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }, () => context);
 }

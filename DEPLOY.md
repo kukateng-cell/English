@@ -121,6 +121,8 @@ npx prisma generate
 npx prisma migrate deploy
 # 或等价的 npm 脚本：
 npm run db:deploy
+# migration 後的 V1／V2 credential、receipt、provenance、index 兼容性 gate：
+npm run check:study-credential-v2
 ```
 
 这会用 `MIGRATE_URL`（Session pooler，5432）连 Supabase，按顺序执行

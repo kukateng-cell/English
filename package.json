@@ -16,6 +16,8 @@
     "test:e2e:workspace": "ENABLE_TEST_ROUTES=1 playwright test --project=role-redirects",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:db:stream-v2": "node --import tsx scripts/check-study-stream-v2.ts",
+    "check:study-credential-v2": "node scripts/check-study-credential-v2-inventory.mjs",
+    "check:study-stream-v2:soak": "node scripts/check-study-stream-v2-soak.mjs",
     "test:migrations": "node scripts/check-migrations-fresh.mjs",
     "test:migrations:contract": "node scripts/check-contract-migration-regression.mjs",
     "test:migration-checksums": "node scripts/check-migration-checksums.mjs",

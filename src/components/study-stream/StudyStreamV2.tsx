@@ -545,18 +545,22 @@ function ObjectiveProbeView({
           const isWrong = feedback?.selectedOptionId === option.id && !isCorrect;
           const stateClass = isCorrect ? "quiz-option-correct" : isWrong ? "quiz-option-wrong" : feedback ? "quiz-option-dim" : "";
           return (
-            <button
+            <label
               key={option.id}
-              type="button"
-              data-testid="study-stream-option"
-              aria-pressed={selectedOptionId === option.id}
-              disabled={disabled || answered}
-              onClick={() => onSelect(option.id)}
-              className={`quiz-option flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-[15px] leading-snug transition-all ${stateClass} disabled:cursor-default`}
+              className={`quiz-option flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-[15px] leading-snug transition-all focus-within:ring-2 focus-within:ring-[var(--accent)] focus-within:ring-offset-2 ${stateClass} ${disabled || answered ? "cursor-default opacity-80" : "cursor-pointer"}`}
             >
+              <input
+                type="radio"
+                name={`study-stream-option-${item.streamItemId}`}
+                value={option.id}
+                checked={selectedOptionId === option.id}
+                disabled={disabled || answered}
+                onChange={() => onSelect(option.id)}
+                className="sr-only"
+              />
               <span className="quiz-option-index flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">{String.fromCharCode(65 + index)}</span>
               <span>{tc(option.text)}</span>
-            </button>
+            </label>
           );
         })}
       </div>
