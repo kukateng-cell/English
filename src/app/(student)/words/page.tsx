@@ -50,6 +50,7 @@ export default function WordsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const query = searchParams.toString();
+  const latestQueryRef = useRef(query);
   const level = searchParams.get("level") ?? "";
   const category = searchParams.get("category") ?? "";
   const requestedStatus = searchParams.get("status") ?? "all";
@@ -67,14 +68,19 @@ export default function WordsPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const updateFilters = (changes: Record<string, string | null>) => {
-    const next = new URLSearchParams(query);
+    const next = new URLSearchParams(latestQueryRef.current);
     Object.entries(changes).forEach(([key, value]) => {
       if (value) next.set(key, value);
       else next.delete(key);
     });
     const nextQuery = next.toString();
+    latestQueryRef.current = nextQuery;
     router.push(nextQuery ? `/words?${nextQuery}` : "/words", { scroll: false });
   };
+
+  useEffect(() => {
+    latestQueryRef.current = query;
+  }, [query]);
 
   useEffect(() => {
     const controller = new AbortController();

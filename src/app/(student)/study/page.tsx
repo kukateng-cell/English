@@ -20,6 +20,8 @@ import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import StreakBadge from "@/components/StreakBadge";
 import LogoutButton from "@/components/LogoutButton";
+import ThemeToggle from "@/components/ThemeToggle";
+import Icon from "@/components/ui/Icon";
 import StreakCalendar from "@/components/StreakCalendar";
 import { useStudentNavigation } from "@/components/student/StudentNavigationContext";
 import type { StreakInfo } from "@/lib/streak";
@@ -536,6 +538,72 @@ function CardMotionProbePanel({
         {json}
       </pre>
     </aside>
+  );
+}
+
+function StudyAssessHeader({
+  backHref,
+  backLabel,
+  onBack,
+  current,
+  total,
+  knownCount,
+  unknownCount,
+}: {
+  backHref: string;
+  backLabel: string;
+  onBack: React.MouseEventHandler<HTMLAnchorElement>;
+  current: number;
+  total: number;
+  knownCount: number;
+  unknownCount: number;
+}) {
+  const { tc } = useLocale();
+  const safeTotal = Math.max(total, 1);
+  const progress = Math.min(100, Math.max(0, (current / safeTotal) * 100));
+
+  return (
+    <header className="study-assess-header">
+      <Link
+        href={backHref}
+        aria-label={tc(backLabel)}
+        onClick={onBack}
+        className="study-header-icon study-header-back"
+      >
+        <Icon name="chevron-left" size={26} />
+      </Link>
+
+      <div className="study-header-title">
+        <h1 data-testid="study-assess-title">{tc("今日学习")}</h1>
+        <p>{tc("想一想，再选择你的答案")}</p>
+      </div>
+
+      <div
+        className="study-header-progress"
+        role="progressbar"
+        aria-label={tc("学习进度")}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={current}
+        aria-valuetext={tc(`第 ${current} 个，共 ${total} 个`)}
+      >
+        <div className="study-header-progress-label">
+          <span>{tc("进度")}</span>
+          <span>{current} / {total}</span>
+        </div>
+        <div className="study-header-progress-track" aria-hidden="true">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <span className="sr-only">
+          {tc(`已认识 ${knownCount} 个，不认识 ${unknownCount} 个`)}
+        </span>
+      </div>
+
+      <div className="study-header-actions">
+        <ThemeToggle className="study-header-icon study-header-theme" />
+        <LogoutButton className="study-header-icon study-header-logout" />
+      </div>
+    </header>
   );
 }
 
@@ -2754,28 +2822,15 @@ export default function StudyPage() {
       />
       <SpeechRateControl />
 
-      {/* 顶部导航栏 */}
-      <div className="mx-auto flex w-full max-w-md items-center justify-between px-4 pt-5 pb-3">
-        <Link
-          href={unitCategory ? "/units" : "/"}
-          aria-label={tc(unitCategory ? "退出单元学习" : "退出学习")}
-          onClick={guardStudyNavigation}
-          className="study-icon-action flex h-9 w-9 items-center justify-center rounded-xl transition active:scale-[0.95]"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-        </Link>
-
-        <span data-testid="study-assess-title" className="study-muted text-[13px] font-medium">
-          {tc("今日学习")}
-        </span>
-
-        <div className="flex items-center gap-2">
-          {streak && <StreakBadge streak={streak} />}
-          <LogoutButton />
-        </div>
-      </div>
+      <StudyAssessHeader
+        backHref={unitCategory ? "/units" : "/"}
+        backLabel={unitCategory ? "退出单元学习" : "退出学习"}
+        onBack={guardStudyNavigation}
+        current={currentIndex + 1}
+        total={queue.length}
+        knownCount={knownWords.length}
+        unknownCount={unknownWords.length}
+      />
 
       {/* 单元上下文 */}
       {unitCategory && (
@@ -2789,24 +2844,6 @@ export default function StudyPage() {
           </div>
         </div>
       )}
-
-      {/* 进度信息 */}
-      <div className="mx-auto mb-6 w-full max-w-md px-4">
-        <div className="mb-2 flex items-center justify-center gap-3 text-[13px]">
-          <span className="study-known font-medium">{tc("认识")} {knownWords.length}</span>
-          <span className="study-divider">·</span>
-          <span className="study-unknown font-medium">{tc("不认识")} {unknownWords.length}</span>
-        </div>
-        <div className="study-progress-track h-1.5 overflow-hidden rounded-full">
-          <motion.div
-            className="study-progress-value h-full rounded-full"
-            style={{ width: `${((currentIndex + 1) / queue.length) * 100}%` }}
-            initial={{ width: 0 }}
-            animate={{ width: `${((currentIndex + 1) / queue.length) * 100}%` }}
-            transition={{ duration: 0.3 }}
-          />
-        </div>
-      </div>
 
       {/* 卡片区域 */}
       <div className="flex-1 flex w-full flex-col items-center justify-center">

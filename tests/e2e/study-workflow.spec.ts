@@ -1904,8 +1904,10 @@ test("an affected fresh queue resets stale quiz and classification state", async
   await expect(card).toBeVisible();
   const freshData = freshResponses.at(-1)!;
   await expect(card.getByText(freshData.queue[0].word.term, { exact: true })).toBeVisible();
-  await expect(page.getByText(/^(認識|认识) 0$/)).toBeVisible();
-  await expect(page.getByText(/^(不認識|不认识) 0$/)).toBeVisible();
+  const studyProgress = page.locator(".study-header-progress");
+  await expect(studyProgress).toHaveAttribute("aria-valuenow", "1");
+  await expect(studyProgress).toHaveAttribute("aria-valuetext", /第 1 个，共 \d+ 个|第 1 個，共 \d+ 個/);
+  await expect(studyProgress.locator(".sr-only")).toHaveText(/已(認識|认识) 0 (個|个)，不(認識|认识) 0 (個|个)/);
   expect(
     freshData.queue.some(
       (item) => item.word.id === initialData.queue[0].word.id,

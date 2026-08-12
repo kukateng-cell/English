@@ -73,17 +73,60 @@ async function assertNavigation(page: Page, viewport: { width: number; height: n
         top: rect.top,
         bottom: rect.bottom,
         height: rect.height,
+        left: rect.left,
+        right: rect.right,
         paddingBottom: Number.parseFloat(style.paddingBottom),
+        borderRadius: style.borderRadius,
+        position: style.position,
+        boxShadow: style.boxShadow,
       };
     });
+    expect(navMetrics.left, `${label} floating nav left gap`).toBeGreaterThan(0);
+    expect(navMetrics.right, `${label} floating nav right gap`).toBeLessThan(viewport.width);
     expect(navMetrics.top, `${label} bottom nav top`).toBeGreaterThanOrEqual(0);
     expect(navMetrics.bottom, `${label} bottom nav bottom`).toBeLessThanOrEqual(viewport.height + 1);
     expect(navMetrics.height, `${label} bottom nav height`).toBeGreaterThanOrEqual(58);
     expect(navMetrics.paddingBottom, `${label} bottom nav safe-area padding`).toBeGreaterThan(0);
+    expect(navMetrics.borderRadius, `${label} floating nav radius`).not.toBe("0px");
+    expect(navMetrics.position, `${label} floating nav positioning`).toBe("fixed");
+    expect(navMetrics.boxShadow, `${label} floating nav shadow`).not.toBe("none");
   } else {
     await expect(visibleNav).toHaveClass(/student-nav-rail/);
   }
 }
+
+test("study assess header follows the learn reference hierarchy and real progress", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openStudy(page);
+
+  const title = page.getByTestId("study-assess-title");
+  await expect(title).toHaveText(/今日學習|今日学习/);
+  await expect(title).toHaveJSProperty("tagName", "H1");
+  await expect(page.locator(".study-assess-header")).toBeVisible();
+  await expect(page.locator(".study-header-progress")).toHaveAttribute("role", "progressbar");
+  await expect(page.locator(".study-header-progress-label")).toContainText(/進度|进度/);
+  await expect(page.locator(".study-header-progress-label")).toContainText(/1 \/ \d+/);
+  await expect(page.locator(".study-header-theme")).toBeVisible();
+  await expect(page.locator(".study-header-logout")).toBeVisible();
+
+  const metrics = await page.locator(".study-assess-header").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const titleRect = element.querySelector("h1")?.getBoundingClientRect();
+    const progressRect = element.querySelector(".study-header-progress")?.getBoundingClientRect();
+    return {
+      width: rect.width,
+      titleWidth: titleRect?.width ?? 0,
+      titleRight: titleRect?.right ?? 0,
+      progressWidth: progressRect?.width ?? 0,
+      progressLeft: progressRect?.left ?? 0,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  expect(metrics.titleWidth).toBeGreaterThan(0);
+  expect(metrics.progressWidth).toBeGreaterThanOrEqual(68);
+  expect(metrics.titleRight).toBeLessThanOrEqual(metrics.progressLeft);
+  expect(metrics.overflow).toBeLessThanOrEqual(1);
+});
 
 test("student destinations reflow and retain real navigation across the final viewport matrix", async ({ page }) => {
   for (const viewport of viewports) {
@@ -158,6 +201,7 @@ test("final reference captures cover home and learn at mobile, tablet, and deskt
     await page.screenshot({ path: `output/playwright/phase6/home-${capture.name}.png`, fullPage: true });
 
     await openStudy(page);
+    await page.waitForTimeout(2_800);
     await page.screenshot({ path: `output/playwright/phase6/learn-${capture.name}.png`, fullPage: true });
   }
 });
