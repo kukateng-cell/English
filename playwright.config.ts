@@ -187,5 +187,25 @@ export default defineConfig({
         viewport: { width: 390, height: 844 },
       },
     },
+    {
+      name: "study-action-fidelity-desktop",
+      testMatch: /study-action-fidelity\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
+      name: "study-action-fidelity-mobile",
+      testMatch: /study-action-fidelity\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
   ],
 });

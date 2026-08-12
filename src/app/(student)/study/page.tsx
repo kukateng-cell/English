@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import WordCard, {
+  type WordCardActionControls,
   type WordCardMotionProbe,
 } from "@/components/WordCard";
 import HelpPanel from "@/components/HelpPanel";
@@ -562,6 +563,7 @@ export default function StudyPage() {
   // 当前服务端发出的词目／nonce 清单；quality 提交必须从这里取凭证。
   const [studySession, setStudySession] = useState<StudySessionInfo | null>(null);
   const [cardProbeEnabled, setCardProbeEnabled] = useState(false);
+  const cardActionControllerRef = useRef<WordCardActionControls | null>(null);
   const [cardMotionProbe, setCardMotionProbe] =
     useState<WordCardMotionProbe | null>(null);
   // 本次学习中新解锁的成就（POST 返回，用于即时弹提示）
@@ -2815,15 +2817,49 @@ export default function StudyPage() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
         >
-          <WordCard
-            word={current.word}
-            queueNote={tc(`今日队列第 ${currentIndex + 1} 个单词`)}
-            onSwipeLeft={handleSwipeLeft}
-            onSwipeRight={handleSwipeRight}
-            disabled={helpVisible || interactionGuarded}
-            interactionEpoch={interactionEpoch}
-            onMotionProbe={cardProbeEnabled ? recordCardMotionProbe : undefined}
-          />
+          <div className="study-card-composition w-full">
+            <WordCard
+              word={current.word}
+              queueNote={tc(`今日队列第 ${currentIndex + 1} 个单词`)}
+              onSwipeLeft={handleSwipeLeft}
+              onSwipeRight={handleSwipeRight}
+              actionControllerRef={cardActionControllerRef}
+              disabled={helpVisible || interactionGuarded}
+              interactionEpoch={interactionEpoch}
+              onMotionProbe={cardProbeEnabled ? recordCardMotionProbe : undefined}
+            />
+            <div data-testid="study-card-actions" className="word-card-actions">
+              <div className="swipe-actions">
+                <button
+                  type="button"
+                  data-testid="study-card-action-left"
+                  disabled={helpVisible || interactionGuarded || swipeTransitioning}
+                  onClick={() => cardActionControllerRef.current?.onLeft()}
+                  className="swipe-action swipe-action-left"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 12H5M11 6l-6 6 6 6" />
+                  </svg>
+                  {tc("还不会")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="study-card-action-right"
+                  disabled={helpVisible || interactionGuarded}
+                  onClick={() => cardActionControllerRef.current?.onRight()}
+                  className="swipe-action swipe-action-right"
+                >
+                  {tc("我会")}
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </button>
+              </div>
+              <p data-testid="study-swipe-guide" className="swipe-guide">
+                {tc("向左滑不会，向右滑会。也可以直接按下方按钮。")}
+              </p>
+            </div>
+          </div>
         </motion.div>
       </div>
 

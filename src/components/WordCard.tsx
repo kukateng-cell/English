@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { speakEnglish } from "@/lib/speech";
@@ -65,6 +66,12 @@ export interface WordCardMotionProbe {
   eventObserverDurationMs?: number;
 }
 
+export interface WordCardActionControls {
+  disabled: boolean;
+  onLeft: () => void;
+  onRight: () => void;
+}
+
 interface WordCardProps {
   word: {
     term: string;
@@ -76,6 +83,7 @@ interface WordCardProps {
   onSwipeRight: () => void;
   children?: ReactNode;
   queueNote?: ReactNode;
+  actionControllerRef?: { current: WordCardActionControls | null };
   disabled?: boolean;
   /** Monotonic page generation; changes invalidate every in-flight gesture. */
   interactionEpoch?: number;
@@ -266,6 +274,7 @@ export default function WordCard({
   onSwipeRight,
   children,
   queueNote,
+  actionControllerRef,
   disabled,
   interactionEpoch = 0,
   onMotionProbe,
@@ -808,6 +817,44 @@ export default function WordCard({
     [startFlight],
   );
 
+  const handleLeftAction = useCallback(() => {
+    handleButtonSwipe(-1, onSwipeLeft);
+  }, [handleButtonSwipe, onSwipeLeft]);
+
+  const handleRightAction = useCallback(() => {
+    handleButtonSwipe(1, onSwipeRight);
+  }, [handleButtonSwipe, onSwipeRight]);
+
+  useEffect(() => {
+    if (!actionControllerRef) return;
+    const controller: WordCardActionControls = {
+      disabled: Boolean(disabled),
+      onLeft: handleLeftAction,
+      onRight: handleRightAction,
+    };
+    actionControllerRef.current = controller;
+    return () => {
+      if (actionControllerRef.current === controller) {
+        actionControllerRef.current = null;
+      }
+    };
+  }, [actionControllerRef, disabled, handleLeftAction, handleRightAction]);
+
+  const handleCardKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.target instanceof HTMLElement && event.target.closest("button")) return;
+      if (disabled) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        handleLeftAction();
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        handleRightAction();
+      }
+    },
+    [disabled, handleLeftAction, handleRightAction],
+  );
+
   const cancelActiveInteraction = useCallback(() => {
     const dragLayer = dragLayerRef.current;
     const activeDrag = activeDragRef.current;
@@ -1171,14 +1218,14 @@ export default function WordCard({
           style={{ opacity: 0 }}
           className="word-card-swipe-label word-card-swipe-label-danger"
         >
-          ← {tc("不认识")}
+          ← {tc("还不会")}
         </span>
         <span
           ref={rightLabelRef}
           style={{ opacity: 0 }}
           className="word-card-swipe-label word-card-swipe-label-success"
         >
-          {tc("认识")} ✓
+          {tc("我会")} →
         </span>
       </div>
 
@@ -1193,14 +1240,17 @@ export default function WordCard({
             data-testid="word-card-drag-layer"
             role="group"
             aria-label={tc("可左右拖曳的单词卡")}
+            aria-keyshortcuts="ArrowLeft ArrowRight"
+            tabIndex={0}
+            onKeyDown={handleCardKeyDown}
             style={{ touchAction: "pan-y" }}
             className="word-card-surface word-card-draggable"
           >
             <span ref={leftBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-left" aria-hidden="true">
-              ← {tc("不认识")}
+              ← {tc("还不会")}
             </span>
             <span ref={rightBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-right" aria-hidden="true">
-              {tc("认识")} →
+              {tc("我会")} →
             </span>
 
             <div className="word-card-top">
@@ -1223,30 +1273,7 @@ export default function WordCard({
 
             <div className="word-card-bottom">
               {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
-              <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("不认识")} <span className="keycap">→</span> {tc("认识")}</span>
-            </div>
-
-            <div className="absolute bottom-5 flex w-full items-center justify-between px-5">
-              <button
-                disabled={disabled}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleButtonSwipe(-1, onSwipeLeft);
-                }}
-                className="word-card-action word-card-action-danger flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
-              >
-                ← {tc("不认识")}
-              </button>
-              <button
-                disabled={disabled}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleButtonSwipe(1, onSwipeRight);
-                }}
-                className="word-card-action word-card-action-success flex h-12 items-center gap-1.5 rounded-full px-6 text-[15px] font-semibold transition active:scale-[0.96] disabled:pointer-events-none"
-              >
-                {tc("认识")} ✓
-              </button>
+              <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("还不会")} <span className="keycap">→</span> {tc("我会")}</span>
             </div>
           </div>
         </div>

@@ -200,7 +200,7 @@ test("done state keeps the student destinations real and available", async ({ pa
 
 test("Coach dialog makes both navigation surfaces inert and restores them on close", async ({ page }) => {
   await openStudy(page);
-  await page.getByRole("button", { name: /不认识|不認識/ }).first().click();
+  await page.getByRole("button", { name: /还不会|還不會/ }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.locator(".student-rail")).toHaveAttribute("inert", "");
   await expect(page.locator("[data-testid=student-nav-bottom-layer]")).toHaveAttribute("inert", "");

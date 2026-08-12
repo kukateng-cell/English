@@ -420,15 +420,27 @@ button:disabled,
 .word-card-speak:hover, .quiz-card-speak:hover { background: color-mix(in oklch, var(--primary) 12%, var(--surface)); }
 .word-card-swipe-label-danger { color: var(--danger); }
 .word-card-swipe-label-success { color: var(--success); }
-.word-card-action { border: 1px solid transparent; }
-.word-card-action-danger { background: var(--danger-bg); color: var(--danger); }
-.word-card-action-success { background: var(--success-bg); color: var(--success); }
+.word-card-actions { display: grid; gap: var(--space-2); margin-top: var(--space-3); width: 100%; }
+.study-card-composition { width: 100%; }
+.study-card-composition > .word-card-actions { box-sizing: border-box; margin-inline: auto; max-width: 672px; padding-inline: 16px; }
+.swipe-actions { display: grid; gap: var(--space-2); grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+.swipe-action { align-items: center; border: 1px solid var(--border); border-radius: 18px; cursor: pointer; display: flex; font-size: 1rem; font-weight: 700; gap: var(--space-2); justify-content: center; line-height: 1.25; min-height: 60px; padding: 0 var(--space-3); transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
+.swipe-action svg { flex: 0 0 auto; height: 22px; width: 22px; }
+.swipe-action:hover:not(:disabled) { transform: translateY(-1px); }
+.swipe-action:active:not(:disabled) { transform: translateY(1px); }
+.swipe-action:disabled { cursor: not-allowed; opacity: 0.55; }
+.swipe-action-left { background: var(--surface); border-color: var(--danger); color: var(--danger); }
+.swipe-action-left:hover:not(:disabled) { background: var(--danger-bg); border-color: var(--color-danger-strong); color: var(--color-danger-strong); }
+.swipe-action-right { background: var(--primary); border-color: var(--primary); box-shadow: var(--shadow-sm); color: var(--color-surface); }
+.swipe-action-right:hover:not(:disabled) { background: var(--primary-2); border-color: var(--primary-2); box-shadow: var(--shadow-card); }
+.swipe-guide { color: color-mix(in oklch, var(--muted) 52%, var(--text)); font-size: 0.8125rem; margin: 0; text-align: center; }
 .dark .word-card-back { background: color-mix(in oklch, var(--surface) 70%, var(--border-soft)); }
 
 @media (forced-colors: active) {
   .word-card-back { background: Canvas; border-color: CanvasText; }
   .word-card-draggable::after { border-color: CanvasText; }
   .level-badge, .keycap { background: Canvas; border-color: CanvasText; color: CanvasText; }
+  .swipe-action-left, .swipe-action-right { background: ButtonFace; border-color: ButtonText; box-shadow: none; color: ButtonText; }
 }
 
 .quiz-prompt-label { background: var(--border-soft); color: var(--primary); }
@@ -663,7 +675,7 @@ button:disabled,
   .student-main { padding-inline: 16px; }
   .word-card-stack { min-height: 408px; }
   .word-card-draggable { height: min(58vh, 400px); min-height: 400px; padding: 20px; }
-  .word-card-action { font-size: 0.875rem; padding-inline: 12px; }
+  .swipe-action { font-size: 0.875rem; padding-inline: 12px; }
   .words-filter-row { grid-template-columns: 1fr; }
   .words-ia-switch, .stats-secondary-links { max-width: 100%; }
   .words-ia-switch a, .stats-secondary-links a { padding-inline: 9px; }

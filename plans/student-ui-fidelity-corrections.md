@@ -375,21 +375,21 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 
 ### Checklist
 
-- [ ] 把兩個 action 從 draggable card 內移到 card stack 下方的獨立兩欄區。
-- [ ] 左側採「還不會」+ left arrow、白色 surface、紅色 border/text。
-- [ ] 右側採「我會」+ right arrow、deep-indigo surface、白色文字及 approved shadow。
-- [ ] 兩按鈕同寬、最少 60px 高、18px radius，mobile 320px 不擠壓或換行失控。
-- [ ] 補齊 hover、pressed、focus-visible、disabled、pending、dark 及 Forced Colors 狀態。
-- [ ] 卡內 drag badge 同步使用「還不會／我會」，並保留方向辨識。
-- [ ] 卡下 swipe guide 跟 Prototype 一致，keyboard hint 清楚但不重複造成 screen reader 噪音。
-- [ ] button click 不啟動 drag；drag pointer capture 不吞掉 button activation。
-- [ ] 左按鈕、ArrowLeft、左滑均只觸發一次 quality=2 pipeline。
-- [ ] 右按鈕、ArrowRight、右滑均只觸發一次 quality=5 pipeline。
-- [ ] disabled／pending 時 mouse、touch、keyboard、synthetic pointer 都不能重複提交。
-- [ ] 保留 offline outbox、operationId、nonce、rotation、retry、cross-tab lease 及 checkpoint 測試。
-- [ ] 加入按鈕 geometry、label、color token、focus、tap target 及 click/drag mutual-exclusion E2E。
-- [ ] 在 Chromium、Firefox、WebKit、mobile emulation 及 synthetic pointer project 執行完整 card-motion suite。
-- [ ] 更新本計劃及建立單一、可回退 checkpoint commit。
+- [x] 把兩個 action 從 draggable card 內移到 card stack 下方的獨立兩欄區。
+- [x] 左側採「還不會」+ left arrow、白色 surface、紅色 border/text。
+- [x] 右側採「我會」+ right arrow、deep-indigo surface、白色文字及 approved shadow。
+- [x] 兩按鈕同寬、最少 60px 高、18px radius，mobile 320px 不擠壓或換行失控。
+- [x] 補齊 hover、pressed、focus-visible、disabled、pending、dark 及 Forced Colors 狀態。
+- [x] 卡內 drag badge 同步使用「還不會／我會」，並保留方向辨識。
+- [x] 卡下 swipe guide 跟 Prototype 一致，keyboard hint 清楚但不重複造成 screen reader 噪音。
+- [x] button click 不啟動 drag；drag pointer capture 不吞掉 button activation。
+- [x] 左按鈕、ArrowLeft、左滑均只觸發一次 quality=2 pipeline。
+- [x] 右按鈕、ArrowRight、右滑均只觸發一次 quality=5 pipeline。
+- [x] disabled／pending 時 mouse、touch、keyboard、synthetic pointer 都不能重複提交。
+- [x] 保留 offline outbox、operationId、nonce、rotation、retry、cross-tab lease 及 checkpoint 測試。
+- [x] 加入按鈕 geometry、label、color token、focus、tap target 及 click/drag mutual-exclusion E2E。
+- [x] 在 Chromium、Firefox、WebKit、mobile emulation 及 synthetic pointer project 執行完整 card-motion suite。
+- [x] 更新本計劃及建立單一、可回退 checkpoint commit。
 
 ### 驗收
 
@@ -580,7 +580,10 @@ npm run check:production-config
 | 2026-08-12 | Phase 4 | 認字資訊層級及真實資料已實作 | Study 標題改為 `今日學習`；`WordCard` 接收並呈現現有 `/api/study` queue 的 level/category，category 採 `tc()`，null fallback 為本地化 `未分類`，沒有加入 Prototype 示例資料；新增 `認讀卡` context、真實 queue position note 及短 hint |
 | 2026-08-12 | Phase 4 | Prototype card stack 已實作 | 新增 pointer-inert、`aria-hidden` decorative back card、右上 arc、Prototype card proportion、badge、shadow、radius 及 dark/Forced Colors 規則；drag layer 仍是唯一 transform／pointer capture owner。isolated motion harness 保留原有約 400px geometry，避免 production card 擴至 Prototype desktop 約 640px 後改變既有 gesture threshold contract |
 | 2026-08-12 | Phase 4 | Visual／accessibility evidence | `output/playwright/phase4/learn-card-mobile-390x844.png`、`learn-card-tablet-820x1180.png`、`learn-card-desktop-1440x900.png` 以 real authenticated student、real queue 產生並目視核對；study-card fidelity：8 passed、1 desktop-only capture skipped；desktop/mobile real-data structure、dark/reduced-motion/Forced Colors、geometry、axe WCAG 2A/2AA 均通過 |
-| 2026-08-12 | Phase 4 | Fixture、回歸及限制 | `npm run lint` pass；`npx tsc --noEmit` pass；`npm run build` pass（39 routes）；`word-card-fidelity-fixtures` 320/390：4 passed，覆蓋 B2、null category、長 category、缺 phonetic、Hant/Hans 及 WCAG text-spacing no-overflow；`npm run test:e2e:card-motion` primary 73 passed、4 skipped，WebKit study shard 1/2 分別 17/16 passed。過程中發現並修正展示層 pointer hit-test 覆蓋 study actions 及 motion harness geometry regression，修正後全套通過。Phase 5 仍負責將 actions 移到 card 外；VoiceOver/NVDA、原生 soft keyboard、完整 viewport/safe-area matrix 留待 Phase 6；沒有 schema、migration、DB 寫入或 production config 改動；Phase 4 checkpoint commit 將隨本次記錄更新建立 |
+| 2026-08-12 | Phase 4 | Fixture、回歸及限制 | `npm run lint` pass；`npx tsc --noEmit` pass；`npm run build` pass（39 routes）；`word-card-fidelity-fixtures` 320/390：4 passed，覆蓋 B2、null category、長 category、缺 phonetic、Hant/Hans 及 WCAG text-spacing no-overflow；`npm run test:e2e:card-motion` primary 73 passed、4 skipped，WebKit study shard 1/2 分別 17/16 passed。過程中發現並修正展示層 pointer hit-test 覆蓋 study actions 及 motion harness geometry regression，修正後全套通過。Phase 5 仍負責將 actions 移到 card 外；VoiceOver/NVDA、原生 soft keyboard、完整 viewport/safe-area matrix 留待 Phase 6；沒有 schema、migration、DB 寫入或 production config 改動；Phase 4 checkpoint commit `e570051` 已建立並可由 git history 回退 |
+| 2026-08-12 | Phase 5 | 卡外操作及 keyboard pipeline 已實作 | `WordCard` 以 action controller ref 將內部 release flight 能力提供給 card 外的 action region；移除 draggable card 內的 action buttons，保留 `word-card-drag-layer` 為唯一 pointer capture／transform owner；加入 `tabIndex=0`、`aria-keyshortcuts`、ArrowLeft／ArrowRight，並將 visible action 文案、drag badge、keyboard hint 轉為 Prototype 的「還不會／我會」 |
+| 2026-08-12 | Phase 5 | Action visual／interaction evidence | `output/playwright/phase5/learn-card-mobile-390x844.png`、`learn-card-tablet-820x1180.png`、`learn-card-desktop-1440x900.png` 已以 real authenticated queue 產生並目視核對；`study-action-fidelity` desktop/mobile：7 passed，覆蓋卡外 DOM 關係、同寬／60px／18px geometry、mobile nav 不遮擋、focus、ArrowLeft/Right、left help flow、right quiz flow；study-card fidelity 全頁 axe 及 dark/reduced-motion/Forced Colors：8 passed、1 capture skipped |
+| 2026-08-12 | Phase 5 | 提交安全及回歸結果 | `npm run test:e2e:card-motion` primary 73 passed、4 skipped；WebKit study shard 1/2 分別 17/16 passed；完整 study workflow、cross-tab lease、checkpoint、retry、rotation、nonce／operationId recovery 及 disabled/pending paths 通過；`npm run test:e2e:student-ia` 24 passed、2 skipped，覆蓋 student shell、role redirect、locale、study navigation 及 mobile safe-area／visual viewport。未改 schema／migration／API policy，沒有修改 quality mapping 或 server submission pipeline；原生 VoiceOver/NVDA、實機 soft keyboard、完整 viewport/safe-area matrix留待 Phase 6；Phase 5 checkpoint commit 已建立並可由 git history 回退 |
 
 實作開始後，每個 Phase 在此新增：
 

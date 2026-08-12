@@ -82,7 +82,7 @@ test("captures study card reference sizes", async ({ page }, testInfo) => {
     await page.setViewportSize(capture.viewport);
     await expect(page.getByTestId("word-card-drag-layer")).toBeVisible();
     await page.screenshot({
-      path: `output/playwright/phase4/learn-card-${capture.name}.png`,
+      path: `output/playwright/phase5/learn-card-${capture.name}.png`,
       fullPage: true,
     });
   }

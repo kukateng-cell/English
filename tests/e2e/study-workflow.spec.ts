@@ -522,7 +522,7 @@ test("a superseded quiz credential preserves and replays the same answer operati
     });
   });
 
-  await page.getByRole("button", { name: /認識.*✓|认识.*✓/ }).click();
+  await page.getByRole("button", { name: /我會|我会/ }).click();
   await expect(page.getByTestId("study-quiz-phase")).toBeVisible();
   await page.locator(
     `[data-testid="quiz-option"][data-option-id="${targetWordId}"]`,
@@ -565,7 +565,7 @@ test("reconciliation cancels a selected quiz answer before its delayed callback"
   await page.goto("/study");
   const data = (await (await initialResponse).json()) as StudyWorkflowData;
   const userId = await authenticatedUserId(page);
-  await page.getByRole("button", { name: /認識.*✓|认识.*✓/ }).click();
+  await page.getByRole("button", { name: /我會|我会/ }).click();
   await expect(page.getByTestId("study-quiz-phase")).toBeVisible();
   await page.getByTestId("quiz-option").first().click();
 
@@ -597,7 +597,7 @@ test("reconciliation cancels the help-panel delayed advance", async ({
   await page.goto("/study");
   const data = (await (await initialResponse).json()) as StudyWorkflowData;
   const userId = await authenticatedUserId(page);
-  await page.getByRole("button", { name: /不認識|不认识/ }).click();
+  await page.getByRole("button", { name: /還不會|还不会/ }).click();
   await expect(page.getByTestId("help-panel-dismiss")).toBeVisible();
   await page.getByTestId("help-panel-dismiss").click();
 
@@ -1179,7 +1179,7 @@ test("a quiz answer does not release the barrier before active backlog reconcili
     },
   );
 
-  await page.getByRole("button", { name: /認識.*✓|认识.*✓/ }).click();
+  await page.getByRole("button", { name: /我會|我会/ }).click();
   await expect(page.getByTestId("study-quiz-phase")).toBeVisible();
   await page.locator(
     `[data-testid="quiz-option"][data-option-id="${currentWordId}"]`,
@@ -2402,7 +2402,7 @@ test("a successful submission in another tab invalidates the shared active sessi
     },
   );
   const otherKnownButton = otherPage.getByRole("button", {
-    name: /認識.*✓|认识.*✓/,
+    name: /我會|我会/,
   });
   await expect(otherKnownButton).toBeDisabled();
   await expect
@@ -2533,7 +2533,7 @@ test("independent browser contexts reconcile a nonce consumed on another device"
         response.status() === 409,
     );
     await independentPage.getByRole("button", {
-      name: /認識.*✓|认识.*✓/,
+      name: /我會|我会/,
     }).click();
     await expect(independentPage.getByTestId("study-quiz-phase")).toBeVisible();
     await independentPage.locator(`[data-option-id="${wordId}"]`).click();
