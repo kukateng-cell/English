@@ -153,7 +153,7 @@ sentinel exposure；正常 Learning／Review candidate pool 不受影響。
 | `minInterveningItems` | 2 | 同一詞最少隔開兩個其他 acknowledged items；重開 app 不清零 |
 | `minVerificationDelay` | 10 分鐘 | `eligibleAt` 同時滿足 elapsed delay；唔靠 session boundary |
 | `maxObligationAge` | 24 小時 | active user service deadline；長期離線按 explicit expiry rule |
-| `maxEligibleServiceGap` | 待 simulation 決定 | 持續活躍且有合法題目時，最舊 work 最多隔 N 個 acknowledged items |
+| `maxEligibleServiceGap` | 6 個 acknowledged items | 持續活躍且有合法題目時，最舊 work 最多隔 6 個 acknowledged items；由 Phase 1 deterministic simulation 固定 |
 
 以上係 versioned operational defaults，唔係不可修改嘅教育常數。任何調整要更新
 policy version、simulation fixture、監控 threshold 同決策紀錄，唔可以只改 magic number。
@@ -330,7 +330,7 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 | C-004 | quality mapping 使用 versioned policy | 已確認 |
 | C-005 | Global continuous；Unit 可 bounded 但可隨時離開 | 已確認 |
 | C-006 | `retrieval-v1` 用 correct=4、wrong=2；quality 5 暫不使用 | 已確認 |
-| C-007 | combined cap=5、soft=3、consecutive soft cap=2、intervening=2、delay=10m、age=24h；service gap 待 simulation | 已確認為 v1 起始值 |
+| C-007 | combined cap=5、soft=3、consecutive soft cap=2、intervening=2、delay=10m、age=24h、service gap=6；由 deterministic simulation 固定 | 已確認為 v1 起始值 |
 | C-008 | 所有 scored probes 綁唯一 evidence target、purpose、immutable valid question snapshot | 已確認 |
 | C-009 | research-only diagnostic 零 operational 副作用，出題本身亦受 permission／assent／protocol gate | 已確認 |
 | C-010 | legacy unknown 保留 mastery continuity，但排除 V2 objective accuracy | 已確認 |

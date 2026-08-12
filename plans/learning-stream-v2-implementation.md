@@ -144,9 +144,10 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 ### Phase 1：Pure policy、state machine 及 isolated harness
 
 - [ ] 建立 typed item／action／transition，非法 transition fail closed；
-- [ ] 建立 pure scheduler policy interface、quality mapping 同 deterministic fixtures；
-- [ ] 用 property／長序列模擬 combined cap、atomic admission、per-word dedupe、eligible delay、
+- [x] 建立 pure scheduler policy interface、quality mapping 同 deterministic fixtures；
+- [x] 用 deterministic 長序列模擬 combined cap、per-word dedupe、eligible delay、
   active-user liveness、long absence、reopen gaming、mode switching、lease、remediation、no-candidate；
+- [ ] 由 Serializable transaction／integration tests 證明 atomic admission 同並發 cap protection；
 - [ ] 抽取 WordCard motion primitive，建立不接 production API 嘅 harness；
 - [ ] 完成 Learning Card／Objective Probe／Feedback／SyncBlocked components；
 - [ ] 測試 mouse、touch、synthetic pointer、keyboard、reduced motion、簡繁、明暗 theme。
