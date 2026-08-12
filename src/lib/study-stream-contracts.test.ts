@@ -38,6 +38,15 @@ test("V2 parser rejects word, score and answer-key injection", () => {
   assert.equal(parseStudyStreamAction(objective).ok, false);
 });
 
+test("reveal is a typed presentation action with no writable answer fields", () => {
+  const action = validAction() as Record<string, unknown>;
+  action.actionKind = "REVEAL";
+  action.payload = {};
+  assert.equal(parseStudyStreamAction(action).ok, true);
+  action.payload = { definition: "client answer" };
+  assert.equal(parseStudyStreamAction(action).ok, false);
+});
+
 test("credential digest is one-way and action fingerprints are stable", () => {
   const credential = createStudyStreamCredential();
   assert.equal(credential.length >= 32, true);

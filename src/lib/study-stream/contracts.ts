@@ -15,6 +15,7 @@ export const STUDY_STREAM_CREDENTIAL_BYTES = 32;
 export const STUDY_STREAM_CREDENTIAL_TTL_MS = 15 * 60_000;
 
 export type StudyStreamActionKind =
+  | "REVEAL"
   | "SELF_RATING"
   | "OBJECTIVE_ANSWER"
   | "FEEDBACK_ACK";
@@ -28,9 +29,10 @@ export interface StudyStreamActionInput {
   actionKind: StudyStreamActionKind;
   clientKnownRevision: number;
   payload:
+    | Record<string, never>
     | { selfRating: SelfRating }
     | { selectedOptionId: string }
-    | Record<string, never>;
+    ;
 }
 
 export interface PublicStreamItemBase {
@@ -47,6 +49,13 @@ export interface PublicStreamItemBase {
   prompt: string;
   direction?: "en-zh" | "zh-en";
   objectiveQuestion?: PublicObjectiveQuestion;
+  learningCard?: {
+    term: string;
+    phonetic: string | null;
+    definition: string;
+    pos: string | null;
+    examples: Array<{ en: string; zh: string }>;
+  };
   probePurpose?: ProbePurpose;
   feedback?: {
     selectedOptionId: string;
@@ -83,6 +92,7 @@ export interface PublicStreamActionResponse {
   clientRevision: number;
   requiresFeedbackAck: boolean;
   feedback?: PublicStreamItemBase["feedback"];
+  learningCard?: PublicStreamItemBase["learningCard"];
   nextItem: PublicStreamItemBase | null;
 }
 
@@ -121,6 +131,10 @@ function parsePayload(
   value: unknown,
 ): StudyStreamActionInput["payload"] | null {
   if (!isRecord(value)) return null;
+  if (actionKind === "REVEAL") {
+    if (!hasOnlyKeys(value, [])) return null;
+    return {};
+  }
   if (actionKind === "SELF_RATING") {
     if (!hasOnlyKeys(value, ["selfRating"]) || (value.selfRating !== "selfForgot" && value.selfRating !== "selfRecalled")) return null;
     return { selfRating: value.selfRating };
@@ -144,7 +158,7 @@ export function parseStudyStreamAction(value: unknown): ParseActionResult {
   if (!isBoundedString(value.streamItemId, 8, 128)) return { ok: false, error: "streamItemId 无效" };
   if (!isBoundedString(value.operationId, 8, 200) || !ACTION_ID_PATTERN.test(value.operationId)) return { ok: false, error: "operationId 无效" };
   if (!isBoundedString(value.itemCredential, 32, 256)) return { ok: false, error: "itemCredential 无效" };
-  if (typeof value.actionKind !== "string" || !["SELF_RATING", "OBJECTIVE_ANSWER", "FEEDBACK_ACK"].includes(value.actionKind)) return { ok: false, error: "actionKind 无效" };
+  if (typeof value.actionKind !== "string" || !["REVEAL", "SELF_RATING", "OBJECTIVE_ANSWER", "FEEDBACK_ACK"].includes(value.actionKind)) return { ok: false, error: "actionKind 无效" };
   const clientKnownRevision = value.clientKnownRevision;
   if (typeof clientKnownRevision !== "number" || !Number.isSafeInteger(clientKnownRevision) || clientKnownRevision < 0) return { ok: false, error: "clientKnownRevision 无效" };
 
