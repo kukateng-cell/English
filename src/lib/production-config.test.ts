@@ -1,11 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  describeBackendFailure,
   isProductionRuntime,
   legacyOperationIdCompatibilityEndsAt,
   productionConfigurationErrors,
   requiresDistributedRateLimitBackend,
 } from "./production-config";
+
+test("backend failure diagnostics omit exception messages and unsafe names", () => {
+  const error = new Error("redis-token-and-request-body");
+  error.name = "credential=secret";
+  assert.equal(describeBackendFailure(error), "Error");
+  assert.equal(describeBackendFailure({ message: "request body" }), "object");
+});
 
 test("production runtime detection fails closed for either deployment signal", () => {
   assert.equal(isProductionRuntime({ NODE_ENV: "production" }), true);

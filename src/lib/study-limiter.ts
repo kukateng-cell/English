@@ -1,6 +1,9 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
-import { requiresDistributedRateLimitBackend } from "@/lib/production-config";
+import {
+  describeBackendFailure,
+  requiresDistributedRateLimitBackend,
+} from "@/lib/production-config";
 
 const MAX_EVENTS_PER_MINUTE = 90;
 const DEFAULT_MAX_QUEUE_LOADS_PER_USER_PER_MINUTE = 60;
@@ -146,7 +149,7 @@ export async function checkStudyRate(userId: string): Promise<{
     const failure = backendFailureInProduction();
     console.error(
       `[study-limiter] backend unavailable; ${failure ? "failing closed" : "using local fallback"}`,
-      error,
+      { errorType: describeBackendFailure(error) },
     );
     return failure ?? { ok: true };
   }
@@ -202,7 +205,7 @@ export async function checkStudyQueueRate(
     const failure = backendFailureInProduction();
     console.error(
       `[study-queue-limiter] backend unavailable; ${failure ? "failing closed" : "using local fallback"}`,
-      error,
+      { errorType: describeBackendFailure(error) },
     );
     return failure ?? { ok: true };
   }
@@ -257,7 +260,7 @@ export async function checkStudyCredentialRate(
     const failure = backendFailureInProduction();
     console.error(
       `[study-credential-limiter] backend unavailable; ${failure ? "failing closed" : "using local fallback"}`,
-      error,
+      { errorType: describeBackendFailure(error) },
     );
     return failure ?? { ok: true };
   }

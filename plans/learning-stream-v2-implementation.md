@@ -277,7 +277,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-005 | Reveal 要唔要 operational durable action | self-rating／probe answer 必定 durable；reveal 先保持 presentation state，只有 resume／獨立 operational requirement 才另加 typed durable action | Phase 1 state/data review |
 | I-006 | Pilot go／pause 數值 | 唔虛構；用 V1 baseline + internal soak 預先寫 runbook | Phase 5 前 |
 | I-007 | Cross-tab credential rotation | item 保留 bounded、短效 credential digest lineage；bootstrap／renew 發出 successor 時不撤銷仍有效的 predecessor，action 仍由 item status、operation receipt、target／Review CAS authoritative 決定 | Phase 4 reliability；需 expand migration |
-| I-008 | Shared rate-limit backend 故障策略 | production／Vercel production runtime 一律 fail closed；memory fallback 只限非-production local 或明確 `ENABLE_TEST_ROUTES=1` test runtime；login、password change、study queue／action／credential renewal 共用同一 runtime 判定 | Phase 2 security regression |
+| I-008 | Shared rate-limit backend 故障策略 | production／Vercel production runtime 一律 fail closed；memory fallback 只限非-production local 或明確 `ENABLE_TEST_ROUTES=1` test runtime；login、password change、study queue／action／credential renewal 共用同一 runtime 判定；backend failure log 只記 allowlisted error type，唔記原始 exception／request details | Phase 2 security regression |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -286,9 +286,9 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 
 - [ ] Phase 0–5 checklist 全部完成並有對應證據；
 - [ ] Contract acceptance matrix 全部通過；
-- [ ] v1 未獲 cleanup approval 前仍可安全使用；
+- [x] v1 未獲 cleanup approval 前仍可安全使用（V1 DB／browser regression、V1 default 及 feature-off rollback evidence）；
 - [ ] production feature flag、runbook、alerts、rollback rehearsal 已驗證；
-- [ ] 無 client-controlled word／item／score／correct-answer boundary；
+- [x] 無 client-controlled word／item／score／correct-answer boundary（typed parser、route validation、server-owned scoring 及 DB assertions）；
 - [ ] 實際測試、未執行項目、已知限制、pilot 結果已記錄；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -297,7 +297,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 
-- `npm test`：123 passed；`npm run lint`、`npx tsc --noEmit`：passed。
+- `npm test`：124 passed；`npm run lint`、`npx tsc --noEmit`：passed。
 - `npx prisma validate`、`npx prisma generate`、`npm run db:deploy`：passed；新增
   expand migration 已套用，本地 preflight 顯示無 lineage gap。
 - `npm run test:db:stream-v2`：passed；涵蓋 global／unit scope、server-issued item
@@ -314,7 +314,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   `ENABLE_TEST_ROUTES=1` 會 fail closed／fail validation。login、password-change、study
   queue／action／credential limiter 的 production runtime guard 亦以缺少 backend 的
   child-process check 驗證；browser test 只喺明確 `ENABLE_TEST_ROUTES=1` 時使用 local
-  fallback。未進行正式部署。
+  fallback；backend failure logging 只保留 allowlisted error type，唔寫原始 exception／request
+  details。未進行正式部署。
 - `npm run test:e2e:card-motion`：Chromium 73 passed／4 skipped；WebKit 33 passed。
   另以 V2 internal assignment 執行 study-integration Chromium 32 passed，並手動驗證
   objective answer、read-only feedback ack、learning-card reveal／self-rating、合法離開、

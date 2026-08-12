@@ -31,7 +31,10 @@
 
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
-import { requiresDistributedRateLimitBackend } from "@/lib/production-config";
+import {
+  describeBackendFailure,
+  requiresDistributedRateLimitBackend,
+} from "@/lib/production-config";
 
 /** 单账号保持严格；共享校园/NAT IP 使用较宽的预认证防洪门槛。 */
 const ACCOUNT_MAX_ATTEMPTS = 5;
@@ -325,7 +328,7 @@ export async function checkLimit(
   } catch (err) {
     console.error(
       `[login-limiter] checkLimit 后端错误，${productionRateLimitRequired ? "fail-closed" : "本地继续"}：`,
-      err,
+      { errorType: describeBackendFailure(err) },
     );
     return productionRateLimitRequired
       ? { ok: false, retryAfterSec: 60 }
@@ -375,7 +378,7 @@ export async function getLimitStatus(
   } catch (err) {
     console.error(
       `[login-limiter] getLimitStatus 后端错误，${productionRateLimitRequired ? "按已锁定返回" : "按未锁定返回"}：`,
-      err,
+      { errorType: describeBackendFailure(err) },
     );
     return productionRateLimitRequired
       ? { locked: true, retryAfterSec: 60, dimension: "account" }
@@ -408,7 +411,7 @@ export async function checkStatusRate(ip: string): Promise<LimitResult> {
   } catch (err) {
     console.error(
       `[login-limiter] checkStatusRate 后端错误，${productionRateLimitRequired ? "fail-closed" : "本地继续"}：`,
-      err,
+      { errorType: describeBackendFailure(err) },
     );
     return productionRateLimitRequired
       ? { ok: false, retryAfterSec: 60, dimension: "ip" }
@@ -429,7 +432,9 @@ export async function resetAccount(account: string): Promise<void> {
   try {
     await accountBackend.reset(normalizeAccount(account));
   } catch (err) {
-    console.error("[login-limiter] resetAccount 后端错误：", err);
+    console.error("[login-limiter] resetAccount 后端错误：", {
+      errorType: describeBackendFailure(err),
+    });
   }
 }
 

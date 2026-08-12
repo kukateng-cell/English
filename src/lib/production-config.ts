@@ -1,4 +1,5 @@
 const MAX_COMPATIBILITY_WINDOW_MS = 30 * 60_000;
+const SAFE_ERROR_TYPE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 
 type Environment = Record<string, string | undefined>;
 
@@ -24,6 +25,17 @@ export function requiresDistributedRateLimitBackend(
   env: Environment = process.env,
 ): boolean {
   return isProductionRuntime(env) && env.ENABLE_TEST_ROUTES !== "1";
+}
+
+/**
+ * Keep rate-limit failure diagnostics useful without copying an upstream
+ * exception message, request URL, headers or response body into application
+ * logs. Error names are retained only when they are a small allowlisted token.
+ */
+export function describeBackendFailure(error: unknown): string {
+  if (error instanceof Error && SAFE_ERROR_TYPE.test(error.name)) return error.name;
+  if (error instanceof Error) return "Error";
+  return typeof error;
 }
 
 export function legacyOperationIdCompatibilityEndsAt(

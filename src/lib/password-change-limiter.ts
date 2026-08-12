@@ -1,6 +1,9 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
-import { requiresDistributedRateLimitBackend } from "@/lib/production-config";
+import {
+  describeBackendFailure,
+  requiresDistributedRateLimitBackend,
+} from "@/lib/production-config";
 
 const USER_MAX_ATTEMPTS = 5;
 const IP_MAX_ATTEMPTS = 30;
@@ -135,7 +138,7 @@ export async function checkPasswordChangeLimit(userId: string, ip: string) {
   } catch (error) {
     console.error(
       `[password-change-limiter] backend unavailable; ${productionRateLimitRequired ? "failing closed" : "local request allowed"}`,
-      error,
+      { errorType: describeBackendFailure(error) },
     );
     return productionRateLimitRequired
       ? { ok: false, dimension: "backend" as const, retryAfterSec: 60 }
@@ -177,7 +180,7 @@ export async function recordPasswordChangeFailure(userId: string) {
   } catch (error) {
     console.error(
       `[password-change-limiter] backoff backend unavailable; ${productionRateLimitRequired ? "using bounded retry delay" : "local request continues"}`,
-      error,
+      { errorType: describeBackendFailure(error) },
     );
     return productionRateLimitRequired ? MAX_BACKOFF_SECONDS : 0;
   }
