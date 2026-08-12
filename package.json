@@ -14,6 +14,7 @@
     "test:e2e:browser-webkit-study": "ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=study-integration-webkit --shard=1/2 && ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=study-integration-webkit --shard=2/2",
     "test:e2e:student-ia": "ENABLE_TEST_ROUTES=1 playwright test --project=student-shell-chromium --project=student-shell-mobile --project=role-redirects --project=locale-chromium --project=study-navigation-chromium --project=study-navigation-mobile",
     "test:e2e:student-qa": "ENABLE_TEST_ROUTES=1 playwright test --project=student-final-qa --project=study-action-fidelity-desktop --project=study-action-fidelity-mobile --project=study-card-fidelity-chromium --project=study-card-fidelity-mobile",
+    "test:e2e:study-stream-v2": "ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all playwright test --project=study-stream-v2-chromium",
     "test:e2e:workspace": "ENABLE_TEST_ROUTES=1 playwright test --project=role-redirects",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:db:stream-v2": "node --import tsx scripts/check-study-stream-v2.ts",

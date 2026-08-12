@@ -67,3 +67,39 @@ test("V2 assignment is deny-by-default and internal-user scoped", () => {
     reason: "internal-allowlist",
   });
 });
+
+test("local all-user assignment enables V2 without changing production defaults", () => {
+  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
+    NODE_ENV: "development",
+  }), {
+    flowVersion: "v2",
+    reason: "local-all",
+  });
+  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
+    NODE_ENV: "production",
+  }), {
+    flowVersion: "v1",
+    reason: "legacy-default",
+  });
+  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
+    NODE_ENV: "production",
+    ENABLE_TEST_ROUTES: "1",
+  }), {
+    flowVersion: "v2",
+    reason: "local-all",
+  });
+  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
+    NODE_ENV: "production",
+    ENABLE_TEST_ROUTES: "1",
+    VERCEL_ENV: "preview",
+  }), {
+    flowVersion: "v1",
+    reason: "legacy-default",
+  });
+  assert.deepEqual(resolveStudyFlowAssignment("student-a", "student-a", "off", {
+    NODE_ENV: "development",
+  }), {
+    flowVersion: "v1",
+    reason: "legacy-default",
+  });
+});

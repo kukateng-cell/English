@@ -85,6 +85,8 @@ interface WordCardProps {
   queueNote?: ReactNode;
   actionControllerRef?: { current: WordCardActionControls | null };
   disabled?: boolean;
+  /** Hide swipe/self-rating affordances while a gated card awaits reveal. */
+  showInteractionHint?: boolean;
   /** Monotonic page generation; changes invalidate every in-flight gesture. */
   interactionEpoch?: number;
   /** Test-harness instrumentation; production callers leave this unset. */
@@ -276,6 +278,7 @@ export default function WordCard({
   queueNote,
   actionControllerRef,
   disabled,
+  showInteractionHint = true,
   interactionEpoch = 0,
   onMotionProbe,
   timelineLeadEnabled = true,
@@ -1212,7 +1215,7 @@ export default function WordCard({
   return (
     <div className="word-card-frame select-none">
       {/* 背景提示文字 */}
-      <div className="word-card-swipe-labels pointer-events-none absolute inset-0 flex items-center justify-between px-12">
+      <div aria-hidden="true" className="word-card-swipe-labels pointer-events-none absolute inset-0 flex items-center justify-between px-12">
         <span
           ref={leftLabelRef}
           style={{ opacity: 0 }}
@@ -1239,8 +1242,9 @@ export default function WordCard({
             ref={dragLayerRef}
             data-testid="word-card-drag-layer"
             role="group"
-            aria-label={tc("可左右拖曳的单词卡")}
-            aria-keyshortcuts="ArrowLeft ArrowRight"
+            aria-label={tc(showInteractionHint ? "可左右拖曳的单词卡" : "单词卡，请先揭示中文意思")}
+            aria-keyshortcuts={showInteractionHint ? "ArrowLeft ArrowRight" : undefined}
+            aria-disabled={disabled || undefined}
             tabIndex={0}
             onKeyDown={handleCardKeyDown}
             style={{ touchAction: "pan-y" }}
@@ -1273,7 +1277,9 @@ export default function WordCard({
 
             <div className="word-card-bottom">
               {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
-              <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("还不会")} <span className="keycap">→</span> {tc("我会")}</span>
+              {showInteractionHint ? (
+                <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("还不会")} <span className="keycap">→</span> {tc("我会")}</span>
+              ) : null}
             </div>
           </div>
         </div>

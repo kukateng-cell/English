@@ -89,3 +89,15 @@ test("production configuration rejects browser-only test routes", () => {
   });
   assert.ok(errors.some((error) => error.includes("ENABLE_TEST_ROUTES")));
 });
+
+test("production configuration rejects local all-user V2 assignment", () => {
+  const errors = productionConfigurationErrors({
+    UPSTASH_REDIS_REST_URL: "https://example.invalid",
+    UPSTASH_REDIS_REST_TOKEN: "test-token",
+    CRON_SECRET: "local-check-secret",
+    SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
+    NODE_ENV: "production",
+    STUDY_V2_ASSIGNMENT_MODE: "all",
+  });
+  assert.ok(errors.some((error) => error.includes("STUDY_V2_ASSIGNMENT_MODE=all")));
+});

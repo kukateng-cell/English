@@ -75,6 +75,15 @@ export default defineConfig({
       },
     },
     {
+      name: "study-stream-v2-chromium",
+      testMatch: /study-stream-v2\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
       name: "student-shell-chromium",
       testMatch: /student-shell\.spec\.ts/,
       dependencies: ["auth-setup-chromium"],

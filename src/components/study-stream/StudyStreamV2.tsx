@@ -491,6 +491,7 @@ function LearningCardView({
         onSwipeLeft={() => onSelfRating("selfForgot")}
         onSwipeRight={() => onSelfRating("selfRecalled")}
         disabled={!revealed || disabled}
+        showInteractionHint={revealed}
         interactionEpoch={epoch}
         queueNote={tc("可随时离开，进度会安全保留")}
       >

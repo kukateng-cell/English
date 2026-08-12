@@ -1,8 +1,9 @@
 import { STUDY_STREAM_FLOW_VERSION } from "@/lib/study-stream/contracts";
+import { isProductionRuntime } from "@/lib/production-config";
 
 export interface StudyFlowAssignment {
   flowVersion: "v1" | typeof STUDY_STREAM_FLOW_VERSION;
-  reason: "legacy-default" | "internal-allowlist";
+  reason: "legacy-default" | "internal-allowlist" | "local-all";
 }
 
 function parseIds(value: string | undefined): Set<string> {
@@ -14,6 +15,13 @@ function parseIds(value: string | undefined): Set<string> {
   );
 }
 
+function allowsLocalAllUserAssignment(
+  env: Record<string, string | undefined>,
+): boolean {
+  if (!isProductionRuntime(env)) return true;
+  return env.ENABLE_TEST_ROUTES === "1" && !env.VERCEL_ENV;
+}
+
 /**
  * V2 is deliberately deny-by-default. This allowlist is for internal/test
  * accounts only; it is not a student cohort or research assignment switch.
@@ -21,7 +29,15 @@ function parseIds(value: string | undefined): Set<string> {
 export function resolveStudyFlowAssignment(
   userId: string,
   internalUserIds = process.env.STUDY_V2_INTERNAL_USER_IDS,
+  assignmentMode = process.env.STUDY_V2_ASSIGNMENT_MODE,
+  runtimeEnv: Record<string, string | undefined> = process.env,
 ): StudyFlowAssignment {
+  if (assignmentMode === "off") {
+    return { flowVersion: "v1", reason: "legacy-default" };
+  }
+  if (assignmentMode === "all" && allowsLocalAllUserAssignment(runtimeEnv)) {
+    return { flowVersion: STUDY_STREAM_FLOW_VERSION, reason: "local-all" };
+  }
   if (parseIds(internalUserIds).has(userId)) {
     return { flowVersion: STUDY_STREAM_FLOW_VERSION, reason: "internal-allowlist" };
   }
@@ -31,6 +47,8 @@ export function resolveStudyFlowAssignment(
 export function isStudyStreamV2Assigned(
   userId: string,
   internalUserIds = process.env.STUDY_V2_INTERNAL_USER_IDS,
+  assignmentMode = process.env.STUDY_V2_ASSIGNMENT_MODE,
+  runtimeEnv: Record<string, string | undefined> = process.env,
 ): boolean {
-  return resolveStudyFlowAssignment(userId, internalUserIds).flowVersion === STUDY_STREAM_FLOW_VERSION;
+  return resolveStudyFlowAssignment(userId, internalUserIds, assignmentMode, runtimeEnv).flowVersion === STUDY_STREAM_FLOW_VERSION;
 }
