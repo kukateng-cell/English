@@ -123,6 +123,16 @@ test("V2 outbox rejects corruption and can rebind an expiring item credential", 
     const savedCheckpoint = storage.getItem("english:study-stream-v2:checkpoint:outbox-user:global");
     assert.deepEqual(saveStudyStreamCheckpoint(userId, "global", checkpoint), { ok: true });
     assert.equal(storage.getItem("english:study-stream-v2:checkpoint:outbox-user:global"), savedCheckpoint);
+    storage.setItem("english:study-stream-v2:checkpoint:outbox-user:global", JSON.stringify({
+      version: 1,
+      sessionId: checkpoint.sessionId,
+      streamItemId: checkpoint.streamItemId,
+      clientRevision: checkpoint.clientRevision,
+      phase: checkpoint.phase,
+      updatedAt: "corrupt",
+    }));
+    assert.deepEqual(saveStudyStreamCheckpoint(userId, "global", checkpoint), { ok: true });
+    assert.equal(typeof loadStudyStreamCheckpoint(userId, "global")?.updatedAt, "number");
 
     storage.clear();
     for (let index = 0; index < STUDY_STREAM_OUTBOX_MAX_ROWS; index += 1) {

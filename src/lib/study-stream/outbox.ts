@@ -189,15 +189,9 @@ export function saveStudyStreamCheckpoint(
       version: 1,
       updatedAt: Date.now(),
     });
-    const previous = window.localStorage.getItem(key);
-    let previousCheckpoint: Partial<StudyStreamCheckpoint> | null = null;
-    if (previous) {
-      try {
-        previousCheckpoint = JSON.parse(previous) as Partial<StudyStreamCheckpoint>;
-      } catch {
-        // Replace a corrupt checkpoint with the new authoritative pointer.
-      }
-    }
+    // Only a fully valid prior checkpoint can suppress a write. A malformed
+    // record with matching core fields must still be repaired in place.
+    const previousCheckpoint = loadStudyStreamCheckpoint(userId, scopeKey);
     if (
       previousCheckpoint &&
       previousCheckpoint.version === 1 &&
