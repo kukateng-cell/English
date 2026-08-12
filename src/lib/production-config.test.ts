@@ -1,9 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  isProductionRuntime,
   legacyOperationIdCompatibilityEndsAt,
   productionConfigurationErrors,
+  requiresDistributedRateLimitBackend,
 } from "./production-config";
+
+test("production runtime detection fails closed for either deployment signal", () => {
+  assert.equal(isProductionRuntime({ NODE_ENV: "production" }), true);
+  assert.equal(isProductionRuntime({ VERCEL_ENV: "production" }), true);
+  assert.equal(isProductionRuntime({ NODE_ENV: "development", VERCEL_ENV: "preview" }), false);
+  assert.equal(requiresDistributedRateLimitBackend({ NODE_ENV: "production" }), true);
+  assert.equal(requiresDistributedRateLimitBackend({ VERCEL_ENV: "production" }), true);
+  assert.equal(
+    requiresDistributedRateLimitBackend({ NODE_ENV: "production", ENABLE_TEST_ROUTES: "1" }),
+    false,
+  );
+  assert.equal(requiresDistributedRateLimitBackend({ VERCEL_ENV: "preview" }), false);
+});
 
 test("production configuration requires distributed limits and cron auth", () => {
   assert.deepEqual(productionConfigurationErrors({}, 0), [

@@ -2,6 +2,30 @@ const MAX_COMPATIBILITY_WINDOW_MS = 30 * 60_000;
 
 type Environment = Record<string, string | undefined>;
 
+/**
+ * Treat both the framework runtime and the hosting environment as production.
+ * Vercel sets NODE_ENV for normal builds, but keeping VERCEL_ENV here prevents
+ * a production deployment with an unusual build/runtime combination from
+ * silently selecting local security fallbacks.
+ */
+export function isProductionRuntime(
+  env: Environment = process.env,
+): boolean {
+  return env.NODE_ENV === "production" || env.VERCEL_ENV === "production";
+}
+
+/**
+ * Browser-test builds intentionally run with NODE_ENV=production so they use
+ * the same optimized bundle. The explicit local test flag is the only
+ * exception to the distributed limiter requirement and is rejected by the
+ * real production configuration gate.
+ */
+export function requiresDistributedRateLimitBackend(
+  env: Environment = process.env,
+): boolean {
+  return isProductionRuntime(env) && env.ENABLE_TEST_ROUTES !== "1";
+}
+
 export function legacyOperationIdCompatibilityEndsAt(
   value: string | undefined,
   now = Date.now(),

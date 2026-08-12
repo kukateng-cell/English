@@ -1,5 +1,6 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { requiresDistributedRateLimitBackend } from "@/lib/production-config";
 
 const MAX_EVENTS_PER_MINUTE = 90;
 const DEFAULT_MAX_QUEUE_LOADS_PER_USER_PER_MINUTE = 60;
@@ -87,15 +88,13 @@ const distributedCredentialIpLimiter = redis
   : null;
 
 function unavailableInProduction(): { ok: false; retryAfterSec: number } | null {
-  const explicitTestRuntime = process.env.ENABLE_TEST_ROUTES === "1";
-  return process.env.NODE_ENV === "production" && !redis && !explicitTestRuntime
+  return requiresDistributedRateLimitBackend() && !redis
     ? { ok: false, retryAfterSec: 60 }
     : null;
 }
 
 function backendFailureInProduction(): { ok: false; retryAfterSec: number } | null {
-  const explicitTestRuntime = process.env.ENABLE_TEST_ROUTES === "1";
-  return process.env.NODE_ENV === "production" && !explicitTestRuntime
+  return requiresDistributedRateLimitBackend()
     ? { ok: false, retryAfterSec: 60 }
     : null;
 }

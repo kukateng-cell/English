@@ -340,6 +340,10 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   smoke 均已通過；credential compatibility inventory、lineage scan、20-run bounded internal soak
   及 V2 structured observability／support runbook 亦已完成；詳細結果見四份 controlled
   sub-plans 及 `plans/artifacts/`。
+- shared login、password-change、study queue／action／credential limiter 嘅 runtime guard
+  已統一為 production／Vercel production fail-closed，只有明確 local browser-test runtime
+  可使用 memory fallback；production build、shape-only config gate 及 child-process guard
+  checks 均通過。
 - 已驗證的核心行為包括 C-001 direct mature probe、C-002 admission control、C-003
   objective recognition wording、C-004 versioned quality、C-005 global／unit stream、
   C-006 quality 4／2、C-007 bounded debt／spacing、C-008 target＋immutable snapshot、

@@ -21,16 +21,17 @@
  *    各副本计数不共享，攻击者请求被负载均衡分散即可绕过。
  *  - Upstash Redis 通过 REST API 共享计数，所有副本读写同一窗口状态。
  *
- * 故障策略：后端（Redis）调用抛错时「fail-open」放行并记录错误，
- *  避免 Redis 抖动时把全部合法用户锁死在登录页（可用性优先于严格限流）。
+ * 故障策略：production runtime 的后端（Redis）调用抛错时 fail-closed 并记录错误；
+ * 只有 local／明确 browser-test runtime 才允许使用单实例 memory fallback。
  *
  * 本地开发：未配置 UPSTASH_REDIS_REST_URL / TOKEN 时，自动降级为
  *  单实例内存滑动窗口（语义一致，仅限本地/单副本，会打印一次警告）。
- * Vercel production 缺少任一变量时会直接拒绝启动，避免多实例静默降级。
+ * production release gate 会拒绝缺少任一变量，runtime guard 亦避免多实例静默降级。
  */
 
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { requiresDistributedRateLimitBackend } from "@/lib/production-config";
 
 /** 单账号保持严格；共享校园/NAT IP 使用较宽的预认证防洪门槛。 */
 const ACCOUNT_MAX_ATTEMPTS = 5;
@@ -170,15 +171,11 @@ function createMemoryBackend(max: number, windowMs: number): {
 
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const productionRateLimitRequired = requiresDistributedRateLimitBackend();
 
 if (Boolean(UPSTASH_URL) !== Boolean(UPSTASH_TOKEN)) {
   throw new Error(
     "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together",
-  );
-}
-if (process.env.VERCEL_ENV === "production" && !UPSTASH_URL) {
-  throw new Error(
-    "Production requires the distributed Upstash rate-limit backend",
   );
 }
 
@@ -205,10 +202,12 @@ const accountBackend: LimiterBackend = useUpstash
     )
   : (() => {
       // 本地开发回退：单实例内存计数（与分布式语义一致，但不跨实例共享）。
-      console.warn(
-        "[login-limiter] 未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
-          "降级为单实例内存限流（仅供本地开发；生产请务必配置 Upstash Redis）。",
-      );
+      if (!productionRateLimitRequired) {
+        console.warn(
+          "[login-limiter] 未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
+            "降级为单实例内存限流（仅供本地开发；生产请务必配置 Upstash Redis）。",
+        );
+      }
       const mem = createMemoryBackend(ACCOUNT_MAX_ATTEMPTS, WINDOW_MS);
       memoryResets.push(mem.resetAllForTests);
       return mem.backend;
@@ -294,12 +293,15 @@ function normalizeAccount(account: string): string {
  * 注意：本函数「会」消费令牌（即使是合法用户登录也计 1 次）。
  * 这是「每分钟最多 5 次尝试」的直接实现，并能保护后续 bcrypt 计算不被滥用。
  *
- * Redis 故障时 fail-open 放行（可用性优先），并记录错误日志。
+ * Redis 故障时 production fail-closed；本地开发才允许继续使用本地实现。
  */
 export async function checkLimit(
   account: string,
   ip: string,
 ): Promise<LimitResult> {
+  if (productionRateLimitRequired && !useUpstash) {
+    return { ok: false, retryAfterSec: 60 };
+  }
   try {
     const ipResult = await ipBackend.limit(ip);
     if (!ipResult.ok) {
@@ -321,8 +323,13 @@ export async function checkLimit(
 
     return { ok: true };
   } catch (err) {
-    console.error("[login-limiter] checkLimit 后端错误，fail-open 放行：", err);
-    return { ok: true };
+    console.error(
+      `[login-limiter] checkLimit 后端错误，${productionRateLimitRequired ? "fail-closed" : "本地继续"}：`,
+      err,
+    );
+    return productionRateLimitRequired
+      ? { ok: false, retryAfterSec: 60 }
+      : { ok: true };
   }
 }
 
@@ -342,6 +349,9 @@ export async function getLimitStatus(
   retryAfterSec?: number;
   dimension?: Dimension;
 }> {
+  if (productionRateLimitRequired && !useUpstash) {
+    return { locked: true, retryAfterSec: 60, dimension: "account" };
+  }
   try {
     const acct = await accountBackend.remaining(normalizeAccount(account));
     if (acct.remaining <= 0) {
@@ -363,8 +373,13 @@ export async function getLimitStatus(
 
     return { locked: false };
   } catch (err) {
-    console.error("[login-limiter] getLimitStatus 后端错误，按未锁定返回：", err);
-    return { locked: false };
+    console.error(
+      `[login-limiter] getLimitStatus 后端错误，${productionRateLimitRequired ? "按已锁定返回" : "按未锁定返回"}：`,
+      err,
+    );
+    return productionRateLimitRequired
+      ? { locked: true, retryAfterSec: 60, dimension: "account" }
+      : { locked: false };
   }
 }
 
@@ -374,9 +389,12 @@ export async function getLimitStatus(
  * 使用独立的 statusBackend 桶（prefix="login-status"），**不消耗登录尝试配额**，
  * 因此合法用户查询锁定状态不会影响其登录尝试次数。
  *
- * 故障时 fail-open 放行（与 checkLimit 一致），避免 Redis 抖动影响可用性。
+ * production 故障时 fail-closed；本地开发才允许继续运行。
  */
 export async function checkStatusRate(ip: string): Promise<LimitResult> {
+  if (productionRateLimitRequired && !useUpstash) {
+    return { ok: false, retryAfterSec: 60, dimension: "ip" };
+  }
   try {
     const r = await statusBackend.limit(`ip:${ip}`);
     if (!r.ok) {
@@ -388,8 +406,13 @@ export async function checkStatusRate(ip: string): Promise<LimitResult> {
     }
     return { ok: true };
   } catch (err) {
-    console.error("[login-limiter] checkStatusRate 后端错误，fail-open 放行：", err);
-    return { ok: true };
+    console.error(
+      `[login-limiter] checkStatusRate 后端错误，${productionRateLimitRequired ? "fail-closed" : "本地继续"}：`,
+      err,
+    );
+    return productionRateLimitRequired
+      ? { ok: false, retryAfterSec: 60, dimension: "ip" }
+      : { ok: true };
   }
 }
 

@@ -352,7 +352,7 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 
 ### 2026-08-12：Contract acceptance evidence
 
-- `npm test` 122 passed，涵蓋 state machine、scheduler long sequence、combined cap、
+- `npm test` 123 passed，涵蓋 state machine、scheduler long sequence、combined cap、
   per-word dedupe、eligible delay、mode scope、remediation、construction fail-closed、
   correct=4／wrong=2 及 typed action boundary。
 - `npm run test:db:stream-v2` passed，補充 Serializable admission lock、V2 provenance、

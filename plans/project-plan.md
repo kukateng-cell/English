@@ -383,6 +383,10 @@ credential compatibility inventory、bounded internal soak、request-level struc
 observability 及 support／incident runbook；本地 inventory 顯示 0 receipt／provenance／
 lineage gap。
 
+Production shared rate-limit backend guards 已同步涵蓋 login、password change、study queue、
+study action 及 credential renewal：正式 runtime 缺少 Upstash 時 fail closed，明確 browser-test
+runtime 才可使用 local fallback；production build 同完整 browser regression 已重新驗證。
+
 本地 feature-off rollback smoke 已完成；正式 production deploy、学生 pilot、研究
 telemetry／consent 及 contract cleanup 尚未执行。後者仍是
 `plans/retrieval-first-learning-program.md` 及其受控子計劃的外部 gates。

@@ -1,5 +1,6 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { requiresDistributedRateLimitBackend } from "@/lib/production-config";
 
 const USER_MAX_ATTEMPTS = 5;
 const IP_MAX_ATTEMPTS = 30;
@@ -12,11 +13,21 @@ const localFailures = new Map<
   { count: number; expiresAt: number; blockedUntil: number }
 >();
 
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const productionRateLimitRequired = requiresDistributedRateLimitBackend();
+
+if (Boolean(UPSTASH_URL) !== Boolean(UPSTASH_TOKEN)) {
+  throw new Error(
+    "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together",
+  );
+}
+
 const redis =
-  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+  UPSTASH_URL && UPSTASH_TOKEN
     ? new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN,
+        url: UPSTASH_URL,
+        token: UPSTASH_TOKEN,
       })
     : null;
 
@@ -78,6 +89,9 @@ async function currentBackoffSeconds(userId: string) {
 }
 
 export async function checkPasswordChangeLimit(userId: string, ip: string) {
+  if (productionRateLimitRequired && !redis) {
+    return { ok: false, dimension: "backend" as const, retryAfterSec: 60 };
+  }
   try {
     const backoff = await currentBackoffSeconds(userId);
     if (backoff > 0) {
@@ -119,13 +133,21 @@ export async function checkPasswordChangeLimit(userId: string, ip: string) {
       ? { ok: true }
       : { ...userResult, dimension: "user" as const };
   } catch (error) {
-    console.error("[password-change-limiter] backend unavailable", error);
-    return { ok: true };
+    console.error(
+      `[password-change-limiter] backend unavailable; ${productionRateLimitRequired ? "failing closed" : "local request allowed"}`,
+      error,
+    );
+    return productionRateLimitRequired
+      ? { ok: false, dimension: "backend" as const, retryAfterSec: 60 }
+      : { ok: true };
   }
 }
 
 /** Record a failed current-password check and impose 1, 2, 4…60 second backoff. */
 export async function recordPasswordChangeFailure(userId: string) {
+  if (productionRateLimitRequired && !redis) {
+    return MAX_BACKOFF_SECONDS;
+  }
   try {
     if (redis) {
       const key = failureCountKey(userId);
@@ -153,8 +175,11 @@ export async function recordPasswordChangeFailure(userId: string) {
     });
     return retryAfterSec;
   } catch (error) {
-    console.error("[password-change-limiter] backoff backend unavailable", error);
-    return 0;
+    console.error(
+      `[password-change-limiter] backoff backend unavailable; ${productionRateLimitRequired ? "using bounded retry delay" : "local request continues"}`,
+      error,
+    );
+    return productionRateLimitRequired ? MAX_BACKOFF_SECONDS : 0;
   }
 }
 

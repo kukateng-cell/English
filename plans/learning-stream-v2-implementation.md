@@ -161,7 +161,8 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   item-validity fail-closed、answer scoring及 ReviewEvent provenance／quality mapping；
 - [x] `operationId` 重送回相同 authoritative result；
 - [x] 所有 route 使用現有 authorization helper、rate limit 同 typed validation；
-- [x] production 不可用 shared rate-limit storage 時仍然 fail closed。
+- [x] production 不可用 shared rate-limit storage 時，login、password-change、study queue／
+  action／credential renewal paths 均 fail closed；local browser test 例外由 explicit flag 限定。
 
 ### Phase 3：Global stream internal integration
 
@@ -276,6 +277,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-005 | Reveal 要唔要 operational durable action | self-rating／probe answer 必定 durable；reveal 先保持 presentation state，只有 resume／獨立 operational requirement 才另加 typed durable action | Phase 1 state/data review |
 | I-006 | Pilot go／pause 數值 | 唔虛構；用 V1 baseline + internal soak 預先寫 runbook | Phase 5 前 |
 | I-007 | Cross-tab credential rotation | item 保留 bounded、短效 credential digest lineage；bootstrap／renew 發出 successor 時不撤銷仍有效的 predecessor，action 仍由 item status、operation receipt、target／Review CAS authoritative 決定 | Phase 4 reliability；需 expand migration |
+| I-008 | Shared rate-limit backend 故障策略 | production／Vercel production runtime 一律 fail closed；memory fallback 只限非-production local 或明確 `ENABLE_TEST_ROUTES=1` test runtime；login、password change、study queue／action／credential renewal 共用同一 runtime 判定 | Phase 2 security regression |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -295,7 +297,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 
-- `npm test`：122 passed；`npm run lint`、`npx tsc --noEmit`：passed。
+- `npm test`：123 passed；`npm run lint`、`npx tsc --noEmit`：passed。
 - `npx prisma validate`、`npx prisma generate`、`npm run db:deploy`：passed；新增
   expand migration 已套用，本地 preflight 顯示無 lineage gap。
 - `npm run test:db:stream-v2`：passed；涵蓋 global／unit scope、server-issued item
@@ -309,7 +311,10 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   只喺 temporary schema 執行，未對本地正式資料庫執行 `npm run db:contract`。
 - Production config default local env 按預期拒絕缺少 secrets；不落盤 shape-only synthetic
   env 通過。production 無 Upstash 或誤帶
-  `ENABLE_TEST_ROUTES=1` 會 fail closed／fail validation。未進行正式部署。
+  `ENABLE_TEST_ROUTES=1` 會 fail closed／fail validation。login、password-change、study
+  queue／action／credential limiter 的 production runtime guard 亦以缺少 backend 的
+  child-process check 驗證；browser test 只喺明確 `ENABLE_TEST_ROUTES=1` 時使用 local
+  fallback。未進行正式部署。
 - `npm run test:e2e:card-motion`：Chromium 73 passed／4 skipped；WebKit 33 passed。
   另以 V2 internal assignment 執行 study-integration Chromium 32 passed，並手動驗證
   objective answer、read-only feedback ack、learning-card reveal／self-rating、合法離開、
@@ -327,9 +332,12 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   及 lineage compatibility scan 均 passed，
   0 receipt gap、0 V2 provenance gap、0 lineage gap。內部 browser semantic check verified
   labelled keyboard group、native radio options、checked／disabled state 及 `aria-live` feedback。
+- Production build（42/42 static pages）及完整 `npm run test:e2e:card-motion` 重新通過：
+  Chromium 73 passed／4 skipped、WebKit 33 passed；同一輪亦驗證 V1 rollback／offline／
+  cross-device browser paths。`pg@9` warning 已以 traced run 定位至 Prisma PostgreSQL
+  adapter transaction path，仍係 non-fatal runtime hygiene limitation，唔係 application
+  assertion failure。
 
 未勾選項目及限制：原生 screen-reader／手機實機驗收、production observability threshold、
-正式 production deploy、學生 pilot、研究 telemetry／consent、
-old-binary compatibility window 及 contract cleanup 尚未完成。`pg@9` integration path
-仍會輸出一個 non-fatal overlapping `client.query()` deprecation warning，列為後續 runtime
-hygiene 工作。
+正式 production deploy、學生 pilot、研究 telemetry／consent、old-binary compatibility
+window 及 contract cleanup 尚未完成。
