@@ -59,11 +59,12 @@ async function getUserProgress(userId: string, db: AchievementDb): Promise<{
   streak: number;
   studyDays: number;
 }> {
-  const [reviews, studyDays, streakInfo] = await Promise.all([
-    db.review.count({ where: { userId } }),
-    db.studyDay.count({ where: { userId } }),
-    computeStreak(userId, db),
-  ]);
+  // A Prisma interactive transaction is backed by one pg client. Running
+  // these reads concurrently makes pg@9 queue overlapping client.query calls
+  // and can produce nondeterministic warnings during the V2 action path.
+  const reviews = await db.review.count({ where: { userId } });
+  const studyDays = await db.studyDay.count({ where: { userId } });
+  const streakInfo = await computeStreak(userId, db);
   return { reviews, streak: streakInfo.count, studyDays };
 }
 

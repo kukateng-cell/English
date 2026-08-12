@@ -85,6 +85,17 @@ async function main() {
     if (first.duplicate || !duplicate.duplicate) {
       throw new Error("same operationId was not deduplicated");
     }
+    const firstReceipt = await prisma.operationReceipt.findUnique({
+      where: { userId_operationId: { userId, operationId: firstOperation } },
+      select: { flowVersion: true, actionKind: true, outcomeStatus: true },
+    });
+    if (
+      firstReceipt?.flowVersion !== "v1" ||
+      firstReceipt?.actionKind !== "REVIEW" ||
+      firstReceipt?.outcomeStatus !== "SCORED"
+    ) {
+      throw new Error("V1 operation receipt was not persisted with the scored result");
+    }
 
     await assertRejectsConflict(() =>
       applyReviewEvent({

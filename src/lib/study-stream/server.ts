@@ -117,6 +117,13 @@ interface AdmissionOutcome {
   obligationId: string | null;
 }
 
+async function lockStreamUser(tx: StreamTransaction, userId: string): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(
+    Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`,
+  );
+  if (rows.length !== 1) throw new StudyStreamError(403, "学习账户不存在或已失效");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -424,7 +431,12 @@ function snapshotToData(snapshot: ObjectiveQuestionSnapshot): ObjectiveQuestionS
   if (
     (snapshot.direction !== "en-zh" && snapshot.direction !== "zh-en") ||
     !Array.isArray(snapshot.options) ||
-    typeof snapshot.correctOptionId !== "string"
+    typeof snapshot.correctOptionId !== "string" ||
+    snapshot.contentVersion !== RETRIEVAL_V1_POLICY.itemConstructionVersion ||
+    snapshot.itemConstructionVersion !== RETRIEVAL_V1_POLICY.itemConstructionVersion ||
+    snapshot.prompt.trim().length === 0 ||
+    snapshot.wordTerm.trim().length === 0 ||
+    snapshot.wordDefinition.trim().length === 0
   ) {
     return null;
   }
@@ -469,6 +481,7 @@ function toPublicItem(
   feedback: StoredFeedback | null = null,
 ): PublicStreamItemBase | null {
   if (!row.word) return null;
+  if (row.itemKind !== "LEARNING_CARD" && row.itemKind !== "OBJECTIVE_PROBE") return null;
   const base: PublicStreamItemBase = {
     streamItemId: row.id,
     kind: row.itemKind as StreamItemKind,
@@ -729,6 +742,7 @@ async function createStreamItem(
       clientRevision: session.revision,
       objectiveEvidenceTargetId: targetId,
       objectiveQuestionSnapshotId: snapshotId,
+      workObligationId: candidate.workId ?? null,
     },
     include: {
       word: true,
@@ -737,7 +751,7 @@ async function createStreamItem(
     },
   });
   if (candidate.workId) {
-    await tx.evidenceObligation.updateMany({
+    const leased = await tx.evidenceObligation.updateMany({
       where: { id: candidate.workId, status: { in: ["PENDING", "LEASED"] } },
       data: {
         status: "LEASED",
@@ -745,6 +759,7 @@ async function createStreamItem(
         leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
       },
     });
+    if (leased.count !== 1) throw new StudyStreamError(409, "学习任务已被其他装置接手，请重新载入");
   }
   return { item, credential };
 }
@@ -780,7 +795,14 @@ export async function getOrCreateStudyStream(
         async (tx) => {
           const now = new Date();
           const scope = await resolveScope(userId, tx, options);
+          // Serialise session creation and item leasing per learner. Serializable
+          // retries still protect the database, while the explicit user lock
+          // makes the cross-tab bootstrap invariant observable and bounded.
+          await lockStreamUser(tx, userId);
           const session = await ensureSession(tx, userId, scope, now);
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${session.id} FOR UPDATE`,
+          );
           const current = await getCurrentItem(tx, session.id);
           if (current) {
             const ensured = await ensureCredential(tx, current, options.itemCredential, now);
@@ -867,7 +889,13 @@ async function loadActionItem(
   if (item.session.retiredAt !== null || item.session.expiresAt <= now || item.credentialExpiresAt <= now) {
     throw new StudyStreamError(403, "学习 session 已过期或已撤销");
   }
-  if (item.clientRevision !== input.clientKnownRevision) {
+  if (item.usedAt === null && item.leaseExpiresAt <= now) {
+    throw new StudyStreamError(403, "学习项目租约已过期，请重新载入", { code: "EXPIRED_ITEM_LEASE" });
+  }
+  // Feedback acknowledgement is read-only and may legitimately be replayed
+  // from a checkpoint created before the scored answer's revision was
+  // published. The scored action itself remains strict CAS-protected.
+  if (item.clientRevision !== input.clientKnownRevision && input.actionKind !== "FEEDBACK_ACK") {
     throw new StudyStreamError(409, "学习项目版本已更新", {
       code: "STALE_STREAM_ITEM",
       clientRevision: item.clientRevision,
@@ -1020,6 +1048,20 @@ async function processSelfRating(
     throw new StudyStreamError(400, "self-rating 无效");
   }
   const selfRating = input.payload.selfRating as SelfRating;
+  const now = new Date();
+  if (item.workObligationId) {
+    const completedWork = await tx.evidenceObligation.updateMany({
+      where: { id: item.workObligationId, status: { in: ["PENDING", "LEASED"] } },
+      data: {
+        status: "ANSWERED",
+        answeredAt: now,
+        activeKey: null,
+        leaseOwnerSessionId: null,
+        leaseExpiresAt: null,
+      },
+    });
+    if (completedWork.count !== 1) throw new StudyStreamError(409, "学习任务已被其他装置完成，请重新载入");
+  }
   const review = await tx.review.findUnique({
     where: { userId_wordId: { userId, wordId: item.word.id } },
     select: { repetitions: true },
@@ -1042,15 +1084,14 @@ async function processSelfRating(
       repetitions: review?.repetitions ?? 0,
       hadObjectiveEvidence,
       activeWork: [],
-      now: Date.now(),
+      now: now.getTime(),
       sourceOperationId: input.operationId,
     });
-    if (required) admission = await admissionWork(tx, userId, item.word.id, "EVIDENCE_OBLIGATION", new Date(), input.operationId);
+    if (required) admission = await admissionWork(tx, userId, item.word.id, "EVIDENCE_OBLIGATION", now, input.operationId);
   } else {
-    admission = await admissionWork(tx, userId, item.word.id, "REMEDIATION", new Date(), input.operationId);
+    admission = await admissionWork(tx, userId, item.word.id, "REMEDIATION", now, input.operationId);
   }
 
-  const now = new Date();
   await checkInStudyDay(userId, tx);
   const newlyUnlocked = await checkAchievements(userId, tx);
   const revision = nextSessionRevision(item);
@@ -1302,6 +1343,7 @@ async function applyStudyStreamActionTx(
     try {
       return await prisma.$transaction(
         async (tx) => {
+          await lockStreamUser(tx, userId);
           const replay = await preflightReceipt(tx, userId, input);
           if (replay) return replay;
           const item = await loadActionItem(tx, userId, input, new Date());
@@ -1354,6 +1396,7 @@ export async function renewStudyStreamCredential(
   return prisma.$transaction(
     async (tx) => {
       const now = new Date();
+      await lockStreamUser(tx, userId);
       const item = await tx.studyStreamItem.findFirst({
         where: {
           id: input.streamItemId,

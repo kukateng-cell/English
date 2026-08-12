@@ -210,6 +210,7 @@ model StudyStreamItem {
   clientRevision              Int?
   objectiveEvidenceTargetId   String?
   objectiveQuestionSnapshotId String?
+  workObligationId            String?
   sourceItemId                String?                    @unique
   createdAt                   DateTime                   @default(now())
   updatedAt                   DateTime                   @updatedAt
@@ -217,6 +218,7 @@ model StudyStreamItem {
   word                        Word?                      @relation(fields: [wordId], references: [id], onDelete: SetNull)
   objectiveEvidenceTarget     ObjectiveEvidenceTarget?   @relation(fields: [objectiveEvidenceTargetId], references: [id], onDelete: SetNull)
   objectiveQuestionSnapshot   ObjectiveQuestionSnapshot? @relation(fields: [objectiveQuestionSnapshotId], references: [id], onDelete: SetNull)
+  workObligation              EvidenceObligation?       @relation("WorkStreamItems", fields: [workObligationId], references: [id], onDelete: SetNull)
   sourceItem                  StudyStreamItem?           @relation("StudyStreamItemLineage", fields: [sourceItemId], references: [id], onDelete: SetNull)
   successorItem               StudyStreamItem?           @relation("StudyStreamItemLineage")
   encounter                   StudyEncounter?
@@ -226,6 +228,7 @@ model StudyStreamItem {
   @@index([sessionId, usedAt])
   @@index([operationId])
   @@index([objectiveEvidenceTargetId, status])
+  @@index([workObligationId, status])
 }
 
 model EvidenceObligation {
@@ -251,6 +254,7 @@ model EvidenceObligation {
   word                    Word?                    @relation(fields: [wordId], references: [id], onDelete: SetNull)
   objectiveEvidenceTarget ObjectiveEvidenceTarget? @relation("ObligationTarget")
   encounters              StudyEncounter[]
+  workStreamItems         StudyStreamItem[]         @relation("WorkStreamItems")
 
   @@index([userId, status, eligibleAt, expiresAt])
   @@index([userId, wordId, kind, status])

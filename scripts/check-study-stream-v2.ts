@@ -11,7 +11,10 @@ async function main() {
     applyStudyStreamAction,
     getOrCreateStudyStream,
   } = await import("../src/lib/study-stream/server");
-  const { createStudyStreamCredential } = await import("../src/lib/study-stream/contracts");
+  const {
+    createStudyStreamCredential,
+    digestStudyStreamCredential,
+  } = await import("../src/lib/study-stream/contracts");
   const suffix = randomUUID();
   let userId: string | null = null;
   const wordIds: string[] = [];
@@ -46,6 +49,16 @@ async function main() {
     assert.equal(bootstrap.item.learningCard, undefined);
     const learningItem = bootstrap.item;
     const sessionId = bootstrap.session.id;
+
+    const unitBootstrap = await getOrCreateStudyStream(user.id, {
+      mode: "unit",
+      level: "A1",
+      category: "Hello and Goodbye",
+    });
+    assert.equal(unitBootstrap.session.mode, "unit");
+    assert.ok(unitBootstrap.item);
+    assert.equal(unitBootstrap.item.kind, "LEARNING_CARD");
+    assert.ok(unitBootstrap.item.prompt.length > 0);
 
     const revealInput: StudyStreamActionInput = {
       flowVersion: "v2",
@@ -83,6 +96,67 @@ async function main() {
     });
     const encounter = await prisma.studyEncounter.findFirstOrThrow({ where: { userId: user.id } });
     assert.equal(encounter.evidenceObligationId, obligation.id);
+
+    // Six independent stream items race to admit verification work. The
+    // learner row lock in the action transaction must make the combined cap
+    // observable, not merely a best-effort application-level count.
+    const concurrentItems = await Promise.all(wordIds.slice(1, 7).map(async (wordId, index) => {
+      const credential = createStudyStreamCredential();
+      const session = await prisma.studySession.create({
+        data: {
+          userId: user.id,
+          queueFingerprint: `concurrent-${suffix}-${index}`,
+          expiresAt: new Date(Date.now() + 30 * 60_000),
+          flowVersion: "v2",
+          learningPolicyVersion: "retrieval-v1",
+          mode: "global",
+          revision: 0,
+          streamItems: {
+            create: {
+              streamItemKey: `concurrent-${suffix}-${index}`,
+              wordId,
+              itemKind: "LEARNING_CARD",
+              selectionReason: "concurrency-test",
+              policyVersion: "retrieval-v1",
+              status: "LEASED",
+              leaseExpiresAt: new Date(Date.now() + 15 * 60_000),
+              credentialDigest: digestStudyStreamCredential(credential),
+              credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+              revealedAt: new Date(),
+              clientRevision: 0,
+            },
+          },
+        },
+        include: { streamItems: true },
+      });
+      const item = session.streamItems[0];
+      assert.ok(item);
+      return {
+        sessionId: session.id,
+        streamItemId: item.id,
+        credential,
+        operationId: `stream-concurrent-${suffix}-${index}`,
+      };
+    }));
+    const concurrentResults = await Promise.all(concurrentItems.map((item) =>
+      applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: item.sessionId,
+        streamItemId: item.streamItemId,
+        operationId: item.operationId,
+        itemCredential: item.credential,
+        actionKind: "SELF_RATING",
+        clientKnownRevision: 0,
+        payload: { selfRating: "selfRecalled" },
+      }),
+    ));
+    const acceptedConcurrent = concurrentResults.filter((result) => result.response.evidenceObligation?.created);
+    assert.equal(acceptedConcurrent.length, 4);
+    assert.equal(
+      await prisma.evidenceObligation.count({ where: { userId: user.id, status: { in: ["PENDING", "LEASED"] } } }),
+      5,
+    );
+
     await prisma.evidenceObligation.update({
       where: { id: obligation.id },
       data: { eligibleAt: new Date(Date.now() - 1_000) },
@@ -151,8 +225,39 @@ async function main() {
     assert.ok(remediation.item);
     assert.equal(remediation.item.kind, "LEARNING_CARD");
     assert.equal(remediation.item.selectionReason, "remediation");
-    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 1);
-    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 4);
+    const remediationItem = remediation.item;
+    const remediationRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: remediationItem.streamItemId },
+      select: { workObligationId: true },
+    });
+    assert.ok(remediationRow.workObligationId);
+    const remediationReveal: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: remediation.session.id,
+      streamItemId: remediationItem.streamItemId,
+      operationId: `stream-remediation-reveal-${suffix}`,
+      itemCredential: remediationItem.itemCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: remediationItem.clientRevision,
+      payload: {},
+    };
+    await applyStudyStreamAction(user.id, remediationReveal);
+    const remediationForgot: StudyStreamActionInput = {
+      ...remediationReveal,
+      operationId: `stream-remediation-forgot-${suffix}`,
+      actionKind: "SELF_RATING",
+      payload: { selfRating: "selfForgot" },
+    };
+    const remediationResult = await applyStudyStreamAction(user.id, remediationForgot);
+    assert.equal(remediationResult.response.evidenceObligation?.created, true);
+    const answeredRemediation = await prisma.evidenceObligation.findUniqueOrThrow({
+      where: { id: remediationRow.workObligationId },
+      select: { status: true, activeKey: true },
+    });
+    assert.equal(answeredRemediation.status, "ANSWERED");
+    assert.equal(answeredRemediation.activeKey, null);
+    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 8);
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 12);
 
     // The helper is intentionally exercised so this gate also catches accidental
     // replacement of opaque random credentials with a client-chosen value.
