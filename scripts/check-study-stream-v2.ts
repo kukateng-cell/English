@@ -7,6 +7,7 @@ dotenv.config({ path: ".env.local" });
 
 async function main() {
   const { prisma } = await import("../src/lib/prisma");
+  const { applyReviewEvent } = await import("../src/app/api/study/route");
   const {
     applyStudyStreamAction,
     getOrCreateStudyStream,
@@ -514,6 +515,69 @@ async function main() {
     const studyDayOnlyLeaderboard = await getLeaderboard(studyDayOnlyUser.id);
     const studyDayOnlyStreak = studyDayOnlyLeaderboard.lists.find((list) => list.type === "streak");
     assert.equal(studyDayOnlyStreak?.entries.find((entry) => entry.userId === studyDayOnlyUser.id)?.value, 0);
+
+    // The dual-flow window must support one learner using both the legacy
+    // review route and the V2 stream without sharing item identity. The global
+    // receipt namespace still rejects an operationId crossing flow versions.
+    const legacyWord = await prisma.word.create({
+      data: {
+        term: `dual-flow-${suffix}`,
+        definition: "V1／V2 coexistence test",
+        level: "A1",
+        category: `dual-flow-${suffix}`,
+        synonyms: [],
+        antonyms: [],
+      },
+    });
+    wordIds.push(legacyWord.id);
+    await prisma.review.create({
+      data: { userId: user.id, wordId: legacyWord.id, nextReviewDate: new Date() },
+    });
+    const legacyNonce = randomUUID();
+    const legacySession = await prisma.studySession.create({
+      data: {
+        userId: user.id,
+        queueFingerprint: `dual-flow-${suffix}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        flowVersion: "v1",
+        items: { create: { wordId: legacyWord.id, nonce: legacyNonce } },
+      },
+    });
+    const legacyOperationId = `dual-flow-v1-${suffix}`;
+    const legacyResult = await applyReviewEvent({
+      userId: user.id,
+      wordId: legacyWord.id,
+      quality: 5,
+      operationId: legacyOperationId,
+      studySessionId: legacySession.id,
+      nonce: legacyNonce,
+    });
+    assert.equal(legacyResult.duplicate, false);
+    const legacyReceipt = await prisma.operationReceipt.findUniqueOrThrow({
+      where: { userId_operationId: { userId: user.id, operationId: legacyOperationId } },
+      select: { flowVersion: true, actionKind: true, outcomeStatus: true },
+    });
+    assert.deepEqual(legacyReceipt, {
+      flowVersion: "v1",
+      actionKind: "REVIEW",
+      outcomeStatus: "SCORED",
+    });
+    await assert.rejects(
+      () => applyReviewEvent({
+        userId: user.id,
+        wordId: legacyWord.id,
+        quality: 5,
+        operationId: selfRatingInput.operationId,
+      }),
+      (error: unknown) => error instanceof Error && error.message.includes("不同的学习流程"),
+    );
+    const dualFlowSessions = await prisma.studySession.groupBy({
+      by: ["flowVersion"],
+      where: { userId: user.id },
+      _count: { _all: true },
+    });
+    assert.ok(dualFlowSessions.some((row) => row.flowVersion === "v1" && row._count._all >= 1));
+    assert.ok(dualFlowSessions.some((row) => row.flowVersion === "v2" && row._count._all >= 1));
 
     // The helper is intentionally exercised so this gate also catches accidental
     // replacement of opaque random credentials with a client-chosen value.

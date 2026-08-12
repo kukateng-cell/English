@@ -303,7 +303,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - `npm run test:db:stream-v2`：passed；涵蓋 global／unit scope、server-issued item
   credential、reveal gate、objective first response、correct／wrong quality、feedback
   resume／ack、V2 provenance、remediation work completion、combined cap under concurrent
-  admission 及 global operation receipt。
+  admission、global operation receipt 及同一 learner 嘅 V1／V2 dual-flow coexistence。
 - `npm run test:db`：passed；V1 review ledger、idempotency、concurrency 及 receipt bridge
   regression 通過。
 - `npx prisma migrate status` 顯示 24 migrations 已套用；`npm run test:migration-checksums`、
