@@ -401,8 +401,11 @@ research 及 destructive contract cleanup 按 scope 保持 deferred。
 
 其後使用者 visual review 開出同一 V2 scope 內嘅 UI correction：Learning Card 改為卡面 tap
 （排除發音 control）揭示及 one-way flip，self-rating actions 移到卡下並與卡片同寬，學生帳戶
-名稱於繁體 locale 顯示繁體字。呢項 correction 尚未實作／驗證，完成前唔將 local V2 final
-polish 再次標記為完成；不涉及 learning、evidence 或資料庫 contract。
+名稱於繁體 locale 顯示繁體字。2026-08-13 已實作並驗證：`npm run test:e2e:study-stream-v2`
+4/4 passed（包括中文答案／例句、背面發音、同寬 rating actions 及 zh-Hant／zh-Hans display），
+V1 feature-off student IA／QA 及完整 card-motion／study integration regression 亦通過；不涉及
+learning、evidence 或資料庫 contract。production deploy、學生 pilot、研究 telemetry／consent
+及 destructive contract cleanup 仍按 scope deferred。
 
 ---
 

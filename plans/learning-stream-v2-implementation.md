@@ -196,10 +196,10 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   support／incident runbook 及 kill switch；production 對 all-user mode fail closed；
 - [x] internal soak 無 high／critical defect；20 次 cleanup-backed V2 integration soak 全部通過；
 - [x] local all-user browser／DB／resume／rollback acceptance 通過；
-- [ ] 按 visual review 修正 V2 Learning Card：卡面任意非發音區域 tap-to-reveal、front／back
+- [x] 按 visual review 修正 V2 Learning Card：卡面任意非發音區域 tap-to-reveal、front／back
   flip presentation、答案面保留英文／音標／中文意思／例句／發音，self-rating actions 移到卡下
   並與卡片同寬；reveal 前不提供 self-rating；
-- [ ] 學生帳戶名稱及 avatar initial 於 zh-Hant 顯示繁體、zh-Hans 顯示簡體；只改 display layer，
+- [x] 學生帳戶名稱及 avatar initial 於 zh-Hant 顯示繁體、zh-Hans 顯示簡體；只改 display layer，
   不改 stored identity；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
@@ -310,7 +310,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] v1 未獲 cleanup approval 前仍可安全使用（V1 DB／browser regression、V1 default 及 feature-off rollback evidence）；
 - [ ] production feature flag、runbook、alerts、rollback rehearsal 已驗證；
 - [x] 無 client-controlled word／item／score／correct-answer boundary（typed parser、route validation、server-owned scoring 及 DB assertions）；
-- [ ] visual review follow-up 已通過 card-body reveal、audio exclusion、flip、same-width rating actions、簡繁 account display 及 V1／V2 gesture regression；
+- [x] visual review follow-up 已通過 card-body reveal、audio exclusion、flip、same-width rating actions、簡繁 account display 及 V1／V2 gesture regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -322,9 +322,9 @@ product-complete；但本計劃仍保持「進行中」，直到 local acceptanc
 
 ### 2026-08-13：Local product-complete V2 cutover evidence
 
-其後 visual review 發現現有 V2 Learning Card 雖然已符合 reveal gate，但仍以卡下獨立揭示掣、
+其後 visual review 發現現有 V2 Learning Card 雖然已符合 retrieval reveal gate，但仍以卡下獨立揭示掣、
 卡內 self-rating hint 及未轉換嘅學生 display name 呈現；因此新增 I-011 local UI correction
-scope。以下原有證據仍然有效，但唔代表 I-011 已完成。
+scope。I-011 已按以下證據完成，唔改 learning、evidence 或 server action contract。
 
 - 新增 `STUDY_V2_ASSIGNMENT_MODE=all`：只喺 local development，或明確
   `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 生效；
@@ -336,7 +336,22 @@ scope。以下原有證據仍然有效，但唔代表 I-011 已完成。
 - 新增 `study-stream-v2` Playwright project／script；local all-user V2 browser regression
   3/3 passed，覆蓋 assignment、resume read-only feedback ACK、Objective Probe、Learning Card
   reveal gate、self-rating 及下一 item transition。
-- `npm test`：126 passed；lint、typecheck、optimized build（42/42 pages）passed；V2 DB
+- I-011 visual correction 以共享 `WordCard` front／back flip、排除發音 control 嘅 card-body
+  tap、卡下同寬 self-rating row 及 `tc()` display-layer conversion 完成；
+  `npm run test:e2e:study-stream-v2`：4/4 passed，覆蓋 audio exclusion、中文答案／例句、
+  back-face 發音、flip 後先出現兩個 rating actions、同寬及非卡內 nesting，並逐一驗證
+  `zh-Hant`／`zh-Hans` account heading／avatar display。
+- `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:student-ia`：24 passed／2 skipped；
+  `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:student-qa`：21 passed／1 skipped；
+  舊版 student shell、study navigation、card/action fidelity、keyboard、locale、theme、
+  forced-colors、axe 及 mobile regression 通過。
+- `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`：Chromium suite 73 passed／4
+  skipped，WebKit study shards 33 passed；涵蓋 mouse、synthetic pointer、emulated touch、
+  reduced motion、offline／cross-tab／cross-device study integration 及 V1 rollback path。
+- `npm test`：126 passed；lint、typecheck、optimized build（42/42 pages）及 `git diff --check`
+  passed。card-motion／V1 fixture 必須明確以 `STUDY_V2_ASSIGNMENT_MODE=off` 執行；local
+  `.env.local` 的 `all` run 唔會當作 V1 regression evidence。
+- 既有 V2 DB
   integration、V1 ledger regression、fresh replay、temporary-schema contract regression、
   checksum、Prisma status 及 V1 student IA／QA regression 均 passed（V1 IA 24 passed／2 skipped，
   V1 QA 21 passed／1 skipped）。
