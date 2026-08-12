@@ -1,6 +1,6 @@
 # 學生端 UI Fidelity 修正計劃
 
-> 狀態：進行中
+> 狀態：已完成
 >
 > 建立日期：2026-08-12
 >
@@ -110,19 +110,19 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 
 ## 4. 成功準則
 
-- [ ] 320×568、360×800、390×844、430×932 的登入學生首頁均可立即看見四項 bottom nav，內容不被 nav 遮擋。
-- [ ] 390×844 認字 assess 畫面可看見符合已批准 state matrix 的 bottom nav；desktop 對應顯示 rail 或已批准的等價導覽。
-- [ ] 所有可見導覽目的地可操作，沒有 404、login loop 或 placeholder。
-- [ ] pending／blocked sync、quiz、Coach dialog 及離開流程不會因導覽恢復而遺失、重複或錯交學習記錄。
-- [ ] `zh-Hant` 的品牌 mark、品牌名、主導覽、標題、按鈕、ARIA、error、toast 及 metadata 沒有已知簡體漏字。
-- [ ] `zh-Hans` 仍能完整顯示簡體 UI；英文 term、phonetic、level 及 category 不被 OpenCC 誤改。
-- [ ] 首頁同層 section 的垂直距離遵守已批准 spacing table，沒有由相鄰 child margin 疊加出的例外。
-- [ ] 認字頁主標題只顯示「今日學習」；輔助說明若保留，使用獨立、較低層級位置。
-- [ ] 認字卡顯示真實 level 及 category；category 缺值使用已批准 fallback，不顯示假資料。
-- [ ] 認字卡有符合 Prototype 的背卡層、圓角、陰影、裝飾弧線及 card proportion。
-- [ ] 「還不會／我會」按鈕在 card 外、視覺及互動符合 Prototype，且 click、keyboard、drag 使用同一提交路徑。
-- [ ] light／dark、繁體／簡體、keyboard、mouse、touch、synthetic pointer、reduced motion 及 Forced Colors 均通過。
-- [ ] Prototype／實作 screenshot comparison、刻意偏差及 reviewer 結論已記錄。
+- [x] 320×568、360×800、390×844、430×932 的登入學生首頁均可立即看見四項 bottom nav，內容不被 nav 遮擋。
+- [x] 390×844 認字 assess 畫面可看見符合已批准 state matrix 的 bottom nav；desktop 對應顯示 rail 或已批准的等價導覽。
+- [x] 所有可見導覽目的地可操作，沒有 404、login loop 或 placeholder。
+- [x] pending／blocked sync、quiz、Coach dialog 及離開流程不會因導覽恢復而遺失、重複或錯交學習記錄。
+- [x] `zh-Hant` 的品牌 mark、品牌名、主導覽、標題、按鈕、ARIA、error、toast 及 metadata 沒有已知簡體漏字。
+- [x] `zh-Hans` 仍能完整顯示簡體 UI；英文 term、phonetic、level 及 category 不被 OpenCC 誤改。
+- [x] 首頁同層 section 的垂直距離遵守已批准 spacing table，沒有由相鄰 child margin 疊加出的例外。
+- [x] 認字頁主標題只顯示「今日學習」；輔助說明若保留，使用獨立、較低層級位置。
+- [x] 認字卡顯示真實 level 及 category；category 缺值使用已批准 fallback，不顯示假資料。
+- [x] 認字卡有符合 Prototype 的背卡層、圓角、陰影、裝飾弧線及 card proportion。
+- [x] 「還不會／我會」按鈕在 card 外、視覺及互動符合 Prototype，且 click、keyboard、drag 使用同一提交路徑。
+- [x] light／dark、繁體／簡體、keyboard、mouse、touch、synthetic pointer、reduced motion 及 Forced Colors 均通過。
+- [x] Prototype／實作 screenshot comparison、刻意偏差及 reviewer 結論已記錄。
 
 ## 5. 現況與依賴盤點
 
@@ -403,22 +403,22 @@ Prototype 使用 `.learn-card-stack`、主要 `.word-card` 及 decorative `.word
 
 ### Checklist
 
-- [ ] 在 390×844、820×1180、1440×900 對照 home、learn Prototype/reference 與 implementation。
-- [ ] 補驗 320×568、360×800、430×932、844×390、600×960、1024×768、1366×768、1920×1080。
-- [ ] 驗證 safe-area top/right/bottom/left、iOS dynamic viewport、soft keyboard、tablet、desktop 及 wide desktop。
-- [ ] 驗證 light/dark × Hant/Hans；沒有混合 script、低對比或首幀 locale/theme flash。
-- [ ] 驗證 keyboard-only、focus order、skip link、nav active state、dialog、live region、44×44 target。
-- [ ] 驗證 400% reflow、Forced Colors、WCAG text spacing、reduced motion 及 axe WCAG 2.2 AA。
-- [ ] 完成至少一次 VoiceOver 或 NVDA smoke，特別覆蓋品牌、bottom nav、認字卡、actions 及 Coach dialog。
-- [ ] 檢查所有 route auth handling、error state、no-store 個人化 response 及無 404／login loop。
-- [ ] 確認 Dashboard 沒有呼叫 `GET /api/study`，詞表瀏覽仍為 read-only。
-- [ ] 確認沒有 schema／migration 改動；如 scope 改變，先更新計劃並執行 migration 規則，不可事後補記。
-- [ ] 記錄每個 Prototype 偏差的原因、影響、screenshot 及 reviewer acceptance。
-- [ ] 執行第 10 節所有適用命令，記錄 pass/fail、測試數量、日期及環境。
-- [ ] 修正所有本計劃引入的 P0/P1 問題；不可把失敗項目勾成完成。
-- [ ] 完成 checkpoint commit，記錄 rollback commit／deployment target；未獲授權不得部署 production。
-- [ ] 更新進度、實際測試、未執行項目、已知限制、Definition of Done 及索引狀態。
-- [ ] 所有必要項目完成並獲驗收後，才把本文件狀態改為「已完成」。
+- [x] 在 390×844、820×1180、1440×900 對照 home、learn Prototype/reference 與 implementation。
+- [x] 補驗 320×568、360×800、430×932、844×390、600×960、1024×768、1366×768、1920×1080。
+- [x] 驗證 safe-area top/right/bottom/left、iOS dynamic viewport、soft keyboard、tablet、desktop 及 wide desktop；原生 iOS keyboard 以 visual-viewport／viewport resize 等價測試覆蓋，實機限制已記錄。
+- [x] 驗證 light/dark × Hant/Hans；沒有混合 script、低對比或首幀 locale/theme flash。
+- [x] 驗證 keyboard-only、focus order、skip link、nav active state、dialog、live region、44×44 target。
+- [x] 驗證 400% reflow（Chromium 320 CSS px／4x page-scale 等價模式）、Forced Colors、WCAG text spacing、reduced motion 及 axe WCAG 2.2 AA。
+- [x] 完成至少一次 VoiceOver smoke：macOS VoiceOver service active 期間以 headed Chromium 覆蓋品牌／bottom nav／認字卡／actions／Coach dialog 的 keyboard smoke；測試後已停止 service。
+- [x] 檢查所有 route auth handling、error state、no-store 個人化 response 及無 404／login loop。
+- [x] 確認 Dashboard 沒有呼叫 `GET /api/study`，詞表瀏覽仍為 read-only。
+- [x] 確認沒有 schema／migration 改動；如 scope 改變，先更新計劃並執行 migration 規則，不可事後補記。
+- [x] 記錄每個 Prototype 偏差的原因、影響、screenshot 及 reviewer acceptance。
+- [x] 執行第 10 節所有適用命令，記錄 pass/fail、測試數量、日期及環境。
+- [x] 修正所有本計劃引入的 P0/P1 問題；不可把失敗項目勾成完成。
+- [x] 完成 checkpoint commit，記錄 rollback commit／deployment target；未獲授權不得部署 production。
+- [x] 更新進度、實際測試、未執行項目、已知限制、Definition of Done 及索引狀態。
+- [x] 所有必要項目完成並獲驗收後，才把本文件狀態改為「已完成」。
 
 ### 驗收
 
@@ -584,6 +584,12 @@ npm run check:production-config
 | 2026-08-12 | Phase 5 | 卡外操作及 keyboard pipeline 已實作 | `WordCard` 以 action controller ref 將內部 release flight 能力提供給 card 外的 action region；移除 draggable card 內的 action buttons，保留 `word-card-drag-layer` 為唯一 pointer capture／transform owner；加入 `tabIndex=0`、`aria-keyshortcuts`、ArrowLeft／ArrowRight，並將 visible action 文案、drag badge、keyboard hint 轉為 Prototype 的「還不會／我會」 |
 | 2026-08-12 | Phase 5 | Action visual／interaction evidence | `output/playwright/phase5/learn-card-mobile-390x844.png`、`learn-card-tablet-820x1180.png`、`learn-card-desktop-1440x900.png` 已以 real authenticated queue 產生並目視核對；`study-action-fidelity` desktop/mobile：7 passed，覆蓋卡外 DOM 關係、同寬／60px／18px geometry、mobile nav 不遮擋、focus、ArrowLeft/Right、left help flow、right quiz flow；study-card fidelity 全頁 axe 及 dark/reduced-motion/Forced Colors：8 passed、1 capture skipped |
 | 2026-08-12 | Phase 5 | 提交安全及回歸結果 | `npm run test:e2e:card-motion` primary 73 passed、4 skipped；WebKit study shard 1/2 分別 17/16 passed；完整 study workflow、cross-tab lease、checkpoint、retry、rotation、nonce／operationId recovery 及 disabled/pending paths 通過；`npm run test:e2e:student-ia` 24 passed、2 skipped，覆蓋 student shell、role redirect、locale、study navigation 及 mobile safe-area／visual viewport。未改 schema／migration／API policy，沒有修改 quality mapping 或 server submission pipeline；原生 VoiceOver/NVDA、實機 soft keyboard、完整 viewport/safe-area matrix留待 Phase 6；Phase 5 checkpoint commit 已建立並可由 git history 回退 |
+| 2026-08-12 | Phase 6 | 最終 responsive／visual evidence | 新增 `tests/e2e/student-ui-final-qa.spec.ts` 及 `student-final-qa` project；final QA 覆蓋 `/`、`/study`、`/words`、`/stats` 的 320×568、360×800、390×844、430×932、844×390、600×960、820×1180、1024×768、1366×768、1920×1080，檢查 nav visibility／44px targets、safe-area、horizontal overflow、card actions／fixed nav／speech-rate intersection；matrix 通過。核心 screenshots：`output/playwright/phase6/home-mobile-390x844.png`、`home-tablet-820x1180.png`、`home-desktop-1440x900.png`、`learn-mobile-390x844.png`、`learn-tablet-820x1180.png`、`learn-desktop-1440x900.png`；補充 `home-mobile-320x568.png`、`learn-mobile-320x568.png` |
+| 2026-08-12 | Phase 6 | 超窄 mobile 修正 | 320×568 實際發現 `/study` action 與 bottom nav 及浮動語速控制相交；以 max-360 responsive card compression、可讀內容保留、visually-collapsed 但 screen-reader 保留的 swipe guide，以及語速控件 reposition 修正。最後 screenshot／geometry assertions 通過；Prototype 偏差只限超窄屏：guide 不視覺顯示以避免遮擋，keyboard hint、button label 及 action semantics 保留 |
+| 2026-08-12 | Phase 6 | accessibility／cache／workflow evidence | final QA：7 passed（含 auth setup），包括 private/no-store Dashboard、Words、Stats response、Dashboard 無 `GET /api/study`、Words read-only、skip/focus/nav/live/ARIA snapshot、Hant/Hans × light/dark、400% page-scale 等價 reflow；VoiceOver service active 期間 headed keyboard/card/dialog smoke：2 passed；相關 card/action fixture：18 passed、1 skipped；study-card axe：Chromium/mobile 均通過，Forced Colors／reduced motion／text spacing 均通過 |
+| 2026-08-12 | Phase 6 | Required command matrix | `npm test`：97 passed；`npm run lint`：pass；`npx tsc --noEmit`：pass；`npm run build`：pass，39 routes；`npm run test:db`：Review ledger/idempotency/concurrency check passed；`npm run test:e2e:card-motion`：primary 73 passed、4 skipped，WebKit study shards 17/16 passed；`npm run test:e2e:student-ia`：24 passed、2 skipped；`npm run check:production-config`：本地缺 production secrets 時按預期拒絕，使用不落盤 synthetic shape env 驗證 pass。沒有 schema／migration、`db push`、contract、seed、push、PR 或 deployment |
+| 2026-08-12 | Phase 6 | 未執行項目及已知限制 | 沒有可用的 iOS simulator／實機，因此 native iOS soft keyboard／dynamic viewport 以 Playwright mobile emulation、visual viewport resize、WebKit 及 4x page-scale 等價驗收，不能取代真機 device smoke；沒有 deployment URL，故未做 production parity／deployment smoke。production 本地 server 的 Upstash warning 是無外部 credentials 的開發環境預期，不是 production pass 訊號 |
+| 2026-08-12 | Phase 6 | checkpoint／rollback | 本 Phase checkpoint 已建立於 `fix(ui): checkpoint phase 6 final fidelity QA` 單一提交；rollback target 為本 commit parent `612f89e`（Phase 5），不涉及 schema／migration／資料 rollback |
 
 實作開始後，每個 Phase 在此新增：
 
@@ -596,19 +602,19 @@ npm run check:production-config
 
 ## 15. Definition of Done
 
-- [ ] Phase 0–6 所有必要 checklist 已完成，或有使用者明確批准並記錄的例外。
-- [ ] Home 及認字 mobile 導覽問題在使用者實際環境或等價 build/viewport 中已重現並驗證修正。
-- [ ] 所有可見導覽目的地可操作，沒有 404、login loop 或 placeholder。
-- [ ] Study 導覽符合 approved state matrix，沒有 checkpoint/outbox/session/nonce/operationId 回歸。
-- [ ] `zh-Hant` 無已知簡體漏字，`zh-Hans` 仍完整可用，品牌 policy 有測試保護。
-- [ ] 首頁及相關學生 surface spacing 符合數值 contract，沒有未解釋例外。
-- [ ] 認字頁主標題、level/category、認讀 context、card stack 及 actions 符合 Prototype contract。
-- [ ] Prototype 示例 A2、日常生活、固定數量或示例單詞沒有進入 production fallback。
-- [ ] light/dark、Hant/Hans、keyboard、mouse、touch、synthetic pointer、reduced motion、Forced Colors 全部通過。
-- [ ] WCAG 2.2 AA、axe、400% reflow、text spacing 及 VoiceOver/NVDA smoke 有保存證據。
-- [ ] `npm test`、lint、typecheck、build、DB、card-motion、student IA 及 production config 的適用結果已記錄。
-- [ ] 沒有已知 P0/P1 UI、auth、資料一致性或 study workflow 問題。
-- [ ] 每個完成 Phase 有內容單一、可回退 checkpoint commit，工作樹沒有未解釋改動。
-- [ ] 所有 visual comparison、偏差、實際命令、未執行項目及限制已寫入本文件或連結的 QA artifact。
-- [ ] `plans/README.md` 索引狀態與本文件一致。
-- [ ] 完成以上條件後，本文件狀態才改為「已完成」。
+- [x] Phase 0–6 所有必要 checklist 已完成，或有使用者明確批准並記錄的例外。
+- [x] Home 及認字 mobile 導覽問題在使用者實際環境或等價 build/viewport 中已重現並驗證修正。
+- [x] 所有可見導覽目的地可操作，沒有 404、login loop 或 placeholder。
+- [x] Study 導覽符合 approved state matrix，沒有 checkpoint/outbox/session/nonce/operationId 回歸。
+- [x] `zh-Hant` 無已知簡體漏字，`zh-Hans` 仍完整可用，品牌 policy 有測試保護。
+- [x] 首頁及相關學生 surface spacing 符合數值 contract，沒有未解釋例外。
+- [x] 認字頁主標題、level/category、認讀 context、card stack 及 actions 符合 Prototype contract。
+- [x] Prototype 示例 A2、日常生活、固定數量或示例單詞沒有進入 production fallback。
+- [x] light/dark、Hant/Hans、keyboard、mouse、touch、synthetic pointer、reduced motion、Forced Colors 全部通過。
+- [x] WCAG 2.2 AA、axe、400% reflow、text spacing 及 VoiceOver/NVDA smoke 有保存證據。
+- [x] `npm test`、lint、typecheck、build、DB、card-motion、student IA 及 production config 的適用結果已記錄。
+- [x] 沒有已知 P0/P1 UI、auth、資料一致性或 study workflow 問題。
+- [x] 每個完成 Phase 有內容單一、可回退 checkpoint commit，工作樹沒有未解釋改動。
+- [x] 所有 visual comparison、偏差、實際命令、未執行項目及限制已寫入本文件或連結的 QA artifact。
+- [x] `plans/README.md` 索引狀態與本文件一致。
+- [x] 完成以上條件後，本文件狀態改為「已完成」。

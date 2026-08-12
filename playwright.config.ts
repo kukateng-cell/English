@@ -207,5 +207,15 @@ export default defineConfig({
         storageState: "test-results/.auth/student-chromium.json",
       },
     },
+    {
+      name: "student-final-qa",
+      testMatch: /student-ui-final-qa\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
   ],
 });

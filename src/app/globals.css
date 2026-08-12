@@ -684,6 +684,15 @@ button:disabled,
   .recent-learning-row { align-items: start; flex-direction: column; }
 }
 
+@media (max-width: 360px) {
+  .word-card-stack { min-height: 296px; }
+  .word-card-draggable { height: min(54vh, 296px); min-height: 296px; padding: 16px; }
+  .word-card-center { gap: 8px; padding-block: 8px; }
+  .word-card-bottom { padding-bottom: 20px; }
+  .word-card-drag-badge { top: 56px; }
+  .swipe-guide { clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+}
+
 @media (max-width: 979px) {
   .student-rail { display: none; }
   .student-mobile-header { display: flex; }
@@ -710,6 +719,10 @@ button:disabled,
   .workspace-mobile-nav-link:hover { background: var(--border-soft); color: var(--text); }
   .workspace-mobile-nav-link.is-active { background: var(--primary); color: var(--color-surface); }
   .workspace-main { padding: 28px 20px 56px; }
+}
+
+@media (max-width: 360px) {
+  .study-speech-rate-control { bottom: calc(132px + env(safe-area-inset-bottom)); }
 }
 
 @keyframes uiSpin { to { transform: rotate(360deg); } }
