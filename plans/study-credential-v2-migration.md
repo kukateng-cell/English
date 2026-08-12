@@ -383,9 +383,10 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 - `npm run test:db:stream-v2` 新增同詞多 item、bounded credential lineage、expired／retired
   session、tokenVersion revocation callback、metrics／leaderboard provenance 及 unit summary
   assertions；V1 `npm run test:db` 及 feature-off browser smoke 通過。
-- `npm run check:study-credential-v2` 通過：local profile 顯示 49,437 個 V1
-  `StudySessionItem`、6 個 V2 `StudyStreamItem`、1 組同詞多 item、718 個 global receipts、0
-  receipt gap、0 V2 provenance gap；V1 composite identity index 同 V2 stream-item index 均存在。
+- `npm run check:study-credential-v2` 通過：final post-E2E local profile 顯示 51,787 個 V1
+  `StudySessionItem`、8 個 V2 `StudyStreamItem`、1 組同詞多 item、735 個 global receipts（V1
+  724、V2 11）、0 receipt gap、0 V2 provenance gap；V1 composite identity index 同 V2
+  stream-item index 均存在。測試流程會增加本地測試資料，數字不代表 production snapshot。
 - `node scripts/check-study-lineage-compatibility.mjs` 通過：0 lineage gap；
   `npm run check:study-stream-v2:soak` 3/3 通過，p50 917 ms、p95 1,059 ms。
 

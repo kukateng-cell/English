@@ -45,22 +45,23 @@ Captured with the read-only gates on 2026-08-12:
 
 | Profile | Result |
 |---|---:|
-| Database size at migration preflight | 36 MB |
+| Database size at migration preflight | 37 MB |
 | Estimated legacy `ReviewEvent` backfill rows | 0 (already expanded locally) |
-| `StudySessionItem` rows / relation size | 49,437 / 19 MB |
-| Legacy items unused / renewed / source-linked | 48,692 / 440 / 596 |
-| `StudyStreamItem` rows | 6 (5 learning cards, 1 probe; 3 open) |
-| Sessions by flow | V1: 3,945; V2: 3 |
+| `StudySessionItem` rows / relation size | 51,787 / 20 MB |
+| Legacy items unused / renewed / source-linked | 51,028 / 440 / 596 |
+| `StudyStreamItem` rows | 8 (6 learning cards, 2 probes; 3 open) |
+| Sessions by flow | V1: 4,039; V2: 4 |
 | Same-session same-word V2 groups | 1; maximum 3 item rows in one group |
-| Global receipts | 718 (V1: 710; V2: 8) |
+| Global receipts | 735 (V1: 724; V2: 11) |
 | `ReviewEvent` rows without a receipt | 0 |
 | Incomplete V2 provenance rows | 0 |
 | Legacy `(sessionId, wordId)` index | present |
 | V2 `(sessionId, streamItemKey)` index | present |
 | Credential lineage compatibility gaps | 0 total; 0 ambiguous; 0 unresolved |
 
-The local profile is evidence for query and index behavior only. It is not a production size
-estimate. `scripts/check-production-migration-safety.mjs` still blocks an unplanned large
+This is the final post-E2E local profile captured on 2026-08-12; local regression workflows add
+test rows, so counts are not a production snapshot. The profile is evidence for query and index
+behavior only, not a production size estimate. `scripts/check-production-migration-safety.mjs` still blocks an unplanned large
 backfill, and a production-like profile plus an approved staged rollout is required before any
 formal production migration.
 
@@ -115,9 +116,12 @@ npm run test:migrations:contract
 npm run test:migration-checksums
 ```
 
-All commands above passed locally on 2026-08-12, with the database commands run against the
-local PostgreSQL instance using the repository's required escalated read/write permission. The
-temporary-schema contract suite did not run `npm run db:contract`.
+Migration, inventory, lineage, database and migration-replay commands above passed locally on
+2026-08-12, with the database commands run against the local PostgreSQL instance using the
+repository's required escalated read/write permission. `npm run check:production-config` correctly
+rejected the default local environment because production secrets are absent; a non-persistent
+shape-only synthetic environment passed. The temporary-schema contract suite did not run
+`npm run db:contract`.
 
 ## 7. Open external gates
 
