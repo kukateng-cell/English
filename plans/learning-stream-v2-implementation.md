@@ -16,8 +16,9 @@
 Objective Probe 呈現參考；當中寫死 `1/13`、完成頁及每三次 retrieval 立即 quick check
 只屬 demo，唔係 production scheduler contract。
 
-本計劃負責將已批准 Contract 落實為可漸進發佈嘅 Learning Stream v2，唔喺同一階段
-加入正式 research experiment。
+本計劃負責將已批准 Contract 落實為可喺本機完整使用嘅 Learning Stream v2。local
+product-complete 先於 external rollout；本計劃唔喺同一階段加入正式 research experiment，
+亦唔以 production deploy／真實學生 pilot 作 local completion gate。
 
 ## 二、目標
 
@@ -25,7 +26,8 @@ Objective Probe 呈現參考；當中寫死 `1/13`、完成頁及每三次 retri
 - 抽出現有 motion engine，建立 Learning Card／Objective Probe 清晰 component 邊界；
 - server 逐項選擇 item，client 唔預先決定 verification 或 score；
 - operational actions 保留 one-time credential、idempotency、transaction、retry、outbox；
-- v1 同 v2 由 server assignment 共存，並可只關 flag rollback；
+- v1 同 v2 由 server assignment 共存；local 可明確切換 all-user V2，production 仍可只關
+  assignment rollback；
 - Unit mode 保留 bounded scope／summary，但採用同一 interaction／evidence contract；
 - 現有 dashboard、progress、achievement、leaderboard 只消費正確定義嘅 objective ledger。
 
@@ -44,7 +46,8 @@ Objective Probe 呈現參考；當中寫死 `1/13`、完成頁及每三次 retri
 - design handoff 固定 commit／export date、asset hash、state manifest 同 intentional deviations；
 - Credential v2 expand／coexistence 設計已通過 review；
 - 現有 `/study` happy path、offline、cross-device、pointer motion regression 有基線結果；
-- feature assignment 可以喺 server 端按 internal account／cohort 固定 `flowVersion`。
+- feature assignment 可以喺 server 端按 internal account／cohort 固定 `flowVersion`；local
+  另有 non-production-only all-user mode，session 仍然 pin `flowVersion`。
 
 ## 五、目標架構
 
@@ -166,7 +169,7 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 
 ### Phase 3：Global stream internal integration
 
-- [x] controller 接上 v2 API，只對 internal／test accounts 開啟；
+- [x] controller 接上 v2 API，支援 internal／test accounts 及 non-production all-user mode；
 - [x] outbox 改用 stream-item action，支援 retry、rotation、authoritative supersession；
 - [x] checkpoint v2 只保存安全 opaque pointer／revision／minimal presentation state；
 - [x] global UI 移除固定 denominator／強制 done；加入合法 leave／resume；
@@ -187,14 +190,14 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [x] CI quality gate 已納入 V2 DB integration／bounded soak 及 student IA／accessibility
   regression；production workflow 仍保持 V2 assignment 關閉，唔將 CI gate 當成正式 rollout。
 
-### Phase 5：Pilot 及 rollout
+### Phase 5：Local full cutover（external rollout deferred）
 
-- [x] 建立 internal-only allowlist assignment、V2 structured request metric、support／incident
-  runbook 及 kill switch；student cohort assignment／exposure log 仍需 pilot approval；
+- [x] 建立 internal allowlist、non-production all-user assignment、V2 structured request metric、
+  support／incident runbook 及 kill switch；production 對 all-user mode fail closed；
 - [x] internal soak 無 high／critical defect；20 次 cleanup-backed V2 integration soak 全部通過；
-- [ ] 小比例學生 pilot，監察 sync、duplicate、latency、leave、debt size／age；
-- [ ] 按預先定義 threshold 擴大、暫停或 rollback；
-- [ ] 全量後保留 v1 observation window，另開 contract cleanup review；
+- [x] local all-user browser／DB／resume／rollback acceptance 通過；
+- [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
+  唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
 
 ## 八、測試矩陣
@@ -240,11 +243,17 @@ Go／pause／rollback 數值要喺 pilot 前用基線及 internal soak 寫入 ru
 
 ## 十、發佈策略
 
-1. deploy expand schema，同時保持 v1 默認；
-2. internal accounts pinned v2；
-3. small cohort server-side assignment，session 建立後唔中途轉 flow；
-4. cohort 擴大只喺 reliability gate 同 metrics 維持健康時進行；
-5. 全量後 observation window 完成，先考慮移除 legacy contract。
+### Local delivery
+
+1. local development 以 `STUDY_V2_ASSIGNMENT_MODE=all` 將所有 authenticated account pin 到 V2；
+2. session 建立後唔中途轉 flow，V1 仍由 `off`／internal allowlist 保留作 rollback；
+3. local browser／DB／offline／cross-device 驗證通過後，視為 local product-complete。
+
+### External delivery（deferred）
+
+1. production 仍保持 V1 default／allowlist；
+2. 真實學生 pilot、production observation、全量 external rollout 及 legacy contract cleanup
+   另行處理，唔阻塞 local product-complete。
 
 Research telemetry 使用獨立 flag；Product rollout 唔等待 research experiment。
 
@@ -281,22 +290,46 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-007 | Cross-tab credential rotation | item 保留 bounded、短效 credential digest lineage；bootstrap／renew 發出 successor 時不撤銷仍有效的 predecessor，action 仍由 item status、operation receipt、target／Review CAS authoritative 決定 | Phase 4 reliability；需 expand migration |
 | I-008 | Shared rate-limit backend 故障策略 | production／Vercel production runtime 一律 fail closed；memory fallback 只限非-production local 或明確 `ENABLE_TEST_ROUTES=1` test runtime；login、password change、study queue／action／credential renewal 共用同一 runtime 判定；backend failure log 只記 allowlisted error type，唔記原始 exception／request details | Phase 2 security regression |
 | I-009 | V2 CI／release preflight coverage | Study quality workflow 同 production verification job 必須喺 seed 後執行 `npm run test:db:stream-v2` 及 bounded `STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak`；path filter 覆蓋 V2 source／tests；assignment 仍 deny-by-default | Phase 4 automation gate；唔等同 production deploy／student pilot |
+| I-010 | Local full V2 cutover scope | `STUDY_V2_ASSIGNMENT_MODE=all` 只可喺 local development，或明確 `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 啟用；`off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail closed | Phase 5 local product-complete |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
 
 ## 十四、Definition of Done
 
-- [ ] Phase 0–5 checklist 全部完成並有對應證據；
+- [x] Local Phase 0–4 及 Local Phase 5 cutover checklist 全部完成並有對應證據；
 - [ ] Contract acceptance matrix 全部通過；
 - [x] v1 未獲 cleanup approval 前仍可安全使用（V1 DB／browser regression、V1 default 及 feature-off rollback evidence）；
 - [ ] production feature flag、runbook、alerts、rollback rehearsal 已驗證；
 - [x] 無 client-controlled word／item／score／correct-answer boundary（typed parser、route validation、server-owned scoring 及 DB assertions）；
-- [ ] 實際測試、未執行項目、已知限制、pilot 結果已記錄；
+- [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
 
+External pilot／production／research gates 係 deferred scope，唔會因未執行而阻塞 local
+product-complete；但本計劃仍保持「進行中」，直到 local acceptance 證據完成。
+
 ## 十五、實際驗證紀錄
+
+### 2026-08-13：Local product-complete V2 cutover evidence
+
+- 新增 `STUDY_V2_ASSIGNMENT_MODE=all`：只喺 local development，或明確
+  `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 生效；
+  `off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail
+  closed，production configuration check 已驗證。
+- 更新共享 `WordCard`：V2 Learning Card 未揭示前隱藏 self-rating affordance、移除不可用
+  keyboard shortcut metadata，並以 accessible label 明確提示「請先揭示中文意思」；reveal
+  後先顯示左右 self-rating。
+- 新增 `study-stream-v2` Playwright project／script；local all-user V2 browser regression
+  3/3 passed，覆蓋 assignment、resume read-only feedback ACK、Objective Probe、Learning Card
+  reveal gate、self-rating 及下一 item transition。
+- `npm test`：126 passed；lint、typecheck、optimized build（42/42 pages）passed；V2 DB
+  integration、V1 ledger regression、fresh replay、temporary-schema contract regression、
+  checksum、Prisma status 及 V1 student IA／QA regression 均 passed（V1 IA 24 passed／2 skipped，
+  V1 QA 21 passed／1 skipped）。
+- Local manual browser smoke confirmed ordinary test student receives `flowVersion=v2` under
+  `all` and returns to V1 with `STUDY_V2_ASSIGNMENT_MODE=off`; no production deploy、student
+  pilot、research collection or destructive contract migration performed。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 

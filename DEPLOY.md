@@ -97,6 +97,9 @@ SEED_TEST_STUDENT=1
 TEST_STUDENT_USERNAME="__test_student__local"
 TEST_STUDENT_PASSWORD="你的本地测试密码"
 
+# 本机完整 V2 产品验证；只允许 local development，production 会拒绝此值。
+STUDY_V2_ASSIGNMENT_MODE="all"
+
 # 管理员 / 教师账号初始密码（必填；seed 时创建 admin / teacher 这两个账号）
 INITIAL_ADMIN_PASSWORD="你的管理员初始密码"
 ```

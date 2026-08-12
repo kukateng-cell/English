@@ -168,6 +168,22 @@ Stable operational encounter contract + consent／governance
 - 每一項工作 checklist 只喺擁有佢嘅子計劃更新；
 - 主計劃只喺子計劃真正完成及驗證後勾選 milestone。
 
+### 7.2 本地完整產品交付範圍（2026-08-13）
+
+使用者已澄清本階段交付目標係「本機可完整使用嘅最終 V2 產品」，唔係正式
+production rollout、真實學生 pilot 或 research-ready release。由此分開兩種完成狀態：
+
+- **Local product-complete**：本地所有 authenticated study accounts 預設走 V2，完整
+  Learning Card／Objective Probe／offline／cross-device／V1 rollback 及本地驗證全部完成；
+- **External rollout**：production deploy、外部 observability window、真實學生 pilot、
+  ethics／consent／研究資料收集及 destructive contract cleanup 仍然 deferred，唔阻塞
+  本地產品完成。
+
+本地 all-user assignment 必須係明確 env mode；Vercel preview／production runtime 遇到該
+mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` 例外啟用，並保留
+`off`／internal allowlist 以便 V1 rollback。呢個係 rollout scope 決定，唔
+改變 Contract v1 嘅 Learning Card、Objective Probe 或 evidence 語義。
+
 ## 八、整體里程碑
 
 ### Milestone P0：Framework freeze
@@ -188,7 +204,8 @@ Stable operational encounter contract + consent／governance
 
 - [x] V2 action API、operational outbox、StudyEncounter、EvidenceObligation 及
   ObjectiveEvidenceTarget 完成；
-- [x] Global `/study` 只對 internal／test accounts 開啟；
+- [x] Global `/study` 已支援 internal／test assignment 及明確 local all-user assignment；
+  production default 仍為 V1／allowlist；
 - [x] Dashboard、streak、achievement、unit mode 使用新 glossary；
 - [x] server-side scoring、idempotency、task lease recovery 通過。
 
@@ -200,13 +217,13 @@ Stable operational encounter contract + consent／governance
 - [x] migration fresh replay、checksum、contract regression 通過；
 - [x] rollback 演練通過。
 
-### Milestone P4：Student pilot 及 rollout
+### Milestone P4：Local product-complete；external rollout deferred
 
-- [ ] pilot cohort、server-side assignment 及 flowVersion pinning 完成；
-- [ ] verification debt age／size、sync failure、probe accuracy、abandonment 可觀察；
-- [ ] 無 critical／high defect，rollback threshold 清楚；
-- [ ] 漸進擴大至全體學生；
-- [ ] Product-side 子計劃完成並記錄實際驗證。
+- [x] local all-user V2 assignment、pre-reveal gate 及完整 local browser／DB 驗證完成；
+- [x] local V1 rollback mode 及 V1 compatibility regression 完成；
+- [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
+  唔屬本地交付）；
+- [x] Product-side 子計劃嘅 local scope 完成並記錄實際驗證。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -278,6 +295,14 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [ ] 實際測試、未執行項目、已知限制及 rollback 演練已記錄；
 - [x] [project-plan.md](./project-plan.md) 已按實際新行為校準。
 
+### Local product-complete
+
+- [x] local all-user V2 assignment 只喺 development／local test 生效，production fail closed；
+- [x] local `/study` 完整通過 Learning Card reveal gate、self-rating、Objective Probe、
+  feedback ACK、resume、offline、cross-device 及 V1 rollback 驗證；
+- [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
+  記錄，唔將未執行外部 gate 誤報為本地缺陷。
+
 ### Research-ready complete
 
 - [ ] Research Framework R1 已完成；
@@ -299,6 +324,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-003 | Contract 變更先於 dependent implementation 變更 | 已確認 |
 | P-004 | Prototype 只負責 presentation／interaction reference，唔覆蓋 production safety | 已確認 |
 | P-005 | V2 item credential rotation 以 server-recorded digest lineage 保留短效並行 grants，容許跨分頁／跨裝置 bootstrap 唔互相撤銷；action 仍以 item／revision／target CAS 決定唯一結果 | 實作中；expand-only migration，未涉及 contract cleanup |
+| P-006 | 本階段先完成 local product-complete；local all-user mode 只限 non-production，external pilot／production／research／destructive contract cleanup deferred | 已確認；由 Implementation I-010 落實 |
 
 ## 十四、計劃審查紀錄
 

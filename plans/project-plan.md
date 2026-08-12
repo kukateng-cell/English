@@ -3,7 +3,7 @@
 > 科创比赛参赛项目
 > 版本：v0.3（按当前实现校准）
 > 创建日期：2026-07-19
-> 更新日期：2026-08-10
+> 更新日期：2026-08-13
 > 状态：MVP 已实现，处于公测前验证与部署准备阶段
 
 > 計劃書索引見 `plans/README.md`。本文內的程式及文件路徑均相對 repository root。
@@ -373,8 +373,10 @@ npm run seed
 
 ### 7.1 Retrieval-first Learning Stream v2（2026-08-12 handoff）
 
-已完成 internal／test scope 的 operational handoff：V2 以 server assignment deny-by-default
-开启，session pin `flowVersion`，V1 仍为默认流程。V2 具备 continuous global／bounded unit
+已完成 internal／test scope 的 operational handoff，並補上 local product-complete assignment：
+production V2 仍以 server assignment deny-by-default／allowlist 開啟，local development 可用
+明確 `STUDY_V2_ASSIGNMENT_MODE=all` 驗證完整 V2，session pin `flowVersion`，V1 仍保留作
+rollback。V2 具备 continuous global／bounded unit
 stream、Learning Card reveal gate、Objective Probe immutable snapshot、server scoring、
 Evidence Obligation cap／delay／expiry、StudyEncounter、item credential、global
 OperationReceipt、outbox／checkpoint 及 legacy metrics 分栏。self-rating 不直接更新
@@ -390,6 +392,12 @@ runtime 才可使用 local fallback；production build 同完整 browser regress
 本地 feature-off rollback smoke 已完成；正式 production deploy、学生 pilot、研究
 telemetry／consent 及 contract cleanup 尚未执行。後者仍是
 `plans/retrieval-first-learning-program.md` 及其受控子計劃的外部 gates。
+
+2026-08-13 local product-complete evidence 已補齊：local all-user V2 Playwright regression
+3/3 passed，覆蓋 V2 assignment、resume feedback ACK、Objective Probe、Learning Card reveal
+gate 及 self-rating；`STUDY_V2_ASSIGNMENT_MODE=off` V1 rollback、production configuration
+reject-all guard、DB／migration／build／unit／lint／typecheck 亦通過。production、pilot、
+research 及 destructive contract cleanup 按 scope 保持 deferred。
 
 ---
 

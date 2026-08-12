@@ -183,8 +183,9 @@ Operational event 同 consent-gated ResearchEncounter 分開；前者唔因研�
 - [x] backfill／驗證 global OperationReceipt；所有 active runtime 已用 receipt-aware V1 code；
 - [x] validation 比對 row counts、nullability、orphan、duplicate candidate；
 - [x] metric projection regression 證明 legacy continuity 保留、V2 objective denominator 排除 unknown；
-- [x] production default remains V1；V2 只接受 `STUDY_V2_INTERNAL_USER_IDS` internal/test
-  allowlist，未建立學生 cohort 或 research assignment；
+- [x] production default remains V1；V2 production 只接受 `STUDY_V2_INTERNAL_USER_IDS`
+  internal/test allowlist；non-production local 另支援明確 `STUDY_V2_ASSIGNMENT_MODE=all`，
+  未建立學生 cohort 或 research assignment；
 
 ### Stage C：Dual-flow application
 
@@ -397,3 +398,9 @@ pilot 及 Stage E contract cleanup 尚未完成；因此本文保持「進行中
 獨立 application batch writer，因為現行 set-based backfill 已由 migration preflight、checksum、
 failure exit status 及 post-deploy inventory gate 保護；production 超過 row limit 時仍須另行
 批准 staged rollout。
+
+### 2026-08-13：Local product-complete scope clarification
+
+Local all-user V2 assignment、Learning Card reveal gate 及 V1 rollback 已完成並驗證；上述
+Stage D 長 observation、production deployment、學生 pilot 及 Stage E destructive cleanup
+仍然 deferred，唔係 local product-complete 嘅必要條件。
