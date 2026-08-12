@@ -192,7 +192,7 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [ ] 小比例學生 pilot，監察 sync、duplicate、latency、leave、debt size／age；
 - [ ] 按預先定義 threshold 擴大、暫停或 rollback；
 - [ ] 全量後保留 v1 observation window，另開 contract cleanup review；
-- [ ] 更新 project plan 現況、實際測試、已知限制及後續工作。
+- [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
 
 ## 八、測試矩陣
 
@@ -288,7 +288,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [ ] production feature flag、runbook、alerts、rollback rehearsal 已驗證；
 - [ ] 無 client-controlled word／item／score／correct-answer boundary；
 - [ ] 實際測試、未執行項目、已知限制、pilot 結果已記錄；
-- [ ] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
+- [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
 
 ## 十五、實際驗證紀錄

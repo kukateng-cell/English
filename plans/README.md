@@ -39,6 +39,10 @@ migration 變更更新對應實施計劃，研究 consent／retention／assignme
 Framework。第一份正式 experiment protocol 獲批准時，先建立並索引
 `research/protocols/<study-name>.md`。
 
+Retrieval-first 嘅可重現 handoff、credential compatibility inventory 同 internal soak／incident
+runbook 放喺 `plans/artifacts/`；呢啲係受控計劃嘅 evidence artifacts，唔係額外嘅產品規格或
+rollout approval。
+
 ## 文件命名
 
 - 使用小寫 kebab-case，例如 `student-assignment-workflow.md`。

@@ -276,7 +276,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [ ] Credential v2 Migration 嘅 product-release 範圍已完成；
 - [ ] P0–P4 全部通過；
 - [ ] 實際測試、未執行項目、已知限制及 rollback 演練已記錄；
-- [ ] [project-plan.md](./project-plan.md) 已按實際新行為校準。
+- [x] [project-plan.md](./project-plan.md) 已按實際新行為校準。
 
 ### Research-ready complete
 
