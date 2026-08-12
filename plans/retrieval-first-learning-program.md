@@ -179,25 +179,25 @@ Stable operational encounter contract + consent／governance
 
 ### Milestone P1：Foundations
 
-- [ ] 純 learning policy／state machine 通過 unit tests；
+- [x] 純 learning policy／state machine 通過 unit tests；
 - [ ] isolated UI harness 通過 mouse、touch、synthetic pointer、keyboard、reduced motion；
-- [ ] Credential v2 expand schema、dual-read／dual-flow compatibility 通過；
-- [ ] legacy production flow 無 regression。
+- [x] Credential v2 expand schema、dual-read／dual-flow compatibility 通過；
+- [x] legacy production flow 無 regression。
 
 ### Milestone P2：Internal integration
 
-- [ ] V2 action API、operational outbox、StudyEncounter、EvidenceObligation 及
+- [x] V2 action API、operational outbox、StudyEncounter、EvidenceObligation 及
   ObjectiveEvidenceTarget 完成；
-- [ ] Global `/study` 只對 internal／test accounts 開啟；
+- [x] Global `/study` 只對 internal／test accounts 開啟；
 - [ ] Dashboard、streak、achievement、unit mode 使用新 glossary；
-- [ ] server-side scoring、idempotency、task lease recovery 通過。
+- [x] server-side scoring、idempotency、task lease recovery 通過。
 
 ### Milestone P3：Reliability gate
 
 - [ ] checkpoint v2、舊 checkpoint invalidation、session rotation 完成；
 - [ ] answered probe 唔會重做；pending action 唔會重複 scored；
 - [ ] cross-tab／cross-device／offline／storage unavailable 測試通過；
-- [ ] migration fresh replay、checksum、contract regression 通過；
+- [x] migration fresh replay、checksum、contract regression 通過；
 - [ ] rollback 演練通過。
 
 ### Milestone P4：Student pilot 及 rollout
@@ -328,5 +328,22 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 
 ## 十五、實際驗證紀錄
 
-> 尚未開始實作。本節會喺各 milestone 完成後記錄實際命令、結果、未執行項目及
-> 已知限制。
+### 2026-08-12：獲授權 product implementation handoff
+
+- Product-side V2 implementation 已在 `codex/retrieval-first-learning-stream-v2` 完成至
+  internal／test gate；V1 default、server assignment、flowVersion pinning、expand-only
+  migration 及 feature-off rollback path 保留。
+- Unit／lint／typecheck、Prisma generate／validate、DB stream integration、V1 ledger
+  regression、fresh migration replay、checksum、temporary-schema contract regression、
+  production-config fixture、Chromium／WebKit browser regression 均已通過；詳細結果見四份
+  controlled sub-plans。
+- 已驗證的核心行為包括 C-001 direct mature probe、C-002 admission control、C-003
+  objective recognition wording、C-004 versioned quality、C-005 global／unit stream、
+  C-006 quality 4／2、C-007 bounded debt／spacing、C-008 target＋immutable snapshot、
+  C-010 legacy unknown projection。C-009 research-only path 沒有實作，保持關閉。
+
+仍未完成或未獲授權的 gate：Contract 全量 review／部分 accessibility matrix、V2 offline／
+cross-device browser soak、rollback rehearsal、production deploy、正式學生 pilot、外部
+observability threshold、research ethics／家長 permission／學生 assent／資料收集，以及
+`npm run db:contract`。因此 P3 部分、P4、R1、R2 及 Program DoD 保持未完成；不可把本次
+internal handoff 說成正式 rollout 或 research-ready。

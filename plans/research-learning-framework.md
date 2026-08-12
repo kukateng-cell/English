@@ -293,4 +293,10 @@ R-002／R-003 未獲正式批准前，research collection 同 research-only expo
 
 ## 十七、實際驗證紀錄
 
-> 尚未啟動研究收集或 experiment；本計劃本身唔構成倫理、法律或學校批准。
+### 2026-08-12：Product handoff boundary
+
+本次只交付 operational Retrieval-first V2；沒有新增 research schema、telemetry、sentinel
+exposure、研究 assignment 或資料收集。研究 feature flag 保持關閉，未參與者不會因本次
+product flow 取得 research-only exposure。R1／R2 的倫理、privacy、家長 permission、
+學生 assent、retention、withdrawal、pilot 及 protocol gate 全部仍待正式批准，不能以本次
+product 測試代替。

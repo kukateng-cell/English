@@ -340,13 +340,27 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 - [x] C-001 至 C-010 已獲批准；
 - [ ] glossary 已同步到 implementation、migration、research plan；
 - [ ] Implementation Phase 0 擁有嘅 versioned handoff addendum 已獲 Contract review；
-- [ ] scheduler simulation 規格包含 combined cap、atomic admission、dedupe、delay、age、
+- [x] scheduler simulation 規格包含 combined cap、atomic admission、dedupe、delay、age、
   active-user liveness、mode switching、remediation、reopen gaming及無候選情況；
-- [ ] API／schema review 證明 client 無法自行指定 word、item kind、正確答案或 score；
+- [x] API／schema review 證明 client 無法自行指定 word、item kind、正確答案或 score；
 - [ ] accessibility、metrics 及 reliability acceptance criteria 可被自動或手動驗證；
 - [x] 文件經兩路 review，由「草擬中」轉為「待審批」；
 - [x] 使用者已明確批准本 Contract 同 dependent plans；Implementation 可按 gate 開始。
 
 ## 十五、實際驗證紀錄
 
-> 尚未開始實作。完成時記錄 policy simulations、contract tests、文案 review 及未執行項目。
+### 2026-08-12：Contract acceptance evidence
+
+- `npm test` 119 passed，涵蓋 state machine、scheduler long sequence、combined cap、
+  per-word dedupe、eligible delay、mode scope、remediation、construction fail-closed、
+  correct=4／wrong=2 及 typed action boundary。
+- `npm run test:db:stream-v2` passed，補充 Serializable admission lock、V2 provenance、
+  immutable snapshot、Review revision CAS、feedback resume／ack、lease completion、unit
+  scope 及 global idempotency evidence。
+- Contract boundary review 已確認 client 不可指定 word、item kind、quality、correctness
+  或第二次 scored result；V1 legacy unknown 保留 continuity，未計入 V2 objective
+  recognition 分母。研究功能及 research-only exposure 仍關閉。
+
+仍未完成：完整 V2 accessibility／reduced-motion／offline browser matrix、正式文案 review、
+production observability／rollback rehearsal 及 research governance gate；相關 checklist
+保持未勾選。

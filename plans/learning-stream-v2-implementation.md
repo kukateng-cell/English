@@ -143,45 +143,45 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 
 ### Phase 1：Pure policy、state machine 及 isolated harness
 
-- [ ] 建立 typed item／action／transition，非法 transition fail closed；
+- [x] 建立 typed item／action／transition，非法 transition fail closed；
 - [x] 建立 pure scheduler policy interface、quality mapping 同 deterministic fixtures；
 - [x] 用 deterministic 長序列模擬 combined cap、per-word dedupe、eligible delay、
   active-user liveness、long absence、reopen gaming、mode switching、lease、remediation、no-candidate；
-- [ ] 由 Serializable transaction／integration tests 證明 atomic admission 同並發 cap protection；
+- [x] 由 Serializable transaction／integration tests 證明 atomic admission 同並發 cap protection；
 - [ ] 抽取 WordCard motion primitive，建立不接 production API 嘅 harness；
-- [ ] 完成 Learning Card／Objective Probe／Feedback／SyncBlocked components；
+- [x] 完成 Learning Card／Objective Probe／Feedback／SyncBlocked components；
 - [ ] 測試 mouse、touch、synthetic pointer、keyboard、reduced motion、簡繁、明暗 theme。
 
 ### Phase 2：Operational API 及 Credential v2 integration
 
-- [ ] 完成 Credential v2 expand schema／generated client／legacy compatibility；
-- [ ] 建立 version-pinned session bootstrap 及 server-side assignment；
-- [ ] 實作 item selection／lease／obligation admission／remediation transaction；
-- [ ] 實作 evidence target／expected Review revision、probe purpose、immutable question snapshot、
+- [x] 完成 Credential v2 expand schema／generated client／legacy compatibility；
+- [x] 建立 version-pinned session bootstrap 及 server-side assignment；
+- [x] 實作 item selection／lease／obligation admission／remediation transaction；
+- [x] 實作 evidence target／expected Review revision、probe purpose、immutable question snapshot、
   item-validity fail-closed、answer scoring及 ReviewEvent provenance／quality mapping；
-- [ ] `operationId` 重送回相同 authoritative result；
-- [ ] 所有 route 使用現有 authorization helper、rate limit 同 typed validation；
-- [ ] production 不可用 shared rate-limit storage 時仍然 fail closed。
+- [x] `operationId` 重送回相同 authoritative result；
+- [x] 所有 route 使用現有 authorization helper、rate limit 同 typed validation；
+- [x] production 不可用 shared rate-limit storage 時仍然 fail closed。
 
 ### Phase 3：Global stream internal integration
 
-- [ ] controller 接上 v2 API，只對 internal／test accounts 開啟；
-- [ ] outbox 改用 stream-item action，支援 retry、rotation、authoritative supersession；
-- [ ] checkpoint v2 只保存安全 opaque pointer／revision／minimal presentation state；
-- [ ] global UI 移除固定 denominator／強制 done；加入合法 leave／resume；
+- [x] controller 接上 v2 API，只對 internal／test accounts 開啟；
+- [x] outbox 改用 stream-item action，支援 retry、rotation、authoritative supersession；
+- [x] checkpoint v2 只保存安全 opaque pointer／revision／minimal presentation state；
+- [x] global UI 移除固定 denominator／強制 done；加入合法 leave／resume；
 - [ ] dashboard／streak／achievement／leaderboard／unit projection 通過 metric audit，legacy
   unknown 同 V2 objective-recognition 分欄／分 denominator；
 - [ ] event／log allowlist 唔洩露 credential、nonce、正確答案或直接身份資料。
 
 ### Phase 4：Unit mode 及 reliability gate
 
-- [ ] Unit mode 使用同一 item/action contract，只限制 candidate scope；
+- [x] Unit mode 使用同一 item/action contract，只限制 candidate scope；
 - [ ] unit summary 只陳述 coverage／objective evidence，唔將右滑當掌握；
 - [ ] refresh、offline、storage unavailable、outbox corruption 有明確恢復體驗；
 - [ ] cross-tab 同 cross-device race 只產生一個合法結果；
 - [ ] session expiry／rotation／revocation／tokenVersion change 可恢復或安全終止；
 - [ ] answered probe、expired lease、stale checkpoint 唔會重現為新可答題；
-- [ ] answered probe 未確認 feedback 時，resume 一次 read-only authoritative feedback；
+- [x] answered probe 未確認 feedback 時，resume 一次 read-only authoritative feedback；
 - [ ] migration、production config、build、card-motion E2E、rollback rehearsal 通過。
 
 ### Phase 5：Pilot 及 rollout
@@ -291,4 +291,29 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 
 ## 十五、實際驗證紀錄
 
-> 尚未開始實作。獲批准開始後先將狀態改為「進行中」。
+### 2026-08-12：V2 product implementation handoff
+
+- `npm test`：119 passed；`npm run lint`、`npx tsc --noEmit`：passed。
+- `npx prisma validate`、`npx prisma generate`、`npm run db:deploy`：passed；新增
+  expand migration 已套用，本地 preflight 顯示無 lineage gap。
+- `npm run test:db:stream-v2`：passed；涵蓋 global／unit scope、server-issued item
+  credential、reveal gate、objective first response、correct／wrong quality、feedback
+  resume／ack、V2 provenance、remediation work completion、combined cap under concurrent
+  admission 及 global operation receipt。
+- `npm run test:db`：passed；V1 review ledger、idempotency、concurrency 及 receipt bridge
+  regression 通過。
+- `npm run test:migrations`、`npm run test:migration-checksums`、
+  `npm run test:migrations:contract`：passed。Contract regression 只在 temporary schema
+  執行；未對本地正式資料庫執行 `npm run db:contract`。
+- Production config fixture 通過；production 無 Upstash 或誤帶
+  `ENABLE_TEST_ROUTES=1` 會 fail closed／fail validation。未進行正式部署。
+- `npm run test:e2e:card-motion`：Chromium 73 passed／4 skipped；WebKit 33 passed。
+  另以 V2 internal assignment 執行 study-integration Chromium 32 passed，並手動驗證
+  objective answer、read-only feedback ack、learning-card reveal／self-rating、合法離開
+  及零 console error。
+
+未勾選項目及限制：isolated V2 component harness、V2 offline／storage-unavailable 的完整
+瀏覽器矩陣、V2 cross-tab／cross-device browser soak、rollback rehearsal、手機實機驗收及
+pilot threshold 尚未完成；需要外部環境或批准的 production deploy、學生 pilot、研究
+telemetry／consent 均未執行。`pg@9` integration path 仍會輸出一個 non-fatal overlapping
+`client.query()` deprecation warning，列為後續 runtime hygiene 工作。

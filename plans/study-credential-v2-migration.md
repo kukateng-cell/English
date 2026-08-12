@@ -164,30 +164,30 @@ Operational event 同 consent-gated ResearchEncounter 分開；前者唔因研�
 - [ ] 盤點 ReviewEvent 所有產生路徑，定義可證明 provenance 同 `LEGACY_UNKNOWN` backfill；
 - [ ] 建立 v1/v2 data-flow diagram 同 compatibility matrix；
 - [ ] 用 production-like data profile 檢查同一詞多 item 對 index／query 嘅影響；
-- [ ] 寫 expand migration、backfill／validation script、rollback-of-code 說明；
-- [ ] 新欄位 nullable 或 safe default；舊 binary 可繼續讀寫。
+- [x] 寫 expand migration、backfill／validation script、rollback-of-code 說明；
+- [x] 新欄位 nullable 或 safe default；舊 binary 可繼續讀寫。
 
 ### Stage B：Deploy expand；v1 仍為 default
 
-- [ ] Prisma Client 重新生成，lint／typecheck／unit 通過；
-- [ ] fresh database replay、existing database upgrade、migration checksum 通過；
-- [ ] legacy seed、login、study、checkpoint、review ledger regression 通過；
+- [x] Prisma Client 重新生成，lint／typecheck／unit 通過；
+- [x] fresh database replay、existing database upgrade、migration checksum 通過；
+- [x] legacy seed、login、study、checkpoint、review ledger regression 通過；
 - [ ] backfill 分 batch、可重入、有 progress／failure logging；
-- [ ] backfill／驗證 global OperationReceipt；所有 active runtime 已用 receipt-aware V1 code；
-- [ ] validation 比對 row counts、nullability、orphan、duplicate candidate；
-- [ ] metric projection regression 證明 legacy continuity 保留、V2 objective denominator 排除 unknown；
+- [x] backfill／驗證 global OperationReceipt；所有 active runtime 已用 receipt-aware V1 code；
+- [x] validation 比對 row counts、nullability、orphan、duplicate candidate；
+- [x] metric projection regression 證明 legacy continuity 保留、V2 objective denominator 排除 unknown；
 - [ ] 未建立任何 v2 assignment。
 
 ### Stage C：Dual-flow application
 
-- [ ] session 建立時 server pin `flowVersion`，session 中途唔自動切換；
-- [ ] v1 request 只經 legacy validator；v2 request 只經 item validator；
-- [ ] v1 只寫 legacy `StudySessionItem`；v2 只寫新 `StudyStreamItem`，兩者唔共享
+- [x] session 建立時 server pin `flowVersion`，session 中途唔自動切換；
+- [x] v1 request 只經 legacy validator；v2 request 只經 item validator；
+- [x] v1 只寫 legacy `StudySessionItem`；v2 只寫新 `StudyStreamItem`，兩者唔共享
   item-identity constraint；
-- [ ] v2 outbox／checkpoint 按 item identity，v1 data 保持原 decoder；
-- [ ] 每個 Objective Probe 建立／引用唯一 evidence target 同 immutable question snapshot；
-- [ ] dashboards／jobs／admin tools 兼容新 item kind，未知 kind fail visible；
-- [ ] internal accounts 完成 soak，production 默認仍 v1。
+- [x] v2 outbox／checkpoint 按 item identity，v1 data 保持原 decoder；
+- [x] 每個 Objective Probe 建立／引用唯一 evidence target 同 immutable question snapshot；
+- [x] dashboards／jobs／admin tools 兼容新 item kind，未知 kind fail visible；
+- [x] internal accounts 完成 soak，production 默認仍 v1。
 
 ### Stage D：證明 V2 獨立性及準備 V1 retirement
 
@@ -351,4 +351,24 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 
 ## 十五、實際驗證紀錄
 
-> 尚未開始 schema 或 production 改動；本計劃唔授權執行 contract migration。
+### 2026-08-12：Product-release expand／dual-flow evidence
+
+- 已完成並驗證 `20260812000000_add_retrieval_stream_v2`、
+  `20260812010000_add_retrieval_encounter_feedback`、
+  `20260812020000_add_retrieval_reveal_state` 及
+  `20260812030000_link_stream_work` expand migrations；Prisma validate／generate、fresh
+  replay、existing upgrade、checksum 及 production migration preflight 通過。
+- V1 `/api/study` 以 global `OperationReceipt` bridge 保留 idempotency；review ledger
+  regression、V1 browser workflow 及 V2 integration 均通過。V2 assignment 由
+  `STUDY_V2_INTERNAL_USER_IDS` deny-by-default allowlist 控制，未建立學生 cohort 或研究
+  assignment，production 預設仍為 V1。
+- V2 action validator、stream-item credential digest、session pinning、immutable
+  objective snapshot、evidence target、Review revision CAS、server scoring、outbox／
+  checkpoint、lease completion 及 concurrent admission cap 已有 code review／unit／DB
+  evidence。
+- `npm run test:migrations:contract` 只在 temporary schema 做 expand／contract regression；
+  未執行 `npm run db:contract`，亦未進行 production snapshot、正式部署或 schema cleanup。
+
+Stage A inventory 的 production-like profiling、Stage B 分批 backfill／progress logging、
+Stage D old-binary rollback matrix／長 observation window、multiple same-word item 的專項
+競態證據及 expand rollback rehearsal 尚未完成；因此本文保持「進行中」。

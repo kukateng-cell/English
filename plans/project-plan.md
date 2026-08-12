@@ -371,6 +371,19 @@ npm run seed
 | **P9 真实用户研究** | ⏳ 待开始 | 已有可记录逐次评测的 ledger | 经同意的小规模学生试用、留存／正确率指标、对照设计及结果分析 |
 | **P10 教师任务** | ⏳ 待开始 | 已有教师角色、班级统计与学生详情 | 周任务布置、截止时间、完成状态及班级汇总 |
 
+### 7.1 Retrieval-first Learning Stream v2（2026-08-12 handoff）
+
+已完成 internal／test scope 的 operational handoff：V2 以 server assignment deny-by-default
+开启，session pin `flowVersion`，V1 仍为默认流程。V2 具备 continuous global／bounded unit
+stream、Learning Card reveal gate、Objective Probe immutable snapshot、server scoring、
+Evidence Obligation cap／delay／expiry、StudyEncounter、item credential、global
+OperationReceipt、outbox／checkpoint 及 legacy metrics 分栏。self-rating 不直接更新
+Review／mastery；objective recognition 才产生带 provenance 的 V2 ReviewEvent。
+
+正式 production deploy、学生 pilot、rollback rehearsal、研究 telemetry／consent 及
+contract cleanup 尚未执行；这些仍是 `plans/retrieval-first-learning-program.md` 及其受控
+子计划的外部 gates。
+
 ---
 
 ## 八、参考文献
