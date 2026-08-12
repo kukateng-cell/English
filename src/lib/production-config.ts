@@ -38,6 +38,9 @@ export function productionConfigurationErrors(
   if (env.E2E_STUDY_QUEUE_LOAD_LIMIT) {
     errors.push("E2E_STUDY_QUEUE_LOAD_LIMIT is only permitted in local browser tests");
   }
+  if (env.ENABLE_TEST_ROUTES === "1") {
+    errors.push("ENABLE_TEST_ROUTES=1 is only permitted in local browser tests");
+  }
   if (
     env.STUDY_OPERATION_ID_COMPAT_UNTIL &&
     legacyOperationIdCompatibilityEndsAt(

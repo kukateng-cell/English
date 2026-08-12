@@ -55,3 +55,14 @@ test("production configuration rejects the browser-test queue limit override", (
   });
   assert.ok(errors.some((error) => error.includes("E2E_STUDY_QUEUE_LOAD_LIMIT")));
 });
+
+test("production configuration rejects browser-only test routes", () => {
+  const errors = productionConfigurationErrors({
+    UPSTASH_REDIS_REST_URL: "https://example.invalid",
+    UPSTASH_REDIS_REST_TOKEN: "test-token",
+    CRON_SECRET: "local-check-secret",
+    SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
+    ENABLE_TEST_ROUTES: "1",
+  });
+  assert.ok(errors.some((error) => error.includes("ENABLE_TEST_ROUTES")));
+});

@@ -86,6 +86,20 @@ const distributedCredentialIpLimiter = redis
     })
   : null;
 
+function unavailableInProduction(): { ok: false; retryAfterSec: number } | null {
+  const explicitTestRuntime = process.env.ENABLE_TEST_ROUTES === "1";
+  return process.env.NODE_ENV === "production" && !redis && !explicitTestRuntime
+    ? { ok: false, retryAfterSec: 60 }
+    : null;
+}
+
+function backendFailureInProduction(): { ok: false; retryAfterSec: number } | null {
+  const explicitTestRuntime = process.env.ENABLE_TEST_ROUTES === "1";
+  return process.env.NODE_ENV === "production" && !explicitTestRuntime
+    ? { ok: false, retryAfterSec: 60 }
+    : null;
+}
+
 function consumeLocalWindow(
   buckets: Map<string, number[]>,
   key: string,
@@ -112,6 +126,8 @@ export async function checkStudyRate(userId: string): Promise<{
   ok: boolean;
   retryAfterSec?: number;
 }> {
+  const unavailable = unavailableInProduction();
+  if (unavailable) return unavailable;
   try {
     if (distributedLimiter) {
       const result = await distributedLimiter.limit(userId);
@@ -128,9 +144,12 @@ export async function checkStudyRate(userId: string): Promise<{
 
     return consumeLocalWindow(localEvents, userId, MAX_EVENTS_PER_MINUTE);
   } catch (error) {
-    // 学习提交本身有认证、授权与幂等保护；限流后端短暂故障时保留可用性。
-    console.error("[study-limiter] backend unavailable; allowing request", error);
-    return { ok: true };
+    const failure = backendFailureInProduction();
+    console.error(
+      `[study-limiter] backend unavailable; ${failure ? "failing closed" : "using local fallback"}`,
+      error,
+    );
+    return failure ?? { ok: true };
   }
 }
 
@@ -138,6 +157,8 @@ export async function checkStudyQueueRate(
   userId: string,
   ip: string,
 ): Promise<{ ok: boolean; retryAfterSec?: number; dimension?: "user" | "ip" }> {
+  const unavailable = unavailableInProduction();
+  if (unavailable) return unavailable;
   try {
     if (distributedQueueIpLimiter && distributedQueueUserLimiter) {
       const ipResult = await distributedQueueIpLimiter.limit(ip);
@@ -179,11 +200,12 @@ export async function checkStudyQueueRate(
       ? { ok: true }
       : { ...userResult, dimension: "user" };
   } catch (error) {
+    const failure = backendFailureInProduction();
     console.error(
-      "[study-queue-limiter] backend unavailable; allowing request",
+      `[study-queue-limiter] backend unavailable; ${failure ? "failing closed" : "using local fallback"}`,
       error,
     );
-    return { ok: true };
+    return failure ?? { ok: true };
   }
 }
 
@@ -191,6 +213,8 @@ export async function checkStudyCredentialRate(
   userId: string,
   ip: string,
 ): Promise<{ ok: boolean; retryAfterSec?: number; dimension?: "user" | "ip" }> {
+  const unavailable = unavailableInProduction();
+  if (unavailable) return unavailable;
   try {
     if (distributedCredentialIpLimiter && distributedCredentialUserLimiter) {
       const ipResult = await distributedCredentialIpLimiter.limit(ip);
@@ -231,11 +255,12 @@ export async function checkStudyCredentialRate(
       ? { ok: true }
       : { ...userResult, dimension: "user" };
   } catch (error) {
+    const failure = backendFailureInProduction();
     console.error(
-      "[study-credential-limiter] backend unavailable; allowing request",
+      `[study-credential-limiter] backend unavailable; ${failure ? "failing closed" : "using local fallback"}`,
       error,
     );
-    return { ok: true };
+    return failure ?? { ok: true };
   }
 }
 

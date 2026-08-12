@@ -108,8 +108,16 @@ export function selectNextItem(
     oldestWork && state.acknowledgedItemsSinceProbe >= policy.maxEligibleServiceGap;
   const probeSoftCapped = state.consecutiveProbes >= policy.maxConsecutiveProbes;
   const nonProbeCandidate = [...remediationCards, ...ordinary].sort(compareUrgency)[0];
+  // `consecutiveProbes` is also the bounded indicator that a previous probe
+  // exists in the retained recent shape. Until the minimum number of
+  // acknowledged non-probe items has intervened, a probe may only be selected
+  // when no non-probe candidate can keep the stream live.
+  const interveningGapOpen =
+    state.consecutiveProbes === 0 ||
+    state.acknowledgedItemsSinceProbe >= policy.minInterveningItems;
+  const probeMayRun = interveningGapOpen || !nonProbeCandidate;
 
-  if (oldestWork && (!probeSoftCapped || gapOverride || !nonProbeCandidate)) {
+  if (oldestWork && ((!probeSoftCapped && interveningGapOpen) || gapOverride || !nonProbeCandidate)) {
     return decision(
       oldestWork,
       "evidence-work",
@@ -117,7 +125,7 @@ export function selectNextItem(
       gapOverride ? "max-eligible-service-gap" : undefined,
     );
   }
-  if (dueProbes[0] && (!probeSoftCapped || !nonProbeCandidate)) {
+  if (dueProbes[0] && ((!probeSoftCapped && interveningGapOpen) || probeMayRun)) {
     return decision(dueProbes[0], "due-review", eligible);
   }
   if (nonProbeCandidate) {

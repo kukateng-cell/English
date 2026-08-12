@@ -214,6 +214,47 @@ test("oldest eligible work is served by the simulation-backed six-item gap", () 
   assert.equal(result.overrideReason, "max-eligible-service-gap");
 });
 
+test("scheduler inserts the full two-item probe gap before another probe", () => {
+  const probe: CandidateRecord = {
+    id: "probe-gap",
+    wordId: "word-gap",
+    kind: "OBJECTIVE_PROBE",
+    purpose: "DUE_REVIEW",
+    selectionReason: "due-review",
+  };
+  const learningOne: CandidateRecord = {
+    id: "learning-gap-1",
+    wordId: "word-gap-1",
+    kind: "LEARNING_CARD",
+    selectionReason: "new-word",
+  };
+  const learningTwo: CandidateRecord = {
+    id: "learning-gap-2",
+    wordId: "word-gap-2",
+    kind: "LEARNING_CARD",
+    selectionReason: "new-word",
+  };
+  const oneItemGap = selectNextItem({
+    mode: "global",
+    now,
+    consecutiveProbes: 1,
+    acknowledgedItemsSinceProbe: 1,
+    activeWork: [],
+    candidates: [probe, learningOne],
+  });
+  assert.equal(oneItemGap.candidate?.id, "learning-gap-1");
+
+  const fullGap = selectNextItem({
+    mode: "global",
+    now,
+    consecutiveProbes: 1,
+    acknowledgedItemsSinceProbe: 2,
+    activeWork: [],
+    candidates: [probe, learningOne, learningTwo],
+  });
+  assert.equal(fullGap.candidate?.id, "probe-gap");
+});
+
 test("scheduler fail-closes expired work, respects mode scope and has an explicit no-candidate result", () => {
   const expired = work("expired", "word-expired", {
     expiresAt: now - 1,
