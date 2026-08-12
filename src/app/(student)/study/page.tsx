@@ -63,6 +63,7 @@ import {
   type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
 import { canResumeStudySession } from "@/lib/study-session";
+import StudyStreamV2 from "@/components/study-stream/StudyStreamV2";
 
 interface WordFull {
   id: string;
@@ -607,7 +608,63 @@ function StudyAssessHeader({
   );
 }
 
+interface StudyFlowAssignmentResponse {
+  ok: true;
+  assigned: boolean;
+  flowVersion: "v1" | "v2";
+}
+
+function StudyFlowRouter() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [assignment, setAssignment] = useState<StudyFlowAssignmentResponse | null>(null);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const userId = session?.user?.id ?? null;
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+      return;
+    }
+    if (status !== "authenticated" || !userId) return;
+    let cancelled = false;
+    fetch("/api/study/stream?assignmentOnly=1", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        const data: unknown = await response.json().catch(() => null);
+        if (!response.ok) {
+          const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+            ? data.error
+            : "学习流程分配暂时不可用";
+          throw new Error(message);
+        }
+        return data as StudyFlowAssignmentResponse;
+      })
+      .then((data) => {
+        if (!cancelled) setAssignment(data);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setAssignmentError(error instanceof Error ? error.message : "学习流程分配暂时不可用");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [router, status, userId]);
+
+  if (status === "loading" || (status === "authenticated" && !assignment && !assignmentError)) {
+    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">载入学习流程...</div>;
+  }
+  if (assignmentError) return <ErrorBanner message={assignmentError} onRetry={() => window.location.reload()} />;
+  if (assignment?.assigned && assignment.flowVersion === "v2" && userId) {
+    return <StudyStreamV2 userId={userId} />;
+  }
+  return <LegacyStudyPage />;
+}
+
 export default function StudyPage() {
+  return <StudyFlowRouter />;
+}
+
+function LegacyStudyPage() {
   const { data: session, status } = useSession();
   const userId = session?.user?.id ?? null;
   const router = useRouter();

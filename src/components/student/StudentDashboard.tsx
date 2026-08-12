@@ -73,6 +73,7 @@ export default function StudentDashboard({ userId }: { userId: string }) {
         <StatCard label={tc("今日复习")} value={data.today.reviewedWordCount} note={tc("已记录的词")} />
         <StatCard label={tc("连续学习")} value={data.streak.count} note={data.streak.studiedToday ? tc("今天已打卡") : tc("今天完成学习即可打卡")} />
           </div>
+          <p className="ui-field-helper">{tc("客观认读")} {data.today.objectiveRecognitionCount} · {tc("自评记录")} {data.today.selfRatedEncounterCount} · {tc("自评不会直接改变掌握度")}</p>
 
           <Card className="dashboard-library-card" padded>
         <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("词库进度")}</span><h2>{tc("已学与长期掌握")}</h2></div><Link className="ui-button ui-button-quiet ui-button-small" href="/words">{tc("打开词表")}<Icon name="arrow-right" size={16} /></Link></div>

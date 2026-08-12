@@ -15,7 +15,14 @@ import { StudentPageStack, StudentSectionStack } from "@/components/student/Stud
 
 interface Insights {
   days: number;
-  today: { reviewedWordCount: number; newWordCount: number; reviewEventCount: number };
+  today: {
+    reviewedWordCount: number;
+    newWordCount: number;
+    reviewEventCount: number;
+    objectiveRecognitionCount: number;
+    selfRatedEncounterCount: number;
+    legacyUnknownEventCount: number;
+  };
   library: { totalWords: number; learnedCount: number; learnedRate: number; masteredCount: number; mastery: number };
   streak: { count: number; studiedToday: boolean };
   activity: Array<{ day: string; count: number }>;
@@ -65,6 +72,7 @@ export default function StatsPage() {
         <StatCard label={tc("今日复习词数")} value={data.today.reviewedWordCount} note={`${data.today.reviewEventCount} ${tc("次记录")}`}/>
         <StatCard label={tc("连续学习")} value={data.streak.count} note={data.streak.studiedToday ? tc("今天已打卡") : tc("截至最近一天")}/>
           </div>
+          <p className="ui-field-helper">{tc("统计口径")}：{tc("客观认读")} {data.today.objectiveRecognitionCount} · {tc("自评记录")} {data.today.selfRatedEncounterCount} · {tc("legacy unknown")} {data.today.legacyUnknownEventCount}。</p>
 
           <div className="stats-two-column">
         <Card padded>
