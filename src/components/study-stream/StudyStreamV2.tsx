@@ -60,6 +60,17 @@ function errorText(value: unknown): string {
   return "学习同步暂时不可用，请检查网络后重试";
 }
 
+interface StudyStreamRequestError extends Error {
+  status?: number;
+  code?: string;
+}
+
+function isSessionExpiredError(value: unknown): value is StudyStreamRequestError {
+  if (!(value instanceof Error)) return false;
+  const candidate = value as StudyStreamRequestError;
+  return candidate.code === "SESSION_EXPIRED" || /session\s*(已过期|已撤销|已失效)/iu.test(candidate.message);
+}
+
 function newOperationId(): string {
   return `stream-${crypto.randomUUID()}`;
 }
@@ -70,8 +81,12 @@ async function readResponse(response: Response): Promise<unknown> {
     const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
       ? data.error
       : `学习操作失败（${response.status}）`;
-    const error = new Error(message) as Error & { status?: number };
+    const code = typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
+      ? data.code
+      : undefined;
+    const error = new Error(message) as StudyStreamRequestError;
     error.status = response.status;
+    if (code) error.code = code;
     throw error;
   }
   return data;
@@ -145,6 +160,32 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return data as PublicStreamActionResponse;
   }, []);
 
+  const recoverAction = useCallback(async (action: StudyStreamActionInput): Promise<PublicStreamActionResponse> => {
+    const response = await fetch("/api/study/actions/recover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(action),
+    });
+    const data = await readResponse(response);
+    if (typeof data !== "object" || data === null || (data as Record<string, unknown>).ok !== true) {
+      throw new Error("学习操作恢复回执无效");
+    }
+    return data as PublicStreamActionResponse;
+  }, []);
+
+  const postActionWithRecovery = useCallback(async (action: StudyStreamActionInput): Promise<PublicStreamActionResponse> => {
+    try {
+      return await postAction(action);
+    } catch (error) {
+      // Exactly one explicit recovery request is allowed. If the recovery
+      // route rejects it, the durable outbox remains blocked and no client
+      // loop silently resubmits the same operation.
+      if (!isSessionExpiredError(error)) throw error;
+      return recoverAction(action);
+    }
+  }, [postAction, recoverAction]);
+
   const refreshOutbox = useCallback(() => {
     try {
       const rows = loadStudyStreamOutbox(userId);
@@ -211,7 +252,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       return;
     }
     try {
-      const response = await postAction(row.action);
+      const response = await postActionWithRecovery(row.action);
       removeStudyStreamAction(userId, row.action.operationId);
       setSyncError(null);
       await applyActionResponse(row.action, response);
@@ -259,7 +300,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setSyncError(errorText(error));
       refreshOutbox();
     }
-  }, [applyActionResponse, fetchStream, postAction, refreshOutbox, userId]);
+  }, [applyActionResponse, fetchStream, postAction, postActionWithRecovery, refreshOutbox, userId]);
 
   const submitAction = useCallback(async (
     actionKind: StudyStreamActionInput["actionKind"],
@@ -285,7 +326,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     setOutboxCount((count) => count + 1);
     setActionPending(true);
     try {
-      const response = await postAction(action);
+      const response = await postActionWithRecovery(action);
       removeStudyStreamAction(userId, action.operationId);
       await applyActionResponse(action, response);
       setSyncError(null);
@@ -302,7 +343,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setActionPending(false);
       refreshOutbox();
     }
-  }, [actionPending, applyActionResponse, item, postAction, refreshOutbox, session, syncBlocked, updateCheckpoint, userId]);
+  }, [actionPending, applyActionResponse, item, postActionWithRecovery, refreshOutbox, session, syncBlocked, updateCheckpoint, userId]);
 
   const retrySync = useCallback(async () => {
     let rows: ReturnType<typeof loadStudyStreamOutbox>;
@@ -402,7 +443,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     : "/";
 
   if (loading && !item) {
-    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("载入连续学习流...")}</div>;
+    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("加载连续学习流...")}</div>;
   }
   if (syncError && !item) {
     return <ErrorBanner message={syncError} onRetry={() => void reloadStream()} />;

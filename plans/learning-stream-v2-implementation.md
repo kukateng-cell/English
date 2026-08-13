@@ -306,6 +306,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-010 | Local full V2 cutover scope | `STUDY_V2_ASSIGNMENT_MODE=all` 只可喺 local development，或明確 `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 啟用；`off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail closed | Phase 5 local product-complete |
 | I-011 | Visual review follow-up：Learning Card reveal／rating placement／account display | 不改 Contract 語義或 server action；V2 card body（排除發音 control）以 tap 揭示並以 one-way front／back flip 顯示答案；self-rating actions 移到卡下同寬 row；學生名稱 display 經 `tc()` 轉換，stored identity 不變；低位移 tap 唔可誤觸 swipe | Phase 5 local UI correction；完成前不得勾選相關 local DoD |
 | I-012 | Retrieval pause before reveal | 不改 Contract 語義或 server action；V2 Learning Card 保留「先試著想一想這個詞的中文意思」，約 1 秒後追加 stationary long-press 3 秒提示；兩段提示需有清楚但不干擾嘅高亮／呼吸式視覺；按住時顯示透明圓圈並隨 3 秒進度加快／增強；audio button、移動、放手及 pointer cancel 必須取消並重置 reveal timer；reveal 後保留既有 flip／答案面，左右 swipe／rating actions 用「和剛才想的一樣／不一樣」語義 | Phase 5 local interaction correction；visual refinement 完成前不得勾選相關 local DoD |
+| I-013 | Expired-session retry recovery／system locale | V2 action 遇到可恢復嘅 session expiry 時，保留原 `operationId`／item credential，經 server-authoritative session recovery 後只重送同一 typed action；revoked／無法證明 credential lineage 仍 fail closed，但唔可以無限重試；所有 V2 loading／fallback source literals 改用 canonical 簡體再交由 `tc()` 顯示，確保 zh-Hant 首屏一致 | Phase 5 local reliability／locale correction；完成前不得勾選相關 local DoD |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -320,6 +321,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] visual review follow-up 已通過 card-body reveal、audio exclusion、flip、same-width rating actions、簡繁 account display 及 V1／V2 gesture regression；
 - [x] I-012 retrieval pause follow-up 已通過 delayed prompt、3 秒 stationary long-press、movement／audio exclusion、reveal 後 swipe semantics 及 V1／V2 gesture regression；
 - [x] I-012 visual feedback refinement 已通過 prompt highlighter／breathing、按住透明進度圈、進度加速、放手重置及 reduced-motion／V1／V2 gesture regression；
+- [x] I-013 expired-session retry recovery 已通過 session-expiry／retry-loop regression、原 operationId idempotency、revoked／失效 credential fail-closed、outbox 保留及 V1／V2 regression；V2 system loading／fallback copy 已通過 zh-Hant／zh-Hans 首屏驗證；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -330,6 +332,12 @@ product-complete；但本計劃仍保持「進行中」，直到 local acceptanc
 ## 十五、實際驗證紀錄
 
 ### 2026-08-13：Local product-complete V2 cutover evidence
+
+其後本機實際驗證發現，待同步 V2 action 遇到已過期 session 時，controller 只會以同一個
+失效 session 重送，造成 `SyncBlocked` 嘅「重試」循環；同一條 V2 assignment／loading path
+亦有 source literal 直接使用簡體，令 zh-Hant 首屏出現簡體系統提示。因此新增 I-013，先完成
+server-authoritative recovery／bounded retry 及 locale regression 後，先可將 local completion
+evidence 視為完整。此修正唔涉及 contract migration、production deploy 或研究資料收集。
 
 其後 visual review 發現現有 V2 Learning Card 雖然已符合 retrieval reveal gate，但仍以卡下獨立揭示掣、
 卡內 self-rating hint 及未轉換嘅學生 display name 呈現；因此新增 I-011 local UI correction
@@ -368,6 +376,22 @@ stationary long-press 取代即時 tap，唔改 learning、evidence 或 server a
   `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` 通過（Chromium／Firefox／WebKit／mobile
   73 passed／4 skipped，WebKit study shards 17 + 16 passed），V1 student IA 24 passed／2 skipped、
   QA 21 passed／1 skipped；manual visual smoke 亦確認 reduced-motion CSS 保持提示可見並停用動畫。
+- I-013 已收斂使用者實際遇到嘅 session expiry retry loop 及 V2 system locale 漏字：普通
+  `/api/study/actions` 對過期／撤銷 session 仍 fail-closed 並回傳 allowlisted code；只有 client
+  持有同一 item credential／typed action 並明確進入 `/api/study/actions/recover`，server 先喺
+  Serializable transaction 延長未撤銷 session並重放原 operationId。recovery 失敗時 durable outbox
+  保留並停喺可見 blocker，client 每次只作一次 recovery request，唔會無限重送；同 operationId
+  重試回相同 authoritative receipt。V2 assignment router／stream loading literal 已統一由
+  canonical 簡體經 `tc()` 轉換，zh-Hant／zh-Hans 首屏 regression 通過。
+- `npm test`：126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；
+  `npm run build`：43/43 static pages generated，compiled／TypeScript passed。
+- `npm run test:db:stream-v2`：passed；覆蓋普通 expired session rejection、explicit recovery、
+  duplicate operation replay、revoked session fail-closed 及 ledger／metrics consistency。
+- `npm run test:e2e:study-stream-v2`：6 passed；包括 simulated blocker → 重試 recovery、原
+  operationId、outbox rows 清空、V2 retrieval／long-press／locale display。
+- `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`：Chromium 73 passed／4 skipped，
+  WebKit study shards 17 + 16 passed；V1 rollback、offline／cross-device／gesture regression
+  無回歸。無 schema／migration 改動，未執行 `npm run db:contract`。
 - `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:student-ia`：24 passed／2 skipped；
   `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:student-qa`：21 passed／1 skipped；
   舊版 student shell、study navigation、card/action fidelity、keyboard、locale、theme、

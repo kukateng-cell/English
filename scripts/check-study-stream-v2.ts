@@ -11,6 +11,7 @@ async function main() {
   const {
     applyStudyStreamAction,
     getOrCreateStudyStream,
+    recoverExpiredStudyStreamAction,
     renewStudyStreamCredential,
     StudyStreamError,
   } = await import("../src/lib/study-stream/server");
@@ -376,8 +377,24 @@ async function main() {
         clientKnownRevision: 0,
         payload: { selfRating: "selfForgot" },
       }),
-      (error: unknown) => error instanceof StudyStreamError && error.status === 403,
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "SESSION_EXPIRED",
     );
+    const recoveredAction: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: expiredSession.id,
+      streamItemId: expiredItem.id,
+      operationId: `expired-session-recovery-${suffix}`,
+      itemCredential: renewed.itemCredential,
+      actionKind: "SELF_RATING",
+      clientKnownRevision: 0,
+      payload: { selfRating: "selfForgot" },
+    };
+    const recovered = await recoverExpiredStudyStreamAction(user.id, recoveredAction);
+    assert.equal(recovered.response.ok, true);
+    assert.equal(recovered.duplicate, false);
+    const replayedRecovery = await recoverExpiredStudyStreamAction(user.id, recoveredAction);
+    assert.equal(replayedRecovery.duplicate, true);
+    assert.deepEqual(replayedRecovery.response, recovered.response);
 
     await prisma.evidenceObligation.update({
       where: { id: obligation.id },
@@ -478,16 +495,16 @@ async function main() {
     });
     assert.equal(answeredRemediation.status, "ANSWERED");
     assert.equal(answeredRemediation.activeKey, null);
-    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 9);
-    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 13);
+    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 10);
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 14);
     const metrics = await getStudentLearningMetrics(user.id);
     assert.equal(metrics.reviewEventCount, 1);
     assert.equal(metrics.objectiveRecognitionCount, 1);
-    assert.equal(metrics.selfRatedEncounterCount, 9);
+    assert.equal(metrics.selfRatedEncounterCount, 10);
     assert.equal(metrics.legacyUnknownEventCount, 0);
     const dashboard = await getStudentDashboard(user.id);
     assert.equal(dashboard.today.objectiveRecognitionCount, 1);
-    assert.equal(dashboard.today.selfRatedEncounterCount, 9);
+    assert.equal(dashboard.today.selfRatedEncounterCount, 10);
     assert.equal(dashboard.library.masteredCount, 0);
     const unitSummaryAfter = await getOrCreateStudyStream(user.id, {
       mode: "unit",

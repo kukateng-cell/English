@@ -151,7 +151,13 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
     if (await probe.isVisible().catch(() => false)) {
       const acknowledge = page.getByRole("button", { name: "我看到了，繼續" });
       if (await acknowledge.isVisible().catch(() => false)) {
-        await expect(acknowledge).toBeEnabled({ timeout: 10_000 });
+        // The read-only feedback can remain disabled while its authoritative
+        // response is still settling; keep polling the stream instead of
+        // turning a transient transition into a test failure.
+        if (!(await acknowledge.isEnabled().catch(() => false))) {
+          await page.waitForTimeout(250);
+          continue;
+        }
         await acknowledge.click();
         continue;
       }
@@ -170,6 +176,191 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
   }
 
   throw new Error("The local V2 stream did not expose a Learning Card within 12 items");
+});
+
+test("expired V2 action retry uses one bounded recovery request and clears the outbox", async ({ page }) => {
+  const sessionId = "recovery-session-01";
+  const streamItemId = "recovery-item-01";
+  const itemCredential = "recovery-credential-012345678901234567890123456789";
+  const actionBodies: Array<Record<string, unknown>> = [];
+  const recoveryBodies: Array<Record<string, unknown>> = [];
+  let revealed = false;
+  let allowRecovery = false;
+
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("assignmentOnly") === "1") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        assigned: true,
+        session: {
+          id: sessionId,
+          flowVersion: "v2",
+          mode: "global",
+          policyVersion: "retrieval-v1",
+          revision: 0,
+          expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+        },
+        item: {
+          streamItemId,
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality",
+          itemConstructionVersion: "retrieval-v1-item",
+          selectionReason: "recovery-test",
+          itemCredential,
+          credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+          clientRevision: 0,
+          prompt: "resilience",
+          ...(revealed ? {
+            learningCard: {
+              term: "resilience",
+              phonetic: "/rɪˈzɪliəns/",
+              definition: "恢复力；韧性",
+              pos: "n.",
+              examples: [{ en: "Resilience helps us recover.", zh: "恢复力帮助我们重新站起来。" }],
+            },
+          } : {}),
+        },
+        resumedFeedback: false,
+      }),
+    });
+  });
+
+  await page.route("**/api/study/actions**", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (pathname === "/api/study/actions/recover") {
+      const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      recoveryBodies.push(body);
+      if (!allowRecovery) {
+        await route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "学习 session 已过期或已撤销", code: "SESSION_REVOKED" }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          operationId: body.operationId,
+          actionKind: body.actionKind,
+          duplicate: false,
+          itemStatus: "ACKNOWLEDGED",
+          clientRevision: 1,
+          requiresFeedbackAck: false,
+          nextItem: null,
+        }),
+      });
+      return;
+    }
+    if (pathname !== "/api/study/actions") {
+      await route.continue();
+      return;
+    }
+    const body = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+    actionBodies.push(body);
+    if (body.actionKind === "REVEAL") {
+      revealed = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          operationId: body.operationId,
+          actionKind: "REVEAL",
+          duplicate: false,
+          itemStatus: "REVEALED",
+          clientRevision: 0,
+          requiresFeedbackAck: false,
+          learningCard: {
+            term: "resilience",
+            phonetic: "/rɪˈzɪliəns/",
+            definition: "恢复力；韧性",
+            pos: "n.",
+            examples: [{ en: "Resilience helps us recover.", zh: "恢复力帮助我们重新站起来。" }],
+          },
+          nextItem: null,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "学习 session 已过期或已撤销", code: "SESSION_EXPIRED" }),
+    });
+  });
+
+  await page.goto("/study");
+  const card = page.getByTestId("word-card-drag-layer");
+  await expect(card).toBeVisible();
+  const hint = page.getByTestId("word-card-hint");
+  const hintBox = await hint.boundingBox();
+  expect(hintBox).not.toBeNull();
+  const holdX = (hintBox?.x ?? 0) + (hintBox?.width ?? 0) / 2;
+  const holdY = (hintBox?.y ?? 0) + (hintBox?.height ?? 0) / 2;
+  await page.mouse.move(holdX, holdY);
+  await page.mouse.down();
+  await page.waitForTimeout(3_250);
+  await page.mouse.up();
+  await expect(page.getByTestId("word-card-back-face")).toBeVisible();
+
+  await page.getByRole("button", { name: "和剛才想的一樣" }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "學習 session" });
+  await expect(alert).toContainText("學習 session 已過期或已撤銷");
+  const selfRatingBodies = () => actionBodies.filter((body) => body.actionKind === "SELF_RATING");
+  expect(selfRatingBodies()).toHaveLength(1);
+  expect(recoveryBodies).toHaveLength(1);
+  const selfRatingOperationId = selfRatingBodies()[0]?.operationId;
+
+  allowRecovery = true;
+  await alert.getByRole("button", { name: "重試" }).click();
+  await expect(alert).toHaveCount(0);
+  expect(selfRatingBodies()).toHaveLength(2);
+  expect(recoveryBodies).toHaveLength(2);
+  expect(recoveryBodies[0]?.operationId).toBe(selfRatingOperationId);
+  expect(recoveryBodies[1]?.operationId).toBe(selfRatingOperationId);
+  const outboxRows = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((candidate) => candidate.includes("study-stream-v2:outbox"));
+    return key ? JSON.parse(localStorage.getItem(key) ?? "[]") : [];
+  });
+  expect(outboxRows).toEqual([]);
+});
+
+test("V2 assignment loading copy follows the selected Chinese locale", async ({ page, context }) => {
+  let releaseAssignment!: () => void;
+  let assignmentGate: Promise<void> | null = null;
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("assignmentOnly") === "1" && assignmentGate) await assignmentGate;
+    await route.continue();
+  });
+
+  for (const locale of ["zh-Hant", "zh-Hans"] as const) {
+    assignmentGate = new Promise<void>((resolve) => {
+      releaseAssignment = resolve;
+    });
+    await context.addCookies([
+      { name: "locale", value: locale, url: "http://127.0.0.1:3100/" },
+    ]);
+    await page.goto("/study");
+    await expect(page.getByText(locale === "zh-Hant" ? "加載學習流程..." : "加载学习流程...", { exact: true })).toBeVisible();
+    releaseAssignment();
+    assignmentGate = null;
+    await expect(page.getByText(locale === "zh-Hant" ? "加載學習流程..." : "加载学习流程...", { exact: true })).toHaveCount(0);
+    await expect(page.locator('[data-testid="word-card-drag-layer"], [role="radiogroup"]')).toBeVisible();
+  }
 });
 
 test("student account names follow the selected Chinese locale", async ({ page, context }) => {

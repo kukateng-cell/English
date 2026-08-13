@@ -615,6 +615,7 @@ interface StudyFlowAssignmentResponse {
 }
 
 function StudyFlowRouter() {
+  const { tc } = useLocale();
   const { data: session, status } = useSession();
   const router = useRouter();
   const [assignment, setAssignment] = useState<StudyFlowAssignmentResponse | null>(null);
@@ -651,7 +652,7 @@ function StudyFlowRouter() {
   }, [router, status, userId]);
 
   if (status === "loading" || (status === "authenticated" && !assignment && !assignmentError)) {
-    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">载入学习流程...</div>;
+    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("加载学习流程...")}</div>;
   }
   if (assignmentError) return <ErrorBanner message={assignmentError} onRetry={() => window.location.reload()} />;
   if (assignment?.assigned && assignment.flowVersion === "v2" && userId) {

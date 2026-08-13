@@ -418,6 +418,16 @@ integration regression；不涉及 learning、evidence 或資料庫 contract。p
 計時。V2 E2E、完整 card-motion、V1 IA／QA 及 reduced-motion visual smoke 已通過；不涉及 learning、
 evidence、migration 或 server contract。
 
+2026-08-13 再新增並完成 I-013 session-expiry recovery／system locale correction：普通 V2 action
+仍對 expired／revoked session fail-closed；明確 recovery route 以同一 item credential、typed
+operation 及 Serializable transaction 恢復未撤銷 expired session，保留 operationId／outbox 並
+對 duplicate replay 回 authoritative result，recovery 失敗唔會無限重試。V2 assignment／stream
+loading copy 改由 canonical 簡體經 `tc()` 顯示。`npm run test:db:stream-v2` passed，
+`npm run test:e2e:study-stream-v2` 6/6 passed，`STUDY_V2_ASSIGNMENT_MODE=off npm run
+test:e2e:card-motion` Chromium 73 passed／4 skipped、WebKit 33 passed；build／unit／lint／typecheck
+亦通過。無 schema／migration 改動，未執行 contract migration、production deploy、學生 pilot 或
+research collection；以上 external gates 仍 deferred。
+
 ---
 
 ## 八、参考文献

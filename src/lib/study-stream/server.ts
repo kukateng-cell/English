@@ -1018,6 +1018,7 @@ async function loadActionItem(
   userId: string,
   input: StudyStreamActionInput,
   now: Date,
+  options: { recoverExpiredSession?: boolean } = {},
 ): Promise<StreamItemWithRelations & { session: StudySession }> {
   const item = await tx.studyStreamItem.findFirst({
     where: {
@@ -1037,8 +1038,25 @@ async function loadActionItem(
   if (!acceptsCredential(item, input.itemCredential, now)) {
     throw new StudyStreamError(403, "学习项目凭证无效或已过期");
   }
-  if (item.session.retiredAt !== null || item.session.expiresAt <= now) {
-    throw new StudyStreamError(403, "学习 session 已过期或已撤销");
+  if (item.session.retiredAt !== null) {
+    throw new StudyStreamError(403, "学习 session 已过期或已撤销", { code: "SESSION_REVOKED" });
+  }
+  if (item.session.expiresAt <= now) {
+    if (!options.recoverExpiredSession) {
+      throw new StudyStreamError(403, "学习 session 已过期或已撤销", { code: "SESSION_EXPIRED" });
+    }
+    const recoveredExpiresAt = new Date(now.getTime() + STREAM_SESSION_TTL_MS);
+    const recovered = await tx.studySession.updateMany({
+      where: { id: item.session.id, userId, retiredAt: null, expiresAt: { lte: now } },
+      data: { expiresAt: recoveredExpiresAt },
+    });
+    if (recovered.count !== 1) {
+      throw new StudyStreamError(403, "学习 session 已过期或已撤销", { code: "SESSION_REVOKED" });
+    }
+    // Keep the in-transaction relation authoritative for revision updates and
+    // response construction below; the user lock serialises recovery with
+    // another tab/device using the same learner session.
+    item.session = { ...item.session, expiresAt: recoveredExpiresAt };
   }
   if (item.usedAt === null && item.leaseExpiresAt <= now) {
     throw new StudyStreamError(403, "学习项目租约已过期，请重新载入", { code: "EXPIRED_ITEM_LEASE" });
@@ -1491,6 +1509,7 @@ async function processFeedbackAck(
 async function applyStudyStreamActionTx(
   userId: string,
   input: StudyStreamActionInput,
+  options: { recoverExpiredSession?: boolean } = {},
 ): Promise<ActionTransactionResult> {
   for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
     try {
@@ -1499,7 +1518,7 @@ async function applyStudyStreamActionTx(
           await lockStreamUser(tx, userId);
           const replay = await preflightReceipt(tx, userId, input);
           if (replay) return replay;
-          const item = await loadActionItem(tx, userId, input, new Date());
+          const item = await loadActionItem(tx, userId, input, new Date(), options);
           let response: PublicStreamActionResponse;
           if (input.actionKind === "REVEAL") response = await processReveal(tx, userId, input, item);
           else if (input.actionKind === "SELF_RATING") response = await processSelfRating(tx, userId, input, item);
@@ -1525,6 +1544,20 @@ export async function applyStudyStreamAction(
   input: StudyStreamActionInput,
 ): Promise<ActionTransactionResult> {
   return applyStudyStreamActionTx(userId, input);
+}
+
+/**
+ * Explicit recovery path for a durable outbox action whose live session
+ * expired while the browser was offline or backgrounded. The normal action
+ * route remains fail-closed; this path only extends a non-revoked session
+ * after the same server-issued item credential and typed operation have been
+ * revalidated in the same Serializable transaction.
+ */
+export async function recoverExpiredStudyStreamAction(
+  userId: string,
+  input: StudyStreamActionInput,
+): Promise<ActionTransactionResult> {
+  return applyStudyStreamActionTx(userId, input, { recoverExpiredSession: true });
 }
 
 export interface RenewStudyStreamCredentialInput {
