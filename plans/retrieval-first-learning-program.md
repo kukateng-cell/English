@@ -223,6 +223,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] local V1 rollback mode 及 V1 compatibility regression 完成；
 - [x] visual review follow-up（Learning Card reveal／flip、卡下同寬 self-rating、學生名稱繁簡顯示）完成並驗證；
 - [x] I-012 retrieval pause follow-up（延遲思考提示、3 秒 stationary long-press、移動／發音排除、答案後一樣／不一樣 swipe 語義）完成並驗證；
+- [x] I-012 visual feedback refinement（兩段提示高亮／呼吸、透明按住進度圈、接近 3 秒時加速、放手／移動重置及 reduced-motion regression）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction 及 I-012 retrieval pause correction）完成並記錄實際驗證。
@@ -306,6 +307,8 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
   發音 control）、one-way flip、卡下同寬 self-rating actions 及 zh-Hant／zh-Hans 學生名稱 display regression；
 - [x] local I-012 interaction follow-up 已完成：先思考、約 1 秒後顯示長按提示，stationary long-press
   3 秒先揭示，移動／發音 control 不揭示，揭示後左右掃語義為和剛才想的一樣／不一樣；
+- [x] local I-012 visual feedback refinement 已完成：思考／長按提示有高亮呼吸，按住顯示透明圓圈並
+  隨進度加快，放手／移動／pointer cancel 會重置 3 秒計算，reduced-motion 仍保持可理解提示；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -332,7 +335,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-005 | V2 item credential rotation 以 server-recorded digest lineage 保留短效並行 grants，容許跨分頁／跨裝置 bootstrap 唔互相撤銷；action 仍以 item／revision／target CAS 決定唯一結果 | 實作中；expand-only migration，未涉及 contract cleanup |
 | P-006 | 本階段先完成 local product-complete；local all-user mode 只限 non-production，external pilot／production／research／destructive contract cleanup deferred | 已確認；由 Implementation I-010 落實 |
 | P-007 | Visual review follow-up 仍屬同一 V2 implementation scope：tap-to-reveal／flip、卡下同寬 self-rating 及學生名稱 display localization；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-011 完成 |
-| P-008 | I-012 係同一 V2 presentation／interaction scope 嘅 retrieval pause 修正：延遲提示、stationary long-press 及答案後一樣／不一樣 swipe 語義；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-012 完成 |
+| P-008 | I-012 係同一 V2 presentation／interaction scope 嘅 retrieval pause 修正：延遲提示、stationary long-press、提示／按住進度視覺回饋及答案後一樣／不一樣 swipe 語義；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-012 完成 |
 
 ## 十四、計劃審查紀錄
 

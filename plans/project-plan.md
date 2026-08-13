@@ -413,6 +413,11 @@ learning、evidence 或資料庫 contract。production deploy、學生 pilot、�
 integration regression；不涉及 learning、evidence 或資料庫 contract。production deploy、學生 pilot、
 研究 telemetry／consent 及 destructive contract cleanup 仍按 scope deferred。
 
+2026-08-13 再新增並完成 I-012 visual feedback refinement：兩段 retrieval 提示以呼吸式高亮呈現，
+按住時在按下位置顯示透明圓圈，隨 3 秒進度越來越快／明顯；中途放手、移動或 pointer cancel 會重置
+計時。V2 E2E、完整 card-motion、V1 IA／QA 及 reduced-motion visual smoke 已通過；不涉及 learning、
+evidence、migration 或 server contract。
+
 ---
 
 ## 八、参考文献
