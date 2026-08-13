@@ -201,9 +201,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   並與卡片同寬；reveal 前不提供 self-rating；
 - [x] 學生帳戶名稱及 avatar initial 於 zh-Hant 顯示繁體、zh-Hans 顯示簡體；只改 display layer，
   不改 stored identity；
-- [x] 按 I-012 修正 V2 Learning Card：初始先顯示思考提示，約 1 秒後顯示「長按 3 秒揭示答案」；
-  只有 stationary long-press 可揭示，低位移／左右拖動／發音 control 不得揭示；揭示後左右掃及
-  rating actions 改用「和剛才想的一樣／不一樣」語義；
+- [x] 按 I-012 修正 V2 Learning Card：初始顯示並保留「先試著想一想這個詞的中文意思」，約 1 秒後
+  追加「長按 3 秒揭示答案」；只有 stationary long-press 可揭示，低位移／左右拖動／發音 control
+  不得揭示；揭示後左右掃及 rating actions 改用「和剛才想的一樣／不一樣」語義；
 - [x] 按 I-012 visual feedback refinement 強化兩段提示嘅高亮／呼吸式提示；按住時顯示透明圓圈，
   進度越近 3 秒呼吸越快／越明顯；中途放手、移動或 pointer cancel 必須取消視覺進度並重新由
   3 秒計算；
@@ -222,7 +222,7 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 | Projection | self-rating 零 mastery effect；objective event 正確更新現有 projection | Phase 3 |
 | Resume | refresh、offline replay、checkpoint v1/v2、rotation、cross-device | Phase 4 |
 | Browser | mouse、emulated touch、synthetic pointer、完整登入學習流程 | Phase 4 |
-| UI correction | 延遲思考提示及高亮呼吸、stationary long-press 與發音 button 分離、透明按住進度圈及加速提示、低位移／拖動取消／放手重置、flip front／back、卡下同寬 self-rating、答案後一樣／不一樣 swipe 語義、zh-Hant／zh-Hans account display | Phase 5 local correction |
+| UI correction | 持續思考提示、追加長按提示及高亮呼吸、stationary long-press 與發音 button 分離、透明按住進度圈及加速提示、低位移／拖動取消／放手重置、flip front／back、卡下同寬 self-rating、答案後一樣／不一樣 swipe 語義、zh-Hant／zh-Hans account display | Phase 5 local correction |
 | Production | lint、typecheck、unit、build、production config、migration suites | Phase 4 |
 
 按改動範圍最少執行：
@@ -305,7 +305,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-009 | V2 CI／release preflight coverage | Study quality workflow 同 production verification job 必須喺 seed 後執行 `npm run test:db:stream-v2` 及 bounded `STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak`；path filter 覆蓋 V2 source／tests；assignment 仍 deny-by-default | Phase 4 automation gate；唔等同 production deploy／student pilot |
 | I-010 | Local full V2 cutover scope | `STUDY_V2_ASSIGNMENT_MODE=all` 只可喺 local development，或明確 `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 啟用；`off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail closed | Phase 5 local product-complete |
 | I-011 | Visual review follow-up：Learning Card reveal／rating placement／account display | 不改 Contract 語義或 server action；V2 card body（排除發音 control）以 tap 揭示並以 one-way front／back flip 顯示答案；self-rating actions 移到卡下同寬 row；學生名稱 display 經 `tc()` 轉換，stored identity 不變；低位移 tap 唔可誤觸 swipe | Phase 5 local UI correction；完成前不得勾選相關 local DoD |
-| I-012 | Retrieval pause before reveal | 不改 Contract 語義或 server action；V2 Learning Card 先顯示思考提示，約 1 秒後提示 stationary long-press 3 秒；兩段提示需有清楚但不干擾嘅高亮／呼吸式視覺；按住時顯示透明圓圈並隨 3 秒進度加快／增強；audio button、移動、放手及 pointer cancel 必須取消並重置 reveal timer；reveal 後保留既有 flip／答案面，左右 swipe／rating actions 用「和剛才想的一樣／不一樣」語義 | Phase 5 local interaction correction；visual refinement 完成前不得勾選相關 local DoD |
+| I-012 | Retrieval pause before reveal | 不改 Contract 語義或 server action；V2 Learning Card 保留「先試著想一想這個詞的中文意思」，約 1 秒後追加 stationary long-press 3 秒提示；兩段提示需有清楚但不干擾嘅高亮／呼吸式視覺；按住時顯示透明圓圈並隨 3 秒進度加快／增強；audio button、移動、放手及 pointer cancel 必須取消並重置 reveal timer；reveal 後保留既有 flip／答案面，左右 swipe／rating actions 用「和剛才想的一樣／不一樣」語義 | Phase 5 local interaction correction；visual refinement 完成前不得勾選相關 local DoD |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -359,8 +359,9 @@ stationary long-press 取代即時 tap，唔改 learning、evidence 或 server a
   `zh-Hant`／`zh-Hans` account heading／avatar display。
 - I-012 interaction correction 已以共享 `WordCard` 嘅 delayed prompt、3 秒 stationary
   long-press、movement／pointer cancel、發音 control exclusion 及答案後「和剛才想的一樣／不一樣」
-  labels 完成；重新執行 `npm run test:e2e:study-stream-v2` 4/4 passed，並以 local browser smoke
-  影像確認初始思考提示、約 1 秒後長按提示及答案面；ordinary tap 唔會揭示，3 秒原位按實先會揭示。
+  labels 完成；思考提示會一直保留，約 1 秒後追加長按提示。重新執行 `npm run test:e2e:study-stream-v2`
+  4/4 passed，並以 local browser smoke 影像確認兩句提示同時存在及答案面；ordinary tap 唔會揭示，
+  3 秒原位按實先會揭示。
 - I-012 visual feedback refinement 已完成並驗證：提示 class 有 highlighter／breathing 視覺，按住
   indicator 以按下位置定位，進度由 0 增至 1 時 pulse duration 由約 1050ms 減至 260ms；放手後
   indicator active／進度清空，重新按 2100ms 仍未揭示。`npm run test:e2e:study-stream-v2` 4/4 passed，

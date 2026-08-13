@@ -222,7 +222,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] local all-user V2 assignment、pre-reveal gate 及完整 local browser／DB 驗證完成；
 - [x] local V1 rollback mode 及 V1 compatibility regression 完成；
 - [x] visual review follow-up（Learning Card reveal／flip、卡下同寬 self-rating、學生名稱繁簡顯示）完成並驗證；
-- [x] I-012 retrieval pause follow-up（延遲思考提示、3 秒 stationary long-press、移動／發音排除、答案後一樣／不一樣 swipe 語義）完成並驗證；
+- [x] I-012 retrieval pause follow-up（持續保留思考提示、追加 3 秒 stationary long-press 提示、移動／發音排除、答案後一樣／不一樣 swipe 語義）完成並驗證；
 - [x] I-012 visual feedback refinement（兩段提示高亮／呼吸、透明按住進度圈、接近 3 秒時加速、放手／移動重置及 reduced-motion regression）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
@@ -305,8 +305,8 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
   feedback ACK、resume、offline、cross-device 及 V1 rollback 驗證；
 - [x] local V2 visual review follow-up 已完成：Learning Card reveal（現行為 stationary long-press，排除
   發音 control）、one-way flip、卡下同寬 self-rating actions 及 zh-Hant／zh-Hans 學生名稱 display regression；
-- [x] local I-012 interaction follow-up 已完成：先思考、約 1 秒後顯示長按提示，stationary long-press
-  3 秒先揭示，移動／發音 control 不揭示，揭示後左右掃語義為和剛才想的一樣／不一樣；
+- [x] local I-012 interaction follow-up 已完成：思考提示持續保留，約 1 秒後追加長按提示，stationary
+  long-press 3 秒先揭示，移動／發音 control 不揭示，揭示後左右掃語義為和剛才想的一樣／不一樣；
 - [x] local I-012 visual feedback refinement 已完成：思考／長按提示有高亮呼吸，按住顯示透明圓圈並
   隨進度加快，放手／移動／pointer cancel 會重置 3 秒計算，reduced-motion 仍保持可理解提示；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確

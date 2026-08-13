@@ -407,8 +407,8 @@ V1 feature-off student IA／QA 及完整 card-motion／study integration regress
 learning、evidence 或資料庫 contract。production deploy、學生 pilot、研究 telemetry／consent
 及 destructive contract cleanup 仍按 scope deferred。
 
-2026-08-13 其後新增並完成 I-012 interaction correction：學生先看到思考提示，約 1 秒後先顯示長按
-3 秒揭示答案，揭示前唔接受即時 tap，揭示後左右掃改用「和剛才想的一樣／不一樣」語義。已通過
+2026-08-13 其後新增並完成 I-012 interaction correction：學生先看到並保留思考提示，約 1 秒後追加
+長按 3 秒揭示答案，揭示前唔接受即時 tap，揭示後左右掃改用「和剛才想的一樣／不一樣」語義。已通過
 `npm run test:e2e:study-stream-v2`（4/4）、V1 feature-off student IA／QA 及完整 card-motion／study
 integration regression；不涉及 learning、evidence 或資料庫 contract。production deploy、學生 pilot、
 研究 telemetry／consent 及 destructive contract cleanup 仍按 scope deferred。
