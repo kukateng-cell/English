@@ -212,6 +212,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [x] 按 I-016 對齊 EMM Style 02 study surface fidelity：恢復 V2 字卡嘅 level／category badge、加強
   「連續學習」及「認讀卡」層級、將發音改為圖示＋文字 control，並按 handoff 重整 Objective Probe／
   V1 QuizCard 題目／選項 hierarchy；只改 presentation 及 additive item metadata，不改學習／計分／gesture contract；
+- [x] 按 I-017 依照使用者提供嘅 EMM choice-card reference 收斂選擇題 visual：題卡 meta／單詞／指示層級、
+  選項尺寸及字母圓章、未作答／答錯／正確狀態色彩與 border 對齊 reference；只改 presentation，保留
+  V1／V2 option selection、delayed answer、server scoring、locale／theme 及 rollback contract，並已完成相應驗證；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -315,6 +318,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-014 | Item credential expiry／resume recovery follow-up | 普通 action 對未知 credential 及 revoked session 繼續 fail closed；server 保留 bounded digest lineage 供 recovery-only proof，對同一 item／session／typed operation 嘅過期 credential 可經 explicit recovery route 恢復，並以 Serializable CAS 必要時重新租約；client 對 `ITEM_CREDENTIAL_EXPIRED`／`EXPIRED_ITEM_LEASE` 只作一次 recovery，保留原 `operationId`／outbox，唔清空或改寫學習結果 | 已落實並驗證；由 I-014 local reliability follow-up 完成 |
 | I-015 | Retrieval prompt presentation refinement | 不改 retrieval gate／長按 timer／audio exclusion；V2 移除「可隨時離開，進度會安全保留」，保留思考提示，將約 1 秒後出現嘅「長按 3 秒揭示答案」移到發音 button 下方；兩段提示改用低幅度、慢速呼吸，secondary 以 progressive enter effect 出現，並保留 reduced-motion 可理解性 | 已落實並驗證；由 I-015 local UI refinement 完成 |
 | I-016 | EMM Style 02 study surface fidelity refinement | 只改 V1／V2 presentation：item output additive 傳遞 level／category；header title、Learning Card metadata／context、V1／V2 audio label control、Objective Probe／V1 QuizCard 題目／選項 visual hierarchy 對齊 handoff；保留 retrieval gate、long-press、swipe、server scoring、outbox、V1 rollback 及 locale／theme 行為 | 已落實並驗證；由 I-016 local UI refinement 完成 |
+| I-017 | EMM choice-card reference visual refinement | 只改 V1／V2 choice-card presentation：以 reference 收斂 prompt meta／單詞／instruction hierarchy、option row density／letter badge、idle／wrong／correct visual states；保留 option ids、delayed answer、server scoring、locale／theme、accessibility 及 V1 rollback contract | 已落實並驗證；由 I-017 local UI refinement 完成 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -334,6 +338,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] I-015 retrieval prompt presentation refinement 已通過提示位置／間距、低幅度動畫、secondary 漸進出現、V2 queue note 移除及 reduced-motion／V1 regression；
 - [x] I-016 EMM Style 02 study surface fidelity refinement 已通過 metadata／header／audio／Objective Probe／
   V1 QuizCard hierarchy、responsive visual、locale／theme／reduced-motion 及 V1／V2 interaction regression；
+- [x] I-017 EMM choice-card reference visual refinement 已通過 prompt／option hierarchy、idle／wrong／correct
+  state visual、responsive／locale／theme／reduced-motion 及 V1／V2 selection regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -500,6 +506,29 @@ self-rating semantics、server scoring、credential、outbox、locale／theme co
   V1 level／category、dark／reduced-motion／forced-colors、axe、desktop／mobile reference capture 通過。
 - local visual smoke capture 檢查 V2 Objective Probe 390×844／1440×900，題目／選項 hierarchy 正常且
   `scrollWidth` 無超出 viewport。未執行 contract migration、production deploy、真實學生 pilot 或研究資料收集。
+
+### 2026-08-14：I-017 EMM choice-card reference visual evidence
+
+使用者以兩張 choice-card reference 要求進一步收斂 V1／V2 客觀題面；I-017 只改
+`src/app/globals.css` presentation rules，保留 option id、delayed answer、server scoring、locale／theme、
+accessibility、V1 rollback 及所有 retrieval／credential／outbox contract：
+
+- 題卡內 direction label 改為參考圖式不帶 pill 嘅單行 label；prompt／instruction 左對齊，level／category
+  badge、option row 同 A–D letter badge 放大，rounded row／spacing 以 EMM reference 收斂；較長 category
+  仍可自然換行，而「看英文／看中文」保持不換行。
+- idle option 保持 white surface／薄 border；答錯 row 使用淡暖紅底＋紅 border＋紅 letter badge；正確 row
+  使用淡綠底＋綠 border＋綠 letter badge；其餘未選 option 維持 white surface 同 opacity 1，避免錯誤狀態
+  將未選答案過度壓暗。
+- reduced-motion 下 choice option 明確停用 transition；local browser smoke 以 desktop／390×844 mobile
+  capture 及 computed layout check 驗證 `scrollWidth <= viewport width`、option `min-height: 68px`、
+  `border-radius: 22px`、letter badge `44px`，並以 wrong selection 即時確認 correct／wrong state colors。
+- `npm test`：126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build`：
+  43/43 static pages generated，compiled／TypeScript passed。
+- `npm run test:e2e:study-stream-v2`：7 passed；V2 retrieval／probe／metadata／locale／dark／reduced-motion
+  regression 通過。V1 `study-card-fidelity` desktop／mobile：8 passed／1 skipped；V1
+  `study-workflow` targeted choice-card transition：2 passed。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
+  research telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 
