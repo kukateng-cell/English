@@ -209,6 +209,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   3 秒計算；
 - [x] 按 I-015 收斂 retrieval 提示視覺：移除 V2「可隨時離開，進度會安全保留」、將長按提示移到
   發音 button 下方、降低兩段提示嘅呼吸幅度／閃動強度，並以漸進 enter effect 顯示長按提示；
+- [x] 按 I-016 對齊 EMM Style 02 study surface fidelity：恢復 V2 字卡嘅 level／category badge、加強
+  「連續學習」及「認讀卡」層級、將發音改為圖示＋文字 control，並按 handoff 重整 Objective Probe／
+  V1 QuizCard 題目／選項 hierarchy；只改 presentation 及 additive item metadata，不改學習／計分／gesture contract；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -311,6 +314,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-013 | Expired-session retry recovery／system locale | V2 action 遇到可恢復嘅 session expiry 時，保留原 `operationId`／item credential，經 server-authoritative session recovery 後只重送同一 typed action；revoked／無法證明 credential lineage 仍 fail closed，但唔可以無限重試；所有 V2 loading／fallback source literals 改用 canonical 簡體再交由 `tc()` 顯示，確保 zh-Hant 首屏一致 | 已落實並驗證；由 I-013 local reliability／locale correction 完成 |
 | I-014 | Item credential expiry／resume recovery follow-up | 普通 action 對未知 credential 及 revoked session 繼續 fail closed；server 保留 bounded digest lineage 供 recovery-only proof，對同一 item／session／typed operation 嘅過期 credential 可經 explicit recovery route 恢復，並以 Serializable CAS 必要時重新租約；client 對 `ITEM_CREDENTIAL_EXPIRED`／`EXPIRED_ITEM_LEASE` 只作一次 recovery，保留原 `operationId`／outbox，唔清空或改寫學習結果 | 已落實並驗證；由 I-014 local reliability follow-up 完成 |
 | I-015 | Retrieval prompt presentation refinement | 不改 retrieval gate／長按 timer／audio exclusion；V2 移除「可隨時離開，進度會安全保留」，保留思考提示，將約 1 秒後出現嘅「長按 3 秒揭示答案」移到發音 button 下方；兩段提示改用低幅度、慢速呼吸，secondary 以 progressive enter effect 出現，並保留 reduced-motion 可理解性 | 已落實並驗證；由 I-015 local UI refinement 完成 |
+| I-016 | EMM Style 02 study surface fidelity refinement | 只改 V1／V2 presentation：item output additive 傳遞 level／category；header title、Learning Card metadata／context、V1／V2 audio label control、Objective Probe／V1 QuizCard 題目／選項 visual hierarchy 對齊 handoff；保留 retrieval gate、long-press、swipe、server scoring、outbox、V1 rollback 及 locale／theme 行為 | 已落實並驗證；由 I-016 local UI refinement 完成 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -328,6 +332,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] I-013 expired-session retry recovery 已通過 session-expiry／retry-loop regression、原 operationId idempotency、revoked／unknown credential fail-closed、outbox 保留及 V1／V2 regression；V2 system loading／fallback copy 已通過 zh-Hant／zh-Hans 首屏驗證；
 - [x] I-014 item credential expiry／expired lease recovery 已通過 item credential／session 同時過期、bounded lineage、原 operationId idempotency、未知 credential／revoked fail-closed、outbox 保留及 V1／V2 regression；
 - [x] I-015 retrieval prompt presentation refinement 已通過提示位置／間距、低幅度動畫、secondary 漸進出現、V2 queue note 移除及 reduced-motion／V1 regression；
+- [x] I-016 EMM Style 02 study surface fidelity refinement 已通過 metadata／header／audio／Objective Probe／
+  V1 QuizCard hierarchy、responsive visual、locale／theme／reduced-motion 及 V1／V2 interaction regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -468,6 +474,32 @@ item credential／session／lease 嘅 bounded recovery，而唔改 typed action�
   cross-tab／cross-device study integration 無回歸。
 - 無 schema／migration 改動，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
   research telemetry／consent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-016 EMM Style 02 study surface fidelity evidence
+
+使用者以 EMM Style 02 handoff 要求修正 V1／V2 認讀卡、header、發音 control 及客觀題面；
+I-016 只改 V1／V2 presentation 同 additive item metadata，唔改 retrieval gate、long-press timer、swipe／
+self-rating semantics、server scoring、credential、outbox、locale／theme contract 或 V1 rollback：
+
+- `PublicStreamItemBase`／server projection 新增 optional `level`／`category` presentation metadata；
+  V2 Learning Card 恢復 level／category badge 及右上「認讀卡」context，`連續學習` 改用較大粗體
+  header，V1／V2 發音 control 統一為音量圖示＋「發音」文字。
+- Objective Probe／V1 QuizCard 按 handoff 重整為 eyebrow／intro、題面 direction／metadata、大 prompt、
+  instruction 及四個 rounded option rows；答案 key 仍唔下發，native radios／legacy option semantics、
+  read-only feedback／ACK 及 server authoritative transition 保持不變。
+- `npm test`：126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；
+  `npm run build`：compiled／TypeScript passed，43/43 static pages generated。
+- `npm run test:e2e:study-stream-v2`：7 passed，覆蓋 retrieval／stationary long-press／audio exclusion、
+  self-rating、Objective Probe 四選一／recovery、zh-Hant／zh-Hans、metadata／title／audio、dark／
+  reduced-motion 及 viewport overflow。
+- V1 `study-workflow` full run 有 31 passed；第 32 個 case 只因同一 local test user 累積 queue
+  rate-limit，未進入頁面便 timeout，單獨重跑該 case（連 auth setup）2 passed；新增 V1 QuizCard
+  EMM intro／level badge／四選一／發音 assertions 已包含並通過。
+- `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=off npx playwright test tests/e2e/study-card-fidelity.spec.ts
+  --project=study-card-fidelity-chromium --project=study-card-fidelity-mobile`：8 passed／1 skipped；
+  V1 level／category、dark／reduced-motion／forced-colors、axe、desktop／mobile reference capture 通過。
+- local visual smoke capture 檢查 V2 Objective Probe 390×844／1440×900，題目／選項 hierarchy 正常且
+  `scrollWidth` 無超出 viewport。未執行 contract migration、production deploy、真實學生 pilot 或研究資料收集。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 

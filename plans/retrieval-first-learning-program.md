@@ -227,9 +227,10 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-013 session-expiry recovery／bounded retry、outbox 保留、revoked fail-closed 及 V2 system copy zh-Hant／zh-Hans regression 完成並驗證；
 - [x] I-014 item credential／expired lease recovery、refresh 後 bounded lineage resume、原 operationId 保留及未知 credential／revoked fail-closed regression 完成並驗證；
 - [x] I-015 retrieval prompt presentation refinement（secondary prompt 置於發音 button 下方、低幅度呼吸、漸進出現、移除 V2 queue note）完成並驗證；
+- [x] I-016 EMM Style 02 study surface fidelity refinement（level／category badge、study title／context、圖示＋發音文字、Objective Probe／V1 QuizCard 題目／選項 hierarchy）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
-- [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction 及 I-014 item credential recovery）完成並記錄實際驗證。
+- [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -319,6 +320,8 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
   進行一次 bounded recovery；未知 credential、revoked session 及不同 item／session 安全終止；
 - [x] local I-015 已完成：retrieval prompt 位置／間距、低幅度動畫、secondary progressive enter、
   queue note 移除及 reduced-motion／V1 regression 已驗證；
+- [x] local I-016 已完成：EMM Style 02 study surface fidelity、additive level／category metadata、
+  Objective Probe／V1 QuizCard hierarchy 及 responsive／locale／theme regression 已驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -349,6 +352,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-009 | 實際 local smoke 發現 session expiry 後 V2 outbox retry 會重試同一失效 session，並有 V2 loading source literal 漏出簡體；以 server-authoritative recovery 保留原 operationId／outbox，對 revoked／無 lineage credential fail closed，並統一 V2 system copy 由 canonical 簡體經 `tc()` 顯示 | 已落實並驗證；由 Implementation I-013 完成，唔涉及 migration／production／research gate |
 | P-010 | 實際 local smoke 發現 item credential 過期／refresh 輪換後，V2 outbox action 未能進入 I-013 recovery；以 bounded digest lineage + explicit item recovery + lease CAS 修正，普通 action 對未知 credential／revoked session 仍 fail closed | 已落實並驗證；由 Implementation I-014 完成，唔涉及 migration／production／research gate |
 | P-011 | 使用者視覺 review 指出兩段 retrieval prompt 呼吸過強、間距過窄、secondary prompt 出現突兀及 V2 queue note 不需要；維持 long-press／audio／learning contract，只調整 prompt placement、低幅度 motion、progressive enter 同 copy | 已落實並驗證；由 Implementation I-015 完成，唔涉及 migration／production／research gate |
+| P-012 | 使用者要求以 EMM Style 02 handoff 收斂 V1／V2 study surface：恢復 level／category metadata、放大連續學習／認讀卡 hierarchy、發音圖示加文字，並重整 Objective Probe／V1 QuizCard 題目／選項 hierarchy；只改 presentation 及 additive output metadata | 已落實並驗證；由 Implementation I-016 完成，唔涉及 migration／production／research gate |
 
 ## 十四、計劃審查紀錄
 
@@ -378,6 +382,19 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - research collection／research-only exposure 保持關閉，直至所有正式外部 gate 完成。
 
 ## 十五、實際驗證紀錄
+
+### 2026-08-14：I-016 EMM Style 02 local product-complete evidence
+
+- I-016 只改 V1／V2 presentation 同 additive level／category metadata；retrieval gate、long-press、swipe／
+  self-rating、server scoring、credential、outbox、locale／theme contract、V1 rollback 及所有 external
+  gates 保持不變。
+- EMM handoff 對齊已驗證：level／category badge、較大「連續學習」header、右上「認讀卡」context、
+  圖示＋「發音」control，以及 Objective Probe／V1 QuizCard 嘅 intro／prompt／direction metadata／四個選項 hierarchy。
+- `npm test` 126 passed；lint、typecheck、diff check、production build（43/43 static pages）passed。
+  V2 browser regression 7 passed；V1 `study-card-fidelity` desktop／mobile 8 passed／1 skipped；另以
+  390×844／1440×900 local visual smoke 檢查 V2 probe，無 viewport overflow。
+- 未執行 contract migration、production deploy、真實學生 pilot、研究資料收集、ethics／家長 permission／
+  學生 assent；以上仍然係 external deferred gate。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 

@@ -18,6 +18,10 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
       if (isFlipped === "false") {
         const front = page.getByTestId("word-card-front");
         const term = (await front.locator(".word-card-term").textContent())?.trim() ?? "";
+        await expect(page.getByTestId("study-stream-title")).toHaveText("連續學習");
+        await expect(page.getByTestId("word-card-context")).toHaveText("認讀卡");
+        await expect(page.getByTestId("word-card-level")).toBeVisible();
+        await expect(front.getByRole("button", { name: "發音" })).toContainText("發音");
         await expect(card).toHaveRole("button");
         await expect(card).toHaveAttribute("aria-label", "單詞卡，請長按 3 秒揭示答案");
         await expect(card).not.toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
@@ -164,6 +168,9 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
      */
     const probe = page.getByRole("radiogroup", { name: "客觀題選項" });
     if (await probe.isVisible().catch(() => false)) {
+      await expect(page.getByTestId("study-stream-probe-title")).toHaveText("把意思配回單詞");
+      await expect(page.getByTestId("study-stream-probe-card")).toBeVisible();
+      await expect(page.getByTestId("study-stream-probe-level")).toBeVisible();
       const acknowledge = page.getByRole("button", { name: "我看到了，繼續" });
       if (await acknowledge.isVisible().catch(() => false)) {
         // The read-only feedback can remain disabled while its authoritative
@@ -178,6 +185,7 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
       }
       const options = page.getByRole("radio");
       await expect(options).toHaveCount(4);
+      await expect(page.getByTestId("study-stream-probe-options")).toBeVisible();
       if (!(await options.first().isEnabled())) {
         await page.waitForTimeout(250);
         continue;
@@ -396,5 +404,32 @@ test("student account names follow the selected Chinese locale", async ({ page, 
       expect(headingText).not.toContain("學生");
     }
     await expect(account.locator(".account-avatar")).toHaveText(headingText.slice(0, 1));
+  }
+});
+
+test("V2 study surface keeps its hierarchy in dark reduced-motion mode", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("theme", "dark"));
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/study");
+
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.getByTestId("study-stream-title")).toBeVisible();
+  const titleFontSize = await page.getByTestId("study-stream-title").evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  expect(titleFontSize).toBeGreaterThanOrEqual(21);
+
+  const surface = page.locator('[data-testid="word-card-drag-layer"], [data-testid="study-stream-probe-card"]').first();
+  await expect(surface).toBeVisible();
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth }));
+  expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.width);
+
+  const probe = page.getByTestId("study-stream-probe-card");
+  if (await probe.isVisible().catch(() => false)) {
+    await expect(page.getByTestId("study-stream-probe-title")).toBeVisible();
+    await expect(page.getByRole("radio")).toHaveCount(4);
+    const optionTransition = await page.getByRole("radio").first().locator("xpath=..").evaluate((element) => getComputedStyle(element).transitionDuration);
+    expect(Number.parseFloat(optionTransition)).toBe(0);
+  } else {
+    await expect(page.getByTestId("word-card-context")).toHaveText("認讀卡");
+    await expect(page.getByTestId("word-card-front").getByRole("button", { name: "發音" })).toContainText("發音");
   }
 });

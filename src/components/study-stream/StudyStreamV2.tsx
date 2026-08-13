@@ -461,7 +461,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         <Link href={leaveHref} aria-label={tc("离开学习")} className="study-icon-action flex h-9 w-9 items-center justify-center rounded-xl">
           <Icon name="arrow-left" size={18} />
         </Link>
-        <span className="study-muted text-[14px] font-medium">{tc("连续学习")}</span>
+        <h1 data-testid="study-stream-title" className="study-stream-title">{tc("连续学习")}</h1>
         <div className="flex items-center gap-2">
           <ThemeToggle className="study-header-icon study-header-theme" />
           <LogoutButton />
@@ -545,7 +545,12 @@ function LearningCardView({
   return (
     <div className="mx-auto w-full max-w-md">
       <WordCard
-        word={{ term: item.prompt, phonetic: item.learningCard?.phonetic }}
+        word={{
+          term: item.prompt,
+          phonetic: item.learningCard?.phonetic,
+          level: item.level,
+          category: item.category,
+        }}
         onSwipeLeft={() => onSelfRating("selfForgot")}
         onSwipeRight={() => onSelfRating("selfRecalled")}
         disabled={disabled}
@@ -616,46 +621,66 @@ function ObjectiveProbeView({
   const question = item.objectiveQuestion;
   if (!question) return null;
   const answered = Boolean(item.feedback);
+  const isEnglishToChinese = question.direction === "en-zh";
   return (
-    <div className="mx-auto w-full max-w-md px-3">
-      <div className="mb-4 text-center"><span className="quiz-prompt-label inline-block rounded-full px-4 py-1.5 text-[13px] font-medium">{tc(question.direction === "en-zh" ? "看英文，选中文" : "看中文，选英文")}</span></div>
-      <div className="quiz-card-surface mb-6 rounded-[28px] border p-8 text-center">
-        <p className="mb-2 text-xs font-semibold text-[var(--muted)]">{tc("客观检索题")}</p>
-        <h2 className="text-3xl font-bold leading-tight text-[var(--text)]">{question.prompt}</h2>
-      </div>
-      <div className="flex flex-col gap-3" role="radiogroup" aria-label={tc("客观题选项") as string}>
-        {question.options.map((option, index) => {
-          const feedback = item.feedback;
-          const isCorrect = feedback?.correctOptionId === option.id;
-          const isWrong = feedback?.selectedOptionId === option.id && !isCorrect;
-          const stateClass = isCorrect ? "quiz-option-correct" : isWrong ? "quiz-option-wrong" : feedback ? "quiz-option-dim" : "";
-          return (
-            <label
-              key={option.id}
-              className={`quiz-option flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-[15px] leading-snug transition-all focus-within:ring-2 focus-within:ring-[var(--accent)] focus-within:ring-offset-2 ${stateClass} ${disabled || answered ? "cursor-default opacity-80" : "cursor-pointer"}`}
-            >
-              <input
-                type="radio"
-                name={`study-stream-option-${item.streamItemId}`}
-                value={option.id}
-                checked={selectedOptionId === option.id}
-                disabled={disabled || answered}
-                onChange={() => onSelect(option.id)}
-                className="sr-only"
-              />
-              <span className="quiz-option-index flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">{String.fromCharCode(65 + index)}</span>
-              <span>{tc(option.text)}</span>
-            </label>
-          );
-        })}
-      </div>
-      {item.feedback ? (
-        <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 text-center" aria-live="polite">
-          <p className="font-semibold text-[var(--text)]">{item.feedback.isCorrect ? tc("答对了") : tc("这次先记住正确答案")}</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">{tc("这是只读反馈；确认后继续下一项，不会重复改分")}</p>
-          <button type="button" onClick={onAcknowledge} disabled={disabled} className="study-primary-action mt-4 rounded-2xl px-6 py-3 text-sm font-semibold disabled:opacity-50">{tc("我看到了，继续")}</button>
+    <div className="study-stream-probe mx-auto w-full max-w-md px-3">
+      <div className="quiz-intro">
+        <div className="quiz-intro-copy">
+          <span className="quiz-eyebrow">{tc("认字小测")}</span>
+          <h2 data-testid="study-stream-probe-title">{tc("把意思配回单词")}</h2>
+          <p>{tc("确认你真的认得它，再继续下一张。")}</p>
         </div>
-      ) : null}
+      </div>
+      <div data-testid="study-stream-probe-card" className="quiz-card-surface quiz-card-layout">
+        <div className="quiz-prompt-meta">
+          <span className="quiz-prompt-label">{tc(isEnglishToChinese ? "看英文" : "看中文")}</span>
+          {item.level ? (
+            <span data-testid="study-stream-probe-level" className="level-badge">
+              {item.level} · {tc(item.category ?? "未分类")}
+            </span>
+          ) : null}
+        </div>
+        <h2 className={`quiz-card-term quiz-probe-prompt${isEnglishToChinese ? "" : " is-definition"}`}>
+          {tc(question.prompt)}
+        </h2>
+        <p className="quiz-instruction">{tc(isEnglishToChinese ? "选出它的中文意思" : "选出最贴近的英文解释")}</p>
+        <div data-testid="study-stream-probe-options" className="quiz-options" role="radiogroup" aria-label={tc("客觀題選項") as string}>
+          {question.options.map((option, index) => {
+            const feedback = item.feedback;
+            const isCorrect = feedback?.correctOptionId === option.id;
+            const isWrong = feedback?.selectedOptionId === option.id && !isCorrect;
+            const stateClass = isCorrect ? "quiz-option-correct" : isWrong ? "quiz-option-wrong" : feedback ? "quiz-option-dim" : "";
+            return (
+              <label
+                key={option.id}
+                className={`quiz-option ${stateClass} ${disabled || answered ? "cursor-default opacity-80" : "cursor-pointer"}`}
+              >
+                <input
+                  type="radio"
+                  name={`study-stream-option-${item.streamItemId}`}
+                  value={option.id}
+                  checked={selectedOptionId === option.id}
+                  disabled={disabled || answered}
+                  onChange={() => onSelect(option.id)}
+                  className="sr-only"
+                />
+                <span className="quiz-option-index flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">{String.fromCharCode(65 + index)}</span>
+                <span>{tc(option.text)}</span>
+              </label>
+            );
+          })}
+        </div>
+        {item.feedback ? (
+          <div className={`quiz-result${item.feedback.isCorrect ? "" : " is-wrong"}`} aria-live="polite">
+            <span className="quiz-result-icon" aria-hidden="true">{item.feedback.isCorrect ? "✓" : "!"}</span>
+            <div className="quiz-result-copy">
+              <strong>{item.feedback.isCorrect ? tc("答对了") : tc("这次先记住正确答案")}</strong>
+              <p>{tc("这是只读反馈；确认后继续下一项，不会重复改分")}</p>
+              <button type="button" onClick={onAcknowledge} disabled={disabled} className="study-primary-action quiz-feedback-action">{tc("我看到了，继续")}</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

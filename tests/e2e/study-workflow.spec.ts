@@ -430,6 +430,13 @@ test("authenticated card dismissal enters one quiz exactly once", async ({
   await expect(quiz).toBeVisible();
   await expect(quiz).toHaveAttribute("data-known-count", "1");
   await expect(page.getByTestId("word-card-drag-layer")).toHaveCount(0);
+  await expect(page.getByText("認字小測", { exact: true })).toBeVisible();
+  await expect(page.getByText("把意思配回單詞", { exact: true })).toBeVisible();
+  await expect(page.locator(".quiz-card-layout")).toBeVisible();
+  await expect(page.getByTestId("quiz-option")).toHaveCount(4);
+  await expect(page.locator(".level-badge")).toBeVisible();
+  const speaker = page.getByRole("button", { name: "發音" });
+  if (await speaker.count()) await expect(speaker).toContainText("發音");
 });
 
 test("a superseded quiz credential preserves and replays the same answer operation", async ({

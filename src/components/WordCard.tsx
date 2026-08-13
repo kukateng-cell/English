@@ -1487,10 +1487,11 @@ export default function WordCard({
     <button
       onClick={handleSpeak}
       tabIndex={tabIndex}
-      className="word-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
+      className="word-card-speak"
       aria-label={tc("发音")}
     >
       <Icon name="volume" size={18} />
+      <span>{tc("发音")}</span>
     </button>
   );
 

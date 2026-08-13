@@ -595,6 +595,8 @@ function toPublicItem(
     prompt: row.itemKind === "OBJECTIVE_PROBE"
       ? row.objectiveQuestionSnapshot?.prompt ?? ""
       : row.word.term,
+    level: normalizeLevel(row.word.level),
+    category: row.word.category,
   };
 
   if (row.itemKind === "LEARNING_CARD") {

@@ -17,6 +17,8 @@ export interface QuizQuestion {
     term: string;
     phonetic?: string | null;
     definition: string;
+    level?: string;
+    category?: string | null;
   };
   direction: "en-zh" | "zh-en";
   options: QuizOption[];
@@ -83,48 +85,47 @@ export default function QuizCard({
   };
 
   return (
-    <div className="mx-auto w-full max-w-md px-5">
-      {/* 题干标签 */}
-      <div className="mb-4 text-center">
-        <span className="quiz-prompt-label inline-block rounded-full px-4 py-1.5 text-[13px] font-medium">
-          {isEnZh ? tc("看英文，选中文") : tc("看中文，选英文")}
-        </span>
+    <div className="study-stream-probe mx-auto w-full max-w-md px-5">
+      <div className="quiz-intro">
+        <div className="quiz-intro-copy">
+          <span className="quiz-eyebrow">{tc("认字小测")}</span>
+          <h2>{tc("把意思配回单词")}</h2>
+          <p>{tc("确认你真的认得它，再继续下一张。")}</p>
+        </div>
       </div>
 
-      {/* 题目卡片 */}
       <motion.div
         key={question.word.id + question.direction}
         {...cardMotion}
-        className="quiz-card-surface mb-6 flex min-h-[160px] flex-col items-center justify-center rounded-[28px] border p-6"
+        className="quiz-card-surface quiz-card-layout"
       >
+        <div className="quiz-prompt-meta">
+          <span className="quiz-prompt-label">{tc(isEnZh ? "看英文" : "看中文")}</span>
+          {question.word.level ? (
+            <span className="level-badge">
+              {question.word.level} · {tc(question.word.category ?? "未分类")}
+            </span>
+          ) : null}
+        </div>
         {isEnZh ? (
           <>
-            <h2
-              className="quiz-card-term mb-2 text-center"
-              style={{ fontSize: "42px", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15 }}
-            >
-              {question.word.term}
-            </h2>
-            {question.word.phonetic && (
-              <p className="quiz-card-phonetic mb-3 text-[15px]">{question.word.phonetic}</p>
-            )}
-            <button
-              onClick={speak}
-              className="quiz-card-speak flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-[0.95]"
-              aria-label={tc("发音")}
-            >
+            <h2 className="quiz-card-term quiz-probe-prompt">{question.word.term}</h2>
+            {question.word.phonetic && <p className="quiz-card-phonetic">{question.word.phonetic}</p>}
+            <button onClick={speak} className="quiz-card-speak" aria-label={tc("发音")}>
               <Icon name="volume" size={18} />
+              <span>{tc("发音")}</span>
             </button>
+            <p className="quiz-instruction">{tc("选出它的中文意思")}</p>
           </>
         ) : (
-          <p className="quiz-card-term text-center text-[26px] font-semibold leading-relaxed">
-            {tc(question.word.definition)}
-          </p>
+          <>
+            <p className="quiz-card-term quiz-probe-prompt is-definition">{tc(question.word.definition)}</p>
+            <p className="quiz-instruction">{tc("选出最贴近的英文解释")}</p>
+          </>
         )}
       </motion.div>
 
-      {/* 选项 */}
-      <div className="flex flex-col gap-3">
+      <div className="quiz-options">
         {question.options.map((opt, i) => {
           const st = optionState(opt.id);
           const isCorrect = st === "correct";
@@ -132,17 +133,12 @@ export default function QuizCard({
 
           const label = String.fromCharCode(65 + i);
 
-          // 动态样式
-          let containerClass =
-            "quiz-option flex items-center gap-3 rounded-2xl border-2 px-5 py-4 text-left text-[15px] leading-snug transition-all duration-200";
-
-          if (st === "idle") {
-            containerClass += " active:scale-[0.98]";
-          } else if (isCorrect) {
+          let containerClass = "quiz-option";
+          if (isCorrect) {
             containerClass += " quiz-option-correct";
           } else if (isWrong) {
             containerClass += " quiz-option-wrong";
-          } else {
+          } else if (st === "dim") {
             containerClass += " quiz-option-dim";
           }
 
@@ -159,7 +155,7 @@ export default function QuizCard({
             >
               {/* 圆形编号 */}
               <span
-                className={`quiz-option-index flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                className={`quiz-option-index rounded-full text-xs font-bold ${
                   isCorrect
                     ? "quiz-option-index-correct"
                     : isWrong

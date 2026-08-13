@@ -8,6 +8,7 @@ import {
   type StreamItemKind,
   type StreamMode,
 } from "@/lib/learning-policy/types";
+import type { LevelCode } from "@/lib/units";
 import type { PublicObjectiveQuestion } from "@/lib/learning-policy/question";
 
 export const STUDY_STREAM_FLOW_VERSION = "v2" as const;
@@ -47,6 +48,9 @@ export interface PublicStreamItemBase {
   credentialExpiresAt: string;
   clientRevision: number;
   prompt: string;
+  /** Presentation-only context; never used as an action identity or score input. */
+  level?: LevelCode;
+  category?: string | null;
   direction?: "en-zh" | "zh-en";
   objectiveQuestion?: PublicObjectiveQuestion;
   learningCard?: {
