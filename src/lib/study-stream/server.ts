@@ -182,8 +182,12 @@ function rotatedCredentialLineage(
   parentDigest: string,
 ): Prisma.InputJsonValue {
   const now = issuedAt.getTime();
-  const known = parseCredentialLineage(item.credentialLineage)
-    .filter((grant) => grant.expiresAt > now);
+  // Keep a bounded history even after a grant expires. Normal action
+  // validation still checks grant expiry; the explicit recovery path uses
+  // only this digest match after it has revalidated the owning user, item,
+  // session and typed operation. Dropping an expired predecessor here would
+  // make a browser refresh irrecoverably invalidate its durable outbox row.
+  const known = parseCredentialLineage(item.credentialLineage);
   const current = known.some((grant) => grant.digest === item.credentialDigest)
     ? known
     : [...known, {
@@ -201,6 +205,15 @@ function rotatedCredentialLineage(
   const unique = new Map<string, CredentialGrant>();
   for (const grant of next) unique.set(grant.digest, grant);
   return [...unique.values()].slice(-MAX_CREDENTIAL_LINEAGE_GRANTS) as unknown as Prisma.InputJsonValue;
+}
+
+function matchesCredentialDigest(
+  item: StudyStreamItem,
+  suppliedCredential: string,
+): boolean {
+  const digest = digestStudyStreamCredential(suppliedCredential);
+  return digest === item.credentialDigest || parseCredentialLineage(item.credentialLineage)
+    .some((grant) => grant.digest === digest);
 }
 
 function acceptsCredential(
@@ -1018,7 +1031,11 @@ async function loadActionItem(
   userId: string,
   input: StudyStreamActionInput,
   now: Date,
-  options: { recoverExpiredSession?: boolean } = {},
+  options: {
+    recoverExpiredSession?: boolean;
+    recoverExpiredCredential?: boolean;
+    recoverExpiredLease?: boolean;
+  } = {},
 ): Promise<StreamItemWithRelations & { session: StudySession }> {
   const item = await tx.studyStreamItem.findFirst({
     where: {
@@ -1035,9 +1052,11 @@ async function loadActionItem(
   if (!item || item.session.userId !== userId || item.session.flowVersion !== STUDY_STREAM_FLOW_VERSION) {
     throw new StudyStreamError(403, "学习项目凭证无效或不属于当前账户");
   }
-  if (!acceptsCredential(item, input.itemCredential, now)) {
-    throw new StudyStreamError(403, "学习项目凭证无效或已过期");
+  const credentialMatches = matchesCredentialDigest(item, input.itemCredential);
+  if (!credentialMatches) {
+    throw new StudyStreamError(403, "学习项目凭证无效或已过期", { code: "ITEM_CREDENTIAL_INVALID" });
   }
+  const credentialAccepted = acceptsCredential(item, input.itemCredential, now);
   if (item.session.retiredAt !== null) {
     throw new StudyStreamError(403, "学习 session 已过期或已撤销", { code: "SESSION_REVOKED" });
   }
@@ -1058,8 +1077,27 @@ async function loadActionItem(
     // another tab/device using the same learner session.
     item.session = { ...item.session, expiresAt: recoveredExpiresAt };
   }
+  if (!credentialAccepted && !options.recoverExpiredCredential) {
+    throw new StudyStreamError(403, "学习项目凭证无效或已过期", { code: "ITEM_CREDENTIAL_EXPIRED" });
+  }
   if (item.usedAt === null && item.leaseExpiresAt <= now) {
-    throw new StudyStreamError(403, "学习项目租约已过期，请重新载入", { code: "EXPIRED_ITEM_LEASE" });
+    if (!options.recoverExpiredLease) {
+      throw new StudyStreamError(403, "学习项目租约已过期，请重新载入", { code: "EXPIRED_ITEM_LEASE" });
+    }
+    const recoveredLeaseExpiresAt = new Date(now.getTime() + STREAM_ITEM_LEASE_MS);
+    const recoveredLease = await tx.studyStreamItem.updateMany({
+      where: {
+        id: item.id,
+        sessionId: item.session.id,
+        usedAt: null,
+        leaseExpiresAt: { lte: now },
+      },
+      data: { leaseExpiresAt: recoveredLeaseExpiresAt },
+    });
+    if (recoveredLease.count !== 1) {
+      throw new StudyStreamError(409, "学习项目已被其他装置更新，请重新载入", { code: "STALE_STREAM_ITEM" });
+    }
+    item.leaseExpiresAt = recoveredLeaseExpiresAt;
   }
   // Feedback acknowledgement is read-only and may legitimately be replayed
   // from a checkpoint created before the scored answer's revision was
@@ -1509,7 +1547,11 @@ async function processFeedbackAck(
 async function applyStudyStreamActionTx(
   userId: string,
   input: StudyStreamActionInput,
-  options: { recoverExpiredSession?: boolean } = {},
+  options: {
+    recoverExpiredSession?: boolean;
+    recoverExpiredCredential?: boolean;
+    recoverExpiredLease?: boolean;
+  } = {},
 ): Promise<ActionTransactionResult> {
   for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
     try {
@@ -1547,17 +1589,22 @@ export async function applyStudyStreamAction(
 }
 
 /**
- * Explicit recovery path for a durable outbox action whose live session
- * expired while the browser was offline or backgrounded. The normal action
- * route remains fail-closed; this path only extends a non-revoked session
- * after the same server-issued item credential and typed operation have been
- * revalidated in the same Serializable transaction.
+ * Explicit recovery path for a durable outbox action whose session, item
+ * credential or lease expired while the browser was offline or backgrounded.
+ * The normal action route remains fail-closed; this path only recovers a
+ * non-revoked session/item after the same server-issued credential lineage
+ * and typed operation have been revalidated in the same Serializable
+ * transaction.
  */
 export async function recoverExpiredStudyStreamAction(
   userId: string,
   input: StudyStreamActionInput,
 ): Promise<ActionTransactionResult> {
-  return applyStudyStreamActionTx(userId, input, { recoverExpiredSession: true });
+  return applyStudyStreamActionTx(userId, input, {
+    recoverExpiredSession: true,
+    recoverExpiredCredential: true,
+    recoverExpiredLease: true,
+  });
 }
 
 export interface RenewStudyStreamCredentialInput {

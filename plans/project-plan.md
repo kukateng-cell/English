@@ -428,6 +428,15 @@ test:e2e:card-motion` Chromium 73 passed／4 skipped、WebKit 33 passed；build�
 亦通過。無 schema／migration 改動，未執行 contract migration、production deploy、學生 pilot 或
 research collection；以上 external gates 仍 deferred。
 
+2026-08-13 local smoke 再發現 I-013 未覆蓋 item credential／lease 過期及 refresh 輪換後嘅
+合法 predecessor，令 V2 Objective Probe 嘅 durable outbox action 仍會顯示「學習項目憑證無效或已過期」。
+已按 I-014 完成 follow-up：normal action 繼續 fail-closed，explicit recovery 只接受 matching
+bounded server lineage，保留原 operationId／outbox，並對 expired lease 做 transaction 內 CAS
+恢復。`npm run test:db:stream-v2`、`npm run test:e2e:study-stream-v2` 6/6、
+`STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`（primary 73 passed／4 skipped、
+WebKit 33 passed）及 build／unit／lint／typecheck 均通過。無 schema／migration 改動，未執行
+contract migration、production deploy、學生 pilot 或 research collection；以上 external gates 仍 deferred。
+
 ---
 
 ## 八、参考文献

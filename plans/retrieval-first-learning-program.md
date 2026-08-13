@@ -225,9 +225,10 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-012 retrieval pause follow-up（持續保留思考提示、追加 3 秒 stationary long-press 提示、移動／發音排除、答案後一樣／不一樣 swipe 語義）完成並驗證；
 - [x] I-012 visual feedback refinement（兩段提示高亮／呼吸、透明按住進度圈、接近 3 秒時加速、放手／移動重置及 reduced-motion regression）完成並驗證；
 - [x] I-013 session-expiry recovery／bounded retry、outbox 保留、revoked fail-closed 及 V2 system copy zh-Hant／zh-Hans regression 完成並驗證；
+- [x] I-014 item credential／expired lease recovery、refresh 後 bounded lineage resume、原 operationId 保留及未知 credential／revoked fail-closed regression 完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
-- [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction 及 I-013 session recovery／locale correction）完成並記錄實際驗證。
+- [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction 及 I-014 item credential recovery）完成並記錄實際驗證。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -311,8 +312,10 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [x] local I-012 visual feedback refinement 已完成：思考／長按提示有高亮呼吸，按住顯示透明圓圈並
   隨進度加快，放手／移動／pointer cancel 會重置 3 秒計算，reduced-motion 仍保持可理解提示；
 - [x] local I-013 已完成：session expiry 後重試會以 server-authoritative recovery 恢復原 typed action
-  或安全終止而唔循環；原 operationId／outbox 保留，revoked／失效 credential fail closed；V2
+  或安全終止而唔循環；原 operationId／outbox 保留，revoked／unknown credential fail closed；V2
   assignment／loading／fallback system copy 已通過 zh-Hant／zh-Hans 驗證；
+- [x] local I-014 已完成：item credential／lease 過期時以 matching server-recorded lineage
+  進行一次 bounded recovery；未知 credential、revoked session 及不同 item／session 安全終止；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -336,11 +339,12 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-002 | Product rollout 同 Research rollout 使用獨立完成閘門 | 已確認 |
 | P-003 | Contract 變更先於 dependent implementation 變更 | 已確認 |
 | P-004 | Prototype 只負責 presentation／interaction reference，唔覆蓋 production safety | 已確認 |
-| P-005 | V2 item credential rotation 以 server-recorded digest lineage 保留短效並行 grants，容許跨分頁／跨裝置 bootstrap 唔互相撤銷；action 仍以 item／revision／target CAS 決定唯一結果 | 實作中；expand-only migration，未涉及 contract cleanup |
+| P-005 | V2 item credential rotation 以 server-recorded digest lineage 保留 bounded grants；仍有效 predecessor 可作 normal action，已過期 predecessor 只供 I-014 explicit recovery，action 仍以 item／revision／target CAS 決定唯一結果 | 已落實並驗證；expand-only migration，未涉及 contract cleanup |
 | P-006 | 本階段先完成 local product-complete；local all-user mode 只限 non-production，external pilot／production／research／destructive contract cleanup deferred | 已確認；由 Implementation I-010 落實 |
 | P-007 | Visual review follow-up 仍屬同一 V2 implementation scope：tap-to-reveal／flip、卡下同寬 self-rating 及學生名稱 display localization；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-011 完成 |
 | P-008 | I-012 係同一 V2 presentation／interaction scope 嘅 retrieval pause 修正：延遲提示、stationary long-press、提示／按住進度視覺回饋及答案後一樣／不一樣 swipe 語義；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-012 完成 |
 | P-009 | 實際 local smoke 發現 session expiry 後 V2 outbox retry 會重試同一失效 session，並有 V2 loading source literal 漏出簡體；以 server-authoritative recovery 保留原 operationId／outbox，對 revoked／無 lineage credential fail closed，並統一 V2 system copy 由 canonical 簡體經 `tc()` 顯示 | 已落實並驗證；由 Implementation I-013 完成，唔涉及 migration／production／research gate |
+| P-010 | 實際 local smoke 發現 item credential 過期／refresh 輪換後，V2 outbox action 未能進入 I-013 recovery；以 bounded digest lineage + explicit item recovery + lease CAS 修正，普通 action 對未知 credential／revoked session 仍 fail closed | 已落實並驗證；由 Implementation I-014 完成，唔涉及 migration／production／research gate |
 
 ## 十四、計劃審查紀錄
 

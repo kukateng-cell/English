@@ -65,10 +65,16 @@ interface StudyStreamRequestError extends Error {
   code?: string;
 }
 
-function isSessionExpiredError(value: unknown): value is StudyStreamRequestError {
+function isRecoverableStudyStreamError(value: unknown): value is StudyStreamRequestError {
   if (!(value instanceof Error)) return false;
   const candidate = value as StudyStreamRequestError;
-  return candidate.code === "SESSION_EXPIRED" || /session\s*(已过期|已撤销|已失效)/iu.test(candidate.message);
+  if (candidate.code === "SESSION_EXPIRED") return true;
+  if (candidate.code === "ITEM_CREDENTIAL_EXPIRED") return true;
+  if (candidate.code === "EXPIRED_ITEM_LEASE") return true;
+  // Keep compatibility with an older same-version server response that did
+  // not include the allowlisted code, but never infer recovery from a
+  // SESSION_REVOKED response or from the generic credential error.
+  return candidate.code === undefined && /session\s*(已过期|已失效)/iu.test(candidate.message);
 }
 
 function newOperationId(): string {
@@ -181,7 +187,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       // Exactly one explicit recovery request is allowed. If the recovery
       // route rejects it, the durable outbox remains blocked and no client
       // loop silently resubmits the same operation.
-      if (!isSessionExpiredError(error)) throw error;
+      if (!isRecoverableStudyStreamError(error)) throw error;
       return recoverAction(action);
     }
   }, [postAction, recoverAction]);

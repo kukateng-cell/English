@@ -178,7 +178,7 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
   throw new Error("The local V2 stream did not expose a Learning Card within 12 items");
 });
 
-test("expired V2 action retry uses one bounded recovery request and clears the outbox", async ({ page }) => {
+test("expired V2 item credential retry uses one bounded recovery request and clears the outbox", async ({ page }) => {
   const sessionId = "recovery-session-01";
   const streamItemId = "recovery-item-01";
   const itemCredential = "recovery-credential-012345678901234567890123456789";
@@ -244,7 +244,7 @@ test("expired V2 action retry uses one bounded recovery request and clears the o
         await route.fulfill({
           status: 403,
           contentType: "application/json",
-          body: JSON.stringify({ error: "学习 session 已过期或已撤销", code: "SESSION_REVOKED" }),
+          body: JSON.stringify({ error: "学习项目凭证无效或已过期", code: "ITEM_CREDENTIAL_INVALID" }),
         });
         return;
       }
@@ -298,7 +298,7 @@ test("expired V2 action retry uses one bounded recovery request and clears the o
     await route.fulfill({
       status: 403,
       contentType: "application/json",
-      body: JSON.stringify({ error: "学习 session 已过期或已撤销", code: "SESSION_EXPIRED" }),
+      body: JSON.stringify({ error: "学习项目凭证无效或已过期", code: "ITEM_CREDENTIAL_EXPIRED" }),
     });
   });
 
@@ -317,8 +317,8 @@ test("expired V2 action retry uses one bounded recovery request and clears the o
   await expect(page.getByTestId("word-card-back-face")).toBeVisible();
 
   await page.getByRole("button", { name: "和剛才想的一樣" }).click();
-  const alert = page.getByRole("alert").filter({ hasText: "學習 session" });
-  await expect(alert).toContainText("學習 session 已過期或已撤銷");
+  const alert = page.getByRole("alert").filter({ hasText: "學習項目憑證" });
+  await expect(alert).toContainText("學習項目憑證無效或已過期");
   const selfRatingBodies = () => actionBodies.filter((body) => body.actionKind === "SELF_RATING");
   expect(selfRatingBodies()).toHaveLength(1);
   expect(recoveryBodies).toHaveLength(1);

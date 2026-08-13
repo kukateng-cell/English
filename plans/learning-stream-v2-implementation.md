@@ -300,13 +300,14 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-004 | Exact API path：新 `/api/study/stream|actions` 或現 route version dispatch | 已決定使用新 `/api/study/stream`、`/api/study/actions`、`/api/study/sessions/renew`；保留 `/api/study` 作 V1 | Phase 0 |
 | I-005 | Reveal 要唔要 operational durable action | self-rating／probe answer 必定 durable；reveal 先保持 presentation state，只有 resume／獨立 operational requirement 才另加 typed durable action | Phase 1 state/data review |
 | I-006 | Pilot go／pause 數值 | 唔虛構；用 V1 baseline + internal soak 預先寫 runbook | Phase 5 前 |
-| I-007 | Cross-tab credential rotation | item 保留 bounded、短效 credential digest lineage；bootstrap／renew 發出 successor 時不撤銷仍有效的 predecessor，action 仍由 item status、operation receipt、target／Review CAS authoritative 決定 | Phase 4 reliability；需 expand migration |
+| I-007 | Cross-tab credential rotation | item 保留 bounded credential digest lineage；仍有效 predecessor 可按 normal action 使用，已過期 predecessor 只可喺 I-014 explicit recovery proof 使用；action 仍由 item status、operation receipt、target／Review CAS authoritative 決定 | 已落實並驗證；需 expand migration，唔涉及 contract cleanup |
 | I-008 | Shared rate-limit backend 故障策略 | production／Vercel production runtime 一律 fail closed；memory fallback 只限非-production local 或明確 `ENABLE_TEST_ROUTES=1` test runtime；login、password change、study queue／action／credential renewal 共用同一 runtime 判定；backend failure log 只記 allowlisted error type，唔記原始 exception／request details | Phase 2 security regression |
 | I-009 | V2 CI／release preflight coverage | Study quality workflow 同 production verification job 必須喺 seed 後執行 `npm run test:db:stream-v2` 及 bounded `STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak`；path filter 覆蓋 V2 source／tests；assignment 仍 deny-by-default | Phase 4 automation gate；唔等同 production deploy／student pilot |
 | I-010 | Local full V2 cutover scope | `STUDY_V2_ASSIGNMENT_MODE=all` 只可喺 local development，或明確 `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 啟用；`off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail closed | Phase 5 local product-complete |
 | I-011 | Visual review follow-up：Learning Card reveal／rating placement／account display | 不改 Contract 語義或 server action；V2 card body（排除發音 control）以 tap 揭示並以 one-way front／back flip 顯示答案；self-rating actions 移到卡下同寬 row；學生名稱 display 經 `tc()` 轉換，stored identity 不變；低位移 tap 唔可誤觸 swipe | Phase 5 local UI correction；完成前不得勾選相關 local DoD |
 | I-012 | Retrieval pause before reveal | 不改 Contract 語義或 server action；V2 Learning Card 保留「先試著想一想這個詞的中文意思」，約 1 秒後追加 stationary long-press 3 秒提示；兩段提示需有清楚但不干擾嘅高亮／呼吸式視覺；按住時顯示透明圓圈並隨 3 秒進度加快／增強；audio button、移動、放手及 pointer cancel 必須取消並重置 reveal timer；reveal 後保留既有 flip／答案面，左右 swipe／rating actions 用「和剛才想的一樣／不一樣」語義 | Phase 5 local interaction correction；visual refinement 完成前不得勾選相關 local DoD |
-| I-013 | Expired-session retry recovery／system locale | V2 action 遇到可恢復嘅 session expiry 時，保留原 `operationId`／item credential，經 server-authoritative session recovery 後只重送同一 typed action；revoked／無法證明 credential lineage 仍 fail closed，但唔可以無限重試；所有 V2 loading／fallback source literals 改用 canonical 簡體再交由 `tc()` 顯示，確保 zh-Hant 首屏一致 | Phase 5 local reliability／locale correction；完成前不得勾選相關 local DoD |
+| I-013 | Expired-session retry recovery／system locale | V2 action 遇到可恢復嘅 session expiry 時，保留原 `operationId`／item credential，經 server-authoritative session recovery 後只重送同一 typed action；revoked／無法證明 credential lineage 仍 fail closed，但唔可以無限重試；所有 V2 loading／fallback source literals 改用 canonical 簡體再交由 `tc()` 顯示，確保 zh-Hant 首屏一致 | 已落實並驗證；由 I-013 local reliability／locale correction 完成 |
+| I-014 | Item credential expiry／resume recovery follow-up | 普通 action 對未知 credential 及 revoked session 繼續 fail closed；server 保留 bounded digest lineage 供 recovery-only proof，對同一 item／session／typed operation 嘅過期 credential 可經 explicit recovery route 恢復，並以 Serializable CAS 必要時重新租約；client 對 `ITEM_CREDENTIAL_EXPIRED`／`EXPIRED_ITEM_LEASE` 只作一次 recovery，保留原 `operationId`／outbox，唔清空或改寫學習結果 | 已落實並驗證；由 I-014 local reliability follow-up 完成 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -321,7 +322,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] visual review follow-up 已通過 card-body reveal、audio exclusion、flip、same-width rating actions、簡繁 account display 及 V1／V2 gesture regression；
 - [x] I-012 retrieval pause follow-up 已通過 delayed prompt、3 秒 stationary long-press、movement／audio exclusion、reveal 後 swipe semantics 及 V1／V2 gesture regression；
 - [x] I-012 visual feedback refinement 已通過 prompt highlighter／breathing、按住透明進度圈、進度加速、放手重置及 reduced-motion／V1／V2 gesture regression；
-- [x] I-013 expired-session retry recovery 已通過 session-expiry／retry-loop regression、原 operationId idempotency、revoked／失效 credential fail-closed、outbox 保留及 V1／V2 regression；V2 system loading／fallback copy 已通過 zh-Hant／zh-Hans 首屏驗證；
+- [x] I-013 expired-session retry recovery 已通過 session-expiry／retry-loop regression、原 operationId idempotency、revoked／unknown credential fail-closed、outbox 保留及 V1／V2 regression；V2 system loading／fallback copy 已通過 zh-Hant／zh-Hans 首屏驗證；
+- [x] I-014 item credential expiry／expired lease recovery 已通過 item credential／session 同時過期、bounded lineage、原 operationId idempotency、未知 credential／revoked fail-closed、outbox 保留及 V1／V2 regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -346,6 +348,13 @@ scope。I-011 已按以下證據完成，唔改 learning、evidence 或 server a
 其後使用者要求避免學生一見卡便立即揭示答案；因此新增 I-012 interaction correction scope。
 I-012 已按以下證據完成；上一輪 I-011 嘅 tap-to-reveal 係 presentation baseline，現行 V2 以
 stationary long-press 取代即時 tap，唔改 learning、evidence 或 server action contract。
+
+2026-08-13 使用者 local smoke 再發現 V2 Objective Probe／待同步 action 顯示「學習項目憑證無效或已過期」；
+I-013 嘅 recovery 只覆蓋 `SESSION_EXPIRED`，未覆蓋 item credential／lease 同時過期或 refresh
+輪換後嘅合法 predecessor。新增 I-014：normal action 仍拒絕 expired credential，只有 matching
+server-recorded lineage 經 explicit recovery route 才可原子恢復；未知 credential、revoked session
+及無法證明 item identity 仍 fail closed。以下驗證完成後已將 I-014 local checklist 勾選；呢個
+follow-up 唔涉及 contract migration、production deploy 或研究資料收集。
 
 2026-08-13 使用者再要求 I-012 visual feedback refinement：兩段提示要更突出，按住時要有透明
 圓圈呼吸及接近 3 秒時加速嘅進度回饋；以下證據完成後已補齊新增 DoD。
@@ -409,6 +418,34 @@ stationary long-press 取代即時 tap，唔改 learning、evidence 或 server a
 - Local manual browser smoke confirmed ordinary test student receives `flowVersion=v2` under
   `all` and returns to V1 with `STUDY_V2_ASSIGNMENT_MODE=off`; no production deploy、student
   pilot、research collection or destructive contract migration performed。
+
+### 2026-08-13：I-014 item credential／lease recovery follow-up evidence
+
+使用者 local smoke 再現 V2 Objective Probe 顯示「學習項目憑證無效或已過期」；I-014 已補上
+item credential／session／lease 嘅 bounded recovery，而唔改 typed action、scoring、review 或
+資料庫 schema contract：
+
+- normal action 先驗證 item、user、session、credential digest lineage；current／predecessor
+  credential 過期時回傳 allowlisted `ITEM_CREDENTIAL_EXPIRED`，unknown credential 仍以 generic
+  403 fail closed；revoked session 仍回傳 `SESSION_REVOKED`。
+- credential rotation 保留最多 8 條 digest lineage（包括已過期 grant，但只供 explicit recovery
+  proof；normal action 仍嚴格檢查 expiry）；recovery route 只喺同一 user／session／stream item／
+  typed operation 通過 Serializable transaction 後接受，expired session／credential／unused-item
+  lease 必要時以 CAS 一次恢復。
+- `StudyStreamV2` 對 `SESSION_EXPIRED`、`ITEM_CREDENTIAL_EXPIRED`、`EXPIRED_ITEM_LEASE` 各只發一次
+  `/api/study/actions/recover`；原 `operationId`／outbox row 保留，recovery 失敗唔會無限重試或清空。
+- `npm test`：126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；
+  `npm run build`：43/43 static pages generated，compiled／TypeScript passed。
+- `npm run test:db:stream-v2`：passed；覆蓋 expired lease recovery、refresh rotation 後 expired
+  predecessor recovery、expired session＋credential、duplicate receipt、revoked fail-closed 及
+  ledger consistency。
+- `npm run test:e2e:study-stream-v2`：6 passed；新增 item credential error → 一次 recovery →
+  retry／outbox 清空 regression，並保留 V2 retrieval／locale tests。
+- `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`：primary 73 passed／4 skipped；
+  WebKit study shards 17 + 16 passed；V1 rollback、mouse／synthetic pointer／touch、offline／
+  cross-tab／cross-device study integration 無回歸。
+- 無 schema／migration 改動，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
+  research telemetry／consent，以上 external gates 仍 deferred。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 

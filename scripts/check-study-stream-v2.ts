@@ -335,6 +335,24 @@ async function main() {
       }),
       (error: unknown) => error instanceof StudyStreamError && error.details.code === "EXPIRED_ITEM_LEASE",
     );
+    const recoveredLeaseReveal: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: expiredSession.id,
+      streamItemId: expiredItem.id,
+      operationId: `expired-lease-recovery-${suffix}`,
+      itemCredential: expiredCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: 0,
+      payload: {},
+    };
+    const leaseRecovery = await recoverExpiredStudyStreamAction(user.id, recoveredLeaseReveal);
+    assert.equal(leaseRecovery.response.ok, true);
+    assert.equal(leaseRecovery.duplicate, false);
+    const leaseRecoveryRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: expiredItem.id },
+      select: { leaseExpiresAt: true },
+    });
+    assert.ok(leaseRecoveryRow.leaseExpiresAt.getTime() > Date.now());
     const renewed = await renewStudyStreamCredential(user.id, {
       studySessionId: expiredSession.id,
       streamItemId: expiredItem.id,
@@ -348,6 +366,52 @@ async function main() {
     });
     assert.ok(renewedRow.leaseExpiresAt.getTime() > Date.now());
     assert.ok(renewedRow.credentialExpiresAt.getTime() > Date.now());
+    await prisma.studyStreamItem.update({
+      where: { id: expiredItem.id },
+      data: {
+        credentialExpiresAt: new Date(Date.now() - 1_000),
+        credentialLineage: [{
+          digest: digestStudyStreamCredential(renewed.itemCredential),
+          issuedAt: Date.now() - 16 * 60_000,
+          expiresAt: Date.now() - 1_000,
+          parentDigest: null,
+        }],
+      },
+    });
+    const rotatedAfterExpiry = await getOrCreateStudyStream(user.id, {
+      itemCredential: renewed.itemCredential,
+    });
+    assert.equal(rotatedAfterExpiry.session.id, expiredSession.id);
+    assert.ok(rotatedAfterExpiry.item);
+    assert.notEqual(rotatedAfterExpiry.item.itemCredential, renewed.itemCredential);
+    const expiredCredentialAction: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: expiredSession.id,
+      streamItemId: expiredItem.id,
+      operationId: `expired-credential-recovery-${suffix}`,
+      itemCredential: renewed.itemCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: 0,
+      payload: {},
+    };
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        ...expiredCredentialAction,
+        operationId: `unknown-credential-${suffix}`,
+        itemCredential: "not-issued-by-the-study-server",
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, expiredCredentialAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_EXPIRED",
+    );
+    const credentialRecovery = await recoverExpiredStudyStreamAction(user.id, expiredCredentialAction);
+    assert.equal(credentialRecovery.response.ok, true);
+    assert.equal(credentialRecovery.duplicate, false);
+    const replayedCredentialRecovery = await recoverExpiredStudyStreamAction(user.id, expiredCredentialAction);
+    assert.equal(replayedCredentialRecovery.duplicate, true);
+    assert.deepEqual(replayedCredentialRecovery.response, credentialRecovery.response);
     await prisma.studySession.update({ where: { id: expiredSession.id }, data: { retiredAt: new Date() } });
     await assert.rejects(
       () => applyStudyStreamAction(user.id, {
@@ -496,7 +560,7 @@ async function main() {
     assert.equal(answeredRemediation.status, "ANSWERED");
     assert.equal(answeredRemediation.activeKey, null);
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 10);
-    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 14);
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 16);
     const metrics = await getStudentLearningMetrics(user.id);
     assert.equal(metrics.reviewEventCount, 1);
     assert.equal(metrics.objectiveRecognitionCount, 1);
