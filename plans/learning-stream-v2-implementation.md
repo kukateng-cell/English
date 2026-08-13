@@ -201,6 +201,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   並與卡片同寬；reveal 前不提供 self-rating；
 - [x] 學生帳戶名稱及 avatar initial 於 zh-Hant 顯示繁體、zh-Hans 顯示簡體；只改 display layer，
   不改 stored identity；
+- [x] 按 I-012 修正 V2 Learning Card：初始先顯示思考提示，約 1 秒後顯示「長按 3 秒揭示答案」；
+  只有 stationary long-press 可揭示，低位移／左右拖動／發音 control 不得揭示；揭示後左右掃及
+  rating actions 改用「和剛才想的一樣／不一樣」語義；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -216,7 +219,7 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 | Projection | self-rating 零 mastery effect；objective event 正確更新現有 projection | Phase 3 |
 | Resume | refresh、offline replay、checkpoint v1/v2、rotation、cross-device | Phase 4 |
 | Browser | mouse、emulated touch、synthetic pointer、完整登入學習流程 | Phase 4 |
-| UI correction | 卡面 tap 與發音 button 分離、低位移 tap 唔誤判 swipe、flip front／back、卡下同寬 self-rating、zh-Hant／zh-Hans account display | Phase 5 local correction |
+| UI correction | 延遲思考提示、stationary long-press 與發音 button 分離、低位移／拖動取消、flip front／back、卡下同寬 self-rating、答案後一樣／不一樣 swipe 語義、zh-Hant／zh-Hans account display | Phase 5 local correction |
 | Production | lint、typecheck、unit、build、production config、migration suites | Phase 4 |
 
 按改動範圍最少執行：
@@ -299,6 +302,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-009 | V2 CI／release preflight coverage | Study quality workflow 同 production verification job 必須喺 seed 後執行 `npm run test:db:stream-v2` 及 bounded `STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak`；path filter 覆蓋 V2 source／tests；assignment 仍 deny-by-default | Phase 4 automation gate；唔等同 production deploy／student pilot |
 | I-010 | Local full V2 cutover scope | `STUDY_V2_ASSIGNMENT_MODE=all` 只可喺 local development，或明確 `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 啟用；`off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail closed | Phase 5 local product-complete |
 | I-011 | Visual review follow-up：Learning Card reveal／rating placement／account display | 不改 Contract 語義或 server action；V2 card body（排除發音 control）以 tap 揭示並以 one-way front／back flip 顯示答案；self-rating actions 移到卡下同寬 row；學生名稱 display 經 `tc()` 轉換，stored identity 不變；低位移 tap 唔可誤觸 swipe | Phase 5 local UI correction；完成前不得勾選相關 local DoD |
+| I-012 | Retrieval pause before reveal | 不改 Contract 語義或 server action；V2 Learning Card 先顯示思考提示，約 1 秒後提示 stationary long-press 3 秒；audio button、移動及 pointer cancel 必須取消 reveal；reveal 後保留既有 flip／答案面，左右 swipe／rating actions 用「和剛才想的一樣／不一樣」語義 | Phase 5 local interaction correction；完成前不得勾選相關 local DoD |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -311,6 +315,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [ ] production feature flag、runbook、alerts、rollback rehearsal 已驗證；
 - [x] 無 client-controlled word／item／score／correct-answer boundary（typed parser、route validation、server-owned scoring 及 DB assertions）；
 - [x] visual review follow-up 已通過 card-body reveal、audio exclusion、flip、same-width rating actions、簡繁 account display 及 V1／V2 gesture regression；
+- [x] I-012 retrieval pause follow-up 已通過 delayed prompt、3 秒 stationary long-press、movement／audio exclusion、reveal 後 swipe semantics 及 V1／V2 gesture regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -325,6 +330,10 @@ product-complete；但本計劃仍保持「進行中」，直到 local acceptanc
 其後 visual review 發現現有 V2 Learning Card 雖然已符合 retrieval reveal gate，但仍以卡下獨立揭示掣、
 卡內 self-rating hint 及未轉換嘅學生 display name 呈現；因此新增 I-011 local UI correction
 scope。I-011 已按以下證據完成，唔改 learning、evidence 或 server action contract。
+
+其後使用者要求避免學生一見卡便立即揭示答案；因此新增 I-012 interaction correction scope。
+I-012 已按以下證據完成；上一輪 I-011 嘅 tap-to-reveal 係 presentation baseline，現行 V2 以
+stationary long-press 取代即時 tap，唔改 learning、evidence 或 server action contract。
 
 - 新增 `STUDY_V2_ASSIGNMENT_MODE=all`：只喺 local development，或明確
   `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 生效；
@@ -341,6 +350,10 @@ scope。I-011 已按以下證據完成，唔改 learning、evidence 或 server a
   `npm run test:e2e:study-stream-v2`：4/4 passed，覆蓋 audio exclusion、中文答案／例句、
   back-face 發音、flip 後先出現兩個 rating actions、同寬及非卡內 nesting，並逐一驗證
   `zh-Hant`／`zh-Hans` account heading／avatar display。
+- I-012 interaction correction 已以共享 `WordCard` 嘅 delayed prompt、3 秒 stationary
+  long-press、movement／pointer cancel、發音 control exclusion 及答案後「和剛才想的一樣／不一樣」
+  labels 完成；重新執行 `npm run test:e2e:study-stream-v2` 4/4 passed，並以 local browser smoke
+  影像確認初始思考提示、約 1 秒後長按提示及答案面；ordinary tap 唔會揭示，3 秒原位按實先會揭示。
 - `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:student-ia`：24 passed／2 skipped；
   `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:student-qa`：21 passed／1 skipped；
   舊版 student shell、study navigation、card/action fidelity、keyboard、locale、theme、
