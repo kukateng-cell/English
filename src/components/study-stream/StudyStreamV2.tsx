@@ -505,6 +505,7 @@ function LearningCardView({
         cardHint={showLongPressHint
           ? tc("长按 3 秒揭示答案")
           : tc("先试着想一想这个词的中文意思")}
+        cardHintState={showLongPressHint ? "longPress" : "think"}
         cardBackContent={revealed ? (
           <div className="word-card-answer-definition">
             <p className="mb-2 text-xs font-semibold text-[var(--muted)]">{tc("中文意思")}</p>

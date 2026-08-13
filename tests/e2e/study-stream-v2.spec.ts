@@ -22,9 +22,24 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(card).toHaveAttribute("aria-label", "單詞卡，請長按 3 秒揭示答案");
         await expect(card).not.toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
         const hint = page.getByTestId("word-card-hint");
+        const indicator = page.getByTestId("word-card-long-press-indicator");
+        await expect(indicator).toHaveCount(1);
+        await expect(hint).toHaveClass(/word-card-retrieval-hint/);
+        await expect(hint).toHaveClass(/is-think-hint/);
         await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
-        await page.waitForTimeout(1_100);
+        const earlyHintBox = await hint.boundingBox();
+        expect(earlyHintBox).not.toBeNull();
+        await page.mouse.move(
+          (earlyHintBox?.x ?? 0) + (earlyHintBox?.width ?? 0) / 2,
+          (earlyHintBox?.y ?? 0) + (earlyHintBox?.height ?? 0) / 2,
+        );
+        await page.mouse.down();
+        await page.waitForTimeout(1_150);
         await expect(hint).toHaveText("長按 3 秒揭示答案");
+        await expect(hint).toHaveClass(/is-long-press-hint/);
+        await expect(indicator).toHaveClass(/is-active/);
+        await page.mouse.up();
+        await expect(indicator).not.toHaveClass(/is-active/);
         await expect(page.getByTestId("study-stream-self-rating-actions")).toHaveCount(0);
 
         await front.getByRole("button", { name: "發音" }).click();
@@ -40,10 +55,35 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         const holdY = (hintBox?.y ?? 0) + (hintBox?.height ?? 0) / 2;
         await page.mouse.move(holdX, holdY);
         await page.mouse.down();
+        await page.waitForTimeout(450);
+        await expect(indicator).toHaveClass(/is-active/);
+        const firstHoldVisual = await indicator.evaluate((element) => ({
+          progress: Number.parseFloat(element.style.getPropertyValue("--word-card-hold-progress")),
+          pulseDuration: Number.parseFloat(element.style.getPropertyValue("--word-card-hold-pulse-duration")),
+        }));
+        await page.waitForTimeout(450);
+        const secondHoldVisual = await indicator.evaluate((element) => ({
+          progress: Number.parseFloat(element.style.getPropertyValue("--word-card-hold-progress")),
+          pulseDuration: Number.parseFloat(element.style.getPropertyValue("--word-card-hold-pulse-duration")),
+        }));
+        expect(secondHoldVisual.progress).toBeGreaterThan(firstHoldVisual.progress);
+        expect(secondHoldVisual.pulseDuration).toBeLessThan(firstHoldVisual.pulseDuration);
+        await page.mouse.up();
+        await expect(indicator).not.toHaveClass(/is-active/);
+
+        await page.mouse.move(holdX, holdY);
+        await page.mouse.down();
+        await page.waitForTimeout(2_100);
+        await expect(flip).toHaveAttribute("data-flipped", "false");
+        await page.mouse.up();
+
+        await page.mouse.move(holdX, holdY);
+        await page.mouse.down();
         await page.waitForTimeout(1_200);
         await page.mouse.move(holdX + 20, holdY);
         await page.waitForTimeout(2_100);
         await expect(flip).toHaveAttribute("data-flipped", "false");
+        await expect(indicator).not.toHaveClass(/is-active/);
         await page.mouse.up();
 
         await page.mouse.move(holdX, holdY);

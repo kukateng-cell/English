@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -86,6 +87,8 @@ interface WordCardProps {
   cardBackContent?: ReactNode;
   /** Presentation hint shown on the front face before reveal. */
   cardHint?: ReactNode;
+  /** Visual state of the presentation hint; V2 uses this for retrieval emphasis. */
+  cardHintState?: "think" | "longPress";
   /** Keep the answer face visible after a presentation-only reveal. */
   isFlipped?: boolean;
   /** Activate the card body for reveal or another presentation-only action. */
@@ -120,6 +123,8 @@ const POINTER_SAMPLE_CAPACITY = 32;
 const RETURN_MAX_SECONDS = 0.8;
 const FRAME_CALIBRATION_FRAMES = 4;
 const LONG_PRESS_MOVE_TOLERANCE = 10;
+const LONG_PRESS_INITIAL_PULSE_MS = 1_050;
+const LONG_PRESS_FINAL_PULSE_MS = 260;
 
 interface ActivePointerDrag {
   pointerId: number;
@@ -137,6 +142,8 @@ interface ActiveLongPress {
   pointerId: number;
   startX: number;
   startY: number;
+  startedAt: number;
+  durationMs: number;
   timerId: number;
   triggered: boolean;
 }
@@ -303,6 +310,7 @@ export default function WordCard({
   children,
   cardBackContent,
   cardHint,
+  cardHintState,
   isFlipped = false,
   onCardTap,
   onCardLongPress,
@@ -325,9 +333,12 @@ export default function WordCard({
   const rightLabelRef = useRef<HTMLSpanElement>(null);
   const leftBadgeRef = useRef<HTMLSpanElement>(null);
   const rightBadgeRef = useRef<HTMLSpanElement>(null);
+  const longPressIndicatorRef = useRef<HTMLSpanElement>(null);
   const geometryRef = useRef<CardGeometry | null>(null);
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
   const activeLongPressRef = useRef<ActiveLongPress | null>(null);
+  const longPressIndicatorFrameRef = useRef<number | null>(null);
+  const [longPressIndicatorActive, setLongPressIndicatorActive] = useState(false);
   const captureGenerationRef = useRef(0);
   const activeCaptureGenerationRef = useRef<number | null>(null);
   const dragXRef = useRef(0);
@@ -922,11 +933,103 @@ export default function WordCard({
     [disabled, onCardTap, swipeEnabled],
   );
 
+  const clearLongPressIndicator = useCallback(() => {
+    if (longPressIndicatorFrameRef.current !== null) {
+      cancelAnimationFrame(longPressIndicatorFrameRef.current);
+      longPressIndicatorFrameRef.current = null;
+    }
+    setLongPressIndicatorActive(false);
+    const indicator = longPressIndicatorRef.current;
+    if (!indicator) return;
+    indicator.classList.remove("is-active");
+    indicator.style.removeProperty("--word-card-hold-progress");
+    indicator.style.removeProperty("--word-card-hold-pulse-duration");
+    indicator.style.removeProperty("--word-card-hold-opacity");
+    indicator.style.removeProperty("--word-card-hold-scale");
+    indicator.style.removeProperty("left");
+    indicator.style.removeProperty("top");
+  }, []);
+
+  const beginLongPressIndicator = useCallback(
+    (startedAt: number, durationMs: number, clientX: number, clientY: number) => {
+      const indicator = longPressIndicatorRef.current;
+      const dragLayer = dragLayerRef.current;
+      if (!indicator || !dragLayer) return;
+      if (longPressIndicatorFrameRef.current !== null) {
+        cancelAnimationFrame(longPressIndicatorFrameRef.current);
+      }
+      const prefersReducedMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const rect = dragLayer.getBoundingClientRect();
+      indicator.style.left = `${clientX - rect.left}px`;
+      indicator.style.top = `${clientY - rect.top}px`;
+      indicator.style.setProperty("--word-card-hold-progress", "0");
+      indicator.style.setProperty(
+        "--word-card-hold-pulse-duration",
+        `${LONG_PRESS_INITIAL_PULSE_MS}ms`,
+      );
+      indicator.style.setProperty("--word-card-hold-opacity", "0.16");
+      indicator.style.setProperty(
+        "--word-card-hold-scale",
+        prefersReducedMotion ? "0.92" : "0.84",
+      );
+      setLongPressIndicatorActive(true);
+      indicator.classList.add("is-active");
+
+      const tick = (timestamp: number) => {
+        const activeLongPress = activeLongPressRef.current;
+        const activeIndicator = longPressIndicatorRef.current;
+        if (
+          !activeLongPress ||
+          activeLongPress.startedAt !== startedAt ||
+          activeLongPress.triggered ||
+          !activeIndicator
+        ) {
+          longPressIndicatorFrameRef.current = null;
+          return;
+        }
+        const progress = Math.min(
+          Math.max((timestamp - activeLongPress.startedAt) / activeLongPress.durationMs, 0),
+          1,
+        );
+        const pulseDuration =
+          LONG_PRESS_INITIAL_PULSE_MS -
+          (LONG_PRESS_INITIAL_PULSE_MS - LONG_PRESS_FINAL_PULSE_MS) * progress;
+        activeIndicator.style.setProperty(
+          "--word-card-hold-progress",
+          progress.toFixed(3),
+        );
+        activeIndicator.style.setProperty(
+          "--word-card-hold-pulse-duration",
+          `${pulseDuration.toFixed(0)}ms`,
+        );
+        activeIndicator.style.setProperty(
+          "--word-card-hold-opacity",
+          (0.16 + progress * 0.22).toFixed(3),
+        );
+        activeIndicator.style.setProperty(
+          "--word-card-hold-scale",
+          (prefersReducedMotion ? 0.92 : 0.84 + progress * 0.12).toFixed(3),
+        );
+        if (progress >= 1) {
+          longPressIndicatorFrameRef.current = null;
+          return;
+        }
+        longPressIndicatorFrameRef.current = requestAnimationFrame(tick);
+      };
+
+      longPressIndicatorFrameRef.current = requestAnimationFrame(tick);
+    },
+    [],
+  );
+
   const clearActiveLongPress = useCallback((pointerId?: number) => {
     const activeLongPress = activeLongPressRef.current;
     if (!activeLongPress) return;
     window.clearTimeout(activeLongPress.timerId);
     activeLongPressRef.current = null;
+    clearLongPressIndicator();
     const dragLayer = dragLayerRef.current;
     const capturedPointerId = pointerId ?? activeLongPress.pointerId;
     if (
@@ -934,7 +1037,7 @@ export default function WordCard({
     ) {
       dragLayer.releasePointerCapture(capturedPointerId);
     }
-  }, []);
+  }, [clearLongPressIndicator]);
 
   const cancelActiveInteraction = useCallback(() => {
     clearActiveLongPress();
@@ -1054,6 +1157,8 @@ export default function WordCard({
       }
 
       if (!canSwipe && longPressReveal) {
+        const durationMs = Math.max(interactionPropsRef.current.longPressDurationMs, 1);
+        const startedAt = performance.now();
         const timerId = window.setTimeout(() => {
           const activeLongPress = activeLongPressRef.current;
           if (
@@ -1062,17 +1167,21 @@ export default function WordCard({
             activeLongPress.triggered
           ) return;
           activeLongPress.triggered = true;
+          clearLongPressIndicator();
           if (!interactionPropsRef.current.disabled) {
             interactionPropsRef.current.onCardLongPress?.();
           }
-        }, Math.max(interactionPropsRef.current.longPressDurationMs, 1));
+        }, durationMs);
         activeLongPressRef.current = {
           pointerId: event.pointerId,
           startX: event.clientX,
           startY: event.clientY,
+          startedAt,
+          durationMs,
           timerId,
           triggered: false,
         };
+        beginLongPressIndicator(startedAt, durationMs, event.clientX, event.clientY);
         dragLayer.setPointerCapture(event.pointerId);
         if (event.cancelable) event.preventDefault();
         return;
@@ -1331,7 +1440,9 @@ export default function WordCard({
     };
   }, [
     cacheGeometry,
+    beginLongPressIndicator,
     clearActiveLongPress,
+    clearLongPressIndicator,
     renderMotionFrame,
     returnToCentre,
     scheduleMotionFrame,
@@ -1354,6 +1465,9 @@ export default function WordCard({
   const resolvedCardHint = cardHint ?? tc("认得它的中文意思吗？");
   const resolvedSwipeLeftLabel = swipeLeftLabel ?? tc("还不会");
   const resolvedSwipeRightLabel = swipeRightLabel ?? tc("我会");
+  const cardHintClassName = revealLongPressEnabled
+    ? `word-card-hint word-card-retrieval-hint ${cardHintState === "longPress" ? "is-long-press-hint" : "is-think-hint"}`
+    : "word-card-hint";
   const cardLabel = revealLongPressEnabled
     ? tc("单词卡，请长按 3 秒揭示答案")
     : revealInteractionEnabled
@@ -1432,6 +1546,15 @@ export default function WordCard({
               </>
             ) : null}
 
+            {revealLongPressEnabled ? (
+              <span
+                ref={longPressIndicatorRef}
+                data-testid="word-card-long-press-indicator"
+                className={`word-card-long-press-indicator${longPressIndicatorActive ? " is-active" : ""}`}
+                aria-hidden="true"
+              />
+            ) : null}
+
             <div
               data-testid="word-card-flip"
               data-flipped={isFlipped ? "true" : "false"}
@@ -1441,7 +1564,7 @@ export default function WordCard({
                 {renderCardMeta()}
                 <div className="word-card-center">
                   <h2 className="word-card-term">{word.term}</h2>
-                  <p data-testid="word-card-hint" aria-live="polite" className="word-card-hint">{resolvedCardHint}</p>
+                  <p data-testid="word-card-hint" aria-live="polite" className={cardHintClassName}>{resolvedCardHint}</p>
                   {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
                   {renderSpeakButton(isFlipped ? -1 : 0)}
                 </div>
