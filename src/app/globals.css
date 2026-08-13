@@ -424,6 +424,7 @@ button:disabled,
 .level-badge { align-items: center; background: var(--border-soft); border: 1px solid transparent; border-radius: var(--radius-full); color: var(--primary); display: inline-flex; font-family: var(--font-display); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; min-height: 30px; padding: 0 10px; }
 .word-context { color: var(--muted); font-size: 0.875rem; }
 .word-card-center { align-items: center; display: grid; gap: var(--space-3); justify-items: center; padding: var(--space-4) 0; position: relative; text-align: center; width: 100%; z-index: 1; }
+.word-card-hints { align-items: center; display: grid; gap: 7px; justify-items: center; width: 100%; }
 .word-card-answer-center { max-width: 100%; }
 .word-card-answer-content { max-width: 100%; }
 .word-card-answer-content p { margin: 0; }

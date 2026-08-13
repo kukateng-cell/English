@@ -22,8 +22,10 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(card).toHaveAttribute("aria-label", "單詞卡，請長按 3 秒揭示答案");
         await expect(card).not.toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
         const hint = page.getByTestId("word-card-hint");
+        const secondaryHint = page.getByTestId("word-card-secondary-hint");
         const indicator = page.getByTestId("word-card-long-press-indicator");
         await expect(indicator).toHaveCount(1);
+        await expect(secondaryHint).toHaveCount(0);
         await expect(hint).toHaveClass(/word-card-retrieval-hint/);
         await expect(hint).toHaveClass(/is-think-hint/);
         await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
@@ -35,11 +37,14 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         );
         await page.mouse.down();
         await page.waitForTimeout(1_150);
-        await expect(hint).toHaveText("長按 3 秒揭示答案");
-        await expect(hint).toHaveClass(/is-long-press-hint/);
+        await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
+        await expect(secondaryHint).toHaveText("長按 3 秒揭示答案");
+        await expect(secondaryHint).toHaveClass(/is-long-press-hint/);
         await expect(indicator).toHaveClass(/is-active/);
         await page.mouse.up();
         await expect(indicator).not.toHaveClass(/is-active/);
+        await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
+        await expect(secondaryHint).toHaveText("長按 3 秒揭示答案");
         await expect(page.getByTestId("study-stream-self-rating-actions")).toHaveCount(0);
 
         await front.getByRole("button", { name: "發音" }).click();
@@ -146,11 +151,8 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
     if (await probe.isVisible().catch(() => false)) {
       const acknowledge = page.getByRole("button", { name: "我看到了，繼續" });
       if (await acknowledge.isVisible().catch(() => false)) {
-        if (await acknowledge.isEnabled().catch(() => false)) {
-          await acknowledge.click();
-          continue;
-        }
-        await page.waitForTimeout(250);
+        await expect(acknowledge).toBeEnabled({ timeout: 10_000 });
+        await acknowledge.click();
         continue;
       }
       const options = page.getByRole("radio");

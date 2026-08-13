@@ -87,6 +87,8 @@ interface WordCardProps {
   cardBackContent?: ReactNode;
   /** Presentation hint shown on the front face before reveal. */
   cardHint?: ReactNode;
+  /** Optional follow-up hint appended without replacing the primary hint. */
+  cardHintSecondary?: ReactNode;
   /** Visual state of the presentation hint; V2 uses this for retrieval emphasis. */
   cardHintState?: "think" | "longPress";
   /** Keep the answer face visible after a presentation-only reveal. */
@@ -310,6 +312,7 @@ export default function WordCard({
   children,
   cardBackContent,
   cardHint,
+  cardHintSecondary,
   cardHintState,
   isFlipped = false,
   onCardTap,
@@ -1463,10 +1466,14 @@ export default function WordCard({
   const revealInteractionEnabled = Boolean((onCardTap || onCardLongPress) && !swipeEnabled);
   const revealLongPressEnabled = Boolean(onCardLongPress && !swipeEnabled);
   const resolvedCardHint = cardHint ?? tc("认得它的中文意思吗？");
+  const hasSecondaryHint = cardHintSecondary !== undefined && cardHintSecondary !== null;
   const resolvedSwipeLeftLabel = swipeLeftLabel ?? tc("还不会");
   const resolvedSwipeRightLabel = swipeRightLabel ?? tc("我会");
   const cardHintClassName = revealLongPressEnabled
     ? `word-card-hint word-card-retrieval-hint ${cardHintState === "longPress" ? "is-long-press-hint" : "is-think-hint"}`
+    : "word-card-hint";
+  const secondaryHintClassName = revealLongPressEnabled
+    ? "word-card-hint word-card-retrieval-hint is-long-press-hint"
     : "word-card-hint";
   const cardLabel = revealLongPressEnabled
     ? tc("单词卡，请长按 3 秒揭示答案")
@@ -1564,7 +1571,12 @@ export default function WordCard({
                 {renderCardMeta()}
                 <div className="word-card-center">
                   <h2 className="word-card-term">{word.term}</h2>
-                  <p data-testid="word-card-hint" aria-live="polite" className={cardHintClassName}>{resolvedCardHint}</p>
+                  <div data-testid="word-card-hints" aria-live="polite" className="word-card-hints">
+                    <p data-testid="word-card-hint" className={cardHintClassName}>{resolvedCardHint}</p>
+                    {hasSecondaryHint ? (
+                      <p data-testid="word-card-secondary-hint" className={secondaryHintClassName}>{cardHintSecondary}</p>
+                    ) : null}
+                  </div>
                   {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
                   {renderSpeakButton(isFlipped ? -1 : 0)}
                 </div>
