@@ -23,12 +23,17 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(card).not.toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
         const hint = page.getByTestId("word-card-hint");
         const secondaryHint = page.getByTestId("word-card-secondary-hint");
+        const secondaryHintSlot = page.getByTestId("word-card-secondary-hint-slot");
         const indicator = page.getByTestId("word-card-long-press-indicator");
         await expect(indicator).toHaveCount(1);
         await expect(secondaryHint).toHaveCount(0);
+        await expect(secondaryHintSlot).toHaveCSS("max-height", "0px");
+        await expect(page.getByTestId("word-card-queue-note")).toHaveCount(0);
         await expect(hint).toHaveClass(/word-card-retrieval-hint/);
         await expect(hint).toHaveClass(/is-think-hint/);
         await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
+        const hintAnimation = await hint.evaluate((element) => getComputedStyle(element).animationDuration);
+        expect(Number.parseFloat(hintAnimation)).toBeGreaterThanOrEqual(4);
         const earlyHintBox = await hint.boundingBox();
         expect(earlyHintBox).not.toBeNull();
         await page.mouse.move(
@@ -40,6 +45,16 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
         await expect(secondaryHint).toHaveText("長按 3 秒揭示答案");
         await expect(secondaryHint).toHaveClass(/is-long-press-hint/);
+        await expect(secondaryHintSlot).toHaveClass(/is-visible/);
+        const secondaryHintAnimation = await secondaryHint.evaluate((element) => getComputedStyle(element).animationDuration);
+        expect(Number.parseFloat(secondaryHintAnimation)).toBeGreaterThanOrEqual(4);
+        const speakerBox = await front.getByRole("button", { name: "發音" }).boundingBox();
+        const secondaryHintBox = await secondaryHint.boundingBox();
+        expect(speakerBox).not.toBeNull();
+        expect(secondaryHintBox).not.toBeNull();
+        expect(secondaryHintBox?.y ?? 0).toBeGreaterThan((speakerBox?.y ?? 0) + (speakerBox?.height ?? 0));
+        const secondaryHintTransition = await secondaryHintSlot.evaluate((element) => getComputedStyle(element).transitionDuration);
+        expect(Number.parseFloat(secondaryHintTransition)).toBeGreaterThan(0);
         await expect(indicator).toHaveClass(/is-active/);
         await page.mouse.up();
         await expect(indicator).not.toHaveClass(/is-active/);

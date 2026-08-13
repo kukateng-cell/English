@@ -567,7 +567,6 @@ function LearningCardView({
         swipeRightLabel={tc("和刚才想的一样")}
         showInteractionHint={revealed}
         interactionEpoch={epoch}
-        queueNote={tc("可随时离开，进度会安全保留")}
       >
         {revealed ? (
           <div data-testid="study-stream-self-rating-actions" className="word-card-actions">

@@ -424,15 +424,18 @@ button:disabled,
 .level-badge { align-items: center; background: var(--border-soft); border: 1px solid transparent; border-radius: var(--radius-full); color: var(--primary); display: inline-flex; font-family: var(--font-display); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; min-height: 30px; padding: 0 10px; }
 .word-context { color: var(--muted); font-size: 0.875rem; }
 .word-card-center { align-items: center; display: grid; gap: var(--space-3); justify-items: center; padding: var(--space-4) 0; position: relative; text-align: center; width: 100%; z-index: 1; }
-.word-card-hints { align-items: center; display: grid; gap: 7px; justify-items: center; width: 100%; }
+.word-card-hints { align-items: center; display: grid; gap: 14px; justify-items: center; width: 100%; }
 .word-card-answer-center { max-width: 100%; }
 .word-card-answer-content { max-width: 100%; }
 .word-card-answer-content p { margin: 0; }
 .word-card-answer-content p + p { margin-top: var(--space-2); }
 .word-card-term { color: var(--text); font-family: var(--font-display); font-size: clamp(2.625rem, 12vw, 5.375rem); font-weight: 700; letter-spacing: -0.055em; line-height: 1.08; margin: 0; max-width: 100%; overflow-wrap: anywhere; }
 .word-card-hint { color: var(--muted); font-size: 1rem; margin: 0; }
-.word-card-retrieval-hint { align-items: center; animation: word-card-retrieval-hint-breathe 2.2s ease-in-out infinite; background: color-mix(in oklch, var(--primary) 10%, var(--surface)); border: 1px solid color-mix(in oklch, var(--primary) 42%, var(--border)); border-radius: var(--radius-full); box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 24%, transparent); color: var(--primary); display: inline-flex; font-weight: 750; justify-content: center; max-width: 92%; padding: 8px 16px; }
-.word-card-retrieval-hint.is-long-press-hint { animation-duration: 1.35s; border-color: color-mix(in oklch, var(--primary) 60%, var(--border)); }
+.word-card-retrieval-hint { align-items: center; animation: word-card-retrieval-hint-breathe 4.8s ease-in-out infinite; background: color-mix(in oklch, var(--primary) 8%, var(--surface)); border: 1px solid color-mix(in oklch, var(--primary) 34%, var(--border)); border-radius: var(--radius-full); box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 14%, transparent); color: var(--primary); display: inline-flex; font-weight: 750; justify-content: center; max-width: 92%; padding: 8px 16px; }
+.word-card-retrieval-hint.is-long-press-hint { animation-duration: 4.4s; border-color: color-mix(in oklch, var(--primary) 42%, var(--border)); }
+.word-card-secondary-hint-slot { align-items: center; box-sizing: border-box; display: flex; justify-content: center; margin-top: 2px; max-height: 0; opacity: 0; overflow: hidden; padding-top: 0; transform: translateY(-4px); transition: max-height 420ms ease, opacity 360ms ease, padding-top 420ms ease, transform 420ms ease; width: 100%; }
+.word-card-secondary-hint-slot.is-visible { max-height: 52px; opacity: 1; padding-top: 4px; transform: translateY(0); }
+.word-card-secondary-hint { margin: 0; }
 .word-card-long-press-indicator { --word-card-hold-opacity: 0.16; --word-card-hold-pulse-duration: 1050ms; --word-card-hold-scale: 0.84; border-radius: 50%; height: 116px; opacity: 0; pointer-events: none; position: absolute; transform: translate(-50%, -50%) scale(var(--word-card-hold-scale)); transition: opacity 160ms ease; width: 116px; will-change: opacity, transform; z-index: 5; }
 .word-card-long-press-indicator.is-active { opacity: var(--word-card-hold-opacity); }
 .word-card-long-press-indicator::before { animation: word-card-long-press-breathe var(--word-card-hold-pulse-duration) ease-in-out infinite; border: 2px solid color-mix(in oklch, var(--primary) 62%, transparent); border-radius: 50%; box-shadow: 0 0 20px color-mix(in oklch, var(--primary) 28%, transparent); content: ""; inset: 8px; position: absolute; }
@@ -469,14 +472,19 @@ button:disabled,
 .swipe-action-right:hover:not(:disabled) { background: var(--primary-2); border-color: var(--primary-2); box-shadow: var(--shadow-card); }
 .swipe-guide { color: color-mix(in oklch, var(--muted) 52%, var(--text)); font-size: 0.8125rem; margin: 0; text-align: center; }
 @keyframes word-card-retrieval-hint-breathe {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 18%, transparent); opacity: 0.88; transform: scale(1); }
-  50% { box-shadow: 0 0 0 5px color-mix(in oklch, var(--primary) 12%, transparent); opacity: 1; transform: scale(1.025); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 12%, transparent); opacity: 0.93; transform: scale(1); }
+  50% { box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 8%, transparent); opacity: 0.99; transform: scale(1.006); }
 }
 @keyframes word-card-long-press-breathe {
   0%, 100% { opacity: 0.34; transform: scale(0.78); }
   50% { opacity: 0.9; transform: scale(1); }
 }
 .dark .word-card-back { background: color-mix(in oklch, var(--surface) 70%, var(--border-soft)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .word-card-retrieval-hint { animation: none; opacity: 0.97; transform: none; }
+  .word-card-secondary-hint-slot, .word-card-secondary-hint-slot.is-visible { transition: none; transform: none; }
+}
 
 @media (forced-colors: active) {
   .study-header-icon { background: Canvas; border-color: CanvasText; color: CanvasText; }

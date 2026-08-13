@@ -437,6 +437,13 @@ bounded server lineage，保留原 operationId／outbox，並對 expired lease �
 WebKit 33 passed）及 build／unit／lint／typecheck 均通過。無 schema／migration 改動，未執行
 contract migration、production deploy、學生 pilot 或 research collection；以上 external gates 仍 deferred。
 
+2026-08-13 已完成 I-015 retrieval prompt presentation refinement：移除 V2「可隨時離開，進度會安全保留」
+說明，將「長按 3 秒揭示答案」放到發音 button 下方，降低兩段提示嘅閃動／呼吸幅度，並將 secondary
+prompt 改為漸進式出現。`npm run test:e2e:study-stream-v2` 6/6、`STUDY_V2_ASSIGNMENT_MODE=off
+npm run test:e2e:card-motion` primary 73 passed／4 skipped、WebKit 33 passed，並通過 build／unit／
+lint／typecheck。只涉及 V2 UI presentation，唔涉及 migration、production deploy、學生 pilot 或
+research collection；以上 external gates 仍 deferred。
+
 ---
 
 ## 八、参考文献

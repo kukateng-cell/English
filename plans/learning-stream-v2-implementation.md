@@ -207,6 +207,8 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [x] 按 I-012 visual feedback refinement 強化兩段提示嘅高亮／呼吸式提示；按住時顯示透明圓圈，
   進度越近 3 秒呼吸越快／越明顯；中途放手、移動或 pointer cancel 必須取消視覺進度並重新由
   3 秒計算；
+- [x] 按 I-015 收斂 retrieval 提示視覺：移除 V2「可隨時離開，進度會安全保留」、將長按提示移到
+  發音 button 下方、降低兩段提示嘅呼吸幅度／閃動強度，並以漸進 enter effect 顯示長按提示；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -308,6 +310,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-012 | Retrieval pause before reveal | 不改 Contract 語義或 server action；V2 Learning Card 保留「先試著想一想這個詞的中文意思」，約 1 秒後追加 stationary long-press 3 秒提示；兩段提示需有清楚但不干擾嘅高亮／呼吸式視覺；按住時顯示透明圓圈並隨 3 秒進度加快／增強；audio button、移動、放手及 pointer cancel 必須取消並重置 reveal timer；reveal 後保留既有 flip／答案面，左右 swipe／rating actions 用「和剛才想的一樣／不一樣」語義 | Phase 5 local interaction correction；visual refinement 完成前不得勾選相關 local DoD |
 | I-013 | Expired-session retry recovery／system locale | V2 action 遇到可恢復嘅 session expiry 時，保留原 `operationId`／item credential，經 server-authoritative session recovery 後只重送同一 typed action；revoked／無法證明 credential lineage 仍 fail closed，但唔可以無限重試；所有 V2 loading／fallback source literals 改用 canonical 簡體再交由 `tc()` 顯示，確保 zh-Hant 首屏一致 | 已落實並驗證；由 I-013 local reliability／locale correction 完成 |
 | I-014 | Item credential expiry／resume recovery follow-up | 普通 action 對未知 credential 及 revoked session 繼續 fail closed；server 保留 bounded digest lineage 供 recovery-only proof，對同一 item／session／typed operation 嘅過期 credential 可經 explicit recovery route 恢復，並以 Serializable CAS 必要時重新租約；client 對 `ITEM_CREDENTIAL_EXPIRED`／`EXPIRED_ITEM_LEASE` 只作一次 recovery，保留原 `operationId`／outbox，唔清空或改寫學習結果 | 已落實並驗證；由 I-014 local reliability follow-up 完成 |
+| I-015 | Retrieval prompt presentation refinement | 不改 retrieval gate／長按 timer／audio exclusion；V2 移除「可隨時離開，進度會安全保留」，保留思考提示，將約 1 秒後出現嘅「長按 3 秒揭示答案」移到發音 button 下方；兩段提示改用低幅度、慢速呼吸，secondary 以 progressive enter effect 出現，並保留 reduced-motion 可理解性 | 已落實並驗證；由 I-015 local UI refinement 完成 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -324,6 +327,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] I-012 visual feedback refinement 已通過 prompt highlighter／breathing、按住透明進度圈、進度加速、放手重置及 reduced-motion／V1／V2 gesture regression；
 - [x] I-013 expired-session retry recovery 已通過 session-expiry／retry-loop regression、原 operationId idempotency、revoked／unknown credential fail-closed、outbox 保留及 V1／V2 regression；V2 system loading／fallback copy 已通過 zh-Hant／zh-Hans 首屏驗證；
 - [x] I-014 item credential expiry／expired lease recovery 已通過 item credential／session 同時過期、bounded lineage、原 operationId idempotency、未知 credential／revoked fail-closed、outbox 保留及 V1／V2 regression；
+- [x] I-015 retrieval prompt presentation refinement 已通過提示位置／間距、低幅度動畫、secondary 漸進出現、V2 queue note 移除及 reduced-motion／V1 regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -355,6 +359,24 @@ I-013 嘅 recovery 只覆蓋 `SESSION_EXPIRED`，未覆蓋 item credential／lea
 server-recorded lineage 經 explicit recovery route 才可原子恢復；未知 credential、revoked session
 及無法證明 item identity 仍 fail closed。以下驗證完成後已將 I-014 local checklist 勾選；呢個
 follow-up 唔涉及 contract migration、production deploy 或研究資料收集。
+
+2026-08-13 使用者再提出 I-015 retrieval prompt presentation refinement：現有兩段提示呼吸幅度過大、
+間距過窄，secondary prompt 直接出現於主提示旁邊，並要求移除 V2 queue note。I-015 只改
+presentation CSS／DOM placement／copy，不改 long-press timing、audio exclusion、swipe 或 server
+action contract；以下證據完成後已收斂。
+
+- V2 `LearningCardView` 移除 queue note；primary prompt 保留喺字詞下方，secondary prompt 由
+  hints grid 移到發音 button 後方，並保留固定 slot 以避免 layout jump。
+- retrieval prompt breathe 由原本約 2.2／1.35 秒及 2.5% scale／5px halo 收斂至約 4.8／4.4 秒、
+  0.6% scale／2px halo；secondary slot 以 max-height／opacity／translate transition 漸進顯示，
+  reduced-motion 會停用 transition／breathe 但保留可見文字。
+- `npm test`：126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；
+  `npm run build`：43/43 static pages generated，compiled／TypeScript passed。
+- `npm run test:e2e:study-stream-v2`：6 passed；檢查 queue note 移除、prompt animation duration、
+  secondary transition、發音 button 下方位置及既有 stationary long-press／movement／audio exclusion。
+- `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`：primary 73 passed／4 skipped；
+  WebKit study shards 17 + 16 passed；V1 rollback、mouse／synthetic pointer／touch、offline／
+  cross-tab／cross-device regression 無回歸。
 
 2026-08-13 使用者再要求 I-012 visual feedback refinement：兩段提示要更突出，按住時要有透明
 圓圈呼吸及接近 3 秒時加速嘅進度回饋；以下證據完成後已補齊新增 DoD。

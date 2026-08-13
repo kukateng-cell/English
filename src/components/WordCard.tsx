@@ -1573,12 +1573,21 @@ export default function WordCard({
                   <h2 className="word-card-term">{word.term}</h2>
                   <div data-testid="word-card-hints" aria-live="polite" className="word-card-hints">
                     <p data-testid="word-card-hint" className={cardHintClassName}>{resolvedCardHint}</p>
-                    {hasSecondaryHint ? (
-                      <p data-testid="word-card-secondary-hint" className={secondaryHintClassName}>{cardHintSecondary}</p>
-                    ) : null}
                   </div>
                   {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
                   {renderSpeakButton(isFlipped ? -1 : 0)}
+                  {hasSecondaryHint ? (
+                    <div
+                      data-testid="word-card-secondary-hint-slot"
+                      aria-live="polite"
+                      aria-hidden={!hasSecondaryHint}
+                      className="word-card-secondary-hint-slot is-visible"
+                    >
+                      <p data-testid="word-card-secondary-hint" className={`${secondaryHintClassName} word-card-secondary-hint`}>{cardHintSecondary}</p>
+                    </div>
+                  ) : (
+                    <div data-testid="word-card-secondary-hint-slot" aria-hidden="true" className="word-card-secondary-hint-slot" />
+                  )}
                 </div>
                 <div className="word-card-bottom">
                   {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
