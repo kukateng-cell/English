@@ -484,6 +484,17 @@ function LearningCardView({
 }) {
   const { tc } = useLocale();
   const revealed = Boolean(item.learningCard);
+  const hintKey = `${item.streamItemId}:${item.clientRevision}`;
+  const [longPressHintKey, setLongPressHintKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (revealed) return;
+    const timer = window.setTimeout(() => setLongPressHintKey(hintKey), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [hintKey, revealed]);
+
+  const showLongPressHint = !revealed && longPressHintKey === hintKey;
+
   return (
     <div className="mx-auto w-full max-w-md">
       <WordCard
@@ -491,6 +502,9 @@ function LearningCardView({
         onSwipeLeft={() => onSelfRating("selfForgot")}
         onSwipeRight={() => onSelfRating("selfRecalled")}
         disabled={disabled}
+        cardHint={showLongPressHint
+          ? tc("长按 3 秒揭示答案")
+          : tc("先试着想一想这个词的中文意思")}
         cardBackContent={revealed ? (
           <div className="word-card-answer-definition">
             <p className="mb-2 text-xs font-semibold text-[var(--muted)]">{tc("中文意思")}</p>
@@ -499,9 +513,12 @@ function LearningCardView({
           </div>
         ) : null}
         isFlipped={revealed}
-        onCardTap={revealed ? undefined : onReveal}
+        onCardLongPress={revealed ? undefined : onReveal}
+        longPressDurationMs={3_000}
         swipeEnabled={revealed}
-        showInteractionHint={false}
+        swipeLeftLabel={tc("和刚才想的不一样")}
+        swipeRightLabel={tc("和刚才想的一样")}
+        showInteractionHint={revealed}
         interactionEpoch={epoch}
         queueNote={tc("可随时离开，进度会安全保留")}
       >
@@ -516,7 +533,7 @@ function LearningCardView({
                 className="swipe-action swipe-action-left"
               >
                 <Icon name="arrow-left" size={22} />
-                {tc("还不会")}
+                {tc("和刚才想的不一样")}
               </button>
               <button
                 type="button"
@@ -525,7 +542,7 @@ function LearningCardView({
                 disabled={disabled}
                 className="swipe-action swipe-action-right"
               >
-                {tc("我会")}
+                {tc("和刚才想的一样")}
                 <Icon name="arrow-right" size={22} />
               </button>
             </div>

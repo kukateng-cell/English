@@ -12,36 +12,60 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const card = page.getByTestId("word-card-drag-layer");
     const flip = page.getByTestId("word-card-flip");
-    const selfRecall = page.getByRole("button", { name: "我會" });
+    const selfRecall = page.getByRole("button", { name: "和剛才想的一樣" });
     if (await card.isVisible().catch(() => false)) {
       const isFlipped = await flip.getAttribute("data-flipped");
       if (isFlipped === "false") {
         const front = page.getByTestId("word-card-front");
         const term = (await front.locator(".word-card-term").textContent())?.trim() ?? "";
         await expect(card).toHaveRole("button");
-        await expect(card).toHaveAttribute("aria-label", "單詞卡，請點擊揭示中文意思");
+        await expect(card).toHaveAttribute("aria-label", "單詞卡，請長按 3 秒揭示答案");
         await expect(card).not.toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
-        await expect(page.locator("button").filter({ hasText: "揭示中文意思" })).toHaveCount(0);
+        const hint = page.getByTestId("word-card-hint");
+        await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
+        await page.waitForTimeout(1_100);
+        await expect(hint).toHaveText("長按 3 秒揭示答案");
         await expect(page.getByTestId("study-stream-self-rating-actions")).toHaveCount(0);
 
         await front.getByRole("button", { name: "發音" }).click();
         await expect(flip).toHaveAttribute("data-flipped", "false");
         await expect(page.getByTestId("word-card-back-face")).toHaveCount(0);
 
-        await front.locator(".word-card-hint").click();
+        await hint.click();
+        await expect(flip).toHaveAttribute("data-flipped", "false");
+
+        const hintBox = await hint.boundingBox();
+        expect(hintBox).not.toBeNull();
+        const holdX = (hintBox?.x ?? 0) + (hintBox?.width ?? 0) / 2;
+        const holdY = (hintBox?.y ?? 0) + (hintBox?.height ?? 0) / 2;
+        await page.mouse.move(holdX, holdY);
+        await page.mouse.down();
+        await page.waitForTimeout(1_200);
+        await page.mouse.move(holdX + 20, holdY);
+        await page.waitForTimeout(2_100);
+        await expect(flip).toHaveAttribute("data-flipped", "false");
+        await page.mouse.up();
+
+        await page.mouse.move(holdX, holdY);
+        await page.mouse.down();
+        await page.waitForTimeout(2_900);
+        await expect(flip).toHaveAttribute("data-flipped", "false");
+        await page.waitForTimeout(250);
         await expect(flip).toHaveAttribute("data-flipped", "true");
         const back = page.getByTestId("word-card-back-face");
         await expect(back).toBeVisible();
         await expect(back.locator(".word-card-term")).toHaveText(term);
         await expect(back.locator(".word-card-answer-content")).toContainText("中文意思");
         await expect(back.getByRole("button", { name: "發音" })).toBeVisible();
+        await page.mouse.up();
         await expect(card).toHaveRole("group");
+        await expect(card).toHaveAttribute("aria-label", "已揭示的單詞卡，右掃和剛才想的一樣，左掃和剛才想的不一樣");
         await expect(card).toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
 
         const actions = page.getByTestId("study-stream-self-rating-actions");
         await expect(actions).toBeVisible();
-        await expect(actions.getByRole("button", { name: "還不會" })).toBeVisible();
-        await expect(actions.getByRole("button", { name: "我會" })).toBeVisible();
+        await expect(actions.getByRole("button", { name: "和剛才想的不一樣" })).toBeVisible();
+        await expect(actions.getByRole("button", { name: "和剛才想的一樣" })).toBeVisible();
         const metrics = await page.evaluate(() => {
           const cardElement = document.querySelector<HTMLElement>('[data-testid="word-card-drag-layer"]');
           const actionsElement = document.querySelector<HTMLElement>('[data-testid="study-stream-self-rating-actions"]');

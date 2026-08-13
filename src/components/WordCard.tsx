@@ -84,12 +84,21 @@ interface WordCardProps {
   children?: ReactNode;
   /** Optional answer face rendered inside the card's front/back flip. */
   cardBackContent?: ReactNode;
+  /** Presentation hint shown on the front face before reveal. */
+  cardHint?: ReactNode;
   /** Keep the answer face visible after a presentation-only reveal. */
   isFlipped?: boolean;
   /** Activate the card body for reveal or another presentation-only action. */
   onCardTap?: () => void;
+  /** Reveal the card after a stationary long press. */
+  onCardLongPress?: () => void;
+  /** Hold duration required by the stationary long-press interaction. */
+  longPressDurationMs?: number;
   /** Disable horizontal dismissal while keeping a card-body tap available. */
   swipeEnabled?: boolean;
+  /** Semantic labels used by swipe affordances; V1 keeps the legacy defaults. */
+  swipeLeftLabel?: ReactNode;
+  swipeRightLabel?: ReactNode;
   queueNote?: ReactNode;
   actionControllerRef?: { current: WordCardActionControls | null };
   disabled?: boolean;
@@ -110,6 +119,7 @@ const BUTTON_LAUNCH_VELOCITY = 720;
 const POINTER_SAMPLE_CAPACITY = 32;
 const RETURN_MAX_SECONDS = 0.8;
 const FRAME_CALIBRATION_FRAMES = 4;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
 
 interface ActivePointerDrag {
   pointerId: number;
@@ -121,6 +131,14 @@ interface ActivePointerDrag {
   cardWidth: number;
   geometry: CardGeometry;
   samples: SwipePointerSample[];
+}
+
+interface ActiveLongPress {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  timerId: number;
+  triggered: boolean;
 }
 
 interface CardGeometry {
@@ -284,9 +302,14 @@ export default function WordCard({
   onSwipeRight,
   children,
   cardBackContent,
+  cardHint,
   isFlipped = false,
   onCardTap,
+  onCardLongPress,
+  longPressDurationMs = 3_000,
   swipeEnabled = true,
+  swipeLeftLabel,
+  swipeRightLabel,
   queueNote,
   actionControllerRef,
   disabled,
@@ -304,6 +327,7 @@ export default function WordCard({
   const rightBadgeRef = useRef<HTMLSpanElement>(null);
   const geometryRef = useRef<CardGeometry | null>(null);
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
+  const activeLongPressRef = useRef<ActiveLongPress | null>(null);
   const captureGenerationRef = useRef(0);
   const activeCaptureGenerationRef = useRef<number | null>(null);
   const dragXRef = useRef(0);
@@ -352,6 +376,8 @@ export default function WordCard({
     interactionEpoch,
     onSwipeLeft,
     onSwipeRight,
+    onCardLongPress,
+    longPressDurationMs,
     swipeEnabled,
     onMotionProbe,
     timelineLeadEnabled,
@@ -364,6 +390,8 @@ export default function WordCard({
       interactionEpoch,
       onSwipeLeft,
       onSwipeRight,
+      onCardLongPress,
+      longPressDurationMs,
       swipeEnabled,
       onMotionProbe,
       timelineLeadEnabled,
@@ -374,6 +402,8 @@ export default function WordCard({
     interactionEpoch,
     onSwipeLeft,
     onSwipeRight,
+    onCardLongPress,
+    longPressDurationMs,
     swipeEnabled,
     onMotionProbe,
     timelineLeadEnabled,
@@ -862,9 +892,13 @@ export default function WordCard({
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.target instanceof HTMLElement && event.target.closest("button")) return;
       if (disabled) return;
-      if ((event.key === "Enter" || event.key === " ") && onCardTap && !swipeEnabled) {
+      if (
+        (event.key === "Enter" || event.key === " ") &&
+        (onCardLongPress || onCardTap) &&
+        !swipeEnabled
+      ) {
         event.preventDefault();
-        onCardTap();
+        (onCardLongPress ?? onCardTap)?.();
         return;
       }
       if (!swipeEnabled) return;
@@ -876,7 +910,7 @@ export default function WordCard({
         handleRightAction();
       }
     },
-    [disabled, handleLeftAction, handleRightAction, onCardTap, swipeEnabled],
+    [disabled, handleLeftAction, handleRightAction, onCardLongPress, onCardTap, swipeEnabled],
   );
 
   const handleCardClick = useCallback(
@@ -888,7 +922,22 @@ export default function WordCard({
     [disabled, onCardTap, swipeEnabled],
   );
 
+  const clearActiveLongPress = useCallback((pointerId?: number) => {
+    const activeLongPress = activeLongPressRef.current;
+    if (!activeLongPress) return;
+    window.clearTimeout(activeLongPress.timerId);
+    activeLongPressRef.current = null;
+    const dragLayer = dragLayerRef.current;
+    const capturedPointerId = pointerId ?? activeLongPress.pointerId;
+    if (
+      dragLayer?.hasPointerCapture(capturedPointerId)
+    ) {
+      dragLayer.releasePointerCapture(capturedPointerId);
+    }
+  }, []);
+
   const cancelActiveInteraction = useCallback(() => {
+    clearActiveLongPress();
     const dragLayer = dragLayerRef.current;
     const activeDrag = activeDragRef.current;
     activeDragRef.current = null;
@@ -927,7 +976,7 @@ export default function WordCard({
     dismissingRef.current = false;
     geometryRef.current = null;
     writeCurrentDragFrame(0);
-  }, [writeCurrentDragFrame]);
+  }, [clearActiveLongPress, writeCurrentDragFrame]);
 
   const previousInteractionEpochRef = useRef(interactionEpoch);
   useEffect(() => {
@@ -987,15 +1036,45 @@ export default function WordCard({
     scheduleMotionFrame();
 
     const handlePointerDown = (event: PointerEvent) => {
-      const { disabled: isDisabled } = interactionPropsRef.current;
+      const {
+        disabled: isDisabled,
+        onCardLongPress: longPressReveal,
+        swipeEnabled: canSwipe,
+      } = interactionPropsRef.current;
       if (
         isDisabled ||
-        !interactionPropsRef.current.swipeEnabled ||
         dismissingRef.current ||
-        activeDragRef.current
+        activeDragRef.current ||
+        activeLongPressRef.current
       ) return;
+      if (!canSwipe && !longPressReveal) return;
       if (event.button !== 0 || event.isPrimary === false) return;
       if (event.target instanceof Element && event.target.closest("button")) {
+        return;
+      }
+
+      if (!canSwipe && longPressReveal) {
+        const timerId = window.setTimeout(() => {
+          const activeLongPress = activeLongPressRef.current;
+          if (
+            !activeLongPress ||
+            activeLongPress.pointerId !== event.pointerId ||
+            activeLongPress.triggered
+          ) return;
+          activeLongPress.triggered = true;
+          if (!interactionPropsRef.current.disabled) {
+            interactionPropsRef.current.onCardLongPress?.();
+          }
+        }, Math.max(interactionPropsRef.current.longPressDurationMs, 1));
+        activeLongPressRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          timerId,
+          triggered: false,
+        };
+        dragLayer.setPointerCapture(event.pointerId);
+        if (event.cancelable) event.preventDefault();
         return;
       }
 
@@ -1053,6 +1132,17 @@ export default function WordCard({
     };
 
     const handlePointerMove = (event: PointerEvent) => {
+      const longPress = activeLongPressRef.current;
+      if (longPress && longPress.pointerId === event.pointerId) {
+        const movedX = event.clientX - longPress.startX;
+        const movedY = event.clientY - longPress.startY;
+        if (Math.hypot(movedX, movedY) > LONG_PRESS_MOVE_TOLERANCE) {
+          clearActiveLongPress(event.pointerId);
+        } else if (event.cancelable) {
+          event.preventDefault();
+        }
+        return;
+      }
       const drag = activeDragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
       const coalescedEvents = event.getCoalescedEvents?.() ?? [];
@@ -1075,6 +1165,12 @@ export default function WordCard({
       event: PointerEvent,
       cancelled: boolean,
     ) => {
+      const longPress = activeLongPressRef.current;
+      if (longPress && longPress.pointerId === event.pointerId) {
+        clearActiveLongPress(event.pointerId);
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
       const drag = activeDragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
       const motion = motionStateRef.current;
@@ -1147,6 +1243,11 @@ export default function WordCard({
       finishPointerDrag(event, true);
     };
     const handleLostPointerCapture = (event: PointerEvent) => {
+      const longPress = activeLongPressRef.current;
+      if (longPress && longPress.pointerId === event.pointerId) {
+        clearActiveLongPress();
+        return;
+      }
       const drag = activeDragRef.current;
       if (
         !drag ||
@@ -1178,6 +1279,7 @@ export default function WordCard({
 
     return () => {
       mountedRef.current = false;
+      clearActiveLongPress();
       if (motionFrameRef.current !== null) {
         cancelAnimationFrame(motionFrameRef.current);
         motionFrameRef.current = null;
@@ -1229,6 +1331,7 @@ export default function WordCard({
     };
   }, [
     cacheGeometry,
+    clearActiveLongPress,
     renderMotionFrame,
     returnToCentre,
     scheduleMotionFrame,
@@ -1246,12 +1349,18 @@ export default function WordCard({
     ? word.level
     : null;
   const category = word.category?.trim() || null;
-  const revealTapEnabled = Boolean(onCardTap && !swipeEnabled);
-  const cardLabel = revealTapEnabled
-    ? tc("单词卡，请点击揭示中文意思")
-    : isFlipped
-      ? tc("已揭示的单词卡，可左右拖曳")
-      : tc("可左右拖曳的单词卡");
+  const revealInteractionEnabled = Boolean((onCardTap || onCardLongPress) && !swipeEnabled);
+  const revealLongPressEnabled = Boolean(onCardLongPress && !swipeEnabled);
+  const resolvedCardHint = cardHint ?? tc("认得它的中文意思吗？");
+  const resolvedSwipeLeftLabel = swipeLeftLabel ?? tc("还不会");
+  const resolvedSwipeRightLabel = swipeRightLabel ?? tc("我会");
+  const cardLabel = revealLongPressEnabled
+    ? tc("单词卡，请长按 3 秒揭示答案")
+    : revealInteractionEnabled
+      ? tc("单词卡，请点击揭示中文意思")
+      : isFlipped
+        ? tc("已揭示的单词卡，右扫和刚才想的一样，左扫和刚才想的不一样")
+        : tc("可左右拖曳的单词卡");
 
   const renderSpeakButton = (tabIndex: number) => (
     <button
@@ -1281,14 +1390,14 @@ export default function WordCard({
             style={{ opacity: 0 }}
             className="word-card-swipe-label word-card-swipe-label-danger"
           >
-            ← {tc("还不会")}
+            ← {resolvedSwipeLeftLabel}
           </span>
           <span
             ref={rightLabelRef}
             style={{ opacity: 0 }}
             className="word-card-swipe-label word-card-swipe-label-success"
           >
-            {tc("我会")} →
+            {resolvedSwipeRightLabel} →
           </span>
         </div>
       ) : null}
@@ -1302,23 +1411,23 @@ export default function WordCard({
           <div
             ref={dragLayerRef}
             data-testid="word-card-drag-layer"
-            role={revealTapEnabled ? "button" : "group"}
+            role={revealInteractionEnabled ? "button" : "group"}
             aria-label={cardLabel}
             aria-keyshortcuts={swipeEnabled ? "ArrowLeft ArrowRight" : undefined}
             aria-disabled={disabled || undefined}
             tabIndex={0}
             onClick={handleCardClick}
             onKeyDown={handleCardKeyDown}
-            style={{ touchAction: swipeEnabled ? "pan-y" : "manipulation" }}
-            className={`word-card-surface word-card-draggable${revealTapEnabled ? " is-tap-to-reveal" : ""}`}
+            style={{ touchAction: swipeEnabled ? "pan-y" : revealLongPressEnabled ? "none" : "manipulation" }}
+            className={`word-card-surface word-card-draggable${revealLongPressEnabled ? " is-long-press-to-reveal" : revealInteractionEnabled ? " is-tap-to-reveal" : ""}`}
           >
             {showInteractionHint ? (
               <>
                 <span ref={leftBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-left" aria-hidden="true">
-                  ← {tc("还不会")}
+                  ← {resolvedSwipeLeftLabel}
                 </span>
                 <span ref={rightBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-right" aria-hidden="true">
-                  {tc("我会")} →
+                  {resolvedSwipeRightLabel} →
                 </span>
               </>
             ) : null}
@@ -1332,14 +1441,14 @@ export default function WordCard({
                 {renderCardMeta()}
                 <div className="word-card-center">
                   <h2 className="word-card-term">{word.term}</h2>
-                  <p className="word-card-hint">{tc(revealTapEnabled ? "点击卡片查看中文意思" : "认得它的中文意思吗？")}</p>
+                  <p data-testid="word-card-hint" aria-live="polite" className="word-card-hint">{resolvedCardHint}</p>
                   {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
                   {renderSpeakButton(isFlipped ? -1 : 0)}
                 </div>
                 <div className="word-card-bottom">
                   {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
                   {showInteractionHint ? (
-                    <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {tc("还不会")} <span className="keycap">→</span> {tc("我会")}</span>
+                    <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {resolvedSwipeLeftLabel} <span className="keycap">→</span> {resolvedSwipeRightLabel}</span>
                   ) : null}
                 </div>
               </div>
@@ -1355,6 +1464,9 @@ export default function WordCard({
                   </div>
                   <div className="word-card-bottom">
                     {queueNote ? <span data-testid="word-card-queue-note-back">{queueNote}</span> : null}
+                    {showInteractionHint ? (
+                      <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {resolvedSwipeLeftLabel} <span className="keycap">→</span> {resolvedSwipeRightLabel}</span>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
