@@ -1,7 +1,7 @@
 # Retrieval-first Learning Program 主計劃
 
 > 類型：主計劃／Program Plan
-> 狀態：進行中
+> 狀態：進行中（local product-complete；external gates deferred）
 > 父文件：[project-plan.md](./project-plan.md)
 > 實作基線：`codex/retrieval-first-learning-stream-v2`
 > 基線 commit：`cc7fd19`
@@ -337,8 +337,8 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
   Objective Probe／V1 QuizCard hierarchy 及 responsive／locale／theme regression 已驗證；
 - [x] local I-021 已完成：左右 swipe direction badge 位於 level／category metadata 以下，320px／390px responsive、
   V2 swipe／release／locale／theme／reduced-motion 及 V1 rollback regression 已驗證；
-- [ ] local I-022 CI incident fix：ordinary expand migration 下 V2 objective answer 必須抑制既有 legacy bridge duplicate，
-  完成 ordinary-migration integration／bounded soak／V2 browser／V1 rollback regression 及 remote quality gate 後先標記完成；
+- [x] local I-022 CI incident fix：ordinary expand migration 下 V2 objective answer 必須抑制既有 legacy bridge duplicate，
+  已完成 ordinary-migration integration／bounded soak／V2 browser／V1 rollback regression 及 remote quality gate；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -375,7 +375,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-015 | 使用者指出「認」未置中、front 音標 slot 未緊貼英文、長按提示出現會令既有文字移位，並要求 Objective Probe 移除確認／「我看到了，繼續」button，改用「輕點一下任意區域」繼續；只改 presentation／既有 `FEEDBACK_ACK` trigger，不改 retrieval／scoring／server semantics | 已落實並驗證；由 Implementation I-019 完成，唔涉及 migration／production／research gate |
 | P-016 | 使用者要求 Objective Probe 答題後只以選項顏色表達正誤，移除卡下可見結果／繼續文字，改用固定空白位內低幅度慢速半透明呼吸圓形作點擊 affordance；只改 presentation，保留既有卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback | 已落實並驗證；由 Implementation I-020 完成，唔涉及 migration／production／research gate |
 | P-017 | 使用者指出 swipe 中嘅「和剛才想的不一樣／一樣」direction badge 同 A1／category metadata 重疊；只將 `.word-card-drag-badge` 下移至 metadata 以下安全區，保留 swipe／release／locale／theme／rollback semantics | 已落實並驗證；由 Implementation I-021 完成，唔涉及 migration／production／research gate |
-| P-018 | CI run 26 暴露 ordinary expand migration 下 V2 objective answer 同 legacy `Review` bridge 互相作用，產生 duplicate `ReviewEvent`；只喺 V2 objective-answer transaction 設定既有 `app.review_event_writer=v2` guard，保留 V1 bridge、global receipt／unique、Serializable retry 及 rollback，唔執行 contract cleanup | 進行中；由 Implementation I-022 處理，待 ordinary-migration、DB／browser／V1 regression 及 remote quality gate |
+| P-018 | CI run 26 暴露 ordinary expand migration 下 V2 objective answer 同 legacy `Review` bridge 互相作用，產生 duplicate `ReviewEvent`；只喺 V2 objective-answer transaction 設定既有 `app.review_event_writer=v2` guard，保留 V1 bridge、global receipt／unique、Serializable retry 及 rollback，唔執行 contract cleanup | 已落實並驗證；由 Implementation I-022 完成，ordinary-migration、DB／browser／V1 regression 及 remote quality gate 均通過 |
 
 ## 十四、計劃審查紀錄
 
@@ -488,7 +488,7 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 驗證：`npm test` 126 passed；lint、typecheck、diff check、build（43/43 static pages）passed；`npm run test:e2e:study-stream-v2` 7 passed；WordCard fixtures 4 passed；V1 rollback `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
-### 2026-08-14：I-022 CI failure／V2 ledger bridge incident (in progress)
+### 2026-08-14：I-022 CI failure／V2 ledger bridge incident (completed)
 
 - `Study quality gate` run 26（`3031afd`）喺 V2 stream integration assertion 失敗：同一 fresh user 嘅 objective answer
   replay 已正確回傳 `duplicate: true`，但 `ReviewEvent` count 係 2 而唔係 1。
@@ -502,7 +502,8 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   operation identity assertion；unit 126 passed、lint／typecheck／migration checksum、V1 ledger DB regression、20/20 bounded soak、V2
   browser 7/7、fresh-fixture V1 rollback Chromium 73 passed／4 skipped、WebKit 17+16 passed 及 build 43/43 均通過。第一次使用舊本地帳戶
   嘅 V1 run 有 4 個 queue fixture failures，已以明確 temporary student 重跑全數通過；第一次 V2 badge assertion 為單次 animation sampling
-  flake，isolated／full rerun 通過。remote quality gate 仍待新 commit 驗證，故 P-018 保持「進行中」。
+  flake，isolated／full rerun 通過。新 commit `f1ccc92` 觸發 GitHub `Study quality gate` run 27，job
+  `94714925771` 於 2026-08-14 08:32 UTC 以 `success` 完成；P-018 現已完成。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 

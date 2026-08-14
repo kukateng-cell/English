@@ -1,7 +1,7 @@
 # Learning Stream v2 實施計劃
 
 > 類型：功能／跨頁面 UI／核心學習流程實施計劃
-> 狀態：進行中
+> 狀態：已完成（local product scope；external gates deferred）
 > 父文件：[retrieval-first-learning-program.md](./retrieval-first-learning-program.md)
 > 規範：[retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md)
 > 安全依賴：[study-credential-v2-migration.md](./study-credential-v2-migration.md)
@@ -228,9 +228,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   提示可點擊卡面繼續；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract；已完成相應驗證；
 - [x] 按 I-021 修正 Learning Card swipe feedback placement：左右拖曳中嘅兩個 direction badge 下移至 metadata 以下安全區，
   避免覆蓋 level／category badge；只改 visual placement，保留 swipe threshold／direction／release motion、locale／theme、responsive 及 V1 rollback contract；已完成相應驗證；
-- [ ] 按 I-022 修正普通 expand migration 環境下 V2 `Review` 寫入觸發 legacy bridge，導致同一 `OBJECTIVE_ANSWER` 產生重複
+- [x] 按 I-022 修正普通 expand migration 環境下 V2 `Review` 寫入觸發 legacy bridge，導致同一 `OBJECTIVE_ANSWER` 產生重複
   `ReviewEvent`；V2 transaction 必須設定既有 writer guard，保留 `operationId`／global receipt／Serializable retry、V1 bridge 及 rollback semantics；完成
-  CI reproduction、ordinary-migration regression、DB／V2／V1 驗證後先勾選；不新增 migration 或 contract cleanup；
+  CI reproduction、ordinary-migration regression、DB／V2／V1 驗證後已勾選；不新增 migration 或 contract cleanup；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -371,14 +371,14 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   locale／theme／reduced-motion 及 V1／V2 regression；
 - [x] I-021 Learning Card swipe feedback placement refinement 已通過左右 direction badge 避開 level／category metadata、
   desktop／mobile responsive、swipe threshold／direction／release motion、locale／theme／reduced-motion 及 V1／V2 regression；
-- [ ] I-022 V2 objective answer 喺 ordinary expand migration 下只產生一條 provenance-complete `ReviewEvent`，同一 operation 重送
+- [x] I-022 V2 objective answer 喺 ordinary expand migration 下只產生一條 provenance-complete `ReviewEvent`，同一 operation 重送
   回相同 authoritative response，並通過 DB／bounded soak／V2 browser／V1 rollback regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
-- [ ] 狀態只喺完成以上驗證後改為「已完成」。
+- [x] 狀態只喺完成以上驗證後改為「已完成」。
 
 External pilot／production／research gates 係 deferred scope，唔會因未執行而阻塞 local
-product-complete；但本計劃仍保持「進行中」，直到 local acceptance 證據完成。
+product-complete；local acceptance 證據現已完成，本計劃標記為已完成。
 
 ## 十五、實際驗證紀錄
 
@@ -634,7 +634,7 @@ continuation、locale／theme、reduced-motion 及 V1 rollback：
 - 驗證：`npm test` 126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build` compiled／43/43 static pages generated；`npm run test:e2e:study-stream-v2` 7 passed；WordCard 320px／390px fixtures 4 passed；V1 rollback `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
-### 2026-08-14：I-022 CI failure／V2 ledger bridge incident (in progress)
+### 2026-08-14：I-022 CI failure／V2 ledger bridge incident (completed)
 
 - GitHub `Study quality gate` run 26（commit `3031afd`）於 `Run V2 stream integration and bounded soak` 失敗：
   `scripts/check-study-stream-v2.ts:503` 見到同一 fresh user 有 `2 !== 1` 個 `ReviewEvent`；同一 operation 的第二次提交仍回傳
@@ -651,7 +651,8 @@ continuation、locale／theme、reduced-motion 及 V1 rollback：
 - V2 browser full rerun 7/7 passed；fresh temporary student fixture 下 V1 rollback Chromium 73 passed／4 skipped、WebKit shard 1 17 passed、
   shard 2 16 passed；production build 43/43 static pages generated。第一次 V2 full run 的 1 個 badge bounding-box assertion 只在單次
   animation sampling 失敗，isolated rerun 及 full rerun 均通過；第一次 V1 run 使用已被舊測試消耗嘅本地帳戶而有 4 個 queue-fixture failures，
-  fresh fixture rerun 已全數通過。新 commit push 後 remote quality gate 仍待確認，故 I-022 暫不勾選。
+  fresh fixture rerun 已全數通過。新 commit `f1ccc92` 觸發 GitHub `Study quality gate` run 27，job
+  `94714925771` 於 2026-08-14 08:32 UTC 以 `success` 完成；I-022 現已勾選。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 
