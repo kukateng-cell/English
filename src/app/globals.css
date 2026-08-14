@@ -423,6 +423,7 @@ button:disabled,
 .word-card-flip.is-flipped { transform: rotateY(180deg); }
 .word-card-top { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; position: relative; width: 100%; z-index: 1; }
 .level-badge { align-items: center; background: var(--border-soft); border: 1px solid transparent; border-radius: var(--radius-full); color: var(--primary); display: inline-flex; font-family: var(--font-display); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; min-height: 30px; padding: 0 10px; }
+.word-card-top > .level-badge { transform: translateY(-37px); }
 .word-context { align-items: center; color: var(--primary-2); display: inline-flex; flex: 0 0 76px; font-family: var(--font-body); font-size: 2rem; font-weight: 900; height: 76px; justify-content: center; line-height: 1; margin: -22px -16px 0 0; position: relative; transform: translate(10px, -26px); width: 76px; z-index: 2; }
 .word-card-center { align-items: center; display: grid; gap: var(--space-3); justify-items: center; padding: var(--space-5) 0 var(--space-4); position: relative; text-align: center; transform: translateY(8px); width: 100%; z-index: 1; }
 .word-card-hints { align-items: center; display: grid; gap: 14px; justify-items: center; width: 100%; }

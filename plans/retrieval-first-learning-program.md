@@ -339,6 +339,8 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
   V2 swipe／release／locale／theme／reduced-motion 及 V1 rollback regression 已驗證；
 - [x] local I-022 CI incident fix：ordinary expand migration 下 V2 objective answer 必須抑制既有 legacy bridge duplicate，
   已完成 ordinary-migration integration／bounded soak／V2 browser／V1 rollback regression 及 remote quality gate；
+- [x] local I-023 Learning Card level／category badge 已上移至同右上 stylized「認」標記視覺中心水平線，並完成
+  desktop／mobile visual regression；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -376,6 +378,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-016 | 使用者要求 Objective Probe 答題後只以選項顏色表達正誤，移除卡下可見結果／繼續文字，改用固定空白位內低幅度慢速半透明呼吸圓形作點擊 affordance；只改 presentation，保留既有卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback | 已落實並驗證；由 Implementation I-020 完成，唔涉及 migration／production／research gate |
 | P-017 | 使用者指出 swipe 中嘅「和剛才想的不一樣／一樣」direction badge 同 A1／category metadata 重疊；只將 `.word-card-drag-badge` 下移至 metadata 以下安全區，保留 swipe／release／locale／theme／rollback semantics | 已落實並驗證；由 Implementation I-021 完成，唔涉及 migration／production／research gate |
 | P-018 | CI run 26 暴露 ordinary expand migration 下 V2 objective answer 同 legacy `Review` bridge 互相作用，產生 duplicate `ReviewEvent`；只喺 V2 objective-answer transaction 設定既有 `app.review_event_writer=v2` guard，保留 V1 bridge、global receipt／unique、Serializable retry 及 rollback，唔執行 contract cleanup | 已落實並驗證；由 Implementation I-022 完成，ordinary-migration、DB／browser／V1 regression 及 remote quality gate 均通過 |
+| P-019 | 使用者要求將 Learning Card 左上 A1／Numbers 0 to 100 level／category badge 上移至同右上 stylized「認」標記視覺中心水平線；只改 presentation，不改 retrieval／gesture／server semantics | 已落實並驗證；由 Implementation I-023 完成，desktop／mobile visual regression 及 V1／V2 interaction regression 均通過 |
 
 ## 十四、計劃審查紀錄
 
@@ -504,6 +507,12 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   嘅 V1 run 有 4 個 queue fixture failures，已以明確 temporary student 重跑全數通過；第一次 V2 badge assertion 為單次 animation sampling
   flake，isolated／full rerun 通過。新 commit `f1ccc92` 觸發 GitHub `Study quality gate` run 27，job
   `94714925771` 於 2026-08-14 08:32 UTC 以 `success` 完成；P-018 現已完成。
+
+### 2026-08-14：I-023 Learning Card metadata alignment (completed)
+
+- 使用者要求將左上 A1／Numbers 0 to 100 badge 上移至同右上 stylized「認」標記視覺中心水平線。
+- `.word-card-top > .level-badge` 只作局部垂直位置調整；320px／390px fixture 4 passed，V2 study stream 7 passed，V1 desktop／mobile card fidelity 8 passed／1 skipped。
+- 無 schema／migration／contract／production／pilot／research scope change；external gates 仍按原計劃 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 

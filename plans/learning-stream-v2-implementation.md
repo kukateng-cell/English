@@ -231,6 +231,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [x] 按 I-022 修正普通 expand migration 環境下 V2 `Review` 寫入觸發 legacy bridge，導致同一 `OBJECTIVE_ANSWER` 產生重複
   `ReviewEvent`；V2 transaction 必須設定既有 writer guard，保留 `operationId`／global receipt／Serializable retry、V1 bridge 及 rollback semantics；完成
   CI reproduction、ordinary-migration regression、DB／V2／V1 驗證後已勾選；不新增 migration 或 contract cleanup；
+- [x] 按 I-023 將 Learning Card 左上 level／category badge 上移至同右上 stylized「認」標記視覺中心嘅水平線；只改 metadata
+  presentation／responsive placement，保留 corner mark、phonetic slot、retrieval／long-press／swipe／server semantics；已完成
+  desktop／mobile visual regression；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -339,7 +342,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-019 | Learning Card geometry／Objective Probe continuation refinement | 只改 V2 card geometry／hint reservation 同 Objective Probe feedback continuation presentation：quarter-circle mark 對中、front phonetic slot 置於 term 下、secondary hint 固定 layout slot、feedback 由 click-anywhere／keyboard 觸發既有 `FEEDBACK_ACK`；保留 retrieval／scoring／server feedback／locale／theme／rollback contract | 已落實並驗證；由 I-019 local UI refinement 完成，唔涉及 migration／production／research gate |
 | I-020 | Objective Probe color-only feedback affordance refinement | 只改 Objective Probe answered-state presentation：移除可見結果／繼續 copy，保留選項 correct／wrong／dim 色彩，於固定空白 slot 顯示低幅度慢速半透明呼吸圓形；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract | 已落實並驗證；由 I-020 local UI refinement 完成，唔涉及 migration／production／research gate |
 | I-021 | Learning Card swipe feedback placement refinement | 只改 `.word-card-drag-badge` placement：左右提示下移到 level／category metadata 以下嘅安全區，避免拖曳時重疊；保留 swipe threshold／direction／release motion、locale／theme、responsive、accessibility 及 V1 rollback contract | 已落實並驗證；由 I-021 local UI refinement 完成，唔涉及 migration／production／research gate |
-| I-022 | V2 ReviewEvent／legacy bridge interaction | 普通 expand migration 仍保留 `Review` legacy bridge trigger；V2 objective answer 寫入 `Review` 前必須喺同一 transaction 設定 `app.review_event_writer=v2`，避免 bridge event 同 explicit V2 event 重複；保留 global `OperationReceipt`／`ReviewEvent` unique、Serializable retry、V1 writer 及 rollback，唔執行 contract migration | 進行中；由 CI run 26（`3031afd`）失敗證據觸發，待 focused fix 及 ordinary-migration／DB／browser／remote regression 驗證 |
+| I-022 | V2 ReviewEvent／legacy bridge interaction | 普通 expand migration 仍保留 `Review` legacy bridge trigger；V2 objective answer 寫入 `Review` 前必須喺同一 transaction 設定 `app.review_event_writer=v2`，避免 bridge event 同 explicit V2 event 重複；保留 global `OperationReceipt`／`ReviewEvent` unique、Serializable retry、V1 writer 及 rollback，唔執行 contract migration | 已落實並驗證；由 CI run 26（`3031afd`）失敗證據觸發，ordinary-migration／DB／browser／remote regression 均通過 |
+| I-023 | Learning Card metadata vertical alignment | 使用者指出左上 A1／Numbers 0 to 100 level／category badge 低於右上 stylized「認」標記；只將 badge 上移至同「認」標記視覺中心嘅水平線，保留 corner mark、phonetic slot、retrieval／long-press／swipe／server semantics 及 responsive 行為 | 已落實並驗證；由 local presentation refinement 完成，desktop／mobile visual regression 及 V1／V2 interaction regression 均通過 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -373,12 +377,13 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   desktop／mobile responsive、swipe threshold／direction／release motion、locale／theme／reduced-motion 及 V1／V2 regression；
 - [x] I-022 V2 objective answer 喺 ordinary expand migration 下只產生一條 provenance-complete `ReviewEvent`，同一 operation 重送
   回相同 authoritative response，並通過 DB／bounded soak／V2 browser／V1 rollback regression；
+- [x] I-023 level／category badge 同「認」標記完成垂直對齊，並通過 desktop／mobile visual regression 及既有 V1／V2 interaction regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [x] 狀態只喺完成以上驗證後改為「已完成」。
 
 External pilot／production／research gates 係 deferred scope，唔會因未執行而阻塞 local
-product-complete；local acceptance 證據現已完成，本計劃標記為已完成。
+product-complete；I-023 local acceptance 證據已完成，本計劃標記為已完成。
 
 ## 十五、實際驗證紀錄
 
@@ -653,6 +658,14 @@ continuation、locale／theme、reduced-motion 及 V1 rollback：
   animation sampling 失敗，isolated rerun 及 full rerun 均通過；第一次 V1 run 使用已被舊測試消耗嘅本地帳戶而有 4 個 queue-fixture failures，
   fresh fixture rerun 已全數通過。新 commit `f1ccc92` 觸發 GitHub `Study quality gate` run 27，job
   `94714925771` 於 2026-08-14 08:32 UTC 以 `success` 完成；I-022 現已勾選。
+
+### 2026-08-14：I-023 Learning Card metadata alignment (completed)
+
+- 使用者要求將左上 level／category badge（例如 `A1 · Numbers 0 to 100`）上移，令佢嘅視覺位置同右上 stylized「認」標記對齊。
+- 實作範圍只限 `.word-card-top` metadata presentation；不改 corner mark、phonetic slot、retrieval／long-press／swipe、server action、locale／theme 或 rollback semantics。
+- `.word-card-top > .level-badge` 只作 `translateY(-37px)` presentation adjustment；保留共用 `WordCard` interaction、locale／theme、phonetic slot、corner mark 及 rollback semantics。
+- `word-card-fidelity-fixtures` 320px／390px：4 passed，中心對齊誤差不超過 2px，無水平溢出；build 43/43 static pages、unit 126 passed、lint／typecheck passed。
+- V2 authenticated study stream：7 passed；V1 desktop／mobile card fidelity：8 passed／1 skipped；desktop 1440×900 及 mobile 390×844 visual captures 已檢視。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 
