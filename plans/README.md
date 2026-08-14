@@ -11,11 +11,11 @@
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
-| [retrieval-first-learning-program.md](./retrieval-first-learning-program.md) | 主計劃／Program Plan | 進行中 | Retrieval-first Learning Program 總入口、跨文件里程碑及 release gates |
-| [retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md) | RFC／產品及學習規範 | 進行中 | 卡片語義、gesture、客觀證據、bounded verification debt、metrics 及 policy version |
-| [learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md) | 核心學習流程實施計劃 | 進行中 | Continuous stream、UI state machine、API、outbox、checkpoint、pilot 及 rollout |
-| [study-credential-v2-migration.md](./study-credential-v2-migration.md) | 安全／資料遷移計劃 | 進行中 | Stream-item credential、v1/v2 coexistence、rotation 及 expand-contract migration |
-| [research-learning-framework.md](./research-learning-framework.md) | 研究治理／telemetry 計劃 | 待審批 | Consent、privacy、diagnostic sampling、research telemetry 及 experiment readiness |
+| [retrieval-first-learning-program.md](./retrieval-first-learning-program.md) | 主計劃／Program Plan | 進行中（本地基線完成） | Retrieval-first V2 local product 已完成並凍結；只餘未獲授權 external rollout／research gates |
+| [retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md) | RFC／產品及學習規範 | 已批准並生效 | 卡片語義、3 秒 long-press reveal、客觀證據、bounded verification debt、metrics 及 policy version |
+| [learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md) | 核心學習流程實施計劃 | 已完成（本地產品） | Continuous stream、UI state machine、API、outbox、checkpoint 及 V1 rollback；external rollout deferred |
+| [study-credential-v2-migration.md](./study-credential-v2-migration.md) | 安全／資料遷移計劃 | 已完成（product scope） | Stream-item credential、v1/v2 coexistence、rotation 及 expand migrations；Stage E destructive cleanup deferred |
+| [research-learning-framework.md](./research-learning-framework.md) | 研究治理／telemetry 計劃 | 待審批（暫緩） | Research feature off；consent、privacy、diagnostic、telemetry 及 experiment 未獲外部批准 |
 | [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 已完成 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |
 | [student-ui-fidelity-corrections.md](./student-ui-fidelity-corrections.md) | 修正計劃 | 已完成 | 修正 mobile 導覽、繁簡／品牌、學生頁 spacing 及認字卡 Prototype fidelity |
 | [study-header-floating-navigation.md](./study-header-floating-navigation.md) | 修正計劃 | 已完成 | 對齊認字頁 header，並把 mobile bottom navigation 改為 floating surface |
@@ -43,6 +43,10 @@ Retrieval-first 嘅可重現 handoff、credential compatibility inventory 同 in
 runbook 放喺 `plans/artifacts/`；呢啲係受控計劃嘅 evidence artifacts，唔係額外嘅產品規格或
 rollout approval。
 
+後續 AI／開發者應先讀
+[Retrieval-first V2 Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)，
+了解 I-011–I-035 後嘅最終學生流程、視覺 override、可靠性不變條件同仍未獲授權嘅 external gates。
+
 ## 文件命名
 
 - 使用小寫 kebab-case，例如 `student-assignment-workflow.md`。
@@ -60,6 +64,9 @@ rollout approval。
 - `受阻`：有明確外部依賴或決定阻止後續工作。
 - `已完成`：所有必要 checklist 及驗收已完成。
 - `已取代`：由另一份計劃書接替，必須連結到取代文件。
+- `已批准並生效`：只用於 normative contract；規範已獲批准並由現行 implementation 選用，
+  但仍可另列 external acceptance gate。
+- `暫緩`：目前無已授權工作；重開前要重新確認 scope、依賴及外部批准，唔可以自動續做。
 
 ## 實施計劃必要內容
 

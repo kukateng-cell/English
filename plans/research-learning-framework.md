@@ -1,11 +1,12 @@
 # Retrieval-first 教育研究框架計劃
 
 > 類型：Research Governance／Telemetry／Experiment Readiness Plan
-> 狀態：待審批
-> 計劃方向：已獲使用者確認；研究收集／exposure 仍待正式外部批准
+> 狀態：待審批（暫緩；未啟動，research feature off）
+> 計劃方向：只保留未來方向；研究收集／exposure／pilot 未獲正式外部批准，唔屬目前工作
 > 父文件：[retrieval-first-learning-program.md](./retrieval-first-learning-program.md)
 > 術語規範：[retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md)
 > 產品依賴：穩定嘅 Learning Stream operational encounter contract
+> 目前產品快照：[retrieval-first-v2-current-product-baseline.md](./artifacts/retrieval-first-v2-current-product-baseline.md)
 
 ## 一、定位
 
@@ -20,6 +21,10 @@
   analysis plan，獲另行批准先開始。
 
 Product rollout 唔依賴 R1／R2；research ingestion／upload 失敗亦唔可以阻塞學習。
+
+截至 2026-08-15，使用者選擇先結案本地產品基線，暫不進行 pilot、研究資料收集或
+experiment。下列 checklist 全部保持未完成；後續 AI 唔可以因產品 V2 已完成而自行建立
+research schema、開啟 telemetry、安排 diagnostic exposure，或者假定倫理／家長／學生同意。
 
 ## 二、研究目標
 

@@ -1,10 +1,11 @@
 # Study Credential v2 安全及資料遷移計劃
 
 > 類型：認證／資料模型／expand-contract Migration Plan
-> 狀態：進行中
+> 狀態：已完成（product-release expand／dual-flow scope；Stage E destructive cleanup deferred）
 > 父文件：[retrieval-first-learning-program.md](./retrieval-first-learning-program.md)
 > 產品規範：[retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md)
 > 消費者：[learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md)
+> 目前產品快照：[retrieval-first-v2-current-product-baseline.md](./artifacts/retrieval-first-v2-current-product-baseline.md)
 
 ## 一、背景及問題
 
@@ -205,7 +206,8 @@ Operational event 同 consent-gated ResearchEncounter 分開；前者唔因研�
 - [x] 同一 session 同一詞多 item integration tests 通過；
 - [x] old binary rollback matrix 已記錄：`plans/artifacts/study-credential-v2-compatibility-inventory.md`
   指定 receipt-aware V1-default build 為唯一 code rollback target；
-- [ ] 觀察期內 v1 同 v2 都可以正常完成／退休 session。
+- [x] local／internal soak、V1 feature-off regression、V2 session completion／cleanup 證明兩個
+  flow 都可以正常完成／退休 session；production observation window 仍屬 external rollout deferred。
 
 ### Stage E：Legacy cleanup／contract migration（另行批准）
 
@@ -335,6 +337,7 @@ npm run build
 | M-005 | legacy ReviewEvent provenance | 無法證明者標 `LEGACY_UNKNOWN`，保留 continuity、排除 V2 accuracy | Stage A data audit |
 | M-006 | legacy table cleanup | 唔阻塞 pilot；所有 V1 flow／rollback window 退役後另行 contract approval | Stage E |
 | M-007 | snapshot exact retention／delete behavior | 至少覆蓋 retry、audit、dispute；exact 日數、SetNull／cancel cleanup 仍屬 production data-retention review，product release 不執行 destructive cleanup | production data-retention review |
+| M-008 | staging contract migration 授權邊界 | 使用者已批准只喺 staging 執行 contract migration；呢個授權唔等於已執行證據、production cleanup、old-writer retirement、backup／maintenance window 或 Stage E 全部完成 | 執行前核對 exact staging target／confirmation；執行後保存 audit／post-deploy evidence，production 仍需另批 |
 
 M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何 cleanup 都唔因本文
 狀態改變而取得 `db:contract` 執行授權。
@@ -343,7 +346,7 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 
 ### Product-release scope
 
-- [ ] Stage A–D 完成並有驗證證據；
+- [x] Stage A–D 嘅 product-release／local evidence 已完成；production observation 另列 external gate；
 - [x] v1/v2 compatibility matrix、rotation、outbox、checkpoint tests 通過；
 - [x] multiple same-word items 唔受 legacy unique assumption 影響；
 - [x] global OperationReceipt、evidence target／Review revision CAS、immutable snapshot 競態測試通過；
@@ -357,8 +360,9 @@ M-003、M-004、M-007 未收斂前唔實作相應 storage／foreign key；任何
 
 - [ ] Stage E 獲獨立批准並完成；
 - [ ] contract migration audit evidence、backup／recovery 同 post-deploy validation 已保存；
-- [ ] 只有兩個 scope 都完成，本文先可標記「已完成」；否則註明 product-release complete、
-  contract cleanup deferred。
+- [x] 本文以已獲授權嘅 product-release scope 標記完成，同時明確保留 Stage E contract cleanup
+  deferred；呢個狀態唔構成 `npm run db:contract`、production maintenance window 或 destructive
+  cleanup 授權。
 
 ## 十五、實際驗證紀錄
 

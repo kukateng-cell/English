@@ -1,10 +1,11 @@
 # Retrieval-first Learning Contract v1
 
 > 類型：RFC／Normative Product & Learning Contract
-> 狀態：進行中
+> 狀態：已批准並生效（`retrieval-v1`；local implementation verified；external device／accessibility acceptance deferred）
 > 父文件：[retrieval-first-learning-program.md](./retrieval-first-learning-program.md)
 > 實作計劃：[learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md)
 > 生效方式：獲批准後由 `learningPolicyVersion = retrieval-v1` 明確選用
+> 目前產品快照：[retrieval-first-v2-current-product-baseline.md](./artifacts/retrieval-first-v2-current-product-baseline.md)
 
 ## 一、目的及優先次序
 
@@ -51,16 +52,26 @@ contract，不得將 `objective recognition` 簡稱做「回憶成功」。
 
 ### 3.2 Gesture 及輸入
 
-| Item／狀態 | Tap／主要按鈕 | 左滑 | 右滑 |
+| Item／狀態 | Tap／press／主要控制 | 左滑 | 右滑 |
 |---|---|---|---|
-| Learning Card：未揭示 | 揭示答案 | 無效 | 無效 |
+| Learning Card：未揭示 | 非發音區域 stationary long-press 3 秒先揭示；tap／短按無效 | 無效 | 無效 |
 | Learning Card：已揭示 | 無提交副作用 | 提交「未想起」 | 提交「想起了」 |
 | Objective Probe | 選擇／提交選項 | 無效 | 無效 |
-| Feedback | 前往下一 item | 無效 | 無效 |
+| Feedback | tap／click 卡面可用區域或 keyboard acknowledgement 前往下一 item | 無效 | 無效 |
 
 - 左滑永遠只有「未想起」；右滑永遠只有「想起了」，不得因 mode 或題型反轉。
 - reveal 前 swipe 唔提交亦唔令卡片離場；UI 要給出可理解提示。
+- Learning Card 思考提示由出現開始持續保留；約 1 秒後喺固定預留位漸進顯示長按提示，
+  唔可以令既有內容移位。
+- reveal timer 只接受 stationary press；放手、移動、pointer cancel 或開始 swipe 會取消並由
+  3 秒重新計算。發音 control 只播放語音，唔開始 reveal timer。
+- 按住期間要有可理解進度 affordance；現行 presentation 使用按下位置嘅半透明呼吸圓形，
+  接近三秒時逐步加快／增強，reduced-motion 仍保留狀態資訊。
+- 揭示後學生可用左／右 swipe 或同寬 accessible controls 表達「和剛才想的不一樣／一樣」；
+  呢個 self-rating 唔係 objective score。
 - Objective Probe 只用 tap、keyboard 或等價 accessible control，唔借用 swipe 選答案。
+- Objective Probe feedback 唔要求額外確認 button；現行 presentation 以選項狀態同固定空白位
+  嘅低幅度半透明圓形提供 continuation affordance，同時保留 labelled keyboard／screen-reader action。
 - 每個動作只有一次語義；動畫結束唔可以產生第二次網絡提交。
 
 ### 3.3 Accessibility 及 motion
@@ -85,7 +96,8 @@ SUBMITTING ─> ACKNOWLEDGED ─> NEXT
 
 規則：
 
-- `PROMPT` 只顯示提取線索，唔洩露答案；
+- `PROMPT` 只顯示提取線索，唔洩露答案；現行 reveal gate 係非發音區域 stationary
+  long-press 3 秒，唔係即時 tap reveal；
 - server acknowledgement 先容許永久離場；optimistic motion 可以先行，但要可復原；
 - self-rating 寫 operational encounter，但唔寫 scored ReviewEvent；
 - server response 明確回傳有冇建立 Evidence Obligation，client 唔自行猜測。
@@ -334,10 +346,11 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 | C-008 | 所有 scored probes 綁唯一 evidence target、purpose、immutable valid question snapshot | 已確認 |
 | C-009 | research-only diagnostic 零 operational 副作用，出題本身亦受 permission／assent／protocol gate | 已確認 |
 | C-010 | legacy unknown 保留 mastery continuity，但排除 V2 objective accuracy | 已確認 |
+| C-011 | Learning Card 保留持續思考提示，以 3 秒 stationary long-press 揭示；放手／移動重置、發音排除，揭示後 swipe／control 只提交一樣／不一樣 self-rating | 已確認、已實作及驗證 |
 
 ## 十四、Definition of Done
 
-- [x] C-001 至 C-010 已獲批准；
+- [x] C-001 至 C-011 已獲批准；
 - [x] glossary 已同步到 implementation、migration、research plan；
 - [x] Implementation Phase 0 擁有嘅 versioned handoff addendum 已獲 Contract review；
 - [x] scheduler simulation 規格包含 combined cap、atomic admission、dedupe、delay、age、
@@ -347,6 +360,10 @@ Log 唔保存 password、raw session token、nonce、完整 credential 或直接
 - [ ] 原生 screen-reader、手機實機及完整 accessibility acceptance matrix 已驗證；
 - [x] 文件經兩路 review，由「草擬中」轉為「待審批」；
 - [x] 使用者已明確批准本 Contract 同 dependent plans；Implementation 可按 gate 開始。
+
+Contract 嘅 normative／local implementation baseline 已完成並生效。上面未勾選嘅原生
+screen-reader、手機實機及完整 accessibility acceptance matrix 係 external acceptance gate，
+唔會令已批准嘅 `retrieval-v1` 語義回復為草擬或容許改返舊版 tap／swipe contract。
 
 ## 十五、實際驗證紀錄
 

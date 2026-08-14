@@ -1,8 +1,20 @@
 # 部署到 Vercel + Supabase 完整流程
 
-本项目已从 SQLite 切换到 **PostgreSQL**，准备部署到 **Supabase（数据库）+ Vercel（应用）**。
+本项目已从 SQLite 切换到 **PostgreSQL**，部署目标为 **Supabase（数据库）+ Vercel（应用）**。
 
-> 本地开发也从现在起连 Supabase Postgres（不再用 SQLite）。
+> 本地开发可使用 Docker PostgreSQL，亦可按需要连接 Supabase；项目不再支持 SQLite。
+
+## 当前发布边界（2026-08-15）
+
+- Retrieval-first V2 已完成本地产品实现与验证，但未因此自动部署到 production。
+- 当前工作分支是 `codex/retrieval-first-learning-stream-v2`；未合并／推送 `main` 前，
+  不可假定 main、Vercel 或正式数据库已经包含本分支。
+- 本地 `STUDY_V2_ASSIGNMENT_MODE=all` 只供完整产品验证；Vercel preview／production 会拒绝
+  `all`。Production 应保持 `internal`／明确 allowlist，直至另行批准正式 rollout。
+- Production deploy、正式 observation window、真实学生 pilot 及 research collection 都未执行。
+- Staging contract migration 的个别授权不等于 production Stage E cleanup 授权。执行任何
+  contract migration 前仍要核对 exact target、backup／snapshot、maintenance window、confirmation、
+  regression 及 post-deploy audit；没有证据不得在计划中标记完成。
 
 ---
 
@@ -208,6 +220,8 @@ git push
    | `CRON_SECRET` | 至少 16 字符随机值 | 保护每日 expired StudySession cleanup endpoint |
    | `DATABASE_POOL_MAX` | `3` | 每个 serverless instance 最多 3 条 runtime 连接 |
    | `STUDY_OPERATION_ID_COMPAT_UNTIL` | 默认留空 | 只可填未来 30 分钟内的绝对 ISO 截止时间 |
+   | `STUDY_V2_ASSIGNMENT_MODE` | `internal` | Production 不可使用 `all`；只对明确 allowlist 开启 V2 |
+   | `STUDY_V2_INTERNAL_USER_IDS` | 默认留空 | 获批准的 internal／test user IDs，逗号分隔；不是学生 cohort 或研究 assignment |
 
    > `DATABASE_URL` / `NEXTAUTH_*` 按需要勾选环境；`MIGRATE_URL` 不可放进 Vercel。
 
@@ -256,7 +270,10 @@ Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 
 
 1. 打开 `https://你的域名.vercel.app/login`
 2. 用 `student01` / 该账号获发的一次性临时密码登录
-3. 确认能加载单词、滑动学习、记录进度
+3. 按实际 assignment 确认 V1 或 V2；V2 要验证 Learning Card 3 秒 long-press reveal、
+   揭示后 self-rating、Objective Probe first response、feedback acknowledgement 及安全续接
+4. 确认 `STUDY_V2_ASSIGNMENT_MODE=all`、`ENABLE_TEST_ROUTES=1` 及本地测试账号开关没有进入 production
+5. 核对 migration SHA、production config gate、Upstash limiter、cron、日志及 rollback target
 
 如果报错，看 Vercel → **Logs**（或 Functions 标签），最常见的是：
 

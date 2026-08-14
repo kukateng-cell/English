@@ -1,101 +1,142 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 見字會 SeeWord
 
-## 项目文档
+面向中文學校中學生嘅英語詞彙認讀平台。現行版本採用 Retrieval-first Learning Stream V2：
+學生先嘗試回想英文詞義，再揭示答案；主觀 self-rating 同客觀認讀證據分開，只有
+Objective Probe 第一次合法答案先由 server 判分並推進 SM-2。
 
-- [计划书索引](plans/README.md)
-- [产品总体计划](plans/project-plan.md)
-- [部署与迁移说明](DEPLOY.md)
+## 目前狀態
 
-## Getting Started
+- 工作分支：`codex/retrieval-first-learning-stream-v2`
+- 本地產品基線：已完成（程式基線 `e43ed66`）
+- Global `/study`：continuous stream，無固定完成題數
+- V1：保留作 feature-off rollback
+- Production deploy、真實學生 pilot、research telemetry／consent、Stage E destructive cleanup：未執行
+- 未合併／推送到 `main` 就唔代表 main 或 production 已有 V2
 
-First, run the development server:
+完整現況先讀：
+
+- [V2 Current Product Baseline](plans/artifacts/retrieval-first-v2-current-product-baseline.md)
+- [計劃索引](plans/README.md)
+- [產品總體計劃](plans/project-plan.md)
+- [Retrieval-first Contract](plans/retrieval-first-learning-contract.md)
+- [部署與遷移說明](DEPLOY.md)
+
+## 學生流程
+
+```text
+Learning Card
+→ 先想一想中文意思
+→ 約 1 秒後漸進顯示長按提示
+→ 原地長按非發音區域 3 秒
+→ 翻卡揭示英文、音標位、發音及中文意思
+→ 報告「和剛才想的一樣／不一樣」
+→ self-rating 只記錄學習過程，不直接改變掌握度
+
+Objective Probe
+→ 第一次選擇由 server 判分
+→ correct=SM-2 quality 4；wrong=quality 2
+→ 選項顏色顯示結果，點卡面／keyboard acknowledgement 繼續
+```
+
+測試唔係固定每三個詞一次。Server scheduler 會按到期詞、成熟詞、remediation、
+verification debt、delay、mode scope 及候選狀態決定下一個 item；成熟到期詞可以直接出
+Objective Probe。
+
+## 已有能力
+
+- A1／A2／B1／B2 詞表、主題單元及順序解鎖
+- Retrieval-first Learning Card、Objective Probe、SM-2 及 versioned learning policy
+- Continuous global stream、bounded unit mode、安全離開／續接
+- Offline outbox、checkpoint、cross-tab／cross-device reconciliation、expired credential recovery
+- 學生／教師／管理員角色、首次改密、tokenVersion session 撤銷及最後管理員保護
+- 首頁／詞表／統計、7 日柱狀圖、30 日熱力圖、打卡、成就及排行榜
+- 繁體／簡體、明／暗 theme、mobile／tablet／desktop responsive layout
+- PostgreSQL、Prisma migrations、Upstash production limiter 及 GitHub Actions／Vercel release gate
+
+## 技術棧
+
+Next.js 16、React 19、TypeScript、Tailwind CSS 4、Framer Motion、Auth.js、Prisma 7、
+PostgreSQL、Upstash Redis、Node test 及 Playwright。
+
+## 本地啟動
+
+### 1. 安裝及啟動 PostgreSQL
+
+```bash
+npm ci
+docker compose up -d
+cp .env.example .env.local
+```
+
+本地 Docker 預設可以令 `DATABASE_URL` 同 `MIGRATE_URL` 都指向：
+
+```text
+postgresql://english:english_dev_password@localhost:5432/english
+```
+
+請喺 `.env.local` 設定獨立隨機 `NEXTAUTH_SECRET`、
+`SECURITY_AUDIT_HASH_SECRET`、`INITIAL_ADMIN_PASSWORD` 及測試帳戶密碼。唔可以提交
+`.env.local`、真實密碼、tokens 或連線憑證。
+
+### 2. 建立 schema 及本地資料
+
+```bash
+npm run db:deploy
+npm run seed
+```
+
+Migration／seed 只使用 `MIGRATE_URL`。第一次 seed 前核對
+`DATABASE_ENVIRONMENT=development` 同 `CONFIRM_DATABASE_ENVIRONMENT=development`；
+唔好用 `prisma db push` 代替 migrations。
+
+### 3. 開啟完整本地 V2
+
+喺 `.env.local` 設定：
+
+```env
+STUDY_V2_ASSIGNMENT_MODE="all"
+```
+
+`all` 只容許 local development／明確 browser-test runtime，Vercel preview／production
+會 fail closed。`off` 強制 V1 rollback；`internal` 只對 allowlist 使用 V2。
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+開啟 <http://localhost:3000/login>。如使用本地專用測試學生，先按 `.env.example` 設定
+`SEED_TEST_STUDENT=1`、`TEST_STUDENT_USERNAME` 及 `TEST_STUDENT_PASSWORD` 再執行 seed。
 
-You can start editing the page in `src/app/`. The page auto-updates as you edit the file.
+## 常用驗證
 
-## 环境变量（Environment Variables）
-
-复制 `.env.example` 为 `.env.local` 并按需填写：
-
-| 变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `DATABASE_URL` | ✅ | 应用运行时 PostgreSQL 连接串 |
-| `MIGRATE_URL` | ✅（迁移/seed） | PostgreSQL Session/direct 连接串；不会回退到 runtime URL |
-| `NEXTAUTH_SECRET` | ✅ | JWT 签名密钥，生产请用 `openssl rand -base64 32` |
-| `SECURITY_AUDIT_HASH_SECRET` | ⚠️ 生产必填 | 至少 32 字符的长期稳定审计 HMAC 密钥，独立于 JWT 密钥 |
-| `NEXTAUTH_URL` | ✅ | 应用根 URL（本地为 `http://localhost:3000`） |
-| `UPSTASH_REDIS_REST_URL` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST URL |
-| `UPSTASH_REDIS_REST_TOKEN` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST Token |
-| `CRON_SECRET` | ⚠️ 生产必填 | Vercel StudySession cleanup cron 的 Bearer secret |
-| `DATABASE_POOL_MAX` | 否 | 每个 serverless instance 的 pg pool 上限，默认 3 |
-| `DATABASE_ENVIRONMENT` | ✅（seed） | `development`、`test` 或 `production`；必须与数据库持久标记一致 |
-| `CONFIRM_DATABASE_ENVIRONMENT` | 首次 seed | 首次分类数据库时必须与 `DATABASE_ENVIRONMENT` 完全相同 |
-
-### 登录限流（Upstash Redis）
-
-登录限流基于 `@upstash/ratelimit` + `@upstash/redis`，按「账号」与「来源 IP」双维度
-滑动窗口限流：**同一账号每分钟最多 5 次、同一来源 IP 每分钟最多 120 次**。
-账号桶负责防暴力破解；较宽的 IP 桶只作预认证防洪，避免同一校园/NAT 下正常集体登录被误封。
-分布式存储确保 Serverless / 多实例（如 Vercel）部署下计数共享、无法被绕过。
-
-本地未配置时会降级为单实例内存限流；Vercel production 未配置则直接拒绝
-build／启动，避免多副本下静默使用可绕过的 limiter。
-
-配置步骤：
-
-1. 到 [upstash.com](https://upstash.com) 注册并创建一个 Redis 数据库（Global 或 Regional）。
-2. 在该数据库的 **REST API** 页面复制 `UPSTASH_REDIS_REST_URL` 与 `UPSTASH_REDIS_REST_TOKEN`。
-3. 写入本地 `.env`，或填入 Vercel 项目的 **Settings → Environment Variables**。
-4. 重新部署即可；限流键统一带前缀 `login:`，便于在 Upstash 控制台辨识。
-
-### 可直接登入的本地测试学生
-
-若不想每次用 `student01` 测试时都走首次改密流程，可在 `.env.local` 设置：
-
-```env
-SEED_TEST_STUDENT=1
-TEST_STUDENT_USERNAME="__test_student__local"
-TEST_STUDENT_PASSWORD="只用于本地测试的独立密码"
+```bash
+npm test
+npm run lint
+npx tsc --noEmit
+npm run build
 ```
 
-运行 `npm run seed` 后，该学生会以 `mustChangePassword=false` 建立，可直接登入学习页；
-若账号已经存在，seed 会停止而不会覆盖现有账号。此功能须在生产保持关闭。
+按改動範圍再選擇：
 
-批量建立 `student01` 至 `student40` 时，每个账号都会获得不同的一次性临时密码；
-仍未完成首次改密的旧账号会在 seed 时轮换，以清除历史共用密码。每笔写入成功后
-会立即输出凭证，避免中途失败遗失已建立账号的密码。
+```bash
+npm run test:db:stream-v2
+npm run check:study-credential-v2
+npm run test:e2e:study-stream-v2
+npm run test:e2e:card-motion
+npm run test:migrations
+npm run test:migrations:contract
+npm run test:migration-checksums
+npm run check:production-config
+```
 
-### 字卡浏览器回归
+局部文案／presentation 修正只需要比例相稱嘅 lint、typecheck、rendered visual review／build。
+Gesture、study action、checkpoint、credential、scoring 或 migration 改動先需要相應高成本回歸。
 
-`npm run test:e2e:card-motion` 会先建立 production build，再以 Chromium、Firefox、
-WebKit 及移动装置 emulation 测试独立 motion harness，另以真实登入 session 验证完整
-学习流程。Playwright 的 Firefox 及 iPhone/WebKit 專案明确标作 JavaScript synthetic
-pointer；移动专案只属模拟环境，不能取代实体 iPhone Safari 测试。
+## 安全及外部閘門
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Production 必須有共享 Upstash limiter；缺少或故障時 fail closed。
+- 已套用 migration 不得修改；contract migrations 與一般 expand migrations 分開。
+- `npm run db:contract` 係 destructive／irreversible cleanup gate，唔會由一般 deploy 自動執行。
+- Staging contract migration 嘅個別授權唔等於 production cleanup 授權。
+- 未獲明確批准唔執行 production deploy、真實學生 pilot、research collection、倫理／家長／
+  學生同意流程，亦唔合併、切換或推送 `main`。

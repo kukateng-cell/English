@@ -5,6 +5,7 @@
 > 父文件：[retrieval-first-learning-program.md](./retrieval-first-learning-program.md)
 > 規範：[retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md)
 > 安全依賴：[study-credential-v2-migration.md](./study-credential-v2-migration.md)
+> 目前產品快照：[retrieval-first-v2-current-product-baseline.md](./artifacts/retrieval-first-v2-current-product-baseline.md)
 
 ## 一、背景
 
@@ -196,9 +197,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   support／incident runbook 及 kill switch；production 對 all-user mode fail closed；
 - [x] internal soak 無 high／critical defect；20 次 cleanup-backed V2 integration soak 全部通過；
 - [x] local all-user browser／DB／resume／rollback acceptance 通過；
-- [x] 按 visual review 修正 V2 Learning Card：卡面任意非發音區域 tap-to-reveal、front／back
-  flip presentation、答案面保留英文／音標／中文意思／例句／發音，self-rating actions 移到卡下
-  並與卡片同寬；reveal 前不提供 self-rating；
+- [x] I-011 曾按首輪 visual review 建立非發音區域 reveal、front／back flip、完整答案面及卡下
+  同寬 self-rating actions；其 tap-to-reveal presentation 已喺同一 Phase 5 由 I-012 正式取代為
+  stationary long-press 3 秒，current behavior 以 I-012／Contract C-011 為準；
 - [x] 學生帳戶名稱及 avatar initial 於 zh-Hant 顯示繁體、zh-Hans 顯示簡體；只改 display layer，
   不改 stored identity；
 - [x] 按 I-012 修正 V2 Learning Card：初始顯示並保留「先試著想一想這個詞的中文意思」，約 1 秒後
@@ -351,9 +352,11 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 ## 十四、Definition of Done
 
 - [x] Local Phase 0–4 及 Local Phase 5 cutover checklist 全部完成並有對應證據；
-- [ ] Contract acceptance matrix 全部通過；
+- [x] Contract normative／local acceptance 已通過；原生 screen-reader、手機實機及完整
+  accessibility acceptance matrix 明確列為 external acceptance deferred；
 - [x] v1 未獲 cleanup approval 前仍可安全使用（V1 DB／browser regression、V1 default 及 feature-off rollback evidence）；
-- [ ] production feature flag、runbook、alerts、rollback rehearsal 已驗證；
+- [x] local assignment／feature-off kill switch、support runbook及 V1 rollback rehearsal 已驗證；
+  production alerts／observation threshold 仍列入 external delivery deferred；
 - [x] 無 client-controlled word／item／score／correct-answer boundary（typed parser、route validation、server-owned scoring 及 DB assertions）；
 - [x] visual review follow-up 已通過 card-body reveal、audio exclusion、flip、same-width rating actions、簡繁 account display 及 V1／V2 gesture regression；
 - [x] I-012 retrieval pause follow-up 已通過 delayed prompt、3 秒 stationary long-press、movement／audio exclusion、reveal 後 swipe semantics 及 V1／V2 gesture regression；

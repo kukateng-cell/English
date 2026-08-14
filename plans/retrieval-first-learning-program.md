@@ -1,13 +1,15 @@
 # Retrieval-first Learning Program 主計劃
 
 > 類型：主計劃／Program Plan
-> 狀態：進行中（local product-complete；external gates deferred）
+> 狀態：進行中（local product baseline 已完成並凍結；只餘未獲授權 external gates）
 > 父文件：[project-plan.md](./project-plan.md)
 > 實作基線：`codex/retrieval-first-learning-stream-v2`
-> 基線 commit：`cc7fd19`
+> 計劃起始 commit：`cc7fd19`
+> Local product code baseline：`e43ed66`
 > 設計來源：`/Users/hangwong/Documents/Design/emm_style_02`
 > 產品里程碑：Learning Stream v2
 > 研究里程碑：Research-ready telemetry；其後才是 experiment-ready
+> 目前產品快照：[retrieval-first-v2-current-product-baseline.md](./artifacts/retrieval-first-v2-current-product-baseline.md)
 
 ## 一、文件定位
 
@@ -21,6 +23,17 @@
 本文件唔重複定義詳細 gesture、scheduler、API、Prisma 欄位或研究 event；
 呢啲內容由下面四份受控文件負責。任何 checklist 只可以由一份文件擁有，避免
 主計劃同子計劃顯示互相矛盾嘅完成狀態。
+
+### 目前交接狀態（2026-08-15）
+
+Retrieval-first V2 已完成本地產品實作、可靠性、V1 rollback、responsive／visual follow-up
+同 I-011–I-035 實機修正，成為本分支後續工作必須保留嘅產品基線。目前無剩餘已授權
+local V2 implementation work；新功能應另建／更新相應計劃，唔應繼續把本計劃嘅 external
+checkbox 當成本地缺陷自動執行。
+
+未完成項目只係 production deploy／observation、真實學生 pilot、完整原生裝置／screen-reader
+acceptance、research governance／collection 同 Stage E destructive cleanup。呢啲全部需要新授權
+或外部批准；詳細 current behavior 見上方產品快照。
 
 ## 二、背景及重整原因
 
@@ -66,7 +79,7 @@ retrieval opportunity、客觀認讀、投入行為及不同學習策略效果�
 
 其他已確認原則：
 
-- Tap card／明確控制＝揭示答案；
+- Learning Card 以非發音區域 stationary long-press 3 秒揭示；tap／短按唔揭示，放手／移動重置；
 - 左滑永遠＝未想起；右滑永遠＝想起了；
 - swipe 唔用作選擇客觀答案；
 - self-rating 唔直接更新 Review、mastery、leaderboard 或單元解鎖；
@@ -188,7 +201,8 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 
 ### Milestone P0：Framework freeze
 
-- [ ] Contract v1 所有未決事項已處理；
+- [x] Contract v1 C-001–C-011 已批准，無阻塞 local implementation 嘅未決決策；external
+  native-device／accessibility acceptance 另列 deferred gate；
 - [x] Implementation Phase 0 擁有嘅 versioned handoff addendum 已記錄可重現 source、
   state manifest、precedence 及所有 intentional deviations，並通過 Contract gate；
 - [x] 三份 product-side 文件獲使用者批准並改成「進行中」。
@@ -248,6 +262,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-033 將學習流程返回掣收斂至 EMM Style 02 圓形返回按鈕（V2 認讀卡及 legacy 測試頂部），保留返回路徑、navigation guard、mobile／desktop 及 a11y semantics，完成並驗證；
 - [x] I-034 統一排行榜、連勝、成就及相關獎勵圖示為 EMM Style 02 可換色 SVG icon system，保留資料／排名／解鎖 semantics，完成並驗證；
 - [x] I-035 依實機回饋重畫 reward icon system（專用 trophy／numbered medal／flame／word-card stack／calendar-check／achievement glyph），統一 24×24 grid、stroke、optical size 及固定 slot 對齊，完成並驗證；
+- [x] I-036 完成 Retrieval-first V2 local product baseline 文件結案：校正 Contract、Program、子計劃、project plan、AGENTS、README、DEPLOY 及研究／migration 邊界，建立精簡 current-product baseline，完成跨文件一致性驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -268,6 +283,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-033 學習流程返回掣 EMM visual correction 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-034 排行榜／連勝／成就 EMM icon visual correction 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-035 reward icon polish／alignment correction，已完成必要驗證；external rollout gates 仍 deferred。
+- [x] Product-side 文件交接包括 I-036 current-product baseline／guidance closure，已完成跨文件一致性驗證；external rollout／research／contract cleanup gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -330,14 +346,16 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 
 ## 十二、整體 Definition of Done
 
-### Product release complete
+### External product release complete
 
-- [ ] Contract v1 已確認而且無未解決 blocking decision；
-- [ ] Learning Stream v2 Implementation 已完成；
-- [ ] Credential v2 Migration 嘅 product-release 範圍已完成；
-- [ ] P0–P4 全部通過；
-- [ ] 實際測試、未執行項目、已知限制及 rollback 演練已記錄；
+- [x] Contract v1 已確認而且無阻塞 local／release preparation 嘅未解決 decision；
+- [x] Learning Stream v2 Implementation local product scope 已完成；
+- [x] Credential v2 Migration product-release expand／dual-flow scope 已完成；
+- [x] P0–P3 及 P4 local product／rollback gate 已通過；
+- [x] 實際測試、未執行項目、已知限制及 rollback 演練已記錄；
 - [x] [project-plan.md](./project-plan.md) 已按實際新行為校準。
+- [ ] Production deploy、external observation／alerts threshold、正式 full rollout 及任何另行要求嘅
+  pilot acceptance 已批准並有外部 evidence；目前 deferred。
 
 ### Local product-complete
 
@@ -377,6 +395,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [x] local I-033 學習流程返回掣使用 EMM Style 02 圓形視覺，返回路徑／navigation guard／a11y semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
 - [x] local I-034 排行榜、連勝、成就及相關 toast／calendar icon 使用 EMM Style 02 可換色 SVG，排名／解鎖／進度／資料 semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
 - [x] local I-035 reward icon 使用專用高質素 SVG glyph、前三名 numbered medal 及固定 icon slot，掌握字數／打卡指標 baseline 對齊，並通過必要嘅 lint／typecheck／rendered visual review／diff 驗證；
+- [x] local I-036 已建立 current-product baseline，Contract／Program／Implementation／Credential／Research／project plan／AGENTS／README／DEPLOY／env guidance 全部同現行 V2 行為及 deferred gates 一致，並通過文件 link／status／stale-copy audit；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -388,7 +407,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 
 ### Program complete
 
-- [ ] Product release complete；
+- [ ] External product release complete；
 - [ ] Research-ready complete；
 - [ ] R2 已完成，或者由另一份已索引計劃正式接手並將本計劃標記「已取代」。
 
@@ -402,7 +421,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-004 | Prototype 只負責 presentation／interaction reference，唔覆蓋 production safety | 已確認 |
 | P-005 | V2 item credential rotation 以 server-recorded digest lineage 保留 bounded grants；仍有效 predecessor 可作 normal action，已過期 predecessor 只供 I-014 explicit recovery，action 仍以 item／revision／target CAS 決定唯一結果 | 已落實並驗證；expand-only migration，未涉及 contract cleanup |
 | P-006 | 本階段先完成 local product-complete；local all-user mode 只限 non-production，external pilot／production／research／destructive contract cleanup deferred | 已確認；由 Implementation I-010 落實 |
-| P-007 | Visual review follow-up 仍屬同一 V2 implementation scope：tap-to-reveal／flip、卡下同寬 self-rating 及學生名稱 display localization；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-011 完成 |
+| P-007 | 首輪 Visual review follow-up 屬同一 V2 implementation scope：建立 reveal／flip、卡下同寬 self-rating 及學生名稱 display localization；其中 tap-to-reveal presentation 其後由 P-008／I-012 正式取代 | 已落實；current reveal behavior 以 P-008／Contract C-011 為準 |
 | P-008 | I-012 係同一 V2 presentation／interaction scope 嘅 retrieval pause 修正：延遲提示、stationary long-press、提示／按住進度視覺回饋及答案後一樣／不一樣 swipe 語義；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-012 完成 |
 | P-009 | 實際 local smoke 發現 session expiry 後 V2 outbox retry 會重試同一失效 session，並有 V2 loading source literal 漏出簡體；以 server-authoritative recovery 保留原 operationId／outbox，對 revoked／無 lineage credential fail closed，並統一 V2 system copy 由 canonical 簡體經 `tc()` 顯示 | 已落實並驗證；由 Implementation I-013 完成，唔涉及 migration／production／research gate |
 | P-010 | 實際 local smoke 發現 item credential 過期／refresh 輪換後，V2 outbox action 未能進入 I-013 recovery；以 bounded digest lineage + explicit item recovery + lease CAS 修正，普通 action 對未知 credential／revoked session 仍 fail closed | 已落實並驗證；由 Implementation I-014 完成，唔涉及 migration／production／research gate |
@@ -427,6 +446,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-029 | 使用者要求保留返回掣，但改為 EMM Style 02 圓形白底／細邊框／chevron-left；只收斂 V2 認讀卡及 legacy 測試頂部返回掣 presentation，保留既有目標路徑、離開 guard、keyboard／a11y 及 mobile／desktop semantics | 已落實並驗證；由本次 local study-exit control visual correction 完成 |
 | P-030 | 使用者指出排行榜獎杯／前三名獎牌／連勝火焰／成就圖案同 app 不協調；以 EMM Style 02 indigo／soft-surface／細線可換色 SVG icon 取代 emoji 及分散圖案，保留排名、連勝、成就解鎖、進度、API 及 locale／theme semantics；暫不產生 raster asset | 已落實並驗證；由本次 local reward icon system correction 完成 |
 | P-031 | 使用者實機 review 指出 I-034 glyph 仍過度簡化，掌握字數與日曆圖示亦未 optical alignment；改用獨立 reward icon component、精修 duotone glyph、含 1／2／3 嘅 rank medal、固定 slot／baseline，保留資料及互動 semantics | 已完成；I-035 local reward icon polish correction 已驗證 |
+| P-032 | V2 local product 調整接近結案；以 approved current behavior、可執行證據及 deferred external gates 校正所有入口／規範／計劃／部署文件，另建短版 current-product baseline 供後續 AI 及開發者使用；歷史 evidence 保留，不把 production／pilot／research／destructive cleanup 誤標完成 | 已完成；I-036 文件結案及一致性 audit 已通過 |
 
 ## 十四、計劃審查紀錄
 
@@ -648,6 +668,23 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 排名、指標數值、成就 unlock／progress、連勝資料、API payload semantics、locale／theme 及學習流程不變；沒有 schema、migration、study contract 或 rollback change。
 - 必要驗證：指定 ESLint passed；`npx tsc --noEmit` passed；臨時 browser preview 實際檢查 icon stroke／optical size／rank row alignment passed，預覽頁完成後移除；`npm run build` passed；`git diff --check` passed。
 - 沒有執行與純 presentation correction 無關嘅 DB／migration／完整學習 browser suite、production deploy、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
+
+### 2026-08-15：I-036 V2 current-product baseline／guidance closure (completed)
+
+- 新增 `plans/artifacts/retrieval-first-v2-current-product-baseline.md`，濃縮現行學生流程、3 秒
+  stationary long-press、Objective Probe／quality 4／2、scheduler 非固定節奏、UI／stats baseline、
+  reliability／V1 rollback、AI guardrails 及未授權 external gates。
+- 校正 `AGENTS.md`、`README.md`、`plans/project-plan.md`、Program／Contract／Implementation／
+  Credential／Research、`plans/README.md`、`DEPLOY.md` 同 `.env.example`；舊 I-011 tap presentation
+  明確標成由 I-012／C-011 取代，self-rating 唔再被描述成直接 SM-2 evidence。
+- 直接對照程式證實 long-press `3_000` ms、secondary hint `1_000` ms、objective quality 4／2、
+  retrieval policy cap／delay／age／service-gap、assignment fail-closed；對照 schema／migration 目錄
+  校正為 16 models、24 ordinary migrations 及 2 contract migrations。
+- 文件驗證：`git diff --check` passed；所有本地 Markdown links resolved；受影響 Markdown table
+  column audit passed；stale-copy search 無未標明 superseded 嘅 swipe→SM-2、tap reveal 或舊狀態描述。
+- 純文件／env guidance 改動，無 application code、schema、migration 或 runtime config value change；
+  因此未執行 unit／DB／browser／build。Production deploy、pilot、research、完整原生 accessibility
+  matrix 及 Stage E destructive cleanup 繼續 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 
