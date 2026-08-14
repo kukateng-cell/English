@@ -69,21 +69,19 @@ export default function StatsPage() {
   return (
     <div className="student-content-wide">
       <StudentPageStack>
-        <PageHeader eyebrow={tc("数据") } title={tc("学习统计") } description={tc("已学进度、长期掌握和活动记录使用与学习页一致的真实数据口径。") } action={<div className="stats-secondary-links"><Link href="/leaderboard"><Icon name="bar-chart" size={16}/>{tc("排行榜")}</Link><Link href="/achievements"><Icon name="spark" size={16}/>{tc("成就")}</Link></div>} />
+        <PageHeader eyebrow={tc("数据") } title={tc("学习统计") } action={<div className="stats-secondary-links"><Link href="/leaderboard"><Icon name="bar-chart" size={16}/>{tc("排行榜")}</Link><Link href="/achievements"><Icon name="spark" size={16}/>{tc("成就")}</Link></div>} />
         <StudentSectionStack>
-          <div className="stats-range-row"><SegmentedControl label={tc("统计范围")} items={[{ value: "7", label: tc("近 7 天") }, { value: "30", label: tc("近 30 天") }]} value={days} onChange={setDays} /><span className="ui-field-helper">{tc("活动图只计真实 REVIEW 事件")}</span></div>
+          <div className="stats-range-row"><SegmentedControl label={tc("统计范围")} items={[{ value: "7", label: tc("近 7 天") }, { value: "30", label: tc("近 30 天") }]} value={days} onChange={setDays} /></div>
 
           <div className="dashboard-stats-grid stats-top-grid">
         <StatCard label={tc("今日新学")} value={data.today.newWordCount} note={tc("首次复习")}/>
         <StatCard label={tc("今日复习词数")} value={data.today.reviewedWordCount} note={`${data.today.reviewEventCount} ${tc("次记录")}`}/>
         <StatCard label={tc("连续学习")} value={data.streak.count} note={data.streak.studiedToday ? tc("今天已打卡") : tc("截至最近一天")}/>
           </div>
-          <p className="ui-field-helper">{tc("统计口径")}：{tc("客观认读")} {data.today.objectiveRecognitionCount} · {tc("自评记录")} {data.today.selfRatedEncounterCount} · {tc("legacy unknown")} {data.today.legacyUnknownEventCount}。</p>
-
           <div className="stats-two-column">
         <Card padded>
           <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("活动")}</span><h2>{tc("最近学习活动")}</h2></div></div>
-          {data.activity.every((day) => day.count === 0) ? <EmptyState title={tc("还没有活动记录")} description={tc("完成复习后，活动图会显示每天的 REVIEW 事件。")}/> : <>
+          {data.activity.every((day) => day.count === 0) ? <EmptyState title={tc("还没有活动记录")} description={tc("完成学习后，活动图会显示每天的学习活动。")}/> : <>
             {showActivityHeatmap ? <div className="activity-heatmap is-month" aria-label={tc("最近学习活动热力图") as string}>
               <div className="activity-heatmap-grid-wrap">
                 <div className="activity-heatmap-weekdays" aria-hidden="true">{WEEKDAY_LABELS.map((label) => <span key={label}>{tc(label)}</span>)}</div>
@@ -104,19 +102,17 @@ export default function StatsPage() {
           <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("词库")}</span><h2>{tc("已解锁内容总览")}</h2></div><Link href="/words" className="ui-button ui-button-quiet ui-button-small">{tc("词表")}</Link></div>
           <div className="stats-progress-stack"><ProgressBar label={tc("已学进度")} value={data.library.learnedCount} max={data.library.totalWords} showValue/><ProgressBar label={tc("长期掌握")} value={data.library.masteredCount} max={data.library.totalWords} showValue className="ui-progress-success"/></div>
           <div className="stats-progress-numbers"><span>{data.library.learnedCount} / {data.library.totalWords} {tc("已学")}</span><span>{data.library.masteredCount} / {data.library.totalWords} {tc("长期掌握")}</span></div>
-          <p className="ui-field-helper stats-scope-note">{tc("总览只计算目前已解锁的词；下面再按 A1、A2、B1、B2 显示详细进度。")} </p>
         </Card>
           </div>
 
           <Card className="stats-level-card" padded>
-        <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("分级")}</span><h2>{tc("各级别进度")}</h2></div><span className="ui-field-helper">{tc("按词库级别")}</span></div>
+        <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("分级")}</span><h2>{tc("各级别进度")}</h2></div></div>
         <div className="stats-level-list">
           {data.libraryByLevel.map((level) => <div className="stats-level-row" key={level.level}>
             <div className="stats-level-heading"><div className="stats-level-title"><strong>{level.level}</strong><span className={level.unlocked ? "stats-level-status is-unlocked" : "stats-level-status"}>{tc(level.unlocked ? "已解锁" : "未解锁")}</span></div><span className="ui-field-helper">{level.totalWords} {tc("个词")} · {level.learnedCount} / {level.totalWords} {tc("已学")} · {level.masteredCount} / {level.totalWords} {tc("长期掌握")}</span></div>
             <div className="stats-level-progress"><ProgressBar label={tc("已学进度")} value={level.learnedCount} max={level.totalWords} showValue/><ProgressBar label={tc("长期掌握")} value={level.masteredCount} max={level.totalWords} showValue className="ui-progress-success"/></div>
           </div>)}
         </div>
-        <p className="ui-field-helper stats-scope-note">{tc("未解锁级别仍会列出词库总量，但不会计入首页的已解锁内容总览。")} </p>
           </Card>
 
           <Card className="recent-learning-card" padded>
