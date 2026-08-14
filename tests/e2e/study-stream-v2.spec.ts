@@ -220,8 +220,8 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
       const probeCard = page.getByTestId("study-stream-probe-card");
       await expect(probeCard).toBeVisible();
       await expect(page.getByTestId("study-stream-probe-level")).toBeVisible();
-      const feedbackHint = page.getByTestId("study-stream-feedback-hint");
-      if (await feedbackHint.isVisible().catch(() => false)) {
+      const feedbackAffordance = page.getByTestId("study-stream-feedback-affordance");
+      if (await feedbackAffordance.isVisible().catch(() => false)) {
         // The read-only feedback can remain disabled while its authoritative
         // response is still settling; keep polling the stream instead of
         // turning a transient transition into a test failure.
@@ -229,10 +229,18 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
           await page.waitForTimeout(250);
           continue;
         }
-        await expect(feedbackHint).toHaveText("輕點一下任意區域");
         await expect(probeCard).toHaveRole("button");
         await expect(probeCard).toHaveAttribute("aria-label", "輕點一下任意區域");
         await expect(page.getByRole("button", { name: "我看到了，繼續" })).toHaveCount(0);
+        await expect(page.getByTestId("study-stream-feedback-hint")).toHaveCount(0);
+        await expect(page.locator(".quiz-result")).toHaveCount(0);
+        await expect(feedbackAffordance.locator(".quiz-feedback-affordance-circle")).toBeVisible();
+        const affordanceMotion = await feedbackAffordance.locator(".quiz-feedback-affordance-circle").evaluate((element) => {
+          const style = window.getComputedStyle(element);
+          return { animationName: style.animationName, animationDuration: style.animationDuration };
+        });
+        expect(affordanceMotion.animationName).toBe("quiz-feedback-affordance-breathe");
+        expect(parseFloat(affordanceMotion.animationDuration)).toBeGreaterThanOrEqual(4);
         await probeCard.click({ position: { x: 48, y: 48 } });
         continue;
       }
@@ -244,7 +252,8 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         continue;
       }
       await options.first().locator("xpath=..").click();
-      await expect(feedbackHint).toBeVisible();
+      await expect(options.first().locator("xpath=..")).toHaveClass(/quiz-option-(correct|wrong)/);
+      await expect(feedbackAffordance).toBeVisible();
       continue;
     }
 

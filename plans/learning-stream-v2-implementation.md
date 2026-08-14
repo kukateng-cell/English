@@ -223,6 +223,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   front 音標 slot 移到英文正下方、secondary long-press hint 固定預留高度避免既有文字移位；Objective Probe
   read-only feedback 移除確認 button，改以「輕點一下任意區域」提示及卡面 click／keyboard continuation；只改
   presentation／acknowledgement trigger，保留 `FEEDBACK_ACK`、server feedback、locale／theme／reduced-motion contract；已完成相應驗證；
+- [x] 按 I-020 收斂 Objective Probe feedback presentation：答題後只以選項本身嘅 correct／wrong／dim 顏色表達結果，
+  移除卡下可見結果文字及繼續文字提示；保留固定空白 affordance slot，於已回答狀態以低幅度、慢速呼吸嘅半透明圓形
+  提示可點擊卡面繼續；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract；已完成相應驗證；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -238,7 +241,7 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 | Projection | self-rating 零 mastery effect；objective event 正確更新現有 projection | Phase 3 |
 | Resume | refresh、offline replay、checkpoint v1/v2、rotation、cross-device | Phase 4 |
 | Browser | mouse、emulated touch、synthetic pointer、完整登入學習流程 | Phase 4 |
-| UI correction | 持續思考提示、追加長按提示及高亮呼吸、stationary long-press 與發音 button 分離、透明按住進度圈及加速提示、低位移／拖動取消／放手重置、flip front／back、卡下同寬 self-rating、答案後一樣／不一樣 swipe 語義、zh-Hant／zh-Hans account display | Phase 5 local correction |
+| UI correction | 持續思考提示、追加長按提示及高亮呼吸、stationary long-press 與發音 button 分離、透明按住進度圈及加速提示、低位移／拖動取消／放手重置、flip front／back、卡下同寬 self-rating、答案後一樣／不一樣 swipe 語義、Objective Probe color-only feedback／慢速呼吸 affordance、zh-Hant／zh-Hans account display | Phase 5 local correction |
 | Production | lint、typecheck、unit、build、production config、migration suites | Phase 4 |
 
 按改動範圍最少執行：
@@ -329,6 +332,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-017 | EMM choice-card reference visual refinement | 只改 V1／V2 choice-card presentation：以 reference 收斂 prompt meta／單詞／instruction hierarchy、option row density／letter badge、idle／wrong／correct visual states；保留 option ids、delayed answer、server scoring、locale／theme、accessibility 及 V1 rollback contract | 已落實並驗證；由 I-017 local UI refinement 完成 |
 | I-018 | Revealed Learning Card reference visual refinement | 只改 V2 Learning Card presentation：右上 stylized「認」corner mark、front／back phonetic reserved slot、lower composition、smaller term scale、revealed definition hierarchy、移除卡內 duplicate swipe copy；保留 long-press／flip／audio exclusion／self-rating／server action／locale／theme contract | 已落實並驗證；由 I-018 local UI refinement 完成 |
 | I-019 | Learning Card geometry／Objective Probe continuation refinement | 只改 V2 card geometry／hint reservation 同 Objective Probe feedback continuation presentation：quarter-circle mark 對中、front phonetic slot 置於 term 下、secondary hint 固定 layout slot、feedback 由 click-anywhere／keyboard 觸發既有 `FEEDBACK_ACK`；保留 retrieval／scoring／server feedback／locale／theme／rollback contract | 已落實並驗證；由 I-019 local UI refinement 完成，唔涉及 migration／production／research gate |
+| I-020 | Objective Probe color-only feedback affordance refinement | 只改 Objective Probe answered-state presentation：移除可見結果／繼續 copy，保留選項 correct／wrong／dim 色彩，於固定空白 slot 顯示低幅度慢速半透明呼吸圓形；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract | 已落實並驗證；由 I-020 local UI refinement 完成，唔涉及 migration／production／research gate |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -354,6 +358,9 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   front／back hierarchy、duplicate copy removal、responsive／locale／theme／reduced-motion 及 V2 gesture regression；
 - [x] I-019 Learning Card geometry／Objective Probe continuation refinement 已通過 quarter-circle mark 對中、
   front phonetic placement、secondary hint no-layout-shift、click-anywhere／keyboard `FEEDBACK_ACK`、responsive／
+  locale／theme／reduced-motion 及 V1／V2 regression；
+- [x] I-020 Objective Probe color-only feedback affordance refinement 已通過選項 correct／wrong／dim 色彩、可見結果／
+  繼續文字移除、固定空白 slot 內低幅度慢速半透明呼吸圓形、click-anywhere／keyboard `FEEDBACK_ACK`、responsive／
   locale／theme／reduced-motion 及 V1／V2 regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
@@ -588,6 +595,26 @@ Objective Probe 移除確認 button，改為輕點卡面任意區域繼續；I-0
   已按計劃以 `off` 重跑並以通過結果為準。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、research
   telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-020 Objective Probe color-only feedback affordance evidence
+
+使用者要求答對／答錯只用選項顏色表達，移除卡下可見結果及「繼續」文字，改以空白位內半透明慢速呼吸圓形作點擊 affordance。
+I-020 只改 answered-state presentation，保留 option ids、server scoring、read-only feedback、既有 `FEEDBACK_ACK`、keyboard
+continuation、locale／theme、reduced-motion 及 V1 rollback：
+
+- 移除 Objective Probe 可見 `quiz-result`／「答對了」／錯誤結果文案及 `study-stream-feedback-hint`；correct／wrong／dim
+  狀態仍直接套用喺四個選項及字母圓章。
+- 始終預留固定 `64px` affordance slot，只有 `item.feedback` 出現時以 opacity 漸進顯示 `48px` 半透明圓形；呼吸週期為
+  `4.8s`、幅度低，reduced-motion 改為靜態可見圓形，避免答案回來時推動原有題面／選項。
+- 卡面 click、Enter／Space 仍只觸發既有 `FEEDBACK_ACK`；同步／disabled 狀態唔可繼續；保留非視覺 `aria-live` 狀態及卡面
+  continuation role／label，視覺上不增加任何文字提示。
+- 驗證：`npm test` 126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build` compiled／
+  43/43 static pages generated；`npm run test:e2e:study-stream-v2` 7 passed，新增 option state、無可見 result／hint、affordance
+  visibility／4.8s motion、card click continuation 斷言，並覆蓋 locale／dark／reduced-motion。
+- V1 rollback regression：`STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit
+  shard 1 17 passed、shard 2 16 passed；涵蓋 mouse／touch／synthetic pointer、offline／cross-tab／cross-device／reconciliation。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、
+  ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 

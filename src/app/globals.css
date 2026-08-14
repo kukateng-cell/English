@@ -492,12 +492,31 @@ button:disabled,
   0%, 100% { opacity: 0.34; transform: scale(0.78); }
   50% { opacity: 0.9; transform: scale(1); }
 }
+@keyframes quiz-feedback-affordance-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 12%, transparent);
+    opacity: 0.28;
+    transform: scale(0.88);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklch, var(--primary) 10%, transparent);
+    opacity: 0.52;
+    transform: scale(1);
+  }
+}
 .dark .word-card-back { background: color-mix(in oklch, var(--surface) 70%, var(--border-soft)); }
 
 @media (prefers-reduced-motion: reduce) {
   .word-card-retrieval-hint { animation: none; opacity: 0.97; transform: none; }
   .word-card-secondary-hint-slot, .word-card-secondary-hint-slot.is-visible { transition: none; transform: none; }
   .study-stream-probe .quiz-option { transition: none !important; }
+  .quiz-feedback-affordance-slot, .quiz-feedback-affordance-slot.is-visible { transition: none; }
+  .quiz-feedback-affordance-circle {
+    animation: none;
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 8%, transparent);
+    opacity: 0.42;
+    transform: none;
+  }
 }
 
 @media (forced-colors: active) {
@@ -508,6 +527,7 @@ button:disabled,
   .word-card-draggable::after { border-color: CanvasText; }
   .level-badge, .keycap { background: Canvas; border-color: CanvasText; color: CanvasText; }
   .swipe-action-left, .swipe-action-right { background: ButtonFace; border-color: ButtonText; box-shadow: none; color: ButtonText; }
+  .quiz-feedback-affordance-circle { background: Canvas; border-color: CanvasText; box-shadow: 0 0 0 4px CanvasText; }
 }
 
 .quiz-prompt-label { background: var(--border-soft); color: var(--primary); }
@@ -552,15 +572,11 @@ button:disabled,
 .study-stream-probe .quiz-option.quiz-option-wrong .quiz-option-index { border-color: transparent; color: var(--color-surface); }
 .study-stream-probe .quiz-option.quiz-option-correct .quiz-option-index { background: var(--success); }
 .study-stream-probe .quiz-option.quiz-option-wrong .quiz-option-index { background: var(--danger); }
-.quiz-result { align-items: start; background: var(--border-soft); border-radius: 16px; color: var(--text); display: grid; gap: var(--space-2); grid-template-columns: 30px minmax(0, 1fr); padding: var(--space-3); }
-.quiz-result-icon { align-items: center; background: var(--success); border-radius: 50%; color: var(--color-surface); display: inline-flex; font-size: 1rem; font-weight: 800; height: 30px; justify-content: center; width: 30px; }
-.quiz-result.is-wrong .quiz-result-icon { background: var(--danger); }
-.quiz-result-copy { display: grid; gap: 2px; min-width: 0; }
-.quiz-result-copy strong { color: var(--text); font-size: 0.9375rem; font-weight: 800; }
-.quiz-result-copy p { color: var(--muted); font-size: 0.875rem; line-height: 1.55; margin: 0; }
 .quiz-card-layout.is-feedback-continuation { cursor: pointer; }
 .quiz-card-layout.is-feedback-continuation:focus-visible { outline: 3px solid color-mix(in oklch, var(--primary) 32%, transparent); outline-offset: 4px; }
-.quiz-feedback-hint { align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-full); color: var(--primary) !important; display: inline-flex; font-size: 0.8125rem !important; font-weight: 800; grid-column: 1 / -1; justify-content: center; margin-top: 6px !important; min-height: 40px; padding: 0 14px; text-align: center; }
+.quiz-feedback-affordance-slot { align-items: center; display: flex; height: 64px; justify-content: center; opacity: 0; overflow: hidden; pointer-events: none; transition: opacity var(--motion-sheet) ease, visibility 0s linear var(--motion-sheet); visibility: hidden; }
+.quiz-feedback-affordance-slot.is-visible { opacity: 1; transition-delay: 0s; visibility: visible; }
+.quiz-feedback-affordance-circle { animation: quiz-feedback-affordance-breathe 4.8s ease-in-out infinite; background: color-mix(in oklch, var(--primary) 8%, var(--surface)); border: 2px solid color-mix(in oklch, var(--primary) 36%, transparent); border-radius: 50%; box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 12%, transparent); height: 48px; width: 48px; }
 
 .coach-sheet-title { display: grid; gap: 3px; }
 .coach-sheet-title strong { color: var(--text); font-family: var(--font-display); font-size: 1.4rem; }

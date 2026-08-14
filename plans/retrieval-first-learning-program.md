@@ -232,12 +232,15 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-018 revealed Learning Card reference visual refinement（右上 stylized「認」、音標預留位、揭示答案 hierarchy、移除重複 swipe copy）完成並驗證；
 - [x] I-019 Learning Card／Objective Probe follow-up refinement（「認」置中、音標 slot 緊貼英文、長按提示固定預留位、
   測試題改為「輕點一下任意區域」繼續而非確認 button）完成並驗證；
+- [x] I-020 Objective Probe feedback presentation refinement（只用選項 correct／wrong／dim 顏色表示結果、移除可見結果／
+  繼續文字，固定空白位顯示低幅度慢速半透明呼吸圓形作繼續 affordance）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
 - [x] Product-side 子計劃嘅 local scope 包括 I-017 choice-card reference visual refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-018 revealed Learning Card reference visual refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-019 Learning Card／Objective Probe follow-up refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-020 Objective Probe color-only feedback affordance refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -363,6 +366,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-013 | 使用者以兩張 choice-card reference 要求進一步收斂選擇題視覺：保留現有 option／answer contract，只調整題卡 prompt hierarchy、選項 row／letter badge 尺寸，以及 idle／wrong／correct 狀態色彩與層次 | 已落實並驗證；由 Implementation I-017 完成，唔涉及 migration／production／research gate |
 | P-014 | 使用者以 revealed Learning Card reference 要求移除「認讀卡」文字、以右上四分之一圓內 stylized「認」作標記，預留 front／back 音標位、改善答案面 hierarchy、減少英文過大感及移除卡內重複 swipe copy；只改 presentation，不改 retrieval／gesture／server action semantics | 已落實並驗證；由 Implementation I-018 完成，唔涉及 migration／production／research gate |
 | P-015 | 使用者指出「認」未置中、front 音標 slot 未緊貼英文、長按提示出現會令既有文字移位，並要求 Objective Probe 移除確認／「我看到了，繼續」button，改用「輕點一下任意區域」繼續；只改 presentation／既有 `FEEDBACK_ACK` trigger，不改 retrieval／scoring／server semantics | 已落實並驗證；由 Implementation I-019 完成，唔涉及 migration／production／research gate |
+| P-016 | 使用者要求 Objective Probe 答題後只以選項顏色表達正誤，移除卡下可見結果／繼續文字，改用固定空白位內低幅度慢速半透明呼吸圓形作點擊 affordance；只改 presentation，保留既有卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback | 已落實並驗證；由 Implementation I-020 完成，唔涉及 migration／production／research gate |
 
 ## 十四、計劃審查紀錄
 
@@ -451,6 +455,20 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   `test:e2e:study-stream-v2` 7 passed（包括 mark alignment、phonetic placement、no-layout-shift、feedback click-anywhere）；
   WordCard 320px／390px fixtures 4 passed；V1 rollback `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`
   Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、
+  ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-020 Objective Probe color-only feedback affordance evidence
+
+- I-020 只改 Objective Probe answered-state presentation：correct／wrong／dim 顏色保留喺四個選項及字母圓章，移除可見
+  `quiz-result`、答對／答錯結果文案及 `study-stream-feedback-hint`；固定 `64px` 空白 slot 內只於 answered state 漸進顯示
+  `48px` 半透明呼吸圓形，週期 `4.8s`，reduced-motion 轉為靜態可見。
+- 卡面 click、Enter／Space 仍觸發既有 `FEEDBACK_ACK`；同步／disabled 狀態不可繼續；非視覺 `aria-live` 及 continuation
+  role／label 保留，視覺上不再增加任何文字提示；option state、affordance visibility／motion、無 result／hint 及 click continuation
+  已加入 V2 e2e 斷言。
+- 驗證：`npm test` 126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build` compiled／43/43
+  static pages generated；`npm run test:e2e:study-stream-v2` 7 passed（locale／dark／reduced-motion 覆蓋）；V1 rollback
+  `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、
   ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 

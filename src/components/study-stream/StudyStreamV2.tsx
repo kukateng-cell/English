@@ -685,16 +685,18 @@ function ObjectiveProbeView({
             );
           })}
         </div>
-        {item.feedback ? (
-          <div className={`quiz-result${item.feedback.isCorrect ? "" : " is-wrong"}`} aria-live="polite">
-            <span className="quiz-result-icon" aria-hidden="true">{item.feedback.isCorrect ? "✓" : "!"}</span>
-            <div className="quiz-result-copy">
-              <strong>{item.feedback.isCorrect ? tc("答对了") : tc("这次先记住正确答案")}</strong>
-              <p>{tc("这是只读反馈，不会重复改分")}</p>
-              <p data-testid="study-stream-feedback-hint" className="quiz-feedback-hint">{tc("轻点一下任意区域")}</p>
-            </div>
-          </div>
-        ) : null}
+        <div
+          data-testid="study-stream-feedback-affordance"
+          className={`quiz-feedback-affordance-slot${item.feedback ? " is-visible" : ""}`}
+          aria-hidden="true"
+        >
+          <span className="quiz-feedback-affordance-circle" />
+        </div>
+        <span className="sr-only" aria-live="polite">
+          {item.feedback
+            ? tc(item.feedback.isCorrect ? "答案已显示为正确" : "答案已显示为不正确")
+            : null}
+        </span>
       </div>
     </div>
   );
