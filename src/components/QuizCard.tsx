@@ -85,7 +85,7 @@ export default function QuizCard({
   };
 
   return (
-    <div className="study-stream-probe mx-auto w-full max-w-md px-5">
+    <div className="study-stream-probe mx-auto w-full px-5">
       <div className="quiz-intro">
         <div className="quiz-intro-copy">
           <span className="quiz-eyebrow">{tc("认字小测")}</span>

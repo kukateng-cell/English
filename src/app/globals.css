@@ -404,7 +404,7 @@ button:disabled,
 .study-header-actions { align-items: center; display: flex; gap: 8px; }
 .study-header-theme { cursor: pointer; }
 .study-header-logout { cursor: pointer; }
-.study-stream-header, .study-stream-learning-card, .study-unit-context { max-width: 672px; }
+.study-stream-header, .study-stream-summary, .study-stream-learning-card, .study-stream-probe, .study-unit-context { max-width: 672px; }
 .word-card-frame { margin: 0 auto; max-width: 672px; padding-inline: 16px; position: relative; width: 100%; }
 .motion-harness-card .word-card-frame { max-width: 448px; }
 .word-card-swipe-labels { z-index: 0; }
@@ -826,7 +826,9 @@ button:disabled,
   .student-content-narrow { max-width: min(100%, 960px); }
   .study-assess-header,
   .study-stream-header,
+  .study-stream-summary,
   .study-stream-learning-card,
+  .study-stream-probe,
   .study-unit-context,
   .study-card-composition,
   .word-card-frame { max-width: min(760px, calc(100vw - 64px)); }

@@ -477,7 +477,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       {outboxCount > 0 && !syncBlocked ? <p className="mx-auto mb-3 w-full max-w-md px-5 text-center text-[12px] text-[var(--muted)]">{tc(`待同步 ${outboxCount} 项`)}</p> : null}
 
       {unitSummary ? (
-        <div className="mx-auto mb-4 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[12px] text-[var(--muted)]" aria-label={tc("单元学习摘要") as string}>
+        <div className="study-stream-summary mx-auto mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[12px] text-[var(--muted)]" aria-label={tc("单元学习摘要") as string}>
           <span>{tc("覆盖词数")} {unitSummary.encounteredWordCount}/{unitSummary.totalWordCount}</span>
           <span>{tc("客观认读证据")} {unitSummary.objectiveRecognitionCount}</span>
         </div>
@@ -626,7 +626,7 @@ function ObjectiveProbeView({
   const feedbackContinuationEnabled = answered && !disabled;
   const isEnglishToChinese = question.direction === "en-zh";
   return (
-    <div className="study-stream-probe mx-auto w-full max-w-md px-3">
+    <div className="study-stream-probe mx-auto w-full px-3">
       <div className="quiz-intro">
         <div className="quiz-intro-copy">
           <span className="quiz-eyebrow">{tc("认字小测")}</span>
