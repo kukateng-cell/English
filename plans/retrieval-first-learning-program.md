@@ -237,6 +237,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-021 Learning Card swipe feedback placement refinement（左右拖曳提示下移至 level／category metadata 以下安全區，
   避免同 A1／分類 badge 重疊）完成並驗證；
 - [x] I-024 首頁／統計進度範圍與導航修正（首頁只顯示已解鎖內容、統計頁補充 A1／A2／B1／B2 分級明細及解鎖狀態、帳戶選單改為「回到首頁」）完成並驗證；
+- [x] I-025 共用進度條填色修正（ProgressBar 百分比文字與實際填色一致，首頁／統計共同驗證）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -246,6 +247,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-020 Objective Probe color-only feedback affordance refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-021 Learning Card swipe feedback placement refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-024 首頁／統計進度範圍與導航修正完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-025 共用進度條填色修正完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -344,6 +346,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [x] local I-023 Learning Card level／category badge 已上移至同右上 stylized「認」標記視覺中心水平線，並完成
   desktop／mobile visual regression；
 - [x] local I-024 首頁 progress 只計目前已解鎖內容、統計頁顯示 A1／A2／B1／B2 明細及解鎖狀態、帳戶選單顯示「回到首頁」，並完成必要嘅 unit／lint／typecheck 驗證；
+- [x] local I-025 共用 ProgressBar 填色會按實際百分比顯示，並完成必要嘅 lint／typecheck／diff 驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -383,6 +386,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-018 | CI run 26 暴露 ordinary expand migration 下 V2 objective answer 同 legacy `Review` bridge 互相作用，產生 duplicate `ReviewEvent`；只喺 V2 objective-answer transaction 設定既有 `app.review_event_writer=v2` guard，保留 V1 bridge、global receipt／unique、Serializable retry 及 rollback，唔執行 contract cleanup | 已落實並驗證；由 Implementation I-022 完成，ordinary-migration、DB／browser／V1 regression 及 remote quality gate 均通過 |
 | P-019 | 使用者要求將 Learning Card 左上 A1／Numbers 0 to 100 level／category badge 上移至同右上 stylized「認」標記視覺中心水平線；只改 presentation，不改 retrieval／gesture／server semantics | 已落實並驗證；由 Implementation I-023 完成，desktop／mobile visual regression 及 V1／V2 interaction regression 均通過 |
 | P-020 | 使用者要求首頁清楚標示進度只計已解鎖內容、統計頁按 A1／A2／B1／B2 顯示詳細進度及解鎖狀態，並將帳戶選單「回到今日」改為「回到首頁」；只改 metrics projection／student UI／navigation copy，不改學習、解鎖、schema、migration 或 rollback semantics | 已落實並驗證；由本次 local UI／metrics correction 完成 |
+| P-021 | 使用者指出 ProgressBar 顯示 71% 文字但無填色；根因係填色 `<span>` 未設定可套用 width／height 嘅 display，修正只限共用 CSS presentation，不改百分比計算、metrics、學習或 rollback semantics | 已落實並驗證；由本次 local CSS correction 完成 |
 
 ## 十四、計劃審查紀錄
 
@@ -525,6 +529,13 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 帳戶選單預設文案由 canonical 簡體來源「回到首页」轉換為繁體顯示「回到首頁」，簡體 locale 顯示「回到首页」。
 - 必要驗證：`npm test` 127 passed；指定檔案 `npm run lint` passed；`npx tsc --noEmit` passed；`git diff --check` passed。
 - 無 schema／migration／contract change，未執行 contract migration、production deploy、browser E2E／build、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
+
+### 2026-08-14：I-025 共用進度條填色修正 (completed)
+
+- 根因係 `.ui-progress-value` 使用 inline `<span>`，React 已正確輸出 `width: 71%`，但 inline 元素唔會套用寬度，所以畫面只見百分比文字而無填色。
+- 共用 CSS 加上 `display: block`；首頁同統計頁均沿用同一 `ProgressBar`，因此兩處一併修正。百分比計算、已解鎖 scope、SM-2、學習流程及 rollback semantics 不變。
+- 必要驗證：`npm run lint` passed；`npx tsc --noEmit` passed；`git diff --check` passed；CSS diff review 確認 `display: block` 已存在。
+- 無 schema／migration／contract change，未執行 production deploy、browser E2E、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 

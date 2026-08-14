@@ -312,7 +312,7 @@ button:disabled,
 .ui-progress-label span:first-child { color: var(--muted); font-weight: 700; }
 .ui-progress-label span:last-child { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 800; }
 .ui-progress-track { background: var(--border-soft); border-radius: var(--radius-full); height: 10px; overflow: hidden; }
-.ui-progress-value { background: var(--primary); border-radius: inherit; height: 100%; min-width: 0; transition: width var(--motion-normal) ease; }
+.ui-progress-value { background: var(--primary); border-radius: inherit; display: block; height: 100%; min-width: 0; transition: width var(--motion-normal) ease; }
 .ui-progress-success .ui-progress-value { background: var(--success); }
 
 .ui-status-banner { align-items: flex-start; border: 1px solid var(--border); border-radius: var(--radius-control); display: flex; gap: var(--space-2); padding: 12px 16px; }
