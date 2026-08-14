@@ -51,6 +51,7 @@ export async function GET(req: Request) {
     days,
     today: dashboard.today,
     library: dashboard.library,
+    libraryByLevel: dashboard.libraryByLevel,
     streak: dashboard.streak,
     activity,
     studyDays,

@@ -24,6 +24,7 @@ interface Insights {
     legacyUnknownEventCount: number;
   };
   library: { totalWords: number; learnedCount: number; learnedRate: number; masteredCount: number; mastery: number };
+  libraryByLevel: Array<{ level: "A1" | "A2" | "B1" | "B2"; unlocked: boolean; totalWords: number; learnedCount: number; learnedRate: number; masteredCount: number; mastery: number }>;
   streak: { count: number; studiedToday: boolean };
   activity: Array<{ day: string; count: number }>;
   studyDays: string[];
@@ -83,11 +84,23 @@ export default function StatsPage() {
           </>}
         </Card>
         <Card padded>
-          <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("词库")}</span><h2>{tc("两种进度")}</h2></div><Link href="/words" className="ui-button ui-button-quiet ui-button-small">{tc("词表")}</Link></div>
+          <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("词库")}</span><h2>{tc("已解锁内容总览")}</h2></div><Link href="/words" className="ui-button ui-button-quiet ui-button-small">{tc("词表")}</Link></div>
           <div className="stats-progress-stack"><ProgressBar label={tc("已学进度")} value={data.library.learnedCount} max={data.library.totalWords} showValue/><ProgressBar label={tc("长期掌握")} value={data.library.masteredCount} max={data.library.totalWords} showValue className="ui-progress-success"/></div>
           <div className="stats-progress-numbers"><span>{data.library.learnedCount} / {data.library.totalWords} {tc("已学")}</span><span>{data.library.masteredCount} / {data.library.totalWords} {tc("长期掌握")}</span></div>
+          <p className="ui-field-helper stats-scope-note">{tc("总览只计算目前已解锁的词；下面再按 A1、A2、B1、B2 显示详细进度。")} </p>
         </Card>
           </div>
+
+          <Card className="stats-level-card" padded>
+        <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("分级")}</span><h2>{tc("各级别进度")}</h2></div><span className="ui-field-helper">{tc("按词库级别")}</span></div>
+        <div className="stats-level-list">
+          {data.libraryByLevel.map((level) => <div className="stats-level-row" key={level.level}>
+            <div className="stats-level-heading"><div className="stats-level-title"><strong>{level.level}</strong><span className={level.unlocked ? "stats-level-status is-unlocked" : "stats-level-status"}>{tc(level.unlocked ? "已解锁" : "未解锁")}</span></div><span className="ui-field-helper">{level.totalWords} {tc("个词")} · {level.learnedCount} / {level.totalWords} {tc("已学")} · {level.masteredCount} / {level.totalWords} {tc("长期掌握")}</span></div>
+            <div className="stats-level-progress"><ProgressBar label={tc("已学进度")} value={level.learnedCount} max={level.totalWords} showValue/><ProgressBar label={tc("长期掌握")} value={level.masteredCount} max={level.totalWords} showValue className="ui-progress-success"/></div>
+          </div>)}
+        </div>
+        <p className="ui-field-helper stats-scope-note">{tc("未解锁级别仍会列出词库总量，但不会计入首页的已解锁内容总览。")} </p>
+          </Card>
 
           <Card className="recent-learning-card" padded>
         <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("记录")}</span><h2>{tc("最近学习的词")}</h2></div></div>

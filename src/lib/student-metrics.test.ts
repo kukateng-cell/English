@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { capNextSession, classifyStudentWord } from "./student-metrics";
+import { calculateLibraryProgress, capNextSession, classifyStudentWord } from "./student-metrics";
 
 const now = new Date("2026-08-11T04:00:00.000Z");
 
@@ -14,4 +14,21 @@ test("word status uses the shared learned/mastered/due precedence", () => {
   assert.deepEqual(classifyStudentWord({ repetitions: 1, interval: 2, nextReviewDate: new Date("2026-08-12T00:00:00.000Z"), lastReviewedAt: now }, now), { learned: true, mastered: false, status: "learning" });
   assert.deepEqual(classifyStudentWord({ repetitions: 0, interval: 0, nextReviewDate: new Date("2026-08-10T00:00:00.000Z"), lastReviewedAt: now }, now), { learned: false, mastered: false, status: "due" });
   assert.deepEqual(classifyStudentWord({ repetitions: 4, interval: 22, nextReviewDate: new Date("2026-08-10T00:00:00.000Z"), lastReviewedAt: now }, now), { learned: true, mastered: true, status: "mastered" });
+});
+
+test("library progress uses a zero-safe percentage for each visible scope", () => {
+  assert.deepEqual(calculateLibraryProgress(12, 5, 2), {
+    totalWords: 12,
+    learnedCount: 5,
+    learnedRate: 42,
+    masteredCount: 2,
+    mastery: 17,
+  });
+  assert.deepEqual(calculateLibraryProgress(0, 0, 0), {
+    totalWords: 0,
+    learnedCount: 0,
+    learnedRate: 0,
+    masteredCount: 0,
+    mastery: 0,
+  });
 });

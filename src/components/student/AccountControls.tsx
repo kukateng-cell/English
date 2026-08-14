@@ -17,7 +17,7 @@ export default function AccountControls({
   user,
   compact = false,
   homeHref = "/",
-  homeLabel = "回到今日",
+  homeLabel = "回到首页",
 }: {
   user: { name: string | null; email: string };
   compact?: boolean;

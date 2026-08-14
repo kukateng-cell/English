@@ -1,9 +1,8 @@
 import { prisma, type Prisma } from "@/lib/prisma";
 import { computeStreak, todayStartUtc } from "@/lib/streak";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
-import { MASTERED_REPETITIONS } from "@/lib/units";
+import { LEVELS, MASTERED_REPETITIONS, normalizeLevel, type LevelCode } from "@/lib/units";
 import { fetchUnitProgress } from "@/lib/unit-progress-server";
-import { normalizeLevel } from "@/lib/units";
 
 export type WordReviewSnapshot = {
   repetitions: number;
@@ -49,6 +48,33 @@ export async function getStudentVisibleWordFilters(userId: string) {
   return unlockedWordFilters(await fetchUnitProgress(userId));
 }
 
+export interface LibraryProgress {
+  totalWords: number;
+  learnedCount: number;
+  learnedRate: number;
+  masteredCount: number;
+  mastery: number;
+}
+
+export interface LibraryLevelProgress extends LibraryProgress {
+  level: LevelCode;
+  unlocked: boolean;
+}
+
+export function calculateLibraryProgress(
+  totalWords: number,
+  learnedCount: number,
+  masteredCount: number,
+): LibraryProgress {
+  return {
+    totalWords,
+    learnedCount,
+    learnedRate: totalWords > 0 ? Math.round((learnedCount / totalWords) * 100) : 0,
+    masteredCount,
+    mastery: totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0,
+  };
+}
+
 export interface StudentDashboardResponse {
   nextSession: {
     dueBacklogCount: number;
@@ -71,7 +97,9 @@ export interface StudentDashboardResponse {
     learnedRate: number;
     masteredCount: number;
     mastery: number;
+    scope: "unlocked";
   };
+  libraryByLevel: LibraryLevelProgress[];
   streak: {
     count: number;
     studiedToday: boolean;
@@ -91,6 +119,15 @@ export interface StudentLearningMetrics {
   learnedRate: number;
   masteredCount: number;
   mastery: number;
+  library: {
+    all: LibraryProgress;
+    unlocked: LibraryProgress;
+    byLevel: LibraryLevelProgress[];
+  };
+}
+
+interface StudentLearningMetricsOptions {
+  visibleFilters?: Prisma.WordWhereInput[];
 }
 
 /** Shared library/today aggregation used by the legacy stats API and the new
@@ -98,7 +135,12 @@ export interface StudentLearningMetrics {
 export async function getStudentLearningMetrics(
   userId: string,
   now = new Date(),
+  options: StudentLearningMetricsOptions = {},
 ): Promise<StudentLearningMetrics> {
+  const visibleFilters = options.visibleFilters ?? await getStudentVisibleWordFilters(userId);
+  const unlockedWordWhere: Prisma.WordWhereInput = visibleFilters.length
+    ? { OR: visibleFilters }
+    : { id: "__no_unlocked_words__" };
   const todayStart = todayStartUtc(now);
   const [
     totalWords,
@@ -111,6 +153,11 @@ export async function getStudentLearningMetrics(
     legacyUnknownEventCount,
     learnedCount,
     masteredCount,
+    unlockedTotalWords,
+    unlockedLearnedCount,
+    unlockedMasteredCount,
+    levelWordRows,
+    levelReviewRows,
   ] = await Promise.all([
     prisma.word.count(),
     prisma.review.count({ where: { userId } }),
@@ -122,7 +169,48 @@ export async function getStudentLearningMetrics(
     prisma.reviewEvent.count({ where: { userId, evidenceKind: "LEGACY_UNKNOWN", isHistorical: false, createdAt: { gte: todayStart } } }),
     prisma.review.count({ where: { userId, repetitions: { gte: MASTERED_REPETITIONS } } }),
     prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL } } }),
+    prisma.word.count({ where: unlockedWordWhere }),
+    prisma.review.count({ where: { userId, repetitions: { gte: MASTERED_REPETITIONS }, word: unlockedWordWhere } }),
+    prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL }, word: unlockedWordWhere } }),
+    prisma.word.findMany({ select: { level: true } }),
+    prisma.review.findMany({
+      where: { userId },
+      select: { repetitions: true, interval: true, word: { select: { level: true } } },
+    }),
   ]);
+
+  const unlockedLevels = new Set(
+    visibleFilters
+      .map((filter) => filter.level)
+      .filter((level) => typeof level === "string")
+      .map((level) => normalizeLevel(level)),
+  );
+  const levelTotals = new Map<LevelCode, { totalWords: number; learnedCount: number; masteredCount: number }>(
+    LEVELS.map((level) => [level, { totalWords: 0, learnedCount: 0, masteredCount: 0 }]),
+  );
+  for (const row of levelWordRows) {
+    const stats = levelTotals.get(normalizeLevel(row.level));
+    if (stats) stats.totalWords += 1;
+  }
+  for (const row of levelReviewRows) {
+    const stats = levelTotals.get(normalizeLevel(row.word.level));
+    if (!stats) continue;
+    if (row.repetitions >= MASTERED_REPETITIONS) stats.learnedCount += 1;
+    if (row.interval >= MASTERED_MIN_INTERVAL) stats.masteredCount += 1;
+  }
+  const libraryByLevel = LEVELS.map((level) => {
+    const stats = levelTotals.get(level) ?? { totalWords: 0, learnedCount: 0, masteredCount: 0 };
+    return {
+      level,
+      unlocked: unlockedLevels.has(level),
+      ...calculateLibraryProgress(stats.totalWords, stats.learnedCount, stats.masteredCount),
+    };
+  });
+  const library = {
+    all: calculateLibraryProgress(totalWords, learnedCount, masteredCount),
+    unlocked: calculateLibraryProgress(unlockedTotalWords, unlockedLearnedCount, unlockedMasteredCount),
+    byLevel: libraryByLevel,
+  };
   return {
     totalWords,
     reviewedCount,
@@ -133,9 +221,10 @@ export async function getStudentLearningMetrics(
     selfRatedEncounterCount,
     legacyUnknownEventCount,
     learnedCount,
-    learnedRate: totalWords > 0 ? Math.round((learnedCount / totalWords) * 100) : 0,
+    learnedRate: library.all.learnedRate,
     masteredCount,
-    mastery: totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0,
+    mastery: library.all.mastery,
+    library,
   };
 }
 
@@ -153,7 +242,7 @@ export async function getStudentDashboard(
     : { id: "__no_unlocked_words__" };
 
   const [metrics, dueBacklogCount, availableNewCount, streak] = await Promise.all([
-    getStudentLearningMetrics(userId, now),
+    getStudentLearningMetrics(userId, now, { visibleFilters }),
     prisma.review.count({ where: { userId, nextReviewDate: { lte: now } } }),
     prisma.word.count({ where: newWordWhere }),
     computeStreak(userId),
@@ -176,12 +265,10 @@ export async function getStudentDashboard(
       legacyUnknownEventCount: metrics.legacyUnknownEventCount,
     },
     library: {
-      totalWords: metrics.totalWords,
-      learnedCount: metrics.learnedCount,
-      learnedRate: metrics.learnedRate,
-      masteredCount: metrics.masteredCount,
-      mastery: metrics.mastery,
+      ...metrics.library.unlocked,
+      scope: "unlocked",
     },
+    libraryByLevel: metrics.library.byLevel,
     streak: { count: streak.count, studiedToday: streak.studiedToday },
   };
 }

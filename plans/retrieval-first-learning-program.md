@@ -236,6 +236,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
   繼續文字，固定空白位顯示低幅度慢速半透明呼吸圓形作繼續 affordance）完成並驗證；
 - [x] I-021 Learning Card swipe feedback placement refinement（左右拖曳提示下移至 level／category metadata 以下安全區，
   避免同 A1／分類 badge 重疊）完成並驗證；
+- [x] I-024 首頁／統計進度範圍與導航修正（首頁只顯示已解鎖內容、統計頁補充 A1／A2／B1／B2 分級明細及解鎖狀態、帳戶選單改為「回到首頁」）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -244,6 +245,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-019 Learning Card／Objective Probe follow-up refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-020 Objective Probe color-only feedback affordance refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-021 Learning Card swipe feedback placement refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-024 首頁／統計進度範圍與導航修正完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -341,6 +343,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
   已完成 ordinary-migration integration／bounded soak／V2 browser／V1 rollback regression 及 remote quality gate；
 - [x] local I-023 Learning Card level／category badge 已上移至同右上 stylized「認」標記視覺中心水平線，並完成
   desktop／mobile visual regression；
+- [x] local I-024 首頁 progress 只計目前已解鎖內容、統計頁顯示 A1／A2／B1／B2 明細及解鎖狀態、帳戶選單顯示「回到首頁」，並完成必要嘅 unit／lint／typecheck 驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -379,6 +382,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-017 | 使用者指出 swipe 中嘅「和剛才想的不一樣／一樣」direction badge 同 A1／category metadata 重疊；只將 `.word-card-drag-badge` 下移至 metadata 以下安全區，保留 swipe／release／locale／theme／rollback semantics | 已落實並驗證；由 Implementation I-021 完成，唔涉及 migration／production／research gate |
 | P-018 | CI run 26 暴露 ordinary expand migration 下 V2 objective answer 同 legacy `Review` bridge 互相作用，產生 duplicate `ReviewEvent`；只喺 V2 objective-answer transaction 設定既有 `app.review_event_writer=v2` guard，保留 V1 bridge、global receipt／unique、Serializable retry 及 rollback，唔執行 contract cleanup | 已落實並驗證；由 Implementation I-022 完成，ordinary-migration、DB／browser／V1 regression 及 remote quality gate 均通過 |
 | P-019 | 使用者要求將 Learning Card 左上 A1／Numbers 0 to 100 level／category badge 上移至同右上 stylized「認」標記視覺中心水平線；只改 presentation，不改 retrieval／gesture／server semantics | 已落實並驗證；由 Implementation I-023 完成，desktop／mobile visual regression 及 V1／V2 interaction regression 均通過 |
+| P-020 | 使用者要求首頁清楚標示進度只計已解鎖內容、統計頁按 A1／A2／B1／B2 顯示詳細進度及解鎖狀態，並將帳戶選單「回到今日」改為「回到首頁」；只改 metrics projection／student UI／navigation copy，不改學習、解鎖、schema、migration 或 rollback semantics | 已落實並驗證；由本次 local UI／metrics correction 完成 |
 
 ## 十四、計劃審查紀錄
 
@@ -513,6 +517,14 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 使用者要求將左上 A1／Numbers 0 to 100 badge 上移至同右上 stylized「認」標記視覺中心水平線。
 - `.word-card-top > .level-badge` 只作局部垂直位置調整；320px／390px fixture 4 passed，V2 study stream 7 passed，V1 desktop／mobile card fidelity 8 passed／1 skipped。
 - 無 schema／migration／contract／production／pilot／research scope change；external gates 仍按原計劃 deferred。
+
+### 2026-08-14：I-024 首頁／統計進度範圍與導航修正 (completed)
+
+- 首頁 library projection 改為只計目前已解鎖單元；卡片標題直接標示「已解鎖內容進度」，並在同一位置提供「詳細統計」入口，原有詞表入口保留。
+- 統計 API／頁面保留已解鎖內容總覽，另按 A1／A2／B1／B2 顯示每級詞數、已學、長期掌握百分比及「已解鎖／未解鎖」狀態；解鎖規則、SM-2 口徑及排行榜／教師端查詢不變。
+- 帳戶選單預設文案由 canonical 簡體來源「回到首页」轉換為繁體顯示「回到首頁」，簡體 locale 顯示「回到首页」。
+- 必要驗證：`npm test` 127 passed；指定檔案 `npm run lint` passed；`npx tsc --noEmit` passed；`git diff --check` passed。
+- 無 schema／migration／contract change，未執行 contract migration、production deploy、browser E2E／build、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 
