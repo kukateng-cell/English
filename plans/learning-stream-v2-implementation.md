@@ -215,6 +215,10 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [x] 按 I-017 依照使用者提供嘅 EMM choice-card reference 收斂選擇題 visual：題卡 meta／單詞／指示層級、
   選項尺寸及字母圓章、未作答／答錯／正確狀態色彩與 border 對齊 reference；只改 presentation，保留
   V1／V2 option selection、delayed answer、server scoring、locale／theme 及 rollback contract，並已完成相應驗證；
+- [x] 按 I-018 依照使用者提供嘅 revealed Learning Card reference 收斂 V2 卡面：以右上四分之一圓內嘅
+  stylized「認」取代「認讀卡」文字、front／back 預留音標位、調整 vertical composition、降低英文單詞過大感、
+  強化揭示後中文意思 hierarchy，並移除卡內重複 swipe 語義文字；只改 presentation，保留 long-press／
+  flip／audio／self-rating／server action／locale／theme contract；已完成相應驗證；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -319,6 +323,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-015 | Retrieval prompt presentation refinement | 不改 retrieval gate／長按 timer／audio exclusion；V2 移除「可隨時離開，進度會安全保留」，保留思考提示，將約 1 秒後出現嘅「長按 3 秒揭示答案」移到發音 button 下方；兩段提示改用低幅度、慢速呼吸，secondary 以 progressive enter effect 出現，並保留 reduced-motion 可理解性 | 已落實並驗證；由 I-015 local UI refinement 完成 |
 | I-016 | EMM Style 02 study surface fidelity refinement | 只改 V1／V2 presentation：item output additive 傳遞 level／category；header title、Learning Card metadata／context、V1／V2 audio label control、Objective Probe／V1 QuizCard 題目／選項 visual hierarchy 對齊 handoff；保留 retrieval gate、long-press、swipe、server scoring、outbox、V1 rollback 及 locale／theme 行為 | 已落實並驗證；由 I-016 local UI refinement 完成 |
 | I-017 | EMM choice-card reference visual refinement | 只改 V1／V2 choice-card presentation：以 reference 收斂 prompt meta／單詞／instruction hierarchy、option row density／letter badge、idle／wrong／correct visual states；保留 option ids、delayed answer、server scoring、locale／theme、accessibility 及 V1 rollback contract | 已落實並驗證；由 I-017 local UI refinement 完成 |
+| I-018 | Revealed Learning Card reference visual refinement | 只改 V2 Learning Card presentation：右上 stylized「認」corner mark、front／back phonetic reserved slot、lower composition、smaller term scale、revealed definition hierarchy、移除卡內 duplicate swipe copy；保留 long-press／flip／audio exclusion／self-rating／server action／locale／theme contract | 已落實並驗證；由 I-018 local UI refinement 完成 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -340,6 +345,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   V1 QuizCard hierarchy、responsive visual、locale／theme／reduced-motion 及 V1／V2 interaction regression；
 - [x] I-017 EMM choice-card reference visual refinement 已通過 prompt／option hierarchy、idle／wrong／correct
   state visual、responsive／locale／theme／reduced-motion 及 V1／V2 selection regression；
+- [x] I-018 revealed Learning Card reference visual refinement 已通過 corner mark、phonetic reserved slot、
+  front／back hierarchy、duplicate copy removal、responsive／locale／theme／reduced-motion 及 V2 gesture regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -527,6 +534,26 @@ accessibility、V1 rollback 及所有 retrieval／credential／outbox contract�
 - `npm run test:e2e:study-stream-v2`：7 passed；V2 retrieval／probe／metadata／locale／dark／reduced-motion
   regression 通過。V1 `study-card-fidelity` desktop／mobile：8 passed／1 skipped；V1
   `study-workflow` targeted choice-card transition：2 passed。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
+  research telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-018 revealed Learning Card reference visual evidence
+
+使用者以 revealed Learning Card reference 要求進一步收斂 V2 卡面；I-018 只改 presentation，保留
+retrieval gate、stationary long-press／hold indicator、audio exclusion、flip、self-rating、server action、
+locale／theme、V1 rollback 及既有 item contract：
+
+- 右上 quarter-circle 內只顯示 stylized「認」，保留 `role="img"`／`aria-label`「認讀卡」作 accessibility 語義，唔再顯示 hover tooltip；
+  front／back 均固定 render 音標 slot，資料未有音標時保留隱藏 layout slot，資料有值時可直接顯示。
+- 調整 V2 卡片 vertical composition 及英文 term scale；答案面依次保留英文、音標 slot、圖示＋「發音」control，
+  並以 soft definition panel 突出中文意思，接收既有 `pos`／例句資料而唔改 API／schema；移除卡內 keyboard／swipe
+  duplicate copy，self-rating 仍然係卡外同寬 buttons。
+- local visual smoke：desktop 1200×672 及 mobile 390×844；desktop card `416×496`、mobile card `342×520`，
+  mobile `scrollWidth = 390`，rating actions 與卡同寬，front secondary hint 位於發音 control 下方，揭示面 panel／
+  bottom content 未超出 card surface。
+- 驗證：`npm test` 126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build`
+  compiled／43/43 static pages generated；V2 `test:e2e:study-stream-v2` 7 passed；V1
+  `study-card-fidelity` desktop／mobile 8 passed／1 skipped；WordCard 320px／390px fixtures 4 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
   research telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 

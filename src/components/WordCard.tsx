@@ -1498,7 +1498,14 @@ export default function WordCard({
   const renderCardMeta = () => (
     <div className="word-card-top">
       {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(category ?? "未分类")}</span> : null}
-      <span data-testid="word-card-context" className="word-context">{tc("认读卡")}</span>
+      <span
+        data-testid="word-card-context"
+        className="word-context"
+        role="img"
+        aria-label={tc("认读卡")}
+      >
+        {tc("认")}
+      </span>
     </div>
   );
 
@@ -1575,7 +1582,13 @@ export default function WordCard({
                   <div data-testid="word-card-hints" aria-live="polite" className="word-card-hints">
                     <p data-testid="word-card-hint" className={cardHintClassName}>{resolvedCardHint}</p>
                   </div>
-                  {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
+                  <p
+                    data-testid="word-card-phonetic"
+                    className={`word-card-phonetic word-card-phonetic-slot${word.phonetic ? "" : " is-empty"}`}
+                    aria-hidden={word.phonetic ? undefined : true}
+                  >
+                    {word.phonetic ?? "\u00a0"}
+                  </p>
                   {renderSpeakButton(isFlipped ? -1 : 0)}
                   {hasSecondaryHint ? (
                     <div
@@ -1592,9 +1605,6 @@ export default function WordCard({
                 </div>
                 <div className="word-card-bottom">
                   {queueNote ? <span data-testid="word-card-queue-note">{queueNote}</span> : null}
-                  {showInteractionHint ? (
-                    <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {resolvedSwipeLeftLabel} <span className="keycap">→</span> {resolvedSwipeRightLabel}</span>
-                  ) : null}
                 </div>
               </div>
 
@@ -1603,15 +1613,18 @@ export default function WordCard({
                   {renderCardMeta()}
                   <div className="word-card-center word-card-answer-center">
                     <h2 className="word-card-term">{word.term}</h2>
-                    {word.phonetic ? <p className="word-card-phonetic">{word.phonetic}</p> : null}
-                    <div className="word-card-answer-content">{cardBackContent}</div>
+                    <p
+                      data-testid="word-card-phonetic"
+                      className={`word-card-phonetic word-card-phonetic-slot${word.phonetic ? "" : " is-empty"}`}
+                      aria-hidden={word.phonetic ? undefined : true}
+                    >
+                      {word.phonetic ?? "\u00a0"}
+                    </p>
                     {renderSpeakButton(isFlipped ? 0 : -1)}
+                    <div className="word-card-answer-content">{cardBackContent}</div>
                   </div>
                   <div className="word-card-bottom">
                     {queueNote ? <span data-testid="word-card-queue-note-back">{queueNote}</span> : null}
-                    {showInteractionHint ? (
-                      <span className="keyboard-hint" aria-hidden="true"><span className="keycap">←</span> {resolvedSwipeLeftLabel} <span className="keycap">→</span> {resolvedSwipeRightLabel}</span>
-                    ) : null}
                   </div>
                 </div>
               ) : null}

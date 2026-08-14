@@ -532,6 +532,7 @@ function LearningCardView({
   const { tc } = useLocale();
   const revealed = Boolean(item.learningCard);
   const hintKey = `${item.streamItemId}:${item.clientRevision}`;
+  const answerPos = item.learningCard?.pos?.trim() || null;
   const [longPressHintKey, setLongPressHintKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -543,10 +544,10 @@ function LearningCardView({
   const showLongPressHint = !revealed && longPressHintKey === hintKey;
 
   return (
-    <div className="mx-auto w-full max-w-md">
+    <div className="study-stream-learning-card mx-auto w-full max-w-md">
       <WordCard
         word={{
-          term: item.prompt,
+          term: item.learningCard?.term ?? item.prompt,
           phonetic: item.learningCard?.phonetic,
           level: item.level,
           category: item.category,
@@ -559,9 +560,10 @@ function LearningCardView({
         cardHintState="think"
         cardBackContent={revealed ? (
           <div className="word-card-answer-definition">
-            <p className="mb-2 text-xs font-semibold text-[var(--muted)]">{tc("中文意思")}</p>
-            <p className="text-base font-semibold leading-relaxed text-[var(--text)]">{tc(item.learningCard?.definition ?? "")}</p>
-            {item.learningCard?.examples.length ? <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]">{item.learningCard.examples[0].en}</p> : null}
+            <p className="word-card-answer-label">{tc("中文意思")}</p>
+            <p className="word-card-answer-meaning">{tc(item.learningCard?.definition ?? "")}</p>
+            {answerPos ? <p data-testid="word-card-answer-pos" className="word-card-answer-pos">{tc(answerPos)}</p> : null}
+            {item.learningCard?.examples.length ? <p className="word-card-answer-example">{item.learningCard.examples[0].en}</p> : null}
           </div>
         ) : null}
         isFlipped={revealed}

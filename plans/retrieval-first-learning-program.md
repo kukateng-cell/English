@@ -229,10 +229,12 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-015 retrieval prompt presentation refinement（secondary prompt 置於發音 button 下方、低幅度呼吸、漸進出現、移除 V2 queue note）完成並驗證；
 - [x] I-016 EMM Style 02 study surface fidelity refinement（level／category badge、study title／context、圖示＋發音文字、Objective Probe／V1 QuizCard 題目／選項 hierarchy）完成並驗證；
 - [x] I-017 EMM choice-card reference visual refinement（題目／指示層級、選項 row／字母圓章、未作答／答錯／正確狀態）完成並驗證；
+- [x] I-018 revealed Learning Card reference visual refinement（右上 stylized「認」、音標預留位、揭示答案 hierarchy、移除重複 swipe copy）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
 - [x] Product-side 子計劃嘅 local scope 包括 I-017 choice-card reference visual refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-018 revealed Learning Card reference visual refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -356,6 +358,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-011 | 使用者視覺 review 指出兩段 retrieval prompt 呼吸過強、間距過窄、secondary prompt 出現突兀及 V2 queue note 不需要；維持 long-press／audio／learning contract，只調整 prompt placement、低幅度 motion、progressive enter 同 copy | 已落實並驗證；由 Implementation I-015 完成，唔涉及 migration／production／research gate |
 | P-012 | 使用者要求以 EMM Style 02 handoff 收斂 V1／V2 study surface：恢復 level／category metadata、放大連續學習／認讀卡 hierarchy、發音圖示加文字，並重整 Objective Probe／V1 QuizCard 題目／選項 hierarchy；只改 presentation 及 additive output metadata | 已落實並驗證；由 Implementation I-016 完成，唔涉及 migration／production／research gate |
 | P-013 | 使用者以兩張 choice-card reference 要求進一步收斂選擇題視覺：保留現有 option／answer contract，只調整題卡 prompt hierarchy、選項 row／letter badge 尺寸，以及 idle／wrong／correct 狀態色彩與層次 | 已落實並驗證；由 Implementation I-017 完成，唔涉及 migration／production／research gate |
+| P-014 | 使用者以 revealed Learning Card reference 要求移除「認讀卡」文字、以右上四分之一圓內 stylized「認」作標記，預留 front／back 音標位、改善答案面 hierarchy、減少英文過大感及移除卡內重複 swipe copy；只改 presentation，不改 retrieval／gesture／server action semantics | 已落實並驗證；由 Implementation I-018 完成，唔涉及 migration／production／research gate |
 
 ## 十四、計劃審查紀錄
 
@@ -413,6 +416,22 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 驗證：`npm test` 126 passed；lint、typecheck、diff check、build（43/43 static pages）passed；V2
   `test:e2e:study-stream-v2` 7 passed；V1 `study-card-fidelity` 8 passed／1 skipped；V1 choice-card
   transition targeted `study-workflow` 2 passed。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
+  research telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-018 revealed Learning Card reference visual evidence
+
+- I-018 按使用者提供嘅 revealed Learning Card reference 收斂 V2 卡面；只改 presentation／既有 additive `pos`
+  display，保留 retrieval gate、stationary long-press、audio exclusion、flip、self-rating、server action、
+  locale／theme、V1 rollback 及既有 item contract。
+- 右上 quarter-circle 只顯示 stylized「認」，`role="img"`／accessible label 仍保留「認讀卡」而唔顯示 hover tooltip；front／back 固定保留
+  音標 slot；答案面展示英文、音標 slot、圖示＋「發音」及 soft definition panel，中文意思 hierarchy 加強，
+  卡內重複 keyboard／swipe copy 移除，rating actions 保持卡外同寬。
+- desktop 1200×672／mobile 390×844 local visual smoke 及 computed layout check 通過：卡片分別為 `416×496`／
+  `342×520`，mobile `scrollWidth = 390`，提示順序、答案 panel、底部 actions 均無 overflow。
+- 驗證：`npm test` 126 passed；lint、typecheck、diff check、build（43/43 static pages）passed；V2
+  `test:e2e:study-stream-v2` 7 passed；V1 `study-card-fidelity` 8 passed／1 skipped；WordCard 320px／390px
+  fixtures 4 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
   research telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 

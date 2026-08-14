@@ -13,7 +13,8 @@ test("stress fixtures remain readable and reflow without horizontal overflow", a
   const stress = page.getByTestId("word-card-fixture-stress");
   await expect(stress.getByTestId("word-card-level")).toContainText(/B2.*未分類|B2.*未分类/);
   await expect(stress.getByTestId("word-card-drag-layer")).toContainText("characteristically");
-  await expect(stress.getByTestId("word-card-phonetic")).toHaveCount(0);
+  await expect(stress.getByTestId("word-card-phonetic")).toHaveCount(1);
+  await expect(stress.getByTestId("word-card-phonetic")).toHaveAttribute("aria-hidden", "true");
 
   const localized = page.getByTestId("word-card-fixture-localized");
   await expect(localized.getByTestId("word-card-level")).toContainText(/A2/);

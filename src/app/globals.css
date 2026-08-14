@@ -412,7 +412,7 @@ button:disabled,
 .word-card-flight-layer { position: relative; }
 .word-card-back { background: var(--border-soft); border: 1px solid var(--border); border-radius: 30px; bottom: -8px; height: calc(100% - 8px); left: 9px; pointer-events: none; position: absolute; right: 9px; transform: rotate(2deg); z-index: 1; }
 .word-card-surface, .quiz-card-surface { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-card); color: var(--text); }
-.word-card-draggable { align-items: center; border: 1px solid var(--border); border-radius: 30px; cursor: grab; display: flex; flex-direction: column; height: min(58vh, 496px); justify-content: space-between; min-height: 420px; overflow: hidden; padding: var(--space-4); perspective: 1200px; position: relative; user-select: none; width: 100%; will-change: transform; }
+.word-card-draggable { align-items: center; border: 1px solid var(--border); border-radius: 30px; cursor: grab; display: flex; flex-direction: column; height: min(58vh, 496px); justify-content: space-between; min-height: 480px; overflow: hidden; padding: var(--space-4); perspective: 1200px; position: relative; user-select: none; width: 100%; will-change: transform; }
 .word-card-draggable::after { border: 1px solid color-mix(in oklch, var(--primary) 28%, transparent); border-radius: 50%; content: ""; height: 160px; pointer-events: none; position: absolute; right: -85px; top: -82px; width: 160px; }
 .word-card-draggable:active { cursor: grabbing; }
 .word-card-draggable.is-tap-to-reveal { cursor: pointer; }
@@ -423,14 +423,14 @@ button:disabled,
 .word-card-flip.is-flipped { transform: rotateY(180deg); }
 .word-card-top { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; position: relative; width: 100%; z-index: 1; }
 .level-badge { align-items: center; background: var(--border-soft); border: 1px solid transparent; border-radius: var(--radius-full); color: var(--primary); display: inline-flex; font-family: var(--font-display); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; min-height: 30px; padding: 0 10px; }
-.word-context { color: var(--text); font-family: var(--font-body); font-size: 0.9375rem; font-weight: 750; margin-left: auto; }
-.word-card-center { align-items: center; display: grid; gap: var(--space-3); justify-items: center; padding: var(--space-4) 0; position: relative; text-align: center; width: 100%; z-index: 1; }
+.word-context { align-items: center; color: var(--primary-2); display: inline-flex; flex: 0 0 76px; font-family: var(--font-body); font-size: 2rem; font-weight: 900; height: 76px; justify-content: center; line-height: 1; margin: -22px -16px 0 0; position: relative; width: 76px; z-index: 2; }
+.word-card-center { align-items: center; display: grid; gap: var(--space-3); justify-items: center; padding: var(--space-5) 0 var(--space-4); position: relative; text-align: center; transform: translateY(8px); width: 100%; z-index: 1; }
 .word-card-hints { align-items: center; display: grid; gap: 14px; justify-items: center; width: 100%; }
 .word-card-answer-center { max-width: 100%; }
-.word-card-answer-content { max-width: 100%; }
+.word-card-answer-content { max-width: 100%; width: 100%; }
 .word-card-answer-content p { margin: 0; }
 .word-card-answer-content p + p { margin-top: var(--space-2); }
-.word-card-term { color: var(--primary-2); font-family: var(--font-display); font-size: clamp(2.625rem, 12vw, 5.375rem); font-weight: 700; letter-spacing: -0.055em; line-height: 1.08; margin: 0; max-width: 100%; overflow-wrap: anywhere; }
+.word-card-term { color: var(--primary-2); font-family: var(--font-display); font-size: clamp(2.5rem, 11vw, 4.5rem); font-weight: 700; letter-spacing: -0.055em; line-height: 1.08; margin: 0; max-width: 100%; overflow-wrap: anywhere; }
 .word-card-hint { color: var(--muted); font-size: 1rem; margin: 0; }
 .word-card-retrieval-hint { align-items: center; animation: word-card-retrieval-hint-breathe 4.8s ease-in-out infinite; background: color-mix(in oklch, var(--primary) 8%, var(--surface)); border: 1px solid color-mix(in oklch, var(--primary) 34%, var(--border)); border-radius: var(--radius-full); box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 14%, transparent); color: var(--primary); display: inline-flex; font-weight: 750; justify-content: center; max-width: 92%; padding: 8px 16px; }
 .word-card-retrieval-hint.is-long-press-hint { animation-duration: 4.4s; border-color: color-mix(in oklch, var(--primary) 42%, var(--border)); }
@@ -442,15 +442,18 @@ button:disabled,
 .word-card-long-press-indicator::before { animation: word-card-long-press-breathe var(--word-card-hold-pulse-duration) ease-in-out infinite; border: 2px solid color-mix(in oklch, var(--primary) 62%, transparent); border-radius: 50%; box-shadow: 0 0 20px color-mix(in oklch, var(--primary) 28%, transparent); content: ""; inset: 8px; position: absolute; }
 .word-card-long-press-indicator::after { background: color-mix(in oklch, var(--primary) 42%, transparent); border-radius: 50%; content: ""; inset: 48px; opacity: 0.7; position: absolute; }
 .word-card-phonetic { color: var(--muted); font-size: 0.9375rem; margin: 0; }
+.word-card-phonetic-slot { align-items: center; display: inline-flex; font-family: var(--font-display); justify-content: center; min-height: 1.6em; }
+.word-card-phonetic-slot.is-empty { visibility: hidden; }
 .word-card-drag-badge { align-items: center; border: 1px solid currentColor; border-radius: var(--radius-full); display: inline-flex; font-size: 0.8125rem; font-weight: 700; min-height: 34px; padding: 0 12px; pointer-events: none; position: absolute; top: 72px; z-index: 4; }
 .word-card-drag-badge-left { color: var(--danger); left: 24px; transform: rotate(-6deg); }
 .word-card-drag-badge-right { color: var(--primary); right: 24px; transform: rotate(6deg); }
-.word-card-bottom { align-items: center; color: var(--muted); display: grid; gap: var(--space-1); justify-items: center; padding-bottom: 72px; pointer-events: none; position: relative; text-align: center; width: 100%; z-index: 1; }
+.word-card-bottom { align-items: center; color: var(--muted); display: grid; gap: var(--space-1); justify-items: center; padding-bottom: 24px; pointer-events: none; position: relative; text-align: center; width: 100%; z-index: 1; }
 .word-card-queue-note { font-size: 0.875rem; }
 .keyboard-hint { align-items: center; display: inline-flex; font-size: 0.8125rem; gap: var(--space-1); }
 .keycap { align-items: center; background: var(--surface); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 7px; color: var(--muted); display: inline-flex; font-family: var(--font-display); font-size: 0.6875rem; justify-content: center; min-height: 25px; min-width: 26px; padding: 0 6px; }
 .word-card-term, .quiz-card-term { color: var(--text); }
 .word-context, .word-card-hint, .word-card-phonetic, .word-card-queue-note, .keyboard-hint { color: color-mix(in oklch, var(--muted) 52%, var(--text)); }
+.word-card-draggable .word-context { color: var(--primary-2); }
 .word-card-hint.word-card-retrieval-hint { color: var(--primary); }
 .word-card-phonetic, .quiz-card-phonetic { color: color-mix(in oklch, var(--muted) 52%, var(--text)); }
 .word-card-queue-note { color: var(--text); }
@@ -458,6 +461,13 @@ button:disabled,
 .word-card-speak:hover, .quiz-card-speak:hover { background: var(--border-soft); border-color: var(--primary); color: var(--primary-2); transform: translateY(-1px); }
 .word-card-speak:active, .quiz-card-speak:active { transform: translateY(1px); }
 .word-card-speak svg, .quiz-card-speak svg { flex: 0 0 auto; }
+.word-card-answer-definition { background: var(--border-soft); border: 1px solid var(--border); border-radius: 18px; display: grid; gap: 6px; max-width: 360px; padding: 16px 20px; text-align: center; width: 100%; }
+.word-card-answer-label { color: var(--muted); font-size: 0.8125rem; font-weight: 800; letter-spacing: 0.04em; margin: 0; }
+.word-card-answer-meaning { color: var(--primary-2); font-size: clamp(1.25rem, 4.5vw, 1.5rem); font-weight: 800; line-height: 1.45; margin: 0; }
+.word-card-answer-pos { color: var(--muted); font-family: var(--font-display); font-size: 0.875rem; font-weight: 700; margin: 0; }
+.word-card-answer-example { color: var(--muted); font-family: var(--font-display); font-size: 0.875rem; line-height: 1.55; margin: 4px 0 0; }
+.study-stream-learning-card .word-card-draggable { height: min(64vh, 520px); min-height: 496px; }
+.study-stream-learning-card .word-card-bottom { padding-bottom: 16px; }
 .word-card-swipe-label-danger { color: var(--danger); }
 .word-card-swipe-label-success { color: var(--success); }
 .word-card-actions { display: grid; gap: var(--space-2); margin-top: var(--space-3); width: 100%; }

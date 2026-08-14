@@ -30,7 +30,7 @@ test("study card renders real level/category data and prototype structure", asyn
 
   await expect(page.getByTestId("study-assess-title")).toHaveText(/今日學習|今日学习/);
   await expect(page.getByTestId("word-card-stack")).toBeVisible();
-  await expect(page.getByTestId("word-card-context")).toHaveText(/認讀卡|认读卡/);
+  await expect(page.getByTestId("word-card-context")).toHaveText(/認|认/);
   await expect(page.getByTestId("word-card-level")).toContainText(data.queue[0].word.level);
   if (data.queue[0].word.category) {
     await expect(page.getByTestId("word-card-level")).toContainText(data.queue[0].word.category);
