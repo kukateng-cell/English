@@ -228,6 +228,9 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   提示可點擊卡面繼續；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract；已完成相應驗證；
 - [x] 按 I-021 修正 Learning Card swipe feedback placement：左右拖曳中嘅兩個 direction badge 下移至 metadata 以下安全區，
   避免覆蓋 level／category badge；只改 visual placement，保留 swipe threshold／direction／release motion、locale／theme、responsive 及 V1 rollback contract；已完成相應驗證；
+- [ ] 按 I-022 修正普通 expand migration 環境下 V2 `Review` 寫入觸發 legacy bridge，導致同一 `OBJECTIVE_ANSWER` 產生重複
+  `ReviewEvent`；V2 transaction 必須設定既有 writer guard，保留 `operationId`／global receipt／Serializable retry、V1 bridge 及 rollback semantics；完成
+  CI reproduction、ordinary-migration regression、DB／V2／V1 驗證後先勾選；不新增 migration 或 contract cleanup；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -336,6 +339,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-019 | Learning Card geometry／Objective Probe continuation refinement | 只改 V2 card geometry／hint reservation 同 Objective Probe feedback continuation presentation：quarter-circle mark 對中、front phonetic slot 置於 term 下、secondary hint 固定 layout slot、feedback 由 click-anywhere／keyboard 觸發既有 `FEEDBACK_ACK`；保留 retrieval／scoring／server feedback／locale／theme／rollback contract | 已落實並驗證；由 I-019 local UI refinement 完成，唔涉及 migration／production／research gate |
 | I-020 | Objective Probe color-only feedback affordance refinement | 只改 Objective Probe answered-state presentation：移除可見結果／繼續 copy，保留選項 correct／wrong／dim 色彩，於固定空白 slot 顯示低幅度慢速半透明呼吸圓形；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract | 已落實並驗證；由 I-020 local UI refinement 完成，唔涉及 migration／production／research gate |
 | I-021 | Learning Card swipe feedback placement refinement | 只改 `.word-card-drag-badge` placement：左右提示下移到 level／category metadata 以下嘅安全區，避免拖曳時重疊；保留 swipe threshold／direction／release motion、locale／theme、responsive、accessibility 及 V1 rollback contract | 已落實並驗證；由 I-021 local UI refinement 完成，唔涉及 migration／production／research gate |
+| I-022 | V2 ReviewEvent／legacy bridge interaction | 普通 expand migration 仍保留 `Review` legacy bridge trigger；V2 objective answer 寫入 `Review` 前必須喺同一 transaction 設定 `app.review_event_writer=v2`，避免 bridge event 同 explicit V2 event 重複；保留 global `OperationReceipt`／`ReviewEvent` unique、Serializable retry、V1 writer 及 rollback，唔執行 contract migration | 進行中；由 CI run 26（`3031afd`）失敗證據觸發，待 focused fix 及 ordinary-migration／DB／browser／remote regression 驗證 |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -367,6 +371,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   locale／theme／reduced-motion 及 V1／V2 regression；
 - [x] I-021 Learning Card swipe feedback placement refinement 已通過左右 direction badge 避開 level／category metadata、
   desktop／mobile responsive、swipe threshold／direction／release motion、locale／theme／reduced-motion 及 V1／V2 regression；
+- [ ] I-022 V2 objective answer 喺 ordinary expand migration 下只產生一條 provenance-complete `ReviewEvent`，同一 operation 重送
+  回相同 authoritative response，並通過 DB／bounded soak／V2 browser／V1 rollback regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -627,6 +633,25 @@ continuation、locale／theme、reduced-motion 及 V1 rollback：
 - V2 e2e 於 flip transition 完成後斷言左右 direction badge 嘅 bounding box 均位於 back-face level／category metadata 底部至少 `3px` 以下；320px／390px WordCard fixture 同樣覆蓋兩個 badge，避免 responsive 重疊。
 - 驗證：`npm test` 126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build` compiled／43/43 static pages generated；`npm run test:e2e:study-stream-v2` 7 passed；WordCard 320px／390px fixtures 4 passed；V1 rollback `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-022 CI failure／V2 ledger bridge incident (in progress)
+
+- GitHub `Study quality gate` run 26（commit `3031afd`）於 `Run V2 stream integration and bounded soak` 失敗：
+  `scripts/check-study-stream-v2.ts:503` 見到同一 fresh user 有 `2 !== 1` 個 `ReviewEvent`；同一 operation 的第二次提交仍回傳
+  `duplicate: true`，所以 failure 係 ledger row duplication，而唔係 UI assertion 或 retry response mismatch。
+- PostgreSQL job log 同時顯示 ordinary migration 保留嘅 `Review_capture_legacy_event` bridge；V2 `processObjectiveAnswer` 寫入 `Review`
+  時未設定 `app.review_event_writer=v2`，trigger 會新增一條 `LEGACY_BRIDGE`，再由 V2 explicit writer 新增一條
+  `OBJECTIVE_PROBE` event。已確認 local contract-migrated DB 可能因 trigger 已清理而未能重現，故唔以 local-only pass 取代 CI evidence。
+- I-022 修正範圍限於 V2 objective-answer transaction 先設定既有 writer guard；不改 schema、migration、contract cleanup、V1 writer、
+  `operationId`／receipt semantics 或 rollback。完成後要喺 ordinary migration 狀態重跑 integration、bounded soak、相關 DB／V2／V1 regression，
+  再 push 新 commit 觸發 GitHub workflow；production、contract migration、pilot、research／consent gates 仍 deferred。
+- 本地 ordinary temporary schema（24 ordinary migrations、legacy bridge 保留）重播後，`npm run test:db:stream-v2` 通過；integration
+  fixture 另外斷言 event `operationId` 同 `eventKind=REVIEW`。`npm test` 126 passed、lint、typecheck、migration checksum、V1 DB ledger
+  regression 及 `STUDY_STREAM_SOAK_ITERATIONS=20 npm run check:study-stream-v2:soak`（20/20，p50 1324ms／p95 1718ms／max 1973ms）通過。
+- V2 browser full rerun 7/7 passed；fresh temporary student fixture 下 V1 rollback Chromium 73 passed／4 skipped、WebKit shard 1 17 passed、
+  shard 2 16 passed；production build 43/43 static pages generated。第一次 V2 full run 的 1 個 badge bounding-box assertion 只在單次
+  animation sampling 失敗，isolated rerun 及 full rerun 均通過；第一次 V1 run 使用已被舊測試消耗嘅本地帳戶而有 4 個 queue-fixture failures，
+  fresh fixture rerun 已全數通過。新 commit push 後 remote quality gate 仍待確認，故 I-022 暫不勾選。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 

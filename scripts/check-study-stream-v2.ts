@@ -502,6 +502,8 @@ async function main() {
     assert.equal(duplicateAnswer.duplicate, true);
     assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id } }), 1);
     const event = await prisma.reviewEvent.findFirstOrThrow({ where: { userId: user.id } });
+    assert.equal(event.operationId, answerInput.operationId);
+    assert.equal(event.eventKind, "REVIEW");
     assert.equal(event.flowVersion, "v2");
     assert.equal(event.evidenceKind, "OBJECTIVE_PROBE");
     assert.equal(event.quality, 2);

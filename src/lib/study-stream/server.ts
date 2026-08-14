@@ -1415,6 +1415,12 @@ async function processObjectiveAnswer(
   });
   if (consumedTarget.count !== 1) throw new StudyStreamError(409, "该客观题已经被其他装置提交");
 
+  // The ordinary expand-migration window still has the legacy Review bridge
+  // trigger installed. Mark this transaction as the V2 writer before touching
+  // Review so the bridge does not append a second, provenance-incomplete event
+  // beside the explicit objective-probe ReviewEvent below.
+  await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v2', true)`;
+
   if (review) {
     const updatedReview = await tx.review.updateMany({
       where: { userId, wordId: item.word.id, revision: currentRevision },
