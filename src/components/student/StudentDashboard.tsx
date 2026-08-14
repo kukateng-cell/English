@@ -73,6 +73,7 @@ export default function StudentDashboard({ userId }: { userId: string }) {
         <StatCard label={tc("今日复习")} value={data.today.reviewedWordCount} note={tc("已记录的词")} />
         <StatCard label={tc("连续学习")} value={data.streak.count} note={data.streak.studiedToday ? tc("今天已打卡") : tc("今天完成学习即可打卡")} />
           </div>
+          <div className="dashboard-lower-grid">
           <Card className="dashboard-library-card" padded>
         <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("词库进度")}</span><h2>{tc("已解锁内容进度")}</h2></div><div className="dashboard-section-actions"><Link className="ui-button ui-button-quiet ui-button-small" href="/stats"><Icon name="bar-chart" size={16} />{tc("详细统计")}</Link><Link className="ui-button ui-button-quiet ui-button-small" href="/words">{tc("打开词表")}<Icon name="arrow-right" size={16} /></Link></div></div>
         <div className="dashboard-progress-grid">
@@ -84,6 +85,7 @@ export default function StudentDashboard({ userId }: { userId: string }) {
           <div className="dashboard-links-grid">
         <Link className="dashboard-link-card" href="/units"><Icon name="spark" size={22} /><span><strong>{tc("单元闯关")}</strong><small>{tc("查看解锁与认字进度")}</small></span><Icon name="arrow-right" size={18} /></Link>
         <Link className="dashboard-link-card" href="/stats"><Icon name="bar-chart" size={22} /><span><strong>{tc("统计与成就")}</strong><small>{tc("查看活动、排行榜及成就")}</small></span><Icon name="arrow-right" size={18} /></Link>
+          </div>
           </div>
 
           {data.today.reviewEventCount === 0 && data.today.reviewedWordCount === 0 ? <EmptyState title={tc("今天还没有学习记录")} description={tc("完成第一轮复习后，这里的今日数据会自动更新。") } action={<Link className="ui-button ui-button-secondary ui-button-small" href="/study">{tc("开始学习")}</Link>} /> : null}

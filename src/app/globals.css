@@ -82,7 +82,7 @@
   --motion-sheet: 320ms;
   --rail-width: 236px;
   --content-width: 720px;
-  --wide-width: 1120px;
+  --wide-width: 1280px;
   --app-bg: var(--color-bg);
   --surface: var(--color-surface);
   --text: var(--color-fg);
@@ -404,6 +404,7 @@ button:disabled,
 .study-header-actions { align-items: center; display: flex; gap: 8px; }
 .study-header-theme { cursor: pointer; }
 .study-header-logout { cursor: pointer; }
+.study-stream-header, .study-stream-learning-card, .study-unit-context { max-width: 672px; }
 .word-card-frame { margin: 0 auto; max-width: 672px; padding-inline: 16px; position: relative; width: 100%; }
 .motion-harness-card .word-card-frame { max-width: 448px; }
 .word-card-swipe-labels { z-index: 0; }
@@ -474,7 +475,7 @@ button:disabled,
 .word-card-swipe-label-danger { color: var(--danger); }
 .word-card-swipe-label-success { color: var(--success); }
 .word-card-actions { display: grid; gap: var(--space-2); margin-top: var(--space-3); width: 100%; }
-.study-card-composition { width: 100%; }
+.study-card-composition { margin-inline: auto; max-width: 672px; width: 100%; }
 .study-card-composition > .word-card-actions { box-sizing: border-box; margin-inline: auto; max-width: 672px; padding-inline: 16px; }
 .swipe-actions { display: grid; gap: var(--space-2); grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
 .swipe-action { align-items: center; border: 1px solid var(--border); border-radius: 18px; cursor: pointer; display: flex; font-size: 1rem; font-weight: 700; gap: var(--space-2); justify-content: center; line-height: 1.25; min-height: 60px; padding: 0 var(--space-3); transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
@@ -688,6 +689,7 @@ button:disabled,
 .dashboard-section-heading h2 { color: var(--text); font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; margin: 0; }
 .dashboard-progress-grid, .stats-progress-stack { display: grid; gap: var(--space-3); }
 .dashboard-library-card .ui-field-helper { margin-top: var(--space-3); }
+.dashboard-lower-grid { display: grid; gap: var(--space-4); }
 .dashboard-links-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dashboard-link-card { align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); color: var(--primary); display: flex; gap: 12px; padding: 20px; text-decoration: none; transition: border-color var(--motion-fast) ease, transform var(--motion-fast) ease; }
 .dashboard-link-card:hover { border-color: var(--primary); transform: translateY(-1px); }
@@ -818,6 +820,34 @@ button:disabled,
 
 @media (min-width: 980px) {
   .stats-two-column { column-gap: var(--space-6); }
+}
+
+@media (min-width: 721px) {
+  .student-content-narrow { max-width: min(100%, 960px); }
+  .study-assess-header,
+  .study-stream-header,
+  .study-stream-learning-card,
+  .study-unit-context,
+  .study-card-composition,
+  .word-card-frame { max-width: min(760px, calc(100vw - 64px)); }
+  .study-card-composition > .word-card-actions { max-width: min(760px, calc(100vw - 64px)); padding-inline: 0; }
+  .word-card-draggable { height: clamp(500px, 64svh, 620px); min-height: 500px; }
+  .study-stream-learning-card .word-card-draggable { height: clamp(520px, 64svh, 640px); min-height: 520px; }
+  .study-stream-learning-card .word-card-answer-definition { max-width: 480px; }
+  .activity-chart { min-height: 250px; }
+  .activity-bar-track { height: 190px; }
+  .stats-level-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1200px) {
+  .student-content-narrow { max-width: min(100%, 1040px); }
+  .dashboard-lower-grid { align-items: start; grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr); }
+  .next-session-card { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .next-session-card > .ui-button { grid-column: auto; justify-self: end; }
+}
+
+@media (min-width: 721px) and (max-width: 1100px) {
+  .stats-two-column { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 979px) {

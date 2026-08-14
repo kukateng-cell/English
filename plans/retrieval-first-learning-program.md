@@ -243,6 +243,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-028 依使用者澄清恢復 7 日原有柱狀圖，只保留 30 日熱力方格及月視圖空間改善，完成並驗證；
 - [x] I-029 移除活動圖右上角技術性 `Asia/Shanghai` 標籤；保留內部 Asia/Shanghai 日期計算，完成並驗證；
 - [x] I-030 移除首頁／學習統計面向學生嘅技術性計算口徑說明；保留進度結果、活動及級別狀態，完成並驗證；
+- [x] I-031 tablet／desktop responsive layout 重整（認讀卡、首頁、統計頁），保留 mobile、互動及數據 semantics，完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -258,6 +259,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-028 7 日原有柱狀圖恢復完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-029 移除活動圖技術性時區標籤完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-030 簡化首頁／學習統計學生文案完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-031 tablet／desktop responsive layout 重整完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -362,6 +364,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [x] local I-028 7 日活動恢復原有柱狀圖，30 日活動保留伸展後熱力圖，並完成必要嘅 lint／typecheck／diff 驗證；
 - [x] local I-029 活動圖不再顯示技術性 `Asia/Shanghai` 標籤，內部日期語義不變，並完成必要嘅 lint／typecheck／diff 驗證；
 - [x] local I-030 首頁／學習統計移除 SM-2、REVIEW、客觀認讀及自評計算口徑說明，保留學生需要嘅結果及級別狀態，並完成必要嘅 lint／typecheck／diff 驗證；
+- [x] local I-031 tablet／desktop 認讀卡、首頁及統計 responsive layout 重整，mobile／互動／數據 semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -407,6 +410,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-024 | 使用者進一步澄清「7 日活動」係要維持原本柱狀圖，而唔係 I-026 新增嘅熱力方格；7 日恢復 legacy bar presentation，30 日保留 heatmap／伸展月視圖，數據、API、REVIEW semantics 不變 | 已落實並驗證；由本次 local stats presentation correction 完成 |
 | P-025 | 使用者確認學生介面毋須顯示 `Asia/Shanghai` 技術時區名稱；維持既有 Asia/Shanghai 日期計算及活動分組，只移除活動卡右上角技術性標籤 | 已落實並驗證；由本次 local stats presentation correction 完成 |
 | P-026 | 使用者確認首頁／學習統計唔需要展示 SM-2、REVIEW、客觀認讀、自評及統計計算口徑；保留學生可直接理解及使用嘅進度數字、活動圖、級別進度及解鎖狀態，只簡化學生文案，不改 metrics／API／學習 semantics | 已落實並驗證；由本次 local student-copy correction 完成 |
+| P-027 | 使用者要求 tablet／desktop 充分利用空間；認讀卡提高 responsive max-width 並同步 header／操作區，首頁改用寬版下層 grid，統計頁於較窄 tablet 改整欄、desktop 保留雙欄；mobile、互動、metrics、API 及 rollback semantics 不變 | 已落實並驗證；由本次 local responsive layout correction 完成 |
 
 ## 十四、計劃審查紀錄
 
@@ -590,6 +594,14 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 移除學習統計頁嘅 REVIEW、統計口徑、計算範圍及級別技術註解；保留 A1／A2／B1／B2 進度、解鎖狀態、活動圖及結果數字；空活動提示改為學生易明嘅「完成學習後，活動圖會顯示每天的學習活動」。
 - 必要驗證：指定 student dashboard／stats lint passed；`npx tsc --noEmit` passed；`git diff --check` passed。
 - 無 schema／migration／contract change，未執行 production deploy、browser E2E、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
+
+### 2026-08-14：I-031 tablet／desktop responsive layout (completed)
+
+- 認讀卡及相關 header／unit context／操作區於 tablet／desktop 使用最高約 760px 嘅一致 responsive 寬度；卡面 desktop／tablet 增加可用高度，答案內容區保持可讀行寬；mobile breakpoint 保持原有尺寸。
+- 首頁 desktop 使用寬版內容，下一輪學習卡於 desktop 將操作按鈕放入同一行，下層詞庫進度與快捷入口並排；tablet 保持可讀嘅單欄下層排列。統計頁將較窄 tablet 嘅活動／詞庫區改為整欄，desktop 保留雙欄；30 日熱力圖及 7 日柱狀圖 semantics 不變。
+- 必要驗證：`npm run build` passed；指定 study／stats／dashboard／V2 lint passed；`npx tsc --noEmit` passed；`git diff --check` passed；student spacing／visual／overflow／axe suite 5 passed（包括 320／390／430／820／1440 viewport）；public WordCard fixture 4 passed（320／390）；V2 retrieval／long-press／reveal／self-rating regression 2 passed（包括 auth setup）。
+- Legacy `study-card-fidelity` 曾以標準 `E2E_STUDY_QUEUE_LOAD_LIMIT=1000` 重試，兩次均於 `/api/study` response 等候 90 秒 timeout，未進入卡面 assertion；此為本地 legacy API／資料環境限制，沒有 layout failure evidence，未重複高成本測試。legacy shared card CSS 仍經 build、mobile fixture 及既有 source diff review 驗證。
+- 無 schema／migration／contract change，未執行 production deploy、browser E2E full rollout、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 

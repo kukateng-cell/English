@@ -2892,7 +2892,7 @@ function LegacyStudyPage() {
 
       {/* 单元上下文 */}
       {unitCategory && (
-        <div className="mx-auto mb-4 flex w-full max-w-md px-4">
+        <div className="study-unit-context mx-auto mb-4 flex w-full px-4">
           <div className="study-context flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium">
             <Link href="/units" onClick={guardStudyNavigation} className="hover:underline">
               {tc("← 单元列表")}

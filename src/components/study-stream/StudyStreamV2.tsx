@@ -457,7 +457,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
 
   return (
     <div className="flex min-h-full flex-col pb-8">
-      <div className="mx-auto flex w-full max-w-md items-center justify-between px-5 pt-5 pb-3">
+      <div className="study-stream-header mx-auto flex w-full items-center justify-between px-5 pt-5 pb-3">
         <Link href={leaveHref} aria-label={tc("离开学习")} className="study-icon-action flex h-9 w-9 items-center justify-center rounded-xl">
           <Icon name="arrow-left" size={18} />
         </Link>
@@ -544,7 +544,7 @@ function LearningCardView({
   const showLongPressHint = !revealed && longPressHintKey === hintKey;
 
   return (
-    <div className="study-stream-learning-card mx-auto w-full max-w-md">
+    <div className="study-stream-learning-card mx-auto w-full">
       <WordCard
         word={{
           term: item.learningCard?.term ?? item.prompt,
