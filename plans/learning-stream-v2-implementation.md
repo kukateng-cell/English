@@ -226,6 +226,8 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
 - [x] 按 I-020 收斂 Objective Probe feedback presentation：答題後只以選項本身嘅 correct／wrong／dim 顏色表達結果，
   移除卡下可見結果文字及繼續文字提示；保留固定空白 affordance slot，於已回答狀態以低幅度、慢速呼吸嘅半透明圓形
   提示可點擊卡面繼續；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract；已完成相應驗證；
+- [x] 按 I-021 修正 Learning Card swipe feedback placement：左右拖曳中嘅兩個 direction badge 下移至 metadata 以下安全區，
+  避免覆蓋 level／category badge；只改 visual placement，保留 swipe threshold／direction／release motion、locale／theme、responsive 及 V1 rollback contract；已完成相應驗證；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -333,6 +335,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-018 | Revealed Learning Card reference visual refinement | 只改 V2 Learning Card presentation：右上 stylized「認」corner mark、front／back phonetic reserved slot、lower composition、smaller term scale、revealed definition hierarchy、移除卡內 duplicate swipe copy；保留 long-press／flip／audio exclusion／self-rating／server action／locale／theme contract | 已落實並驗證；由 I-018 local UI refinement 完成 |
 | I-019 | Learning Card geometry／Objective Probe continuation refinement | 只改 V2 card geometry／hint reservation 同 Objective Probe feedback continuation presentation：quarter-circle mark 對中、front phonetic slot 置於 term 下、secondary hint 固定 layout slot、feedback 由 click-anywhere／keyboard 觸發既有 `FEEDBACK_ACK`；保留 retrieval／scoring／server feedback／locale／theme／rollback contract | 已落實並驗證；由 I-019 local UI refinement 完成，唔涉及 migration／production／research gate |
 | I-020 | Objective Probe color-only feedback affordance refinement | 只改 Objective Probe answered-state presentation：移除可見結果／繼續 copy，保留選項 correct／wrong／dim 色彩，於固定空白 slot 顯示低幅度慢速半透明呼吸圓形；保留卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback contract | 已落實並驗證；由 I-020 local UI refinement 完成，唔涉及 migration／production／research gate |
+| I-021 | Learning Card swipe feedback placement refinement | 只改 `.word-card-drag-badge` placement：左右提示下移到 level／category metadata 以下嘅安全區，避免拖曳時重疊；保留 swipe threshold／direction／release motion、locale／theme、responsive、accessibility 及 V1 rollback contract | 已落實並驗證；由 I-021 local UI refinement 完成，唔涉及 migration／production／research gate |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -362,6 +365,8 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 - [x] I-020 Objective Probe color-only feedback affordance refinement 已通過選項 correct／wrong／dim 色彩、可見結果／
   繼續文字移除、固定空白 slot 內低幅度慢速半透明呼吸圓形、click-anywhere／keyboard `FEEDBACK_ACK`、responsive／
   locale／theme／reduced-motion 及 V1／V2 regression；
+- [x] I-021 Learning Card swipe feedback placement refinement 已通過左右 direction badge 避開 level／category metadata、
+  desktop／mobile responsive、swipe threshold／direction／release motion、locale／theme／reduced-motion 及 V1／V2 regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -615,6 +620,13 @@ continuation、locale／theme、reduced-motion 及 V1 rollback：
   shard 1 17 passed、shard 2 16 passed；涵蓋 mouse／touch／synthetic pointer、offline／cross-tab／cross-device／reconciliation。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、
   ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-021 Learning Card swipe feedback placement evidence
+
+- 將 `.word-card-drag-badge` 由原本嘅 `top: 72px` 下移至 `top: 96px`，並移除 narrow viewport 另外嘅 `56px` override；左右文案、opacity／direction frame、swipe threshold、release motion、locale／theme、a11y 及 V1 rollback semantics 均不變。
+- V2 e2e 於 flip transition 完成後斷言左右 direction badge 嘅 bounding box 均位於 back-face level／category metadata 底部至少 `3px` 以下；320px／390px WordCard fixture 同樣覆蓋兩個 badge，避免 responsive 重疊。
+- 驗證：`npm test` 126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build` compiled／43/43 static pages generated；`npm run test:e2e:study-stream-v2` 7 passed；WordCard 320px／390px fixtures 4 passed；V1 rollback `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 

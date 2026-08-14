@@ -173,6 +173,7 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(card).toHaveRole("group");
         await expect(card).toHaveAttribute("aria-label", "已揭示的單詞卡，右掃和剛才想的一樣，左掃和剛才想的不一樣");
         await expect(card).toHaveAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight");
+        await page.waitForTimeout(450);
 
         const actions = page.getByTestId("study-stream-self-rating-actions");
         await expect(actions).toBeVisible();
@@ -191,6 +192,15 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         expect(metrics).not.toBeNull();
         expect(Math.abs((metrics?.cardWidth ?? 0) - (metrics?.actionsWidth ?? 0))).toBeLessThanOrEqual(1);
         expect(metrics?.nestedInCard).toBe(false);
+        const levelBox = await back.getByTestId("word-card-level").boundingBox();
+        expect(levelBox).not.toBeNull();
+        for (const selector of [".word-card-drag-badge-left", ".word-card-drag-badge-right"]) {
+          const badgeBox = await page.locator(selector).boundingBox();
+          expect(badgeBox).not.toBeNull();
+          if (badgeBox && levelBox) {
+            expect(badgeBox.y).toBeGreaterThanOrEqual(levelBox.y + levelBox.height + 3);
+          }
+        }
         await selfRecall.click();
         return;
       }
@@ -491,7 +501,9 @@ test("V2 study surface keeps its hierarchy in dark reduced-motion mode", async (
     const optionTransition = await page.getByRole("radio").first().locator("xpath=..").evaluate((element) => getComputedStyle(element).transitionDuration);
     expect(Number.parseFloat(optionTransition)).toBe(0);
   } else {
-    await expect(page.getByTestId("word-card-context")).toHaveText("認");
-    await expect(page.getByTestId("word-card-front").getByRole("button", { name: "發音" })).toContainText("發音");
+    const visibleFace = page.locator('[data-testid="word-card-front"][aria-hidden="false"], [data-testid="word-card-back-face"][aria-hidden="false"]');
+    await expect(visibleFace).toHaveCount(1);
+    await expect(visibleFace.getByTestId("word-card-context")).toHaveText("認");
+    await expect(visibleFace.getByRole("button", { name: "發音" })).toContainText("發音");
   }
 });

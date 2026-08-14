@@ -444,7 +444,9 @@ button:disabled,
 .word-card-phonetic { color: var(--muted); font-size: 0.9375rem; margin: 0; }
 .word-card-phonetic-slot { align-items: center; display: inline-flex; font-family: var(--font-display); justify-content: center; min-height: 1.6em; }
 .word-card-phonetic-slot.is-empty { visibility: hidden; }
-.word-card-drag-badge { align-items: center; border: 1px solid currentColor; border-radius: var(--radius-full); display: inline-flex; font-size: 0.8125rem; font-weight: 700; min-height: 34px; padding: 0 12px; pointer-events: none; position: absolute; top: 72px; z-index: 4; }
+/* Keep swipe feedback below the level/category metadata so the direction
+   prompt remains readable while the card is moving. */
+.word-card-drag-badge { align-items: center; border: 1px solid currentColor; border-radius: var(--radius-full); display: inline-flex; font-size: 0.8125rem; font-weight: 700; min-height: 34px; padding: 0 12px; pointer-events: none; position: absolute; top: 96px; z-index: 4; }
 .word-card-drag-badge-left { color: var(--danger); left: 24px; transform: rotate(-6deg); }
 .word-card-drag-badge-right { color: var(--primary); right: 24px; transform: rotate(6deg); }
 .word-card-bottom { align-items: center; color: var(--muted); display: grid; gap: var(--space-1); justify-items: center; padding-bottom: 24px; pointer-events: none; position: relative; text-align: center; width: 100%; z-index: 1; }
@@ -813,7 +815,6 @@ button:disabled,
   .word-card-draggable { height: min(54vh, 296px); min-height: 296px; padding: 16px; }
   .word-card-center { gap: 8px; padding-block: 8px; }
   .word-card-bottom { padding-bottom: 20px; }
-  .word-card-drag-badge { top: 56px; }
   .swipe-guide { clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 }
 

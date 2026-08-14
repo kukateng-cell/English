@@ -20,6 +20,16 @@ test("stress fixtures remain readable and reflow without horizontal overflow", a
   await expect(localized.getByTestId("word-card-level")).toContainText(/A2/);
   await expect(localized.getByTestId("word-card-drag-layer")).toContainText("internationalization");
 
+  const stressLevelBox = await stress.getByTestId("word-card-level").boundingBox();
+  expect(stressLevelBox).not.toBeNull();
+  for (const selector of [".word-card-drag-badge-left", ".word-card-drag-badge-right"]) {
+    const badgeBox = await stress.locator(selector).boundingBox();
+    expect(badgeBox).not.toBeNull();
+    if (badgeBox && stressLevelBox) {
+      expect(badgeBox.y).toBeGreaterThanOrEqual(stressLevelBox.y + stressLevelBox.height + 3);
+    }
+  }
+
   await page.addStyleTag({
     content: `
       *, *::before, *::after {

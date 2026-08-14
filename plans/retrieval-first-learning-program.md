@@ -234,6 +234,8 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
   測試題改為「輕點一下任意區域」繼續而非確認 button）完成並驗證；
 - [x] I-020 Objective Probe feedback presentation refinement（只用選項 correct／wrong／dim 顏色表示結果、移除可見結果／
   繼續文字，固定空白位顯示低幅度慢速半透明呼吸圓形作繼續 affordance）完成並驗證；
+- [x] I-021 Learning Card swipe feedback placement refinement（左右拖曳提示下移至 level／category metadata 以下安全區，
+  避免同 A1／分類 badge 重疊）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -241,6 +243,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-018 revealed Learning Card reference visual refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-019 Learning Card／Objective Probe follow-up refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-020 Objective Probe color-only feedback affordance refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-021 Learning Card swipe feedback placement refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -332,6 +335,8 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
   queue note 移除及 reduced-motion／V1 regression 已驗證；
 - [x] local I-016 已完成：EMM Style 02 study surface fidelity、additive level／category metadata、
   Objective Probe／V1 QuizCard hierarchy 及 responsive／locale／theme regression 已驗證；
+- [x] local I-021 已完成：左右 swipe direction badge 位於 level／category metadata 以下，320px／390px responsive、
+  V2 swipe／release／locale／theme／reduced-motion 及 V1 rollback regression 已驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -367,6 +372,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-014 | 使用者以 revealed Learning Card reference 要求移除「認讀卡」文字、以右上四分之一圓內 stylized「認」作標記，預留 front／back 音標位、改善答案面 hierarchy、減少英文過大感及移除卡內重複 swipe copy；只改 presentation，不改 retrieval／gesture／server action semantics | 已落實並驗證；由 Implementation I-018 完成，唔涉及 migration／production／research gate |
 | P-015 | 使用者指出「認」未置中、front 音標 slot 未緊貼英文、長按提示出現會令既有文字移位，並要求 Objective Probe 移除確認／「我看到了，繼續」button，改用「輕點一下任意區域」繼續；只改 presentation／既有 `FEEDBACK_ACK` trigger，不改 retrieval／scoring／server semantics | 已落實並驗證；由 Implementation I-019 完成，唔涉及 migration／production／research gate |
 | P-016 | 使用者要求 Objective Probe 答題後只以選項顏色表達正誤，移除卡下可見結果／繼續文字，改用固定空白位內低幅度慢速半透明呼吸圓形作點擊 affordance；只改 presentation，保留既有卡面 click／keyboard `FEEDBACK_ACK`、a11y、locale／theme、reduced-motion 及 V1 rollback | 已落實並驗證；由 Implementation I-020 完成，唔涉及 migration／production／research gate |
+| P-017 | 使用者指出 swipe 中嘅「和剛才想的不一樣／一樣」direction badge 同 A1／category metadata 重疊；只將 `.word-card-drag-badge` 下移至 metadata 以下安全區，保留 swipe／release／locale／theme／rollback semantics | 已落實並驗證；由 Implementation I-021 完成，唔涉及 migration／production／research gate |
 
 ## 十四、計劃審查紀錄
 
@@ -471,6 +477,13 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、
   ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-021 Learning Card swipe feedback placement evidence
+
+- 使用者指出左右 swipe feedback badge 同 A1／category metadata 重疊；I-021 只將 `.word-card-drag-badge` `top` 由 `72px` 調整至 `96px`，移除 narrow viewport `56px` override，保留 swipe／release／locale／theme／rollback semantics。
+- V2 e2e 於 flip transition 完成後驗證左右 badge 均避開 back-face level／category metadata 至少 `3px`；320px／390px WordCard fixtures 同樣驗證兩個 badge，並保留 dark reduced-motion visible-face coverage。
+- 驗證：`npm test` 126 passed；lint、typecheck、diff check、build（43/43 static pages）passed；`npm run test:e2e:study-stream-v2` 7 passed；WordCard fixtures 4 passed；V1 rollback `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 
