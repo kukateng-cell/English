@@ -458,8 +458,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   return (
     <div className="flex min-h-full flex-col pb-8">
       <div className="study-stream-header mx-auto flex w-full items-center justify-between px-5 pt-5 pb-3">
-        <Link href={leaveHref} aria-label={tc("离开学习")} className="study-icon-action flex h-9 w-9 items-center justify-center rounded-xl">
-          <Icon name="arrow-left" size={18} />
+        <Link href={leaveHref} aria-label={tc("离开学习")} className="study-header-icon study-header-back">
+          <Icon name="chevron-left" size={26} />
         </Link>
         <h1 data-testid="study-stream-title" className="study-stream-title">{tc("连续学习")}</h1>
         <div className="flex items-center gap-2">

@@ -245,6 +245,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-030 移除首頁／學習統計面向學生嘅技術性計算口徑說明；保留進度結果、活動及級別狀態，完成並驗證；
 - [x] I-031 tablet／desktop responsive layout 重整（認讀卡、首頁、統計頁），保留 mobile、互動及數據 semantics，完成並驗證；
 - [x] I-032 修正「認字小測／選擇題」surface 仍受 `max-w-md` 限制嘅 tablet／desktop layout，完成並驗證；
+- [x] I-033 將學習流程返回掣收斂至 EMM Style 02 圓形返回按鈕（V2 認讀卡及 legacy 測試頂部），保留返回路徑、navigation guard、mobile／desktop 及 a11y semantics，完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -262,6 +263,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-030 簡化首頁／學習統計學生文案完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-031 tablet／desktop responsive layout 重整完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-032 認字小測／選擇題 responsive surface 修正完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-033 學習流程返回掣 EMM visual correction 完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -368,6 +370,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [x] local I-030 首頁／學習統計移除 SM-2、REVIEW、客觀認讀及自評計算口徑說明，保留學生需要嘅結果及級別狀態，並完成必要嘅 lint／typecheck／diff 驗證；
 - [x] local I-031 tablet／desktop 認讀卡、首頁及統計 responsive layout 重整，mobile／互動／數據 semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
 - [x] local I-032 認字小測／選擇題 surface 於 tablet／desktop 使用寬版 layout，mobile／題目／選項／回饋 semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
+- [x] local I-033 學習流程返回掣使用 EMM Style 02 圓形視覺，返回路徑／navigation guard／a11y semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -415,6 +418,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-026 | 使用者確認首頁／學習統計唔需要展示 SM-2、REVIEW、客觀認讀、自評及統計計算口徑；保留學生可直接理解及使用嘅進度數字、活動圖、級別進度及解鎖狀態，只簡化學生文案，不改 metrics／API／學習 semantics | 已落實並驗證；由本次 local student-copy correction 完成 |
 | P-027 | 使用者要求 tablet／desktop 充分利用空間；認讀卡提高 responsive max-width 並同步 header／操作區，首頁改用寬版下層 grid，統計頁於較窄 tablet 改整欄、desktop 保留雙欄；mobile、互動、metrics、API 及 rollback semantics 不變 | 已落實並驗證；由本次 local responsive layout correction 完成 |
 | P-028 | 使用者截圖確認上一輪放寬咗 Learning Card，但 Objective Probe／認字小測仍保留 `max-w-md`，因此實際看到嘅測試卡冇明顯改變；補充同一套 tablet／desktop responsive max-width 到測試標題、摘要及選擇題卡，保留四選項直排、mobile、題目、回饋及 API semantics | 已落實並驗證；由本次 local objective-probe responsive correction 完成 |
+| P-029 | 使用者要求保留返回掣，但改為 EMM Style 02 圓形白底／細邊框／chevron-left；只收斂 V2 認讀卡及 legacy 測試頂部返回掣 presentation，保留既有目標路徑、離開 guard、keyboard／a11y 及 mobile／desktop semantics | 已落實並驗證；由本次 local study-exit control visual correction 完成 |
 
 ## 十四、計劃審查紀錄
 
@@ -612,6 +616,13 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 移除 V2 Objective Probe 及共用 `QuizCard` 嘅 `max-w-md`；將測試標題／摘要／選項 surface 納入與認讀卡一致嘅 tablet／desktop responsive max-width，mobile 仍由 viewport／padding 約束。
 - 四個選項維持直排，題目、答題、顏色 feedback、空白位點擊繼續及 API／session semantics 不變；沒有 schema、migration 或 contract change。
 - 必要驗證：指定 Objective Probe／QuizCard ESLint passed；`npx tsc --noEmit` passed；`npm run build` passed（sandbox 權限錯誤後以提升權限重跑）；`git diff --check` passed；V2 retrieval／long-press／reveal／self-rating regression 2 passed（包括 auth setup）。
+- 未執行 production deploy、browser full rollout、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
+
+### 2026-08-14：I-033 學習流程返回掣 EMM visual correction (completed)
+
+- V2 認讀卡及 legacy 測試頂部返回掣統一採用 EMM Style 02：白色圓形 surface、細邊框、chevron-left；desktop／tablet／mobile 沿用現有 responsive 尺寸規則。
+- 保留原有 `/`／`/units` 目標路徑、未完成測試／待同步資料 navigation guard、keyboard focus、aria label 及所有學習／session semantics；沒有 schema、migration 或 contract change。
+- 必要驗證：相關 StudyStreamV2／legacy study page ESLint passed；`npx tsc --noEmit` passed；`npm run build` passed；`git diff --check` passed；V2 retrieval／long-press／reveal／self-rating regression 2 passed（包括 auth setup）。
 - 未執行 production deploy、browser full rollout、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure

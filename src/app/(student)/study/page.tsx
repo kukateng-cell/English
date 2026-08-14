@@ -2666,11 +2666,9 @@ function LegacyStudyPage() {
             href={unitCategory ? "/units" : "/"}
             aria-label={tc(unitCategory ? "退出单元学习" : "退出学习")}
             onClick={guardStudyNavigation}
-            className="study-icon-action flex h-9 w-9 items-center justify-center rounded-xl transition active:scale-[0.95]"
+            className="study-header-icon study-header-back"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
+            <Icon name="chevron-left" size={26} />
           </Link>
           <span className="study-muted text-[14px] font-medium">
             {tc("📝 测试中")}
