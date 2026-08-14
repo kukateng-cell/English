@@ -21,6 +21,22 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(page.getByTestId("study-stream-title")).toHaveText("連續學習");
         await expect(page.getByTestId("word-card-context")).toHaveText("認");
         await expect(page.getByTestId("word-card-context")).toHaveAttribute("aria-label", "認讀卡");
+        const contextAlignment = await page.evaluate(() => {
+          const card = document.querySelector<HTMLElement>('[data-testid="word-card-drag-layer"]');
+          const context = document.querySelector<HTMLElement>('[data-testid="word-card-context"]');
+          if (!card || !context) return null;
+          const cardRect = card.getBoundingClientRect();
+          const contextRect = context.getBoundingClientRect();
+          return {
+            contextCenterX: contextRect.left + contextRect.width / 2,
+            contextCenterY: contextRect.top + contextRect.height / 2,
+            targetCenterX: cardRect.right - contextRect.width / 2,
+            targetCenterY: cardRect.top + contextRect.height / 2,
+          };
+        });
+        expect(contextAlignment).not.toBeNull();
+        expect(Math.abs((contextAlignment?.contextCenterX ?? 0) - (contextAlignment?.targetCenterX ?? 0))).toBeLessThanOrEqual(2);
+        expect(Math.abs((contextAlignment?.contextCenterY ?? 0) - (contextAlignment?.targetCenterY ?? 0))).toBeLessThanOrEqual(2);
         await expect(page.getByTestId("word-card-level")).toBeVisible();
         await expect(front.getByTestId("word-card-phonetic")).toHaveCount(1);
         await expect(front.getByRole("button", { name: "發音" })).toContainText("發音");
@@ -33,15 +49,37 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         const indicator = page.getByTestId("word-card-long-press-indicator");
         await expect(indicator).toHaveCount(1);
         await expect(secondaryHint).toHaveCount(0);
-        await expect(secondaryHintSlot).toHaveCSS("max-height", "0px");
+        await expect(secondaryHintSlot).toHaveCSS("height", "52px");
+        await expect(secondaryHintSlot).toHaveCSS("opacity", "0");
         await expect(page.getByTestId("word-card-queue-note")).toHaveCount(0);
         await expect(hint).toHaveClass(/word-card-retrieval-hint/);
         await expect(hint).toHaveClass(/is-think-hint/);
         await expect(hint).toHaveText("先試著想一想這個詞的中文意思");
         const hintAnimation = await hint.evaluate((element) => getComputedStyle(element).animationDuration);
         expect(Number.parseFloat(hintAnimation)).toBeGreaterThanOrEqual(4);
+        const earlyTermBox = await front.locator(".word-card-term").boundingBox();
+        const earlyPhoneticBox = await front.getByTestId("word-card-phonetic").boundingBox();
         const earlyHintBox = await hint.boundingBox();
+        const earlySpeakerBox = await front.getByRole("button", { name: "發音" }).boundingBox();
+        const assertStableY = (
+          before: { y: number; height: number } | null,
+          after: { y: number; height: number } | null,
+        ) => {
+          expect(before).not.toBeNull();
+          expect(after).not.toBeNull();
+          if (!before || !after) return;
+          expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+          expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
+        };
+        expect(earlyPhoneticBox).not.toBeNull();
         expect(earlyHintBox).not.toBeNull();
+        expect(earlySpeakerBox).not.toBeNull();
+        if (earlyTermBox && earlyPhoneticBox) {
+          expect(earlyPhoneticBox.y).toBeGreaterThanOrEqual(earlyTermBox.y + earlyTermBox.height);
+        }
+        if (earlyPhoneticBox && earlyHintBox) {
+          expect(earlyHintBox.y).toBeGreaterThanOrEqual(earlyPhoneticBox.y + earlyPhoneticBox.height);
+        }
         await page.mouse.move(
           (earlyHintBox?.x ?? 0) + (earlyHintBox?.width ?? 0) / 2,
           (earlyHintBox?.y ?? 0) + (earlyHintBox?.height ?? 0) / 2,
@@ -52,9 +90,15 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(secondaryHint).toHaveText("長按 3 秒揭示答案");
         await expect(secondaryHint).toHaveClass(/is-long-press-hint/);
         await expect(secondaryHintSlot).toHaveClass(/is-visible/);
+        const latePhoneticBox = await front.getByTestId("word-card-phonetic").boundingBox();
+        const lateHintBox = await hint.boundingBox();
+        const lateSpeakerBox = await front.getByRole("button", { name: "發音" }).boundingBox();
+        assertStableY(earlyPhoneticBox, latePhoneticBox);
+        assertStableY(earlyHintBox, lateHintBox);
+        assertStableY(earlySpeakerBox, lateSpeakerBox);
         const secondaryHintAnimation = await secondaryHint.evaluate((element) => getComputedStyle(element).animationDuration);
         expect(Number.parseFloat(secondaryHintAnimation)).toBeGreaterThanOrEqual(4);
-        const speakerBox = await front.getByRole("button", { name: "發音" }).boundingBox();
+        const speakerBox = lateSpeakerBox;
         const secondaryHintBox = await secondaryHint.boundingBox();
         expect(speakerBox).not.toBeNull();
         expect(secondaryHintBox).not.toBeNull();
@@ -168,23 +212,28 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
 
     /*
      * Objective Probe may be resumed in an answered, read-only state before
-     * the stream reaches a Learning Card. Acknowledge it and continue.
+     * the stream reaches a Learning Card. Tap its surface to continue.
      */
     const probe = page.getByRole("radiogroup", { name: "客觀題選項" });
     if (await probe.isVisible().catch(() => false)) {
       await expect(page.getByTestId("study-stream-probe-title")).toHaveText("把意思配回單詞");
-      await expect(page.getByTestId("study-stream-probe-card")).toBeVisible();
+      const probeCard = page.getByTestId("study-stream-probe-card");
+      await expect(probeCard).toBeVisible();
       await expect(page.getByTestId("study-stream-probe-level")).toBeVisible();
-      const acknowledge = page.getByRole("button", { name: "我看到了，繼續" });
-      if (await acknowledge.isVisible().catch(() => false)) {
+      const feedbackHint = page.getByTestId("study-stream-feedback-hint");
+      if (await feedbackHint.isVisible().catch(() => false)) {
         // The read-only feedback can remain disabled while its authoritative
         // response is still settling; keep polling the stream instead of
         // turning a transient transition into a test failure.
-        if (!(await acknowledge.isEnabled().catch(() => false))) {
+        if ((await probeCard.getAttribute("tabindex")) !== "0") {
           await page.waitForTimeout(250);
           continue;
         }
-        await acknowledge.click();
+        await expect(feedbackHint).toHaveText("輕點一下任意區域");
+        await expect(probeCard).toHaveRole("button");
+        await expect(probeCard).toHaveAttribute("aria-label", "輕點一下任意區域");
+        await expect(page.getByRole("button", { name: "我看到了，繼續" })).toHaveCount(0);
+        await probeCard.click({ position: { x: 48, y: 48 } });
         continue;
       }
       const options = page.getByRole("radio");
@@ -195,7 +244,7 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         continue;
       }
       await options.first().locator("xpath=..").click();
-      await expect(acknowledge).toBeVisible();
+      await expect(feedbackHint).toBeVisible();
       continue;
     }
 

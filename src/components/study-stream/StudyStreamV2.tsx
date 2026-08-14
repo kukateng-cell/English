@@ -623,6 +623,7 @@ function ObjectiveProbeView({
   const question = item.objectiveQuestion;
   if (!question) return null;
   const answered = Boolean(item.feedback);
+  const feedbackContinuationEnabled = answered && !disabled;
   const isEnglishToChinese = question.direction === "en-zh";
   return (
     <div className="study-stream-probe mx-auto w-full max-w-md px-3">
@@ -630,10 +631,22 @@ function ObjectiveProbeView({
         <div className="quiz-intro-copy">
           <span className="quiz-eyebrow">{tc("认字小测")}</span>
           <h2 data-testid="study-stream-probe-title">{tc("把意思配回单词")}</h2>
-          <p>{tc("确认你真的认得它，再继续下一张。")}</p>
+          <p>{tc("先回想，再选出最贴近的意思。")}</p>
         </div>
       </div>
-      <div data-testid="study-stream-probe-card" className="quiz-card-surface quiz-card-layout">
+      <div
+        data-testid="study-stream-probe-card"
+        className={`quiz-card-surface quiz-card-layout${feedbackContinuationEnabled ? " is-feedback-continuation" : ""}`}
+        onClick={feedbackContinuationEnabled ? onAcknowledge : undefined}
+        onKeyDown={feedbackContinuationEnabled ? (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onAcknowledge();
+        } : undefined}
+        role={feedbackContinuationEnabled ? "button" : undefined}
+        tabIndex={feedbackContinuationEnabled ? 0 : undefined}
+        aria-label={feedbackContinuationEnabled ? tc("轻点一下任意区域") : undefined}
+      >
         <div className="quiz-prompt-meta">
           <span className="quiz-prompt-label">{tc(isEnglishToChinese ? "看英文" : "看中文")}</span>
           {item.level ? (
@@ -677,8 +690,8 @@ function ObjectiveProbeView({
             <span className="quiz-result-icon" aria-hidden="true">{item.feedback.isCorrect ? "✓" : "!"}</span>
             <div className="quiz-result-copy">
               <strong>{item.feedback.isCorrect ? tc("答对了") : tc("这次先记住正确答案")}</strong>
-              <p>{tc("这是只读反馈；确认后继续下一项，不会重复改分")}</p>
-              <button type="button" onClick={onAcknowledge} disabled={disabled} className="study-primary-action quiz-feedback-action">{tc("我看到了，继续")}</button>
+              <p>{tc("这是只读反馈，不会重复改分")}</p>
+              <p data-testid="study-stream-feedback-hint" className="quiz-feedback-hint">{tc("轻点一下任意区域")}</p>
             </div>
           </div>
         ) : null}

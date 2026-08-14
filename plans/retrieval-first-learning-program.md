@@ -230,11 +230,14 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-016 EMM Style 02 study surface fidelity refinement（level／category badge、study title／context、圖示＋發音文字、Objective Probe／V1 QuizCard 題目／選項 hierarchy）完成並驗證；
 - [x] I-017 EMM choice-card reference visual refinement（題目／指示層級、選項 row／字母圓章、未作答／答錯／正確狀態）完成並驗證；
 - [x] I-018 revealed Learning Card reference visual refinement（右上 stylized「認」、音標預留位、揭示答案 hierarchy、移除重複 swipe copy）完成並驗證；
+- [x] I-019 Learning Card／Objective Probe follow-up refinement（「認」置中、音標 slot 緊貼英文、長按提示固定預留位、
+  測試題改為「輕點一下任意區域」繼續而非確認 button）完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
 - [x] Product-side 子計劃嘅 local scope 包括 I-017 choice-card reference visual refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-018 revealed Learning Card reference visual refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-019 Learning Card／Objective Probe follow-up refinement 完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -359,6 +362,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-012 | 使用者要求以 EMM Style 02 handoff 收斂 V1／V2 study surface：恢復 level／category metadata、放大連續學習／認讀卡 hierarchy、發音圖示加文字，並重整 Objective Probe／V1 QuizCard 題目／選項 hierarchy；只改 presentation 及 additive output metadata | 已落實並驗證；由 Implementation I-016 完成，唔涉及 migration／production／research gate |
 | P-013 | 使用者以兩張 choice-card reference 要求進一步收斂選擇題視覺：保留現有 option／answer contract，只調整題卡 prompt hierarchy、選項 row／letter badge 尺寸，以及 idle／wrong／correct 狀態色彩與層次 | 已落實並驗證；由 Implementation I-017 完成，唔涉及 migration／production／research gate |
 | P-014 | 使用者以 revealed Learning Card reference 要求移除「認讀卡」文字、以右上四分之一圓內 stylized「認」作標記，預留 front／back 音標位、改善答案面 hierarchy、減少英文過大感及移除卡內重複 swipe copy；只改 presentation，不改 retrieval／gesture／server action semantics | 已落實並驗證；由 Implementation I-018 完成，唔涉及 migration／production／research gate |
+| P-015 | 使用者指出「認」未置中、front 音標 slot 未緊貼英文、長按提示出現會令既有文字移位，並要求 Objective Probe 移除確認／「我看到了，繼續」button，改用「輕點一下任意區域」繼續；只改 presentation／既有 `FEEDBACK_ACK` trigger，不改 retrieval／scoring／server semantics | 已落實並驗證；由 Implementation I-019 完成，唔涉及 migration／production／research gate |
 
 ## 十四、計劃審查紀錄
 
@@ -434,6 +438,21 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
   fixtures 4 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
   research telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-019 Learning Card geometry／Objective Probe continuation evidence
+
+- 只改 V2 card geometry、提示預留位及既有 `FEEDBACK_ACK` continuation trigger；retrieval／scoring／server feedback、
+  outbox、locale／theme、reduced-motion、V1 rollback 及所有 external gate 保持不變。
+- 「認」框以 quarter-circle 可見區對中；front DOM 順序改為英文 → 音標 slot → 思考提示 → 發音，資料缺 phonetic 時仍保留
+  固定 slot；secondary long-press hint 固定 `52px` 高度並只用 opacity／transform 漸進顯示，避免既有文字 y 位移。
+- Objective Probe 移除「確認」／「我看到了，繼續」button，改為「輕點一下任意區域」；read-only feedback 卡面 click、Enter／Space
+  都觸發原有 `FEEDBACK_ACK`，同步中／blocked 時維持不可繼續。
+- 驗證：`npm test` 126 passed；lint、typecheck、diff check、build（43/43 static pages）passed；V2
+  `test:e2e:study-stream-v2` 7 passed（包括 mark alignment、phonetic placement、no-layout-shift、feedback click-anywhere）；
+  WordCard 320px／390px fixtures 4 passed；V1 rollback `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`
+  Chromium 73 passed／4 skipped，WebKit shard 1 17 passed、shard 2 16 passed。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、研究資料／consent、
+  ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 

@@ -219,6 +219,10 @@ acknowledged item 當完成並發另一個會破壞次序嘅 scored action。
   stylized「認」取代「認讀卡」文字、front／back 預留音標位、調整 vertical composition、降低英文單詞過大感、
   強化揭示後中文意思 hierarchy，並移除卡內重複 swipe 語義文字；只改 presentation，保留 long-press／
   flip／audio／self-rating／server action／locale／theme contract；已完成相應驗證；
+- [x] 按 I-019 修正 Learning Card／Objective Probe 嘅 follow-up presentation：將「認」置於右上半圓視覺中心、
+  front 音標 slot 移到英文正下方、secondary long-press hint 固定預留高度避免既有文字移位；Objective Probe
+  read-only feedback 移除確認 button，改以「輕點一下任意區域」提示及卡面 click／keyboard continuation；只改
+  presentation／acknowledgement trigger，保留 `FEEDBACK_ACK`、server feedback、locale／theme／reduced-motion contract；已完成相應驗證；
 - [ ] 真實學生 pilot、production rollout、外部 observation window 及 threshold decision（延期，
   唔屬 local product-complete）；
 - [x] 更新 project plan 現況、實際測試、已知限制及後續工作。
@@ -324,6 +328,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-016 | EMM Style 02 study surface fidelity refinement | 只改 V1／V2 presentation：item output additive 傳遞 level／category；header title、Learning Card metadata／context、V1／V2 audio label control、Objective Probe／V1 QuizCard 題目／選項 visual hierarchy 對齊 handoff；保留 retrieval gate、long-press、swipe、server scoring、outbox、V1 rollback 及 locale／theme 行為 | 已落實並驗證；由 I-016 local UI refinement 完成 |
 | I-017 | EMM choice-card reference visual refinement | 只改 V1／V2 choice-card presentation：以 reference 收斂 prompt meta／單詞／instruction hierarchy、option row density／letter badge、idle／wrong／correct visual states；保留 option ids、delayed answer、server scoring、locale／theme、accessibility 及 V1 rollback contract | 已落實並驗證；由 I-017 local UI refinement 完成 |
 | I-018 | Revealed Learning Card reference visual refinement | 只改 V2 Learning Card presentation：右上 stylized「認」corner mark、front／back phonetic reserved slot、lower composition、smaller term scale、revealed definition hierarchy、移除卡內 duplicate swipe copy；保留 long-press／flip／audio exclusion／self-rating／server action／locale／theme contract | 已落實並驗證；由 I-018 local UI refinement 完成 |
+| I-019 | Learning Card geometry／Objective Probe continuation refinement | 只改 V2 card geometry／hint reservation 同 Objective Probe feedback continuation presentation：quarter-circle mark 對中、front phonetic slot 置於 term 下、secondary hint 固定 layout slot、feedback 由 click-anywhere／keyboard 觸發既有 `FEEDBACK_ACK`；保留 retrieval／scoring／server feedback／locale／theme／rollback contract | 已落實並驗證；由 I-019 local UI refinement 完成，唔涉及 migration／production／research gate |
 
 未決項目未收斂前唔可以開始其 dependent phase；改變 Contract 語義就先更新 Contract，
 唔喺 Implementation plan 偷渡決定。
@@ -347,6 +352,9 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
   state visual、responsive／locale／theme／reduced-motion 及 V1／V2 selection regression；
 - [x] I-018 revealed Learning Card reference visual refinement 已通過 corner mark、phonetic reserved slot、
   front／back hierarchy、duplicate copy removal、responsive／locale／theme／reduced-motion 及 V2 gesture regression；
+- [x] I-019 Learning Card geometry／Objective Probe continuation refinement 已通過 quarter-circle mark 對中、
+  front phonetic placement、secondary hint no-layout-shift、click-anywhere／keyboard `FEEDBACK_ACK`、responsive／
+  locale／theme／reduced-motion 及 V1／V2 regression；
 - [x] local 實際測試、未執行項目及已知限制已記錄；external pilot 結果仍 deferred；
 - [x] `project-plan.md` 同 `plans/README.md` 已按實際狀態更新；
 - [ ] 狀態只喺完成以上驗證後改為「已完成」。
@@ -556,6 +564,30 @@ locale／theme、V1 rollback 及既有 item contract：
   `study-card-fidelity` desktop／mobile 8 passed／1 skipped；WordCard 320px／390px fixtures 4 passed。
 - 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、
   research telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
+
+### 2026-08-14：I-019 Learning Card geometry／Objective Probe continuation evidence
+
+使用者實際操作指出右上「認」未對準半圓、front 音標空間未緊貼英文、secondary hint 出現會推動既有文字，並要求
+Objective Probe 移除確認 button，改為輕點卡面任意區域繼續；I-019 只改 presentation／既有 acknowledgement trigger，
+保留 retrieval gate、long-press timer、`FEEDBACK_ACK`、server feedback／scoring、outbox、locale／theme、reduced-motion
+及 V1 rollback：
+
+- 將 front DOM 順序改為 term → phonetic slot → 思考提示 → 發音；即使資料未提供 phonetic，slot 仍保留固定高度。
+- 以固定 `52px` secondary hint layout slot 取代 height／padding collapse；提示仍以 opacity／transform progressive enter，
+  因而顯示前後 term／音標／思考提示／發音 control 的 y／height 均保持在 1px 內。
+- 以實際 desktop geometry 對齊 quarter-circle 可見區：desktop card `416×496`，context box 置於 `x=849,y=89,w=76,h=76`；
+  mobile `390×844` visual smoke 無水平溢出。
+- Objective Probe read-only feedback 移除「我看到了，繼續」button 及確認式 copy；顯示「輕點一下任意區域」，答題卡面 click
+  或 Enter／Space keyboard continuation 仍只呼叫既有 `FEEDBACK_ACK`，disabled／sync-blocked 時不會繼續。
+- 驗證：`npm test` 126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；`npm run build`
+  compiled／43/43 static pages generated；`npm run test:e2e:study-stream-v2` 7 passed，包含 mark alignment、phonetic
+  placement、no-layout-shift 及 feedback click-anywhere；WordCard 320px／390px fixtures 4 passed。
+- V1 rollback regression：`STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion` Chromium 73 passed／4 skipped，
+  WebKit shard 1 17 passed、shard 2 16 passed；涵蓋 mouse／touch／synthetic pointer、offline／cross-tab／cross-device／
+  reconciliation。較早用 `.env.local=all` 誤跑嘅 V1 suite 只因 legacy test 等待 V2 不會發出嘅 `/api/study` 而 timeout，
+  已按計劃以 `off` 重跑並以通過結果為準。
+- 無 schema／migration／contract change，未執行 `npm run db:contract`；無 production deploy、真實學生 pilot、research
+  telemetry／consent 或 ethics／家長 permission／學生 assent，以上 external gates 仍 deferred。
 
 ### 2026-08-12：V2 product implementation handoff／reliability closure
 

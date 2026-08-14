@@ -423,7 +423,7 @@ button:disabled,
 .word-card-flip.is-flipped { transform: rotateY(180deg); }
 .word-card-top { align-items: center; display: flex; gap: var(--space-2); justify-content: space-between; position: relative; width: 100%; z-index: 1; }
 .level-badge { align-items: center; background: var(--border-soft); border: 1px solid transparent; border-radius: var(--radius-full); color: var(--primary); display: inline-flex; font-family: var(--font-display); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; min-height: 30px; padding: 0 10px; }
-.word-context { align-items: center; color: var(--primary-2); display: inline-flex; flex: 0 0 76px; font-family: var(--font-body); font-size: 2rem; font-weight: 900; height: 76px; justify-content: center; line-height: 1; margin: -22px -16px 0 0; position: relative; width: 76px; z-index: 2; }
+.word-context { align-items: center; color: var(--primary-2); display: inline-flex; flex: 0 0 76px; font-family: var(--font-body); font-size: 2rem; font-weight: 900; height: 76px; justify-content: center; line-height: 1; margin: -22px -16px 0 0; position: relative; transform: translate(10px, -26px); width: 76px; z-index: 2; }
 .word-card-center { align-items: center; display: grid; gap: var(--space-3); justify-items: center; padding: var(--space-5) 0 var(--space-4); position: relative; text-align: center; transform: translateY(8px); width: 100%; z-index: 1; }
 .word-card-hints { align-items: center; display: grid; gap: 14px; justify-items: center; width: 100%; }
 .word-card-answer-center { max-width: 100%; }
@@ -434,8 +434,8 @@ button:disabled,
 .word-card-hint { color: var(--muted); font-size: 1rem; margin: 0; }
 .word-card-retrieval-hint { align-items: center; animation: word-card-retrieval-hint-breathe 4.8s ease-in-out infinite; background: color-mix(in oklch, var(--primary) 8%, var(--surface)); border: 1px solid color-mix(in oklch, var(--primary) 34%, var(--border)); border-radius: var(--radius-full); box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 14%, transparent); color: var(--primary); display: inline-flex; font-weight: 750; justify-content: center; max-width: 92%; padding: 8px 16px; }
 .word-card-retrieval-hint.is-long-press-hint { animation-duration: 4.4s; border-color: color-mix(in oklch, var(--primary) 42%, var(--border)); }
-.word-card-secondary-hint-slot { align-items: center; box-sizing: border-box; display: flex; justify-content: center; margin-top: 2px; max-height: 0; opacity: 0; overflow: hidden; padding-top: 0; transform: translateY(-4px); transition: max-height 420ms ease, opacity 360ms ease, padding-top 420ms ease, transform 420ms ease; width: 100%; }
-.word-card-secondary-hint-slot.is-visible { max-height: 52px; opacity: 1; padding-top: 4px; transform: translateY(0); }
+.word-card-secondary-hint-slot { align-items: center; box-sizing: border-box; display: flex; height: 52px; justify-content: center; margin-top: 2px; opacity: 0; overflow: visible; pointer-events: none; transform: translateY(-4px); transition: opacity 360ms ease, transform 420ms ease, visibility 0s linear 420ms; visibility: hidden; width: 100%; }
+.word-card-secondary-hint-slot.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0); transition: opacity 360ms ease, transform 420ms ease, visibility 0s linear 0s; visibility: visible; }
 .word-card-secondary-hint { margin: 0; }
 .word-card-long-press-indicator { --word-card-hold-opacity: 0.16; --word-card-hold-pulse-duration: 1050ms; --word-card-hold-scale: 0.84; border-radius: 50%; height: 116px; opacity: 0; pointer-events: none; position: absolute; transform: translate(-50%, -50%) scale(var(--word-card-hold-scale)); transition: opacity 160ms ease; width: 116px; will-change: opacity, transform; z-index: 5; }
 .word-card-long-press-indicator.is-active { opacity: var(--word-card-hold-opacity); }
@@ -558,7 +558,9 @@ button:disabled,
 .quiz-result-copy { display: grid; gap: 2px; min-width: 0; }
 .quiz-result-copy strong { color: var(--text); font-size: 0.9375rem; font-weight: 800; }
 .quiz-result-copy p { color: var(--muted); font-size: 0.875rem; line-height: 1.55; margin: 0; }
-.quiz-feedback-action { border-radius: var(--radius-control); grid-column: 2; justify-content: center; min-height: 48px; padding: 0 16px; width: 100%; }
+.quiz-card-layout.is-feedback-continuation { cursor: pointer; }
+.quiz-card-layout.is-feedback-continuation:focus-visible { outline: 3px solid color-mix(in oklch, var(--primary) 32%, transparent); outline-offset: 4px; }
+.quiz-feedback-hint { align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-full); color: var(--primary) !important; display: inline-flex; font-size: 0.8125rem !important; font-weight: 800; grid-column: 1 / -1; justify-content: center; margin-top: 6px !important; min-height: 40px; padding: 0 14px; text-align: center; }
 
 .coach-sheet-title { display: grid; gap: 3px; }
 .coach-sheet-title strong { color: var(--text); font-family: var(--font-display); font-size: 1.4rem; }

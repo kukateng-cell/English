@@ -1579,9 +1579,6 @@ export default function WordCard({
                 {renderCardMeta()}
                 <div className="word-card-center">
                   <h2 className="word-card-term">{word.term}</h2>
-                  <div data-testid="word-card-hints" aria-live="polite" className="word-card-hints">
-                    <p data-testid="word-card-hint" className={cardHintClassName}>{resolvedCardHint}</p>
-                  </div>
                   <p
                     data-testid="word-card-phonetic"
                     className={`word-card-phonetic word-card-phonetic-slot${word.phonetic ? "" : " is-empty"}`}
@@ -1589,6 +1586,9 @@ export default function WordCard({
                   >
                     {word.phonetic ?? "\u00a0"}
                   </p>
+                  <div data-testid="word-card-hints" aria-live="polite" className="word-card-hints">
+                    <p data-testid="word-card-hint" className={cardHintClassName}>{resolvedCardHint}</p>
+                  </div>
                   {renderSpeakButton(isFlipped ? -1 : 0)}
                   {hasSecondaryHint ? (
                     <div
