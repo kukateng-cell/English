@@ -82,7 +82,7 @@ export default function StatsPage() {
 
           <div className="stats-two-column">
         <Card padded>
-          <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("活动")}</span><h2>{tc("最近学习活动")}</h2></div><span className="ui-field-helper">{tc("Asia/Shanghai")}</span></div>
+          <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("活动")}</span><h2>{tc("最近学习活动")}</h2></div></div>
           {data.activity.every((day) => day.count === 0) ? <EmptyState title={tc("还没有活动记录")} description={tc("完成复习后，活动图会显示每天的 REVIEW 事件。")}/> : <>
             {showActivityHeatmap ? <div className="activity-heatmap is-month" aria-label={tc("最近学习活动热力图") as string}>
               <div className="activity-heatmap-grid-wrap">

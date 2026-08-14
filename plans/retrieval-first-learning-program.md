@@ -241,6 +241,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-026 統計活動圖改為 GitHub 風格七行熱力方格（保留近 7／30 日範圍、日期及 REVIEW 事件語義）完成並驗證；
 - [x] I-027 只改善 30 日熱力圖空間利用率（7 日視圖保持不變，30 日欄位橫向填滿活動卡）完成並驗證；
 - [x] I-028 依使用者澄清恢復 7 日原有柱狀圖，只保留 30 日熱力方格及月視圖空間改善，完成並驗證；
+- [x] I-029 移除活動圖右上角技術性 `Asia/Shanghai` 標籤；保留內部 Asia/Shanghai 日期計算，完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -254,6 +255,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-026 統計活動熱力方格完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-027 30 日熱力圖空間利用率修正完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-028 7 日原有柱狀圖恢復完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-029 移除活動圖技術性時區標籤完成並記錄實際驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -356,6 +358,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [x] local I-026 統計活動以星期七日行列及深淺格仔顯示近 7／30 日 REVIEW 事件，並完成必要嘅 unit／lint／typecheck／diff 驗證；
 - [x] local I-027 7 日視圖保持原有固定方格，30 日視圖欄位橫向填滿活動卡，並完成必要嘅 lint／typecheck／diff 驗證；
 - [x] local I-028 7 日活動恢復原有柱狀圖，30 日活動保留伸展後熱力圖，並完成必要嘅 lint／typecheck／diff 驗證；
+- [x] local I-029 活動圖不再顯示技術性 `Asia/Shanghai` 標籤，內部日期語義不變，並完成必要嘅 lint／typecheck／diff 驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -399,6 +402,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-022 | 使用者要求將統計活動柱狀圖改為 GitHub 風格熱力方格；以七日為行、近 7／30 日為欄，格仔深淺按每日 REVIEW 事件數量分級，保留 Asia/Shanghai 日期及 accessible table，不改 activity API 或 event semantics | 已落實並驗證；由本次 local stats presentation correction 完成 |
 | P-023 | 使用者確認 7 日活動唔需要改，指出 30 日熱力圖固定小方格造成右側空白；只對超過 7 日嘅月視圖將欄位拉伸至活動卡寬度，保留 7 日視圖、七日行、顏色分級及 activity semantics | 已落實並驗證；由本次 local responsive presentation correction 完成 |
 | P-024 | 使用者進一步澄清「7 日活動」係要維持原本柱狀圖，而唔係 I-026 新增嘅熱力方格；7 日恢復 legacy bar presentation，30 日保留 heatmap／伸展月視圖，數據、API、REVIEW semantics 不變 | 已落實並驗證；由本次 local stats presentation correction 完成 |
+| P-025 | 使用者確認學生介面毋須顯示 `Asia/Shanghai` 技術時區名稱；維持既有 Asia/Shanghai 日期計算及活動分組，只移除活動卡右上角技術性標籤 | 已落實並驗證；由本次 local stats presentation correction 完成 |
 
 ## 十四、計劃審查紀錄
 
@@ -567,6 +571,12 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 
 - 按使用者澄清，7 日 activity data 恢復原有柱狀圖（日期軸、數值、比例高度及 REVIEW 活動語義）；30 日仍使用伸展後熱力方格。
 - `showActivityHeatmap` 只喺 activity data 超過 7 日時啟用，避免 7 日視圖再套用熱力圖 presentation；30 日 `is-month` 空間改善保留。
+- 必要驗證：指定 stats page lint passed；`npx tsc --noEmit` passed；`git diff --check` passed。
+- 無 schema／migration／contract change，未執行 production deploy、browser E2E、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
+
+### 2026-08-14：I-029 移除活動圖技術性時區標籤 (completed)
+
+- 移除活動統計卡右上角 `Asia/Shanghai` 顯示；保留 API、頁面日期格式化及所有統計日期桶使用既有 Asia/Shanghai 規則。
 - 必要驗證：指定 stats page lint passed；`npx tsc --noEmit` passed；`git diff --check` passed。
 - 無 schema／migration／contract change，未執行 production deploy、browser E2E、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
 
