@@ -60,7 +60,9 @@ export default function StatsPage() {
   if (error && !data) return <div className="student-content-wide"><StudentPageStack><StudentSectionStack><RetryState message={tc(error)} onRetry={() => setReloadKey((key) => key + 1)} /></StudentSectionStack></StudentPageStack></div>;
   if (!data) return <div className="student-content-wide"><StudentPageStack><PageHeader title={tc("学习统计")} description={tc("正在读取你的活动数据")} /><StudentSectionStack><div className="dashboard-skeleton-grid"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div><Skeleton className="h-64" label={tc("正在加载统计")}/></StudentSectionStack></StudentPageStack></div>;
 
+  const showActivityHeatmap = data.activity.length > 7;
   const activityHeatmap = buildActivityHeatmap(data.activity);
+  const maxActivity = Math.max(1, ...data.activity.map((day) => day.count));
   const formatDay = (day: string) => new Intl.DateTimeFormat(locale === "zh-Hans" ? "zh-CN" : "zh-TW", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric" }).format(new Date(`${day}T00:00:00+08:00`));
   const formatDateTime = (value: string) => new Intl.DateTimeFormat(locale === "zh-Hans" ? "zh-CN" : "zh-TW", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 
@@ -82,7 +84,7 @@ export default function StatsPage() {
         <Card padded>
           <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("活动")}</span><h2>{tc("最近学习活动")}</h2></div><span className="ui-field-helper">{tc("Asia/Shanghai")}</span></div>
           {data.activity.every((day) => day.count === 0) ? <EmptyState title={tc("还没有活动记录")} description={tc("完成复习后，活动图会显示每天的 REVIEW 事件。")}/> : <>
-            <div className={data.activity.length > 7 ? "activity-heatmap is-month" : "activity-heatmap"} aria-label={tc("最近学习活动热力图") as string}>
+            {showActivityHeatmap ? <div className="activity-heatmap is-month" aria-label={tc("最近学习活动热力图") as string}>
               <div className="activity-heatmap-grid-wrap">
                 <div className="activity-heatmap-weekdays" aria-hidden="true">{WEEKDAY_LABELS.map((label) => <span key={label}>{tc(label)}</span>)}</div>
                 <div className="activity-heatmap-grid" role="group" aria-label={tc("按星期显示的学习活动") as string}>
@@ -94,7 +96,7 @@ export default function StatsPage() {
                 </div>
               </div>
               <div className="activity-heatmap-legend" aria-label={tc("活动强度图例") as string}><span>{tc("少")}</span><div className="activity-heatmap-legend-swatches" aria-hidden="true">{[0, 1, 2, 3, 4].map((level) => <span className="activity-heatmap-cell" data-level={level} key={level} />)}</div><span>{tc("多")}</span></div>
-            </div>
+            </div> : <div className="activity-chart" role="img" aria-label={tc("最近学习活动柱状图") as string}>{data.activity.map((day) => <div className="activity-bar-column" key={day.day}><span className="activity-bar-value">{day.count || ""}</span><div className="activity-bar-track"><span className="activity-bar" style={{ height: `${Math.max(4, (day.count / maxActivity) * 100)}%` }} /></div><span className="activity-bar-label">{formatDay(day.day)}</span></div>)}</div>}
             <table className="sr-only"><caption>{tc("最近学习活动数据")}</caption><thead><tr><th>{tc("日期")}</th><th>{tc("复习事件")}</th></tr></thead><tbody>{data.activity.map((day) => <tr key={day.day}><td>{formatDay(day.day)}</td><td>{day.count}</td></tr>)}</tbody></table>
           </>}
         </Card>

@@ -732,6 +732,12 @@ button:disabled,
 .stats-range-row { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; }
 .stats-top-grid { margin-bottom: 0; }
 .stats-two-column { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr); margin-bottom: 0; }
+.activity-chart { align-items: end; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(20px, 1fr)); min-height: 220px; padding-top: 12px; }
+.activity-bar-column { align-items: center; display: grid; gap: 5px; grid-template-rows: 18px minmax(0, 1fr) 26px; min-width: 0; }
+.activity-bar-value, .activity-bar-label { color: var(--muted); font-size: 0.6875rem; text-align: center; }
+.activity-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-bar-track { align-items: end; background: var(--border-soft); border-radius: var(--radius-sm); display: flex; height: 160px; overflow: hidden; width: 100%; }
+.activity-bar { background: var(--primary); border-radius: var(--radius-sm) var(--radius-sm) 0 0; display: block; min-height: 4px; width: 100%; }
 .activity-heatmap { --activity-cell-size: 26px; display: grid; gap: 14px; padding-top: 8px; }
 .activity-heatmap-grid-wrap { align-items: start; display: grid; gap: 8px; grid-template-columns: 18px minmax(0, 1fr); overflow-x: auto; padding: 2px; }
 .activity-heatmap-weekdays { color: var(--muted); display: grid; font-size: 0.6875rem; font-weight: 800; gap: 6px; grid-template-rows: repeat(7, var(--activity-cell-size)); justify-items: center; line-height: var(--activity-cell-size); }
