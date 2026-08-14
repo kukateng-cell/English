@@ -346,7 +346,7 @@ function ResumeToast({ visible }: { visible: boolean }) {
           exit={{ opacity: 0, y: -12 }}
           className="study-toast fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full px-5 py-2.5 text-[13px] font-medium shadow-lg backdrop-blur"
         >
-          💾 {tc("已恢复上次进度，继续答题吧")}
+          <span className="flex items-center gap-1.5"><Icon name="check" size={15} /> {tc("已恢复上次进度，继续答题吧")}</span>
         </motion.div>
       )}
     </AnimatePresence>
@@ -371,10 +371,10 @@ function AchievementToast({
           exit={{ opacity: 0, y: -16 }}
           className="study-toast fixed left-1/2 top-16 z-50 flex -translate-x-1/2 flex-col items-center gap-1 rounded-2xl px-5 py-3 text-center shadow-lg backdrop-blur"
         >
-          <div className="text-[13px] font-bold">🎉 {tc("解锁新成就")}</div>
+          <div className="flex items-center gap-2 text-[13px] font-bold"><Icon name="spark" size={16} /> {tc("解锁新成就")}</div>
           {items.map((a) => (
-            <div key={a.key} className="text-[13px]">
-              {a.icon} {tc(a.title)}
+            <div key={a.key} className="flex items-center gap-2 text-[13px]">
+              <Icon name={a.icon} size={16} /> {tc(a.title)}
             </div>
           ))}
           <button
@@ -2670,8 +2670,8 @@ function LegacyStudyPage() {
           >
             <Icon name="chevron-left" size={26} />
           </Link>
-          <span className="study-muted text-[14px] font-medium">
-            {tc("📝 测试中")}
+          <span className="study-muted flex items-center gap-1.5 text-[14px] font-medium">
+            <Icon name="book" size={16} /> {tc("测试中")}
           </span>
           <div className="flex items-center gap-2">
             {streak && <StreakBadge streak={streak} />}
@@ -2782,7 +2782,7 @@ function LegacyStudyPage() {
         )}
         {streak && streak.count > 0 && (
           <div className="study-warning-card mb-6 flex items-center gap-2 rounded-2xl px-5 py-3 text-[14px] font-semibold">
-            🔥 {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
+            <Icon name="flame" size={17} /> {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
           </div>
         )}
         {/* 打卡日历：当月视图，激励保持连续学习 */}
@@ -2833,9 +2833,9 @@ function LegacyStudyPage() {
           <Link
             href="/achievements"
             onClick={guardStudyNavigation}
-            className="study-link-primary text-[13px] font-medium transition"
+            className="study-link-primary flex items-center gap-1.5 text-[13px] font-medium transition"
           >
-            🎖 {tc("查看我的成就")}
+            <Icon name="medal" size={16} /> {tc("查看我的成就")}
           </Link>
         </div>
       </div>

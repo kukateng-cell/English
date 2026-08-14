@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import type { StreakInfo } from "@/lib/streak";
 
 /**
  * 打卡日历（当月视图）。
  *
  * 从 GET /api/streak 拉取连续天数 + 最近 60 天打卡日期，
- * 以月历形式展示：已打卡的日期橙色高亮，今天描边提示。
+ * 以月历形式展示：已打卡的日期 indigo 高亮，今天描边提示。
  * 用于学习完成画面，激励学生保持连续学习。
  */
 
@@ -108,8 +109,8 @@ export default function StreakCalendar({
           {tc("连续学习")}
         </span>
         <div className="flex items-center gap-3 text-[13px]">
-          <span className="flex items-center gap-1 font-semibold text-[var(--warning)] dark:text-[var(--warning)]">
-            🔥 {streak.count} {tc("天")}
+          <span className="flex items-center gap-1 font-semibold text-[var(--primary)]">
+            <Icon name="flame" size={15} /> {streak.count} {tc("天")}
           </span>
           <span className="text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("本月")} {grid.studiedThisMonth} {tc("天")}
@@ -139,7 +140,7 @@ export default function StreakCalendar({
               className={[
                 "flex aspect-square items-center justify-center rounded-xl text-[13px] tabular-nums",
                 daysSet.has(c.key)
-                  ? "bg-[var(--warning)] font-semibold text-[var(--color-surface)] shadow-sm"
+                  ? "bg-[var(--primary)] font-semibold text-[var(--color-surface)] shadow-sm"
                   : c.isToday
                     ? "bg-[var(--border-soft)] font-bold text-[var(--primary)] ring-2 ring-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)] dark:ring-[var(--primary)]"
                     : "bg-[var(--border-soft)] text-[var(--muted)] dark:bg-[var(--border)] dark:text-[var(--muted)]",
@@ -153,8 +154,8 @@ export default function StreakCalendar({
       </div>
 
       {!streak.studiedToday && streak.count > 0 && (
-        <p className="mt-3 text-center text-[12px] text-[var(--warning)] dark:text-[var(--warning)]">
-          {tc("今天还没打卡，学一个词就能续上 🔥")}
+        <p className="mt-3 flex items-center justify-center gap-1 text-center text-[12px] text-[var(--primary)]">
+          {tc("今天还没打卡，学一个词就能续上")} <Icon name="flame" size={14} />
         </p>
       )}
     </div>

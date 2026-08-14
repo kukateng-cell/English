@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import type { AchievementStatus } from "@/lib/achievements";
 
 /** 成就徽章卡片：解锁=彩色，未解锁=灰色（显示进度）。 */
@@ -14,12 +15,12 @@ export function AchievementCard({ a }: { a: AchievementStatus }) {
     <div
       className={`flex flex-col items-center rounded-2xl border p-4 text-center transition ${
         a.unlocked
-          ? "border-transparent bg-[var(--warning)] text-[var(--color-surface)] shadow-card"
+          ? "border-transparent bg-[var(--primary)] text-[var(--color-surface)] shadow-card"
           : "border-[var(--border)] bg-[var(--surface)] dark:border-[var(--border)] dark:bg-[var(--surface)]"
       }`}
     >
-      <div className={`mb-2 text-[28px] leading-none ${a.unlocked ? "" : "opacity-40 grayscale"}`}>
-        {a.icon}
+      <div className={`mb-2 flex h-12 w-12 items-center justify-center rounded-2xl ${a.unlocked ? "bg-[var(--surface)]/20 text-[var(--color-surface)]" : "bg-[var(--border-soft)] text-[var(--primary)] opacity-60"}`}>
+        <Icon name={a.icon} size={27} />
       </div>
       <div className={`mb-1 text-[14px] font-bold ${a.unlocked ? "text-[var(--color-surface)]" : "text-[var(--text)]"}`}>
         {tc(a.title)}
@@ -28,8 +29,8 @@ export function AchievementCard({ a }: { a: AchievementStatus }) {
         {tc(a.description)}
       </div>
       {a.unlocked ? (
-        <div className="rounded-full bg-[var(--surface)]/20 px-2.5 py-0.5 text-[11px] font-semibold">
-          ✓ {tc("已达成")}
+        <div className="flex items-center gap-1 rounded-full bg-[var(--surface)]/20 px-2.5 py-0.5 text-[11px] font-semibold">
+          <Icon name="check" size={13} /> {tc("已达成")}
         </div>
       ) : (
         <div className="w-full">
@@ -88,7 +89,9 @@ export default function AchievementsPage() {
   if (needLogin) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-6 text-center">
-        <div className="mb-3 text-4xl">🔒</div>
+        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--border-soft)] text-[var(--primary)]">
+          <Icon name="lock" size={24} />
+        </div>
         <p className="mb-4 text-[15px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("请先登录后查看成就")}
         </p>
@@ -131,15 +134,15 @@ export default function AchievementsPage() {
         <Link
           href="/"
           aria-label={tc("返回")}
-          className="mb-5 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.95]"
+          className="study-header-icon study-header-back mb-5"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
+          <Icon name="chevron-left" size={26} />
         </Link>
         {/* 标题 + 总进度 */}
         <div className="mb-6 text-center">
-          <div className="mb-2 text-[36px] leading-none">🏆</div>
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--border-soft)] text-[var(--primary)]">
+            <Icon name="trophy" size={34} />
+          </div>
           <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">
             {tc("我的成就")}
           </h1>

@@ -10,6 +10,7 @@ import { todayKey, offsetDay } from "@/lib/streak";
 import { isMasteredByInterval } from "@/lib/mastered";
 
 export type LeaderboardType = "streak" | "words" | "studyDays";
+export type LeaderboardIcon = "flame" | "books" | "calendar-check";
 
 export interface LeaderboardEntry {
   rank: number;
@@ -23,7 +24,7 @@ export interface LeaderboardList {
   type: LeaderboardType;
   /** 简体标题（前端经 tc() 转换）。 */
   label: string;
-  icon: string;
+  icon: LeaderboardIcon;
   entries: LeaderboardEntry[];
 }
 
@@ -149,19 +150,19 @@ export async function getLeaderboard(
     {
       type: "streak",
       label: "客观认读连续天数",
-      icon: "🔥",
+      icon: "flame",
       entries: trimToTop(rankEntries(streakValues, userId)),
     },
     {
       type: "words",
       label: "掌握词数",
-      icon: "📚",
+      icon: "books",
       entries: trimToTop(rankEntries(wordsValues, userId)),
     },
     {
       type: "studyDays",
       label: "累计打卡",
-      icon: "🗓️",
+      icon: "calendar-check",
       entries: trimToTop(rankEntries(studyDaysValues, userId)),
     },
   ];

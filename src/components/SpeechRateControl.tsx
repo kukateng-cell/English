@@ -11,6 +11,7 @@ import {
   stopSpeech,
 } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 
 const PRESETS = [
   { label: "慢", value: 0.6 },
@@ -86,7 +87,7 @@ export default function SpeechRateControl() {
         aria-label={tc("调整朗读语速")}
         className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)]/90 px-3 py-1.5 text-xs font-medium text-[var(--muted)] shadow-[var(--shadow-sm)] backdrop-blur transition hover:bg-[var(--border-soft)] active:scale-95"
       >
-        <span>🔊</span>
+        <Icon name="volume" size={14} />
         <span>{tc("语速")} {formatRate(rate)}</span>
       </button>
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import type {
   LeaderboardData,
   LeaderboardList,
@@ -51,7 +52,9 @@ export default function LeaderboardPage() {
   if (needLogin) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-6 text-center">
-        <div className="mb-3 text-4xl">🔒</div>
+        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--border-soft)] text-[var(--primary)]">
+          <Icon name="lock" size={24} />
+        </div>
         <p className="mb-4 text-[15px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("请先登录后查看排行榜")}
         </p>
@@ -87,9 +90,8 @@ export default function LeaderboardPage() {
 
   const list: LeaderboardList =
     data.lists.find((l) => l.type === active) ?? data.lists[0];
-  // 前三名奖牌
-  const medal = (rank: number) =>
-    rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
+  const medalTone = (rank: number) =>
+    rank === 1 ? "text-[var(--warning)]" : rank === 2 ? "text-[var(--muted)]" : "text-[var(--primary)]";
 
   return (
     <div className="flex min-h-full flex-col px-5 py-8">
@@ -98,14 +100,14 @@ export default function LeaderboardPage() {
         <Link
           href="/"
           aria-label={tc("返回")}
-          className="mb-5 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.95]"
+          className="study-header-icon study-header-back mb-5"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
+          <Icon name="chevron-left" size={26} />
         </Link>
         <div className="mb-5 text-center">
-          <div className="mb-2 text-[36px] leading-none">🏆</div>
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--border-soft)] text-[var(--primary)]">
+            <Icon name="trophy" size={34} />
+          </div>
           <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">
             {tc("学习排行榜")}
           </h1>
@@ -138,33 +140,33 @@ export default function LeaderboardPage() {
               key={e.userId}
               className={`flex items-center gap-3 px-4 py-3 ${
                 e.isMe
-                  ? "bg-[var(--warning-bg)] dark:bg-[var(--warning-bg)]"
+                  ? "bg-[var(--border-soft)] dark:bg-[var(--border-soft)]"
                   : i !== list.entries.length - 1
                     ? "border-b border-[var(--border-soft)] dark:border-[var(--border)]"
                     : ""
               }`}
             >
               <div className="w-8 text-center text-[15px] font-bold tabular-nums text-[var(--text)] dark:text-[var(--text)]">
-                {medal(e.rank) ?? e.rank}
+                {e.rank <= 3 ? <Icon name="medal" size={21} className={medalTone(e.rank)} /> : e.rank}
               </div>
               <div className="min-w-0 flex-1">
                 <div
                   className={`truncate text-[14px] font-medium ${
                     e.isMe
-                      ? "text-[var(--warning)] dark:text-[var(--warning)]"
+                      ? "text-[var(--primary)] dark:text-[var(--primary)]"
                       : "text-[var(--text)] dark:text-[var(--text)]"
                   }`}
                 >
                   {e.name}
                   {e.isMe && (
-                    <span className="ml-1.5 rounded-full bg-[var(--warning)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--warning)] dark:text-[var(--warning)]">
+                    <span className="ml-1.5 rounded-full bg-[var(--primary)]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)] dark:text-[var(--primary)]">
                       {tc("我")}
                     </span>
                   )}
                 </div>
               </div>
               <div className="flex items-center gap-1 text-[14px] font-semibold tabular-nums text-[var(--primary)] dark:text-[var(--primary)]">
-                <span>{list.icon}</span>
+                <Icon name={list.icon} size={16} />
                 <span>{e.value}</span>
               </div>
             </div>

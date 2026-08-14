@@ -10,7 +10,8 @@ import { computeStreak } from "@/lib/streak";
 /** 成就定义。type 决定用哪个进度数据源。 */
 export interface AchievementDef {
   key: string;
-  icon: string;
+  /** EMM Style 02 icon key rendered by the student UI. */
+  icon: AchievementIcon;
   /** 简体标题（前端经 tc() 转繁简）。 */
   title: string;
   description: string;
@@ -20,16 +21,27 @@ export interface AchievementDef {
   target: number;
 }
 
+export type AchievementIcon =
+  | "seedling"
+  | "book"
+  | "books"
+  | "medal"
+  | "flame"
+  | "bolt"
+  | "star"
+  | "calendar-check"
+  | "trophy";
+
 export const ACHIEVEMENTS: AchievementDef[] = [
-  { key: "first_study", icon: "🌱", title: "初次学习", description: "完成第一次学习", type: "reviews", target: 1 },
-  { key: "review_10", icon: "📖", title: "小试牛刀", description: "累计复习 10 个词", type: "reviews", target: 10 },
-  { key: "review_50", icon: "📚", title: "渐入佳境", description: "累计复习 50 个词", type: "reviews", target: 50 },
-  { key: "review_100", icon: "🏅", title: "百词斩", description: "累计复习 100 个词", type: "reviews", target: 100 },
-  { key: "streak_3", icon: "🔥", title: "连学 3 天", description: "连续学习 3 天", type: "streak", target: 3 },
-  { key: "streak_7", icon: "⚡", title: "连学 7 天", description: "连续学习 7 天", type: "streak", target: 7 },
-  { key: "streak_30", icon: "🌟", title: "连学 30 天", description: "连续学习 30 天", type: "streak", target: 30 },
-  { key: "study_7", icon: "🗓️", title: "坚持一周", description: "累计打卡 7 天", type: "studyDays", target: 7 },
-  { key: "study_30", icon: "🏆", title: "月度坚持", description: "累计打卡 30 天", type: "studyDays", target: 30 },
+  { key: "first_study", icon: "seedling", title: "初次学习", description: "完成第一次学习", type: "reviews", target: 1 },
+  { key: "review_10", icon: "book", title: "小试牛刀", description: "累计复习 10 个词", type: "reviews", target: 10 },
+  { key: "review_50", icon: "books", title: "渐入佳境", description: "累计复习 50 个词", type: "reviews", target: 50 },
+  { key: "review_100", icon: "medal", title: "百词斩", description: "累计复习 100 个词", type: "reviews", target: 100 },
+  { key: "streak_3", icon: "flame", title: "连学 3 天", description: "连续学习 3 天", type: "streak", target: 3 },
+  { key: "streak_7", icon: "bolt", title: "连学 7 天", description: "连续学习 7 天", type: "streak", target: 7 },
+  { key: "streak_30", icon: "star", title: "连学 30 天", description: "连续学习 30 天", type: "streak", target: 30 },
+  { key: "study_7", icon: "calendar-check", title: "坚持一周", description: "累计打卡 7 天", type: "studyDays", target: 7 },
+  { key: "study_30", icon: "trophy", title: "月度坚持", description: "累计打卡 30 天", type: "studyDays", target: 30 },
 ];
 
 type AchievementDb = Pick<

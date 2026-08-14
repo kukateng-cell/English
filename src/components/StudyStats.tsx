@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import { responseErrorMessage } from "@/lib/api-error";
 
 interface StudyStats {
@@ -84,8 +85,8 @@ export default function StudyStats() {
     >
       {/* 标题行 */}
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-[14px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
-          📊 {tc("今日学习")}
+        <span className="flex items-center gap-1.5 text-[14px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
+          <Icon name="bar-chart" size={16} /> {tc("今日学习")}
         </span>
         <span className="text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
           {tc("点击开始")} →
