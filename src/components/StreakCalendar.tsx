@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
-import Icon from "@/components/ui/Icon";
+import RewardIcon from "@/components/ui/RewardIcon";
 import type { StreakInfo } from "@/lib/streak";
 
 /**
@@ -110,7 +110,7 @@ export default function StreakCalendar({
         </span>
         <div className="flex items-center gap-3 text-[13px]">
           <span className="flex items-center gap-1 font-semibold text-[var(--primary)]">
-            <Icon name="flame" size={15} /> {streak.count} {tc("天")}
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center"><RewardIcon name="flame" size={17} /></span> {streak.count} {tc("天")}
           </span>
           <span className="text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("本月")} {grid.studiedThisMonth} {tc("天")}
@@ -155,7 +155,7 @@ export default function StreakCalendar({
 
       {!streak.studiedToday && streak.count > 0 && (
         <p className="mt-3 flex items-center justify-center gap-1 text-center text-[12px] text-[var(--primary)]">
-          {tc("今天还没打卡，学一个词就能续上")} <Icon name="flame" size={14} />
+          {tc("今天还没打卡，学一个词就能续上")} <span className="flex h-5 w-5 items-center justify-center"><RewardIcon name="flame" size={16} /></span>
         </p>
       )}
     </div>

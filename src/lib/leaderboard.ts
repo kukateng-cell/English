@@ -8,9 +8,10 @@ import { prisma } from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
 import { todayKey, offsetDay } from "@/lib/streak";
 import { isMasteredByInterval } from "@/lib/mastered";
+import type { RewardIconName } from "@/lib/reward-icons";
 
 export type LeaderboardType = "streak" | "words" | "studyDays";
-export type LeaderboardIcon = "flame" | "books" | "calendar-check";
+export type LeaderboardIcon = Extract<RewardIconName, "flame" | "word-stack" | "calendar-check">;
 
 export interface LeaderboardEntry {
   rank: number;
@@ -156,7 +157,7 @@ export async function getLeaderboard(
     {
       type: "words",
       label: "掌握词数",
-      icon: "books",
+      icon: "word-stack",
       entries: trimToTop(rankEntries(wordsValues, userId)),
     },
     {

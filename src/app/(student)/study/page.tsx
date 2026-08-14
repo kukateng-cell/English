@@ -22,6 +22,7 @@ import StreakBadge from "@/components/StreakBadge";
 import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/ThemeToggle";
 import Icon from "@/components/ui/Icon";
+import RewardIcon from "@/components/ui/RewardIcon";
 import StreakCalendar from "@/components/StreakCalendar";
 import { useStudentNavigation } from "@/components/student/StudentNavigationContext";
 import type { StreakInfo } from "@/lib/streak";
@@ -374,7 +375,7 @@ function AchievementToast({
           <div className="flex items-center gap-2 text-[13px] font-bold"><Icon name="spark" size={16} /> {tc("解锁新成就")}</div>
           {items.map((a) => (
             <div key={a.key} className="flex items-center gap-2 text-[13px]">
-              <Icon name={a.icon} size={16} /> {tc(a.title)}
+              <RewardIcon name={a.icon} size={17} /> {tc(a.title)}
             </div>
           ))}
           <button
@@ -2782,7 +2783,7 @@ function LegacyStudyPage() {
         )}
         {streak && streak.count > 0 && (
           <div className="study-warning-card mb-6 flex items-center gap-2 rounded-2xl px-5 py-3 text-[14px] font-semibold">
-            <Icon name="flame" size={17} /> {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
+            <RewardIcon name="flame" size={19} /> {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
           </div>
         )}
         {/* 打卡日历：当月视图，激励保持连续学习 */}
@@ -2835,7 +2836,7 @@ function LegacyStudyPage() {
             onClick={guardStudyNavigation}
             className="study-link-primary flex items-center gap-1.5 text-[13px] font-medium transition"
           >
-            <Icon name="medal" size={16} /> {tc("查看我的成就")}
+            <RewardIcon name="medal" size={18} /> {tc("查看我的成就")}
           </Link>
         </div>
       </div>

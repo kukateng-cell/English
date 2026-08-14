@@ -247,6 +247,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] I-032 修正「認字小測／選擇題」surface 仍受 `max-w-md` 限制嘅 tablet／desktop layout，完成並驗證；
 - [x] I-033 將學習流程返回掣收斂至 EMM Style 02 圓形返回按鈕（V2 認讀卡及 legacy 測試頂部），保留返回路徑、navigation guard、mobile／desktop 及 a11y semantics，完成並驗證；
 - [x] I-034 統一排行榜、連勝、成就及相關獎勵圖示為 EMM Style 02 可換色 SVG icon system，保留資料／排名／解鎖 semantics，完成並驗證；
+- [x] I-035 依實機回饋重畫 reward icon system（專用 trophy／numbered medal／flame／word-card stack／calendar-check／achievement glyph），統一 24×24 grid、stroke、optical size 及固定 slot 對齊，完成並驗證；
 - [ ] external pilot、production observation、正式 full rollout 及 threshold decision（延期，
   唔屬本地交付）；
 - [x] Product-side 子計劃嘅 local scope（包括 I-011 visual correction、I-012 retrieval pause correction、I-013 session recovery／locale correction、I-014 item credential recovery、I-015 retrieval prompt refinement 及 I-016 EMM surface fidelity）完成並記錄實際驗證。
@@ -266,6 +267,7 @@ mode 要 fail closed，local browser test 可由明確 `ENABLE_TEST_ROUTES=1` �
 - [x] Product-side 子計劃嘅 local scope 包括 I-032 認字小測／選擇題 responsive surface 修正完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-033 學習流程返回掣 EMM visual correction 完成並記錄實際驗證；external rollout gates 仍 deferred。
 - [x] Product-side 子計劃嘅 local scope 包括 I-034 排行榜／連勝／成就 EMM icon visual correction 完成並記錄實際驗證；external rollout gates 仍 deferred。
+- [x] Product-side 子計劃嘅 local scope 包括 I-035 reward icon polish／alignment correction，已完成必要驗證；external rollout gates 仍 deferred。
 
 ### Milestone R1：Research-ready telemetry
 
@@ -374,6 +376,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 - [x] local I-032 認字小測／選擇題 surface 於 tablet／desktop 使用寬版 layout，mobile／題目／選項／回饋 semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
 - [x] local I-033 學習流程返回掣使用 EMM Style 02 圓形視覺，返回路徑／navigation guard／a11y semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
 - [x] local I-034 排行榜、連勝、成就及相關 toast／calendar icon 使用 EMM Style 02 可換色 SVG，排名／解鎖／進度／資料 semantics 不變，並完成必要嘅 lint／typecheck／visual review／diff 驗證；
+- [x] local I-035 reward icon 使用專用高質素 SVG glyph、前三名 numbered medal 及固定 icon slot，掌握字數／打卡指標 baseline 對齊，並通過必要嘅 lint／typecheck／rendered visual review／diff 驗證；
 - [x] local scope 完成後，production／pilot／research／contract-cleanup deferred 狀態有明確
   記錄，唔將未執行外部 gate 誤報為本地缺陷。
 
@@ -423,6 +426,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-028 | 使用者截圖確認上一輪放寬咗 Learning Card，但 Objective Probe／認字小測仍保留 `max-w-md`，因此實際看到嘅測試卡冇明顯改變；補充同一套 tablet／desktop responsive max-width 到測試標題、摘要及選擇題卡，保留四選項直排、mobile、題目、回饋及 API semantics | 已落實並驗證；由本次 local objective-probe responsive correction 完成 |
 | P-029 | 使用者要求保留返回掣，但改為 EMM Style 02 圓形白底／細邊框／chevron-left；只收斂 V2 認讀卡及 legacy 測試頂部返回掣 presentation，保留既有目標路徑、離開 guard、keyboard／a11y 及 mobile／desktop semantics | 已落實並驗證；由本次 local study-exit control visual correction 完成 |
 | P-030 | 使用者指出排行榜獎杯／前三名獎牌／連勝火焰／成就圖案同 app 不協調；以 EMM Style 02 indigo／soft-surface／細線可換色 SVG icon 取代 emoji 及分散圖案，保留排名、連勝、成就解鎖、進度、API 及 locale／theme semantics；暫不產生 raster asset | 已落實並驗證；由本次 local reward icon system correction 完成 |
+| P-031 | 使用者實機 review 指出 I-034 glyph 仍過度簡化，掌握字數與日曆圖示亦未 optical alignment；改用獨立 reward icon component、精修 duotone glyph、含 1／2／3 嘅 rank medal、固定 slot／baseline，保留資料及互動 semantics | 已完成；I-035 local reward icon polish correction 已驗證 |
 
 ## 十四、計劃審查紀錄
 
@@ -636,6 +640,14 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 - 排名順序、目前學生標記、連勝數字、成就 progress／unlock、API response flow 及 locale／theme semantics 不變；沒有 schema、migration、study contract 或 rollback change。
 - 必要驗證：受影響 TypeScript／ESLint passed；`npx tsc --noEmit` passed；`npm run build` passed；`git diff --check` passed；完成 EMM Style 02 token／source visual review。
 - 未執行 leaderboard／achievement full browser visual suite（目前沒有相鄰專用 suite）、production deploy、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
+
+### 2026-08-15：I-035 reward icon polish／alignment correction (completed)
+
+- 將獎勵圖示由通用 `Icon` 拆成專用 `RewardIcon`／`RankMedal`：trophy、numbered medal、flame、word-card stack、calendar-check 及成就 glyph 使用一致 24×24 grid、1.65 stroke、圓角端點及次層透明線條；前三名獎牌直接顯示 1／2／3。
+- 排行榜嘅掌握詞數／打卡日數改用相同 28×28 固定 icon slot 及最小數值寬度，修正兩種圖示本體高度不同造成嘅 optical alignment／baseline 偏差；標題獎杯、成就卡、成就 toast、連勝 badge／calendar 同步使用同一套圖示。
+- 排名、指標數值、成就 unlock／progress、連勝資料、API payload semantics、locale／theme 及學習流程不變；沒有 schema、migration、study contract 或 rollback change。
+- 必要驗證：指定 ESLint passed；`npx tsc --noEmit` passed；臨時 browser preview 實際檢查 icon stroke／optical size／rank row alignment passed，預覽頁完成後移除；`npm run build` passed；`git diff --check` passed。
+- 沒有執行與純 presentation correction 無關嘅 DB／migration／完整學習 browser suite、production deploy、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
 
 ### 2026-08-12：獲授權 product implementation handoff／internal reliability closure
 

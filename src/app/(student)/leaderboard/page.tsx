@@ -5,6 +5,7 @@ import Link from "next/link";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import Icon from "@/components/ui/Icon";
+import RewardIcon, { RankMedal } from "@/components/ui/RewardIcon";
 import type {
   LeaderboardData,
   LeaderboardList,
@@ -105,8 +106,8 @@ export default function LeaderboardPage() {
           <Icon name="chevron-left" size={26} />
         </Link>
         <div className="mb-5 text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--border-soft)] text-[var(--primary)]">
-            <Icon name="trophy" size={34} />
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[20px] border border-[var(--border)] bg-[var(--border-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
+            <RewardIcon name="trophy" size={38} />
           </div>
           <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">
             {tc("学习排行榜")}
@@ -146,8 +147,13 @@ export default function LeaderboardPage() {
                     : ""
               }`}
             >
-              <div className="w-8 text-center text-[15px] font-bold tabular-nums text-[var(--text)] dark:text-[var(--text)]">
-                {e.rank <= 3 ? <Icon name="medal" size={21} className={medalTone(e.rank)} /> : e.rank}
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center text-[15px] font-bold tabular-nums text-[var(--text)]">
+                {e.rank === 1 || e.rank === 2 || e.rank === 3 ? (
+                  <>
+                    <RankMedal rank={e.rank} size={30} className={medalTone(e.rank)} />
+                    <span className="sr-only">{tc(`第 ${e.rank} 名`)}</span>
+                  </>
+                ) : e.rank}
               </div>
               <div className="min-w-0 flex-1">
                 <div
@@ -165,8 +171,10 @@ export default function LeaderboardPage() {
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-[14px] font-semibold tabular-nums text-[var(--primary)] dark:text-[var(--primary)]">
-                <Icon name={list.icon} size={16} />
+              <div className="flex min-w-[72px] items-center justify-end gap-1.5 text-[14px] font-semibold tabular-nums text-[var(--primary)]">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-[var(--border-soft)]">
+                  <RewardIcon name={list.icon} size={19} />
+                </span>
                 <span>{e.value}</span>
               </div>
             </div>

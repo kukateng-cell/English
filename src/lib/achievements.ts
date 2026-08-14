@@ -6,6 +6,7 @@
  */
 import { prisma, type Prisma } from "@/lib/prisma";
 import { computeStreak } from "@/lib/streak";
+import type { RewardIconName } from "@/lib/reward-icons";
 
 /** 成就定义。type 决定用哪个进度数据源。 */
 export interface AchievementDef {
@@ -21,21 +22,12 @@ export interface AchievementDef {
   target: number;
 }
 
-export type AchievementIcon =
-  | "seedling"
-  | "book"
-  | "books"
-  | "medal"
-  | "flame"
-  | "bolt"
-  | "star"
-  | "calendar-check"
-  | "trophy";
+export type AchievementIcon = RewardIconName;
 
 export const ACHIEVEMENTS: AchievementDef[] = [
   { key: "first_study", icon: "seedling", title: "初次学习", description: "完成第一次学习", type: "reviews", target: 1 },
   { key: "review_10", icon: "book", title: "小试牛刀", description: "累计复习 10 个词", type: "reviews", target: 10 },
-  { key: "review_50", icon: "books", title: "渐入佳境", description: "累计复习 50 个词", type: "reviews", target: 50 },
+  { key: "review_50", icon: "word-stack", title: "渐入佳境", description: "累计复习 50 个词", type: "reviews", target: 50 },
   { key: "review_100", icon: "medal", title: "百词斩", description: "累计复习 100 个词", type: "reviews", target: 100 },
   { key: "streak_3", icon: "flame", title: "连学 3 天", description: "连续学习 3 天", type: "streak", target: 3 },
   { key: "streak_7", icon: "bolt", title: "连学 7 天", description: "连续学习 7 天", type: "streak", target: 7 },
