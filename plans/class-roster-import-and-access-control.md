@@ -14,9 +14,9 @@
 
 > **2026-08-16 後續計劃提示：** 本文件準確記錄目前已實作的per-class view／reset baseline及其歷史驗證，
 > 但未來教師reset target model已由
-> [`teacher-workspace-roster-progress-redesign.md`](./teacher-workspace-roster-progress-redesign.md) Revision 2取代：
-> class row只決定學生資料scope，reset改為default-false教師級global capability AND class scope。新模型尚未實作，
-> 所以現況仍以程式／schema為準；任何後續設計、import/export、activation coverage及rollback工作必須跟新計劃，
+> [`teacher-workspace-roster-progress-redesign.md`](./teacher-workspace-roster-progress-redesign.md) Revision 3取代：
+> class row只決定學生資料scope，reset改為default-false教師級global capability AND class scope。新模型已在本分支開始實作，
+> 但尚未完成及驗證；cutover前現行runtime仍以per-class physical model為準。任何後續設計、import/export、activation coverage及rollback工作必須跟新計劃，
 > 不可把本文件下列per-class reset歷史段落誤當未來canonical contract。
 
 ## 1. 執行摘要
@@ -1348,7 +1348,7 @@ Phase 1 是所有產品實作的硬依賴；Phase 2、3 完成前不可把 roste
 | 暱稱 | 學生必填、可自行修改、不要求唯一、公開 surface 唯一顯示身份 |
 | 年級 | 六個固定 enum；學生匯入必填 |
 | 班別 | 甲至辛；optional；不必八班全部存在 |
-| 教師權限 | 目前已實作baseline為per-class view／reset；future target已由後續教師工作台計劃凍結為default-false教師級global reset AND per-class view scope，尚未實作 |
+| 教師權限 | 目前已實作baseline為per-class view／reset；future target已由後續教師工作台計劃凍結為default-false教師級global reset AND per-class view scope，並已在本分支開始實作但尚未完成驗證；cutover前以per-class physical model為準 |
 | Role change | 建立後鎖定，不直接轉換 profile 角色 |
 | 離校／離職 | 預設 suspend；single hard delete 仍保留 |
 | Bulk delete | 不提供 |
@@ -1452,7 +1452,7 @@ production contract rollout、缺少 production-only secrets 的 production conf
 | 2026-08-15 | Deferred gates | production-config positive secrets／Upstash（local check 明確 fail closed）及完整原生 screen-reader／device matrix仍未執行；500-row import、explicit rollover、5,000-row export／activation 已以 fresh local cold/warm＋100ms worker-RSS protocol通過 budget；surface-specific PII scan、parser／bulk／activation cap boundary及browser axe/keyboard/accessibility-tree matrix均有證據，仍不冒充 release gate完成 |
 | 2026-08-15 | Teacher reset UI permission correction | Teacher student roster response now includes per-class `canResetStudentPassword`; reset control is omitted when a teacher can view but cannot reset; admin-roster E2E adds the no-reset capability assertion; lint、typecheck及build通過 |
 | 2026-08-16 | Student status action correction | 學生名冊的停權／恢復由純文字樣式改為明確可操作、可聚焦及有 busy guard 的按鈕；成功後即時更新列表並保留 server refresh。新增 mobile roster E2E 驗證停權、恢復及資料庫狀態；`npm test` 166 passed、lint、typecheck、build及focused admin-roster browser test通過 |
-| 2026-08-16 | Teacher workspace redesign plan | 新增 `teacher-workspace-roster-progress-redesign.md`，取代本計劃未來的教師 reset 權限及教師工作台目標：名冊／進度分家、學生詳情、server搜尋／篩選／分頁、班級洞察，以及 default-false 教師級 reset capability AND CURRENT class scope；本列只記錄計劃定稿，不冒充已實作。 |
+| 2026-08-16 | Teacher workspace redesign plan | 新增並開始實作 `teacher-workspace-roster-progress-redesign.md` Revision 3，取代本計劃未來的教師 reset 權限及教師工作台目標：名冊／進度分家、學生詳情、server搜尋／篩選／分頁、班級洞察，以及 default-false 教師級 reset capability AND CURRENT class scope；本列不代表該計劃已完成驗證。 |
 
 ## 24. 實際執行紀錄與限制
 
