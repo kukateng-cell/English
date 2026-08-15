@@ -1,11 +1,11 @@
 # 教師工作台：學生名冊、進度及班級洞察重設計計劃
 
-> 狀態：待審批（定稿；尚未開始實作）
+> 狀態：進行中
 > 建立日期：2026-08-16
 > 定稿日期：2026-08-16
 > 版本：Revision 2
 > 目標分支：`codex/class-roster-import-and-access-control`
-> 實作授權：尚未開始；本次只完成計劃及 review
+> 實作授權：已開始 local implementation；不包括 production deploy 或 destructive contract cleanup
 > 相關計劃：`class-roster-import-and-access-control.md`、`ui-design-system-migration.md`
 
 ## 1. 執行摘要
