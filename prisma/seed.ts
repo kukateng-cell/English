@@ -310,7 +310,7 @@ async function seedRoles(password: string) {
           role,
           mustChangePassword: false,
           ...(role === ROLES.TEACHER
-            ? { teacherProfile: { create: { legalName } } }
+            ? { teacherProfile: { create: { legalName, canResetStudentPassword: false } } }
             : {}),
         },
       });
@@ -318,7 +318,7 @@ async function seedRoles(password: string) {
     if (role === ROLES.TEACHER) {
       await prisma.teacherProfile.upsert({
         where: { userId: existing.id },
-        create: { userId: existing.id, legalName, accessRevision: 0 },
+        create: { userId: existing.id, legalName, accessRevision: 0, canResetStudentPassword: false },
         update: {},
       });
     }
@@ -346,6 +346,24 @@ async function seedRoles(password: string) {
   console.log(
     `Roles seeded: admin (id=${admin.id}), teacher (id=${teacher.id})`,
   );
+}
+
+async function seedTeacherCapabilityFixtures(password: string, databaseEnvironment: DatabaseEnvironment) {
+  if (databaseEnvironment === "production") return;
+  const currentYear = await ensureSeedCurrentYear();
+  const classA = await prisma.schoolClass.upsert({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "A" } }, create: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "A" }, update: { active: true } });
+  const classB = await prisma.schoolClass.upsert({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "B" } }, create: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "B" }, update: { active: true } });
+  const hash = await bcrypt.hash(password, 12);
+  const accountName = "teacher-reset";
+  const teacher = await prisma.user.upsert({
+    where: { accountName },
+    create: { accountName, accountNameCanonical: accountName, passwordHash: hash, credentialRevision: 1, legacyName: "重設密碼測試老師", role: ROLES.TEACHER, mustChangePassword: false, teacherProfile: { create: { legalName: "重設密碼測試老師", canResetStudentPassword: true } } },
+    update: { accountNameCanonical: accountName, role: ROLES.TEACHER, status: "ACTIVE", teacherProfile: { upsert: { create: { legalName: "重設密碼測試老師", canResetStudentPassword: true }, update: { canResetStudentPassword: true } } } },
+    select: { id: true },
+  });
+  await prisma.teacherClassAccess.upsert({ where: { teacherId_classId: { teacherId: teacher.id, classId: classA.id } }, create: { teacherId: teacher.id, classId: classA.id, canViewProgress: true, canResetStudentPassword: true }, update: { canViewProgress: true, canResetStudentPassword: true } });
+  await prisma.teacherClassAccess.upsert({ where: { teacherId_classId: { teacherId: teacher.id, classId: classB.id } }, create: { teacherId: teacher.id, classId: classB.id, canViewProgress: true, canResetStudentPassword: true }, update: { canViewProgress: true, canResetStudentPassword: true } });
+  console.log(`Teacher fixtures ready: teacher (global reset off), ${accountName} (global reset on, two classes)`);
 }
 
 async function main() {
@@ -504,6 +522,7 @@ async function main() {
 
   // 管理员 / 教师账号（每次 seed 都会 upsert，幂等）。
   await seedRoles(initialPassword);
+  await seedTeacherCapabilityFixtures(initialPassword, databaseEnvironment);
 
   // 学生账号默认不创建；需要时在 .env 设 SEED_STUDENTS=1 重新跑 seed 即可。
   if (process.env.SEED_STUDENTS === "1") {

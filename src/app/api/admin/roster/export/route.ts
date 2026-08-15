@@ -27,7 +27,11 @@ async function gate(req: Request) {
 export async function POST(req: Request) {
   const checked = await gate(req);
   if ("response" in checked) return checked.response;
-  const body = await req.json().catch(() => null);
+  if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) return codeResponse("EXPORT_INPUT_INVALID", 422);
+  const rawBody = await req.text().catch(() => "");
+  if (Buffer.byteLength(rawBody, "utf8") > 16 * 1024) return codeResponse("EXPORT_INPUT_INVALID", 422);
+  const body = (() => { try { return JSON.parse(rawBody) as { entityType?: unknown; academicYearId?: unknown; fields?: unknown; filters?: unknown; format?: unknown }; } catch { return null; } })();
+  if (!body) return codeResponse("EXPORT_INPUT_INVALID", 422);
   const validated = validateExportRequest(body);
   if (!validated.ok) return codeResponse(validated.code, 422);
   const request = validated.request;
@@ -38,7 +42,7 @@ export async function POST(req: Request) {
     const result = await prisma.$transaction(async (tx) => {
       const rows = await resolveExportRows(tx, request);
       const projected = projectExportRows(rows, request.fields);
-      await tx.securityEvent.create({ data: securityEventData({ actorUserId: checked.auth.userId, subjectAccount: `roster-export:${request.entityType.toLowerCase()}`, eventType: "ROSTER_EXPORTED", ip: getClientIp(req.headers), metadata: { entityType: request.entityType, academicYearId: request.academicYearId, format: body.format, fields: request.fields, rowCount: rows.length } }) });
+      await tx.securityEvent.create({ data: securityEventData({ actorUserId: checked.auth.userId, subjectAccount: `roster-export:${request.entityType.toLowerCase()}`, eventType: "ROSTER_EXPORTED", ip: getClientIp(req.headers), metadata: { entityType: request.entityType, academicYearId: request.academicYearId, format, fields: request.fields, rowCount: rows.length } }) });
       return { rows, projected };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 60_000 });
     const date = new Date().toISOString().slice(0, 10);
@@ -52,7 +56,7 @@ export async function POST(req: Request) {
     workbook.creator = "English Vocabulary Roster";
     const sheet = workbook.addWorksheet("Roster", { views: [{ state: "frozen", ySplit: 1 }] });
     sheet.columns = request.fields.map((field) => ({ header: field, key: field, width: Math.max(16, field.length + 4), style: { numFmt: "@" } }));
-    for (const row of result.projected) sheet.addRow(Object.fromEntries(request.fields.map((field) => [field, String(row[field] ?? "")])))
+    for (const row of result.projected) sheet.addRow(Object.fromEntries(request.fields.map((field) => [field, safeSpreadsheetText(row[field])])))
     sheet.getRow(1).font = { bold: true };
     sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, result.rows.length + 1), column: request.fields.length } };
     const buffer = await workbook.xlsx.writeBuffer();

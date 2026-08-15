@@ -109,6 +109,7 @@ export async function POST(req: Request) {
     const file = form.get("file");
     const entityType = form.get("entityType") === "TEACHER" ? "TEACHER" : "STUDENT";
     const mergeMode = form.get("mergeMode") === "true" || form.get("mode") === "MERGE";
+    const acknowledgeImmediateGlobalCapabilityChange = form.get("acknowledgeImmediateGlobalCapabilityChange") === "true";
     const academicYearId = String(form.get("academicYearId") ?? "").trim();
     const operationId = String(form.get("operationId") ?? randomUUID()).trim();
     if (!(file instanceof File)) return NextResponse.json({ code: "ROSTER_FILE_REQUIRED" }, { status: 422 });
@@ -226,8 +227,13 @@ export async function POST(req: Request) {
     const updateCount = staged.filter((row) => row.action === "UPDATE").length;
     const state = await prisma.rosterMutationState.findUnique({ where: { id: 1 } });
     if (!state) return NextResponse.json({ code: "ROSTER_STATE_MISSING" }, { status: 503 });
+    const immediateGlobalCapabilityChange = entityType === "TEACHER" && year.status === "PLANNED" && staged.some((row) => {
+      if (row.entityType !== "TEACHER" || row.canResetStudentPassword === undefined || row.action === "CREATE" || row.action === "ERROR") return false;
+      const existingUser = existingByAccount.get(row.accountName);
+      return existingUser?.teacherProfile && existingUser.teacherProfile.canResetStudentPassword !== row.canResetStudentPassword;
+    });
     const canonicalDigest = digest(staged);
-    const fingerprint = digest({ academicYearId, yearRevision: year.revision, calendarRevision: state.calendarRevision, fileHash, operationId, entityType, mergeMode });
+    const fingerprint = digest({ academicYearId, yearRevision: year.revision, calendarRevision: state.calendarRevision, fileHash, operationId, entityType, mergeMode, acknowledgeImmediateGlobalCapabilityChange });
     const batch = await prisma.$transaction(async (tx) => {
       await lockRosterMutationState(tx);
       await lockRosterIdentityKeys(tx, [...accounts, ...contactEmails]);
@@ -236,7 +242,7 @@ export async function POST(req: Request) {
         if (prior.fingerprint !== fingerprint || prior.canonicalDigest !== canonicalDigest) throw new Error("ROSTER_OPERATION_CONFLICT");
         return prior;
       }
-      const created = await tx.rosterImportBatch.create({ data: { actorUserId: auth.userId, ...actorAuditFields(auth.userId), entityType, format, fileHash, operationId, academicYearId, mode: mergeMode ? "MERGE" : "CREATE_ONLY", fingerprint, canonicalDigest, rosterRevision: state.revision, calendarRevision: state.calendarRevision, rowCount: staged.length, createdCount: createCount, updatedCount: updateCount, errorCount, stagedRows: staged, summary: { mergeMode, yearRevision: year.revision }, expiresAt: new Date(Date.now() + 30 * 60_000) } });
+      const created = await tx.rosterImportBatch.create({ data: { actorUserId: auth.userId, ...actorAuditFields(auth.userId), entityType, format, fileHash, operationId, academicYearId, mode: mergeMode ? "MERGE" : "CREATE_ONLY", fingerprint, canonicalDigest, rosterRevision: state.revision, calendarRevision: state.calendarRevision, rowCount: staged.length, createdCount: createCount, updatedCount: updateCount, errorCount, stagedRows: staged, summary: { mergeMode, yearRevision: year.revision, immediateGlobalCapabilityChange, acknowledgeImmediateGlobalCapabilityChange }, expiresAt: new Date(Date.now() + 30 * 60_000) } });
       const userLinks = new Map<string, "TARGET" | "DEPENDENCY" | "EMAIL_OWNER">();
       for (const row of staged) {
         const target = existingByAccount.get(row.accountName);
@@ -249,7 +255,7 @@ export async function POST(req: Request) {
       return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     const previewRows = staged.slice(0, PREVIEW_PAGE_SIZE);
-    return NextResponse.json({ batchId: batch.id, operationId: batch.operationId, academicYearId, entityType, format, rowCount: staged.length, createCount: batch.createdCount, updateCount: batch.updatedCount, errorCount: batch.errorCount, canCommit: batch.status === "PREVIEWED" && batch.errorCount === 0, nextCursor: staged.length > PREVIEW_PAGE_SIZE ? String(PREVIEW_PAGE_SIZE) : null, rows: previewRows }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ batchId: batch.id, operationId: batch.operationId, academicYearId, entityType, format, rowCount: staged.length, createCount: batch.createdCount, updateCount: batch.updatedCount, errorCount: batch.errorCount, requiresImmediateGlobalCapabilityAck: immediateGlobalCapabilityChange, acknowledgeImmediateGlobalCapabilityChange, canCommit: batch.status === "PREVIEWED" && batch.errorCount === 0 && (!immediateGlobalCapabilityChange || acknowledgeImmediateGlobalCapabilityChange), nextCursor: staged.length > PREVIEW_PAGE_SIZE ? String(PREVIEW_PAGE_SIZE) : null, rows: previewRows }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const rawCode = error instanceof Error ? error.message : "";
     const code = rawCode === "ROSTER_OPERATION_CONFLICT"

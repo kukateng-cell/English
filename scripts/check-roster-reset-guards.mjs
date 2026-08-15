@@ -26,7 +26,7 @@ const dryRun = run(baseEnv);
 assert.equal(dryRun.status, 0, dryRun.stderr || dryRun.stdout);
 assert.match(dryRun.stdout, /"mode": "dry-run"/u);
 assert.match(dryRun.stdout, /"marker": "development"/u);
-assert.match(dryRun.stdout, /"migrationCount": 43/u);
+assert.match(dryRun.stdout, /"migrationCount": 47/u);
 
 const wrongTarget = run({ ...baseEnv, CONFIRM_LOCAL_RESET_TARGET: "wrong/public" });
 assert.notEqual(wrongTarget.status, 0);

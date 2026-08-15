@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ErrorBanner from "@/components/ErrorBanner";
 import Modal from "@/components/admin/Modal";
 import Icon from "@/components/ui/Icon";
@@ -30,26 +30,33 @@ export default function TeacherRosterPage() {
   const [error, setError] = useState<string | null>(null);
   const [reset, setReset] = useState<{ student: Item; password?: string; error?: string } | null>(null);
   const [resetting, setResetting] = useState(false);
+  const requestController = useRef<AbortController | null>(null);
 
   const load = useCallback(async (nextCursor: string | null = null, append = false) => {
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     if (append) setLoadingMore(true); else setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/teacher/classes");
+      const response = await fetch("/api/teacher/classes", { signal: controller.signal });
       if (!response.ok) throw new Error(await responseErrorMessage(response));
       const classPayload = await response.json() as { items: TeacherClassOption[] };
       setClasses(classPayload.items);
-      const rosterResponse = await rosterFetch("/api/teacher/roster/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ grade: grade || undefined, classId: classId || undefined, search: search || undefined, cursor: nextCursor || undefined, limit: 50 }) });
+      const rosterResponse = await rosterFetch("/api/teacher/roster/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ grade: grade || undefined, classId: classId || undefined, search: search || undefined, cursor: nextCursor || undefined, limit: 50 }), signal: controller.signal });
       if (!rosterResponse.ok) throw new Error(await responseErrorMessage(rosterResponse));
       const payload = await rosterResponse.json() as Payload;
       setItems((current) => append ? [...current, ...payload.items] : payload.items);
       setCursor(payload.nextCursor);
     } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
       setError(cause instanceof Error ? cause.message : tc("讀取學生名冊失敗"));
     } finally {
-      setLoading(false); setLoadingMore(false);
+      if (requestController.current === controller) { setLoading(false); setLoadingMore(false); }
     }
   }, [classId, grade, search, tc]);
+
+  useEffect(() => () => requestController.current?.abort(), []);
 
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 180); return () => window.clearTimeout(timer); }, [load]);
 

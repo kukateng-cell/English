@@ -24,6 +24,7 @@
     "test:roster:lifecycle": "node --import tsx scripts/check-roster-lifecycle.ts",
     "test:roster:auth": "node --import tsx scripts/check-roster-auth.ts",
     "test:roster:reset": "node scripts/check-roster-reset-guards.mjs",
+    "check:teacher-global-reset-cutover": "node --import tsx scripts/check-teacher-global-reset-cutover.ts",
     "check:roster-workbook": "node --import tsx scripts/check-roster-workbook-spike.ts",
     "check:roster-pii": "node --import tsx scripts/check-roster-pii.mjs",
     "check:study-credential-v2": "node scripts/check-study-credential-v2-inventory.mjs",

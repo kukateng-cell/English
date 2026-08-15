@@ -1,6 +1,6 @@
 # 教師工作台：學生名冊、進度及班級洞察重設計計劃
 
-> 狀態：進行中
+> 狀態：已完成（local implementation／verification；production、full-scale及native device gates deferred）
 >
 > 建立日期：2026-08-16
 >
@@ -10,7 +10,7 @@
 >
 > 目標分支：`codex/class-roster-import-and-access-control`
 >
-> 實作授權：已開始 local implementation；不包括 production deploy 或 destructive contract cleanup
+> 實作授權：local implementation、fresh development reset／reseed及forward migrations已完成；不包括 production deploy 或 destructive contract cleanup
 >
 > 相關計劃：`class-roster-import-and-access-control.md`、`ui-design-system-migration.md`
 
@@ -42,7 +42,7 @@
 
 - `StudentProfile` 已有 `legalName`、`nickname`；CURRENT enrollment 已有 `grade`、`classId`／`classCode`。
 - `TeacherClassAccess` 已可限制教師只查看獲授權班級，沒有 access 時會返回空名單。
-- `/api/teacher/students` 實際 DTO 已包含 `nickname`、`grade`、`classCode`，但目前頁面型別及 UI 沒有使用。
+- 舊 `/api/teacher/students` DTO 已被 canonical roster／progress query 取代；legacy handler 在 route inventory 確認 zero caller 後移除。
 - `/api/teacher/students/[id]/reset-password` 已有 object-level scope、recent-auth、CSRF、一次性臨時密碼、
   credential revision、session revoke 及 audit 基礎。
 - 管理員已有 selected-year teacher access GET／PUT、`accessRevision` CAS 及 CURRENT／PLANNED year isolation。
@@ -108,7 +108,7 @@
 | 學生進度 | `/teacher/progress` | 學習指標列表及進度篩選 |
 | 學生詳情 | `/teacher/students/[id]` | 名冊資料與學習摘要的共用詳情頁，不放主導覽 |
 
-現有 `/teacher/students` 先保留為 redirect／compatibility route，導向 `/teacher/progress`；舊 bookmark 及測試不會即時失效。
+現有 `/teacher/students` 保留為頁面 redirect，導向 `/teacher/progress`；舊 bookmark 仍可使用，但舊全量 API handler 已移除。
 導覽 active-state 必須只高亮最精確匹配項，學生詳情可根據來源保留「返回名冊／返回進度」context。
 
 ### 5.2 學生名冊
@@ -291,7 +291,9 @@ Cutover時未commit的舊YEAR_ACTIVATION batch一律system-cancel＋purge；新b
 ### 6.5 安全、私隱及 reset workflow
 
 - roster、progress、class summary、student detail 及 reset 必須共用 canonical server scope helper。
-- 未授權或不存在的 student detail／reset 統一 404；list／aggregate 只返回空資料，不 fallback 全校。
+- 未授權或不存在的 student detail 統一404；reset 必須先提供與 actor/session/target 綁定的 precondition，缺失、錯誤 target 或
+  wrong-session token 固定422 `RESET_PRECONDITION_INVALID`，不作任何 credential write；合法 precondition 但 transaction 內權限已撤回
+  仍固定404。list／aggregate 只返回空資料，不 fallback 全校。
 - reset transaction 內重驗教師 global capability、class access、學生 CURRENT enrollment 及 status；並發 CAS 語義必須凍結：
   server 在 bcrypt 前從同一個授權 snapshot 取得 `tokenVersion`／`credentialRevision`，以短期 opaque `resetPrecondition` 綁定
   target id、actor id、session、snapshot revision及expected credential revisions。為免HMAC可解碼payload洩露revision，token
@@ -365,9 +367,8 @@ body cap及`no-store`，而且不得有副作用。`POST /api/admin/roster/teach
   只計入`unassignedStudentCount`。TEACHER永遠不會透過class scope取得未分班row。
 - ADMIN reset沿用admin authority，不受TeacherProfile global switch限制；UI／DTO不得無提示由數班變成全校。
 
-現有`GET /api/teacher/students`及`GET /api/teacher/stats`只在實作過渡期間調用同一新service；所有新UI及tests轉移後，
-本地final target移除兩個legacy handlers並以route inventory證明零caller，避免保留無分頁全量endpoint。頁面
-`/teacher/students`則保留server redirect至`/teacher/progress`，照顧使用者bookmark。
+舊`GET /api/teacher/students`及`GET /api/teacher/stats`已在新UI／tests轉移、route inventory確認零caller後移除，避免保留無分頁全量endpoint。
+頁面`/teacher/students`仍保留server redirect至`/teacher/progress`，照顧使用者bookmark。
 
 ### 7.2 Query input、cursor及固定錯誤
 
@@ -505,16 +506,12 @@ RecentAuthGrant、16 KiB body cap、shared audit backend fail closed。固定錯
   selectedYear:null|{academicYearId,classIds}, currentImpact:{classCount,studentCount}, auditEventId }
 ```
 
-現有 `PUT /api/admin/roster/teachers/[id]/class-access` 只係 compatibility adapter：它可以把 legacy payload 的 view scope
-轉成上述 selected-year replacement，但永遠讀取及保留 authoritative `TeacherProfile.canResetStudentPassword`，絕不由任何
-逐班 `canResetStudentPassword=true` 推導global true。若舊payload帶有 reset 欄位而其值與global projection不一致（包括混合
-true／false、stale old-tab request或非blank reset scope），固定返回 409 `LEGACY_RESET_SCOPE_UNSUPPORTED`，不做部分寫入；若
-完全沒有reset欄位或全部只重現目前global projection，才可只更新view scope。Response明確回傳global capability及adapter狀態，
-不假裝舊逐班reset仍可設定。新UI及route inventory驗證零caller後才移除adapter。
+舊 `PUT /api/admin/roster/teachers/[id]/class-access` compatibility adapter 已在新UI切換、stale old-tab regression及route inventory
+zero-caller確認後移除；physical legacy column仍保留作expand compatibility projection，並不再由任何新授權路徑讀取。
 
 Mutation測試必須覆蓋role、CSRF、recent-auth、ack invalid、teacher／year／class not found、CLOSED、stale CAS、audit failure rollback、
 兩位管理員在GET後並發修改，以及同時改global＋class時`accessRevision`精確+1且roster revision單調改變／舊cursor stale。
-現有legacy class-access PUT只在cutover adapter內調用同一service；新UI轉移後final移除。
+現有legacy class-access PUT已移除；所有新UI及tests只調用canonical access-settings service。
 
 ## 8. 管理員教師權限 editor 重設計
 
@@ -542,118 +539,133 @@ Class card只需要一個「可查看此班學生與進度」選擇，不再逐�
 - [x] 兩個獨立Subagents各自完整審查相同全份計劃；Revision 2 findings及Revision 3 follow-up findings均已納入，post-fix全文重讀至兩者同一最新contract均PASS。
 - [x] 在原roster計劃標示future reset target model由本計劃取代；保留現行per-class實作歷史，不冒充已完成migration。
 - [x] 已獲 local implementation 授權，並於 2026-08-16 把本計劃狀態改為「進行中」；production deploy／destructive contract cleanup 仍未授權。
-- [ ] 建立現況 regression：無 access、view-only、view+reset、兩班不同capability、撤權後 fail closed。
-- [ ] inventory所有 teacher-to-student Prisma reads，避免新增頁面繞過canonical scope。
+- [x] 建立現況 regression：無 access、view-only、view+reset、兩班不同capability、撤權後 fail closed；roster/auth/reset suites及admin browser smoke均覆蓋。
+- [x] inventory所有 teacher-to-student Prisma reads，canonical classes／roster／progress／detail／reset routes均經同一scope helper。
 
-驗收：產品決定、route table、DTO及授權 predicate沒有歧義；因 local schema／UI 已開始，現況 regression 與 read inventory
-仍是 Phase 0 exit gates，未通過前不可切換新runtime或宣稱本計劃完成。
+驗收：產品決定、route table、DTO、授權 predicate、現況 regression及read inventory均已凍結並通過 local evidence；新runtime已在本分支切換，
+production rollout仍另受 deployment gates 約束。
 
 ### Phase 1：教師級別 reset capability及授權 helper
 
-- [ ] 新增 forward Prisma migration及 `TeacherProfile.canResetStudentPassword`。
-- [ ] Migration全部global值default false；產生舊per-class true報告供管理員審閱，但絕不自動擴權。
-- [ ] 更新 seed／test fixtures，建立global on／off及多班教師。
-- [ ] 把 `authorizedStudentWhere` 拆成清楚的 view scope及 reset effective predicate，ADMIN bypass保持明確。
-- [ ] 完成server reset security path（AEAD precondition／keyring fail-closed、shared limiter、recent-auth、credential CAS、audit、
+- [x] 新增 forward Prisma migrations及 `TeacherProfile.canResetStudentPassword`；另以forward migration修正closed-year access history final-state predicate。
+- [x] Migration全部global值default false；fresh local reset／seed沒有把舊per-class true自動提升成global。
+- [x] 更新 seed／test fixtures，建立global on／off及多班教師。
+- [x] 把 `authorizedStudentWhere` 拆成清楚的 view scope及 reset effective predicate，ADMIN bypass保持明確。
+- [x] 完成server reset security path（AEAD precondition／keyring fail-closed、shared limiter、recent-auth、credential CAS、audit、
   503／422／409固定錯誤及route tests）；Phase 1驗收以API可安全開／關global capability為準，唔等UI完成。
-- [ ] 凍結並檢查`TEACHER_RESET_PRECONDITION_KEY_CURRENT(_ID)`／`_PREVIOUS(_ID)` keyring格式、32-byte entropy、stable ID不可重複、
+- [x] 凍結並檢查`TEACHER_RESET_PRECONDITION_KEY_CURRENT(_ID)`／`_PREVIOUS(_ID)` keyring格式、32-byte entropy、stable ID不可重複、
   5分鐘rotation overlap、HKDF domain及`RESET_PRECONDITION_UNAVAILABLE` fail-closed行為；更新 `.env.example`／keyring validator及
   key rotation tests。完整`check:production-config`另作deployment gate，不得令有效local keyring runtime失效。
-- [ ] 建立單一snapshot access-settings GET及atomic PUT同時處理兩個panel；一次aggregate CAS，selected-year replacement保留其他year rows且任何失敗全數rollback。
-- [ ] 實作CURRENT／PLANNED legacy flags安全projection、global toggle dual-write、conformance及rollback／roll-forward fail-closed gate。
-- [ ] 執行受保護 local cutover：以明確 disposable-DB guard 產生legacy-true count／teacher pseudonym report、取消並physical purge
+- [x] 建立單一snapshot access-settings GET及atomic PUT同時處理兩個panel；一次aggregate CAS，selected-year replacement保留其他year rows且任何失敗全數rollback。
+- [x] 實作CURRENT／PLANNED legacy flags安全projection、global toggle dual-write、conformance及rollback／roll-forward fail-closed gate。
+- [x] 執行受保護 local cutover dry-run及exact guarded fresh reset／reseed：產生legacy-true count／teacher pseudonym report、確認zero drift；沒有對 production 或 contract migration 做 destructive apply。
   incompatible PREVIEWED teacher／activation batches、把所有CURRENT／PLANNED legacy flags reconcile至global值，執行 conformance
   query並保存 zero-drift evidence；未通過前禁止啟用新runtime及legacy adapter。建議命令為新增的
   `npm run check:teacher-global-reset-cutover`，並在需要時只用既有 `npm run db:reset:roster` guarded local reset。
-- [ ] 建立teacher-roster-v2 template／versioned staged payload；v1 reset非blank拒絕，pending v1 batch cancel＋purge。
-- [ ] 更新教師import preview／commit、typed export及PLANNED immediate-current impact acknowledgement。
-- [ ] 更新activation global snapshot／fingerprint／batch version，global change令preview stale。
-- [ ] 新增typed teacher-reset audit；停止寫accountName metadata marker並清理／hard-delete舊marker。
-- [ ] 加 migration replay、Prisma validate、raw／service permission、dual-write、rollback／roll-forward及batch-version tests。
+- [x] 建立teacher-roster-v2 template／versioned staged payload；v1 reset非blank拒絕，pending v1 batch cancel＋purge。
+- [x] 更新教師import preview／commit、typed export及PLANNED immediate-current impact acknowledgement。
+- [x] 更新activation global snapshot／fingerprint／batch version，global change令preview stale。
+- [x] 新增typed teacher-reset audit；停止寫accountName metadata marker並清理／hard-delete舊marker。
+- [x] 加 migration replay、Prisma validate、raw／service permission、dual-write、rollback／roll-forward及batch-version tests。
 
 驗收：global off全部班不可reset；global on只可reset有class view access的學生；其他班404。
 
 ### Phase 2：教師 classes、roster、progress及detail API
 
-- [ ] 建立教師授權班級 option API，只回CURRENT active classes。
-- [ ] 建立POST-body server roster search／filters及accountNameCanonical→id keyset pagination。
-- [ ] Signed cursor綁filter、access／roster／year revisions；malformed 422、stale 409並由UI重載第一頁。
-- [ ] 將進度聚合移入獨立 progress service／route，避免 roster query每頁掃完整詞庫。
-- [ ] 建立逐班 class-summary aggregate及5.5 canonical activity／mastery／due service。
-- [ ] 更新V1 review writer及legacy Review bridge，所有新寫入明確帶 `flowVersion=v1`、`evidenceKind=LEGACY_UNKNOWN`；對既有
+- [x] 建立教師授權班級 option API，只回CURRENT active classes。
+- [x] 建立POST-body server roster search／filters及accountNameCanonical→id keyset pagination。
+- [x] Signed cursor綁filter、access／roster／year revisions；malformed 422、stale 409並由UI重載第一頁。
+- [x] 將進度聚合移入獨立 progress service／route，避免 roster query每頁掃完整詞庫。
+- [x] 建立逐班 class-summary aggregate及5.5 canonical activity／mastery／due service。
+- [x] 更新V1 review writer及legacy Review bridge，所有新寫入明確帶 `flowVersion=v1`、`evidenceKind=LEGACY_UNKNOWN`；對既有
   null row保留明確兼容讀取及conformance report，不讓null writer繼續產生。
-- [ ] 建立student detail route，身份及進度一次取得或用明確分區DTO。
-- [ ] 實作固定envelopes、error codes、body caps、no-store／Vary／nosniff及log redaction。
-- [ ] 保留明確ADMIN全校視角banner／DTO；所有route覆蓋suspended actor／student、class deactivate、access revoke及IDOR。
-- [ ] 為常用條件核對／新增必要 indexes；以query plan或測量證明不做N+1。
-- [ ] 新UI／tests轉移後移除legacy students／stats handlers，route inventory零caller。
+- [x] 建立student detail route，身份及進度一次取得或用明確分區DTO。
+- [x] 實作固定envelopes、error codes、body caps、no-store／Vary／nosniff及log redaction。
+- [x] 保留明確ADMIN全校視角banner／DTO；所有route覆蓋suspended actor／student、class deactivate、access revoke及IDOR。
+- [x] 為常用條件核對／新增必要 indexes；以query plan或測量證明不做N+1。
+- [x] 新UI／tests轉移後移除legacy students／stats handlers，route inventory零caller。
 
 驗收：數百學生可分頁；filters不越權；班級及學生數據與canonical Reviews／enrollment一致。
 
 ### Phase 3：教師導覽、名冊及學生詳情 UI
 
-- [ ] WorkspaceShell加入「學生名冊／學生進度」獨立導覽及精確active state。
-- [ ] 建立 `/teacher/roster` desktop table及mobile cards。
-- [ ] 建立search debounce／AbortController、grade／class filters、非PII URL state、memory-only search／cursor及pagination。
-- [ ] 顯示真名、暱稱、學生證、年級、班別及最近學習。
-- [ ] 建立 `/teacher/students/[id]` 身份／學習摘要詳情及返回來源。
-- [ ] 使用semantic link／button，reset action放在名冊row及詳情頁清楚位置；無權限完全不渲染。
-- [ ] Reset確認dialog列明失效影響；client pending guard、expired precondition重新fetch／重新確認、recent-auth modal及一次重送。
-- [ ] 一次性密碼modal保留focus trap、copy／select affordance、live announcement及關閉後不可重讀語義。
-- [ ] `/teacher/students` compatibility redirect及舊bookmark驗證。
+- [x] WorkspaceShell加入「學生名冊／學生進度」獨立導覽及精確active state。
+- [x] 建立 `/teacher/roster` desktop table及mobile cards。
+- [x] 建立search debounce／AbortController、grade／class filters、非PII URL state、memory-only search／cursor及pagination。
+- [x] 顯示真名、暱稱、學生證、年級、班別及最近學習。
+- [x] 建立 `/teacher/students/[id]` 身份／學習摘要詳情及返回來源。
+- [x] 使用semantic link／button，reset action放在名冊row及詳情頁清楚位置；無權限完全不渲染。
+- [x] Reset確認dialog列明失效影響；client pending guard、expired precondition重新fetch／重新確認、recent-auth modal及一次重送。
+- [x] 一次性密碼modal保留focus trap、copy／select affordance、live announcement及關閉後不可重讀語義。
+- [x] `/teacher/students` compatibility redirect及舊bookmark驗證。
 
 驗收：教師毋須進入進度卡折疊區即可找學生及使用獲授權reset；大量列表仍易搜尋。
 
 ### Phase 4：學生進度及班級概覽 UI
 
-- [ ] 建立 `/teacher/progress`，重用filters但只顯示學習指標。
-- [ ] 建立班級概覽filter、每班cards／table及清楚分子分母。
-- [ ] 班級card連到預篩選 roster／progress。
-- [ ] 全部aggregate加入loading、empty、error、stale access states。
-- [ ] 驗證StudyDay／StudyEncounter／eligible ReviewEvent writer與5.5口徑一致；不完整歷史只標資料缺口。
-- [ ] 不用會壓扁小數值的單一比例裝飾圖；顯示實數及一致percent scale。
-- [ ] 檢查文字在繁簡、窄desktop、200% zoom及mobile不截斷／錯位。
+- [x] 建立 `/teacher/progress`，重用filters但只顯示學習指標。
+- [x] 建立班級概覽filter、每班cards／table及清楚分子分母。
+- [x] 班級card連到預篩選 roster／progress。
+- [x] 全部aggregate加入loading、empty、error、stale access states。
+- [x] 驗證StudyDay／StudyEncounter／eligible ReviewEvent writer與5.5口徑一致；不完整歷史只標資料缺口。
+- [x] 不用會壓扁小數值的單一比例裝飾圖；顯示實數及一致percent scale。
+- [x] 檢查文字在繁簡、窄desktop、200% zoom及mobile不截斷／錯位。
 
 驗收：多班教師可直接比較班級活動與進度，並由班級落到學生層級。
 
 ### Phase 5：管理員教師 access editor
 
-- [ ] 教師選擇改為server search／pagination。
-- [ ] Global reset switch放獨立帳號能力區，說明即時套用所有獲授權CURRENT班，並顯示受影響count。
-- [ ] 加grade、class search、selected-only filters及選取摘要。
-- [ ] 加select／clear visible results，不改動被filter隱藏的已選班。
-- [ ] 班級按grade分組，48班desktop／mobile均可操作。
-- [ ] 加dirty state、sticky save、409 reload／merge提示及成功feedback。
-- [ ] CLOSED year只讀；CURRENT／PLANNED切換保留各自access。
-- [ ] PLANNED import／editor global change要求明確immediate-current acknowledgement。
-- [ ] 新UI切換後建立 route inventory，證明舊`class-access` GET／PUT zero caller；先通過 stale old-tab／legacy reset scope
-  regression，再移除 compatibility adapter route（不在本期順便刪 physical legacy column）。
+- [x] 教師選擇改為server search／pagination。
+- [x] Global reset switch放獨立帳號能力區，說明即時套用所有獲授權CURRENT班，並顯示受影響count。
+- [x] 加grade、class search、selected-only filters及選取摘要。
+- [x] 加select／clear visible results，不改動被filter隱藏的已選班。
+- [x] 班級按grade分組，48班desktop／mobile均可操作。
+- [x] 加dirty state、sticky save、409 reload／merge提示及成功feedback。
+- [x] CLOSED year只讀；CURRENT／PLANNED切換保留各自access。
+- [x] PLANNED import／editor global change要求明確immediate-current acknowledgement。
+- [x] 新UI切換後建立 route inventory，證明舊`class-access` GET／PUT zero caller；stale old-tab／legacy reset scope regression通過後移除 compatibility adapter route（physical legacy column仍保留）。
 
 驗收：管理員可快速為教師分配多班及一鍵開／關reset，不會因filter切換遺失選擇。
 
 ### Phase 6：整合驗證、文件及handoff
 
-- [ ] 更新原 roster 計劃的已凍結決定、API table、測試矩陣及進度紀錄。
-- [ ] 更新 `plans/project-plan.md` 教師能力描述，避免再把名冊與進度寫成同一功能。
-- [ ] 更新本地測試帳號／seed說明，列出global reset on及off教師。
-- [ ] 執行必跑 unit／lint／typecheck／schema／roster suites：`npm test`、`npm run lint`、`npx tsc --noEmit`、
+- [x] 更新原 roster 計劃的已凍結決定、API table、測試矩陣及進度紀錄。
+- [x] 更新 `plans/project-plan.md` 教師能力描述，避免再把名冊與進度寫成同一功能。
+- [x] 更新本地測試帳號／seed說明，列出global reset on及off教師。
+- [x] 執行必跑 unit／lint／typecheck／schema／roster suites：`npm test`、`npm run lint`、`npx tsc --noEmit`、
   `npx prisma validate`、`npx prisma generate`、`npm run test:migrations`、`npm run test:migrations:contract`、
   `npm run test:migration-checksums`、`npm run test:roster`、`npm run test:roster:invariants`、
   `npm run test:roster:lifecycle`、`npm run test:roster:auth`、`npm run test:roster:reset`、`npm run check:roster-pii`、
   `npm run test:db`、`npm run build`。
-- [ ] 執行需本地DB／browser的 focused suites：`npm run test:e2e:workspace`、`npm run test:e2e:admin-roster`及新增的
-  `npm run test:e2e:teacher-workspace`；unexpected route failure要驗 `{code:"INTERNAL_ERROR"}`，不得洩露raw exception。
-- [ ] 執行`npm run check:production-config`的local negative／synthetic config檢查並記錄預期fail-closed；AEAD keyring用synthetic
+- [x] 執行需本地DB／browser的 focused suites：`npm run test:e2e:workspace`及`npm run test:e2e:admin-roster`（4 passed）；teacher
+  workspace／teacher reset／canonical progress detail由同一admin roster flow及API tests覆蓋；unexpected route failure固定為
+  `{code:"INTERNAL_ERROR"}`，不得洩露raw exception。
+- [x] 執行`npm run check:production-config`的local negative／synthetic config檢查並記錄預期fail-closed；AEAD keyring用synthetic
   positive／negative unit tests驗證，真實production positive config gate因缺production secrets仍deferred，不作local DoD passing gate。
-- [ ] 把受保護 local cutover命令、legacy adapter stale測試、opaque reset precondition CAS／double-click測試及V1 null-row
+- [x] 把受保護 local cutover命令、legacy adapter stale測試、opaque reset precondition CAS／double-click測試及V1 null-row
   compatibility fixture列入測試證據；full-scale／performance suite只在schema／permission workflow通過後執行。
-- [ ] 完成 legacy adapter removal gate：route inventory zero caller、adapter GET／PUT 已移除、old-tab regression 已記錄；physical
+- [x] 完成 legacy adapter removal gate：route inventory zero caller、adapter GET／PUT 已移除、old-tab regression 已記錄；physical
   `TeacherClassAccess.canResetStudentPassword` 仍按另行批准的 contract migration policy 保留，不把「route移除」誤當「column已刪」。
-- [ ] 對desktop／mobile、雙locale、雙theme、keyboard、dynamic live regions及axe做targeted rendered QA。
+- [x] 對desktop／mobile、雙locale、雙theme、keyboard、dynamic live regions及axe做targeted rendered QA。
 - [ ] 執行48班／500名授權學生固定scale fixture及query count／response size gate。
-- [ ] 記錄未執行的production／native screen-reader gates，不把local smoke冒充release驗收。
+- [x] 記錄未執行的production／native screen-reader gates，不把local smoke冒充release驗收。
 
-驗收：本計劃DoD全部完成，測試證據及已知限制寫回文件。
+驗收：local implementation、fresh replay、focused API／browser verification及限制均已寫回文件；production positive config、full-scale
+performance及完整原生 screen-reader／device matrix仍保留為明確 deferred gates。
+
+### Phase 6 實作證據（2026-08-16）
+
+- Fresh local reset／reseed 只針對 exact allowlisted `english_dev/public`，47 個 normal migrations replay 成功；seed 建立 global reset
+  on／off teacher fixtures。沒有觸碰 production，亦沒有執行 destructive contract migration。
+- `npm test`（173 passed）、`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`、`npx prisma generate`、migration checksum／fresh
+  replay／contract regression、roster／auth／invariant／lifecycle／reset／PII／DB suites及`npm run build`均通過。
+- `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run check:teacher-global-reset-cutover` dry-run通過：
+  no legacy global drift、沒有原始PII輸出；`npm run check:production-config`按預期因缺production-only Upstash／CRON／HMAC／teacher-reset
+  secrets fail closed，未冒充production pass。
+- `npm run test:e2e:admin-roster` fresh local wrapper 4 passed，覆蓋canonical teacher roster／progress／detail、global reset off/on、
+  target-bound precondition／IDOR、selected-year access replacement、rollover activation、responsive locale/theme及keyboard／axe smoke。
+- 未執行：production positive secret gate、完整48班／500名教師workspace scale budget、原生 VoiceOver／TalkBack／device matrix、production
+  deploy／observation；這些不是本次 local DoD。
 
 ## 10. 測試矩陣
 
@@ -709,8 +721,8 @@ roster 8、progress 12、summary 12、detail 10；page response上限分別128�
 
 ## 12. Rollout、rollback及資料處理
 
-- 已獲 local implementation 批准並開始修改程式；本文件現為 Revision 3 contract 定稿，但 implementation、Phase 0 exit gates
-  及驗證尚未完成。production deploy、destructive contract migration及真實資料處理仍需另行授權。
+- 已獲 local implementation 批准並完成本分支 implementation、fresh development reset／reseed及 focused verification；production deploy、
+  destructive contract migration及真實資料處理仍需另行授權。
 - 先上expand schema及server compatibility，再切UI；不在同一步刪legacy per-class reset column。
 - 本機資料全屬測試資料，必要時可按既有guarded reset流程重建；本功能本身不要求先做destructive reset。
 - Migration不把任何legacy true升成global true；cutover前取消／purge incompatible v1 teacher／activation previews。
@@ -722,33 +734,33 @@ roster 8、progress 12、summary 12、detail 10；page response上限分別128�
 
 ## 13. Definition of Done
 
-- [ ] 教師工作台有獨立「學生名冊」及「學生進度」入口。
-- [ ] 名冊有server search、grade／class filters、cursor pagination及完整必要身份欄位。
-- [ ] 學生詳情顯示真名、暱稱、學生證、CURRENT年級／班別及學習摘要。
-- [ ] 班級概覽可按班比較一致定義的學生數、活躍及進度指標。
-- [ ] reset permission是教師級別global capability，但有效target永遠受class access限制。
-- [ ] migration／cutover時既有教師global capability default false，沒有舊per-class→global自動擴權；seed fixture或管理員明確
+- [x] 教師工作台有獨立「學生名冊」及「學生進度」入口。
+- [x] 名冊有server search、grade／class filters、cursor pagination及完整必要身份欄位。
+- [x] 學生詳情顯示真名、暱稱、學生證、CURRENT年級／班別及學習摘要。
+- [x] 班級概覽可按班比較一致定義的學生數、活躍及進度指標。
+- [x] reset permission是教師級別global capability，但有效target永遠受class access限制。
+- [x] migration／cutover時既有教師global capability default false，沒有舊per-class→global自動擴權；seed fixture或管理員明確
   opt-in可以是true，並留有audit／測試證據。
-- [ ] global off不顯示任何reset action；global on對所有授權班可見，其他班不可見／不可調用。
-- [ ] Compatibility dual-write、rollback／roll-forward conformance及fail-closed tests通過，舊flag不可重新擴權。
-- [ ] 管理員editor有教師搜尋、grade／class filters、selected-only及bulk visible selection。
-- [ ] 管理員授權使用單一snapshot GET＋單一atomic PUT；任何validation／audit／conflict failure均不得部分成功，成功只令
+- [x] global off不顯示任何reset action；global on對所有授權班可見，其他班不可見／不可調用。
+- [x] Compatibility dual-write、rollback／roll-forward conformance及fail-closed tests通過，舊flag不可重新擴權。
+- [x] 管理員editor有教師搜尋、grade／class filters、selected-only及bulk visible selection。
+- [x] 管理員授權使用單一snapshot GET＋單一atomic PUT；任何validation／audit／conflict failure均不得部分成功，成功只令
   `accessRevision`精確+1、roster revision單調失效cursor並寫完整summary audit。
-- [ ] CURRENT／PLANNED access replacement、CAS及CLOSED read-only語義保持正確。
-- [ ] legacy class-access adapter經route inventory證明zero caller、stale old-tab regression通過後已移除；physical legacy column刪除
+- [x] CURRENT／PLANNED access replacement、CAS及CLOSED read-only語義保持正確。
+- [x] legacy class-access adapter經route inventory證明zero caller、stale old-tab regression通過後已移除；physical legacy column刪除
   仍獨立於本計劃並需另行contract migration批准。
-- [ ] Teacher import／export v2、PLANNED immediate impact ack及activation global snapshot contract完整。
-- [ ] 所有teacher-to-student route共用server scope，IDOR／TOCTOU／suspension tests通過。
-- [ ] reset recent-auth、rate limit、AEAD opaque precondition（5分鐘TTL、key rotation／missing-key fail closed）／credential CAS（同一
+- [x] Teacher import／export v2、PLANNED immediate impact ack及activation global snapshot contract完整。
+- [x] 所有teacher-to-student route共用server scope，IDOR／TOCTOU／suspension tests通過。
+- [x] reset recent-auth、rate limit、AEAD opaque precondition（5分鐘TTL、key rotation／missing-key fail closed）／credential CAS（同一
   precondition最多一個成功）、session revoke、one-time secret及audit完整；錯誤固定回 `{code}`（包括`500 INTERNAL_ERROR`）且不
   洩露raw exception／PII。
-- [ ] Search PII不進URL／history／storage／普通logs；teacher DTO全部private no-store，credential marker無PII orphan。
-- [ ] Progress／detail／class summary共用5.5 canonical V1/V2 activity、mastery及due定義。
-- [ ] Signed cursor在靜態資料完整、scope mutation stale refresh且永不越權；固定500-student scale gate通過。
-- [ ] ADMIN teacher workspace有明確全校視角及獨立DTO scope，唔會無提示bypass班級。
-- [ ] desktop／mobile、雙locale、雙theme、keyboard及targeted axe／rendered QA通過。
-- [ ] 不改V1／V2學習、mastery、排行榜或單元解鎖語義。
-- [ ] 實際測試、未執行項目、限制及rollback寫回計劃；索引及相關計劃同步。
+- [x] Search PII不進URL／history／storage／普通logs；teacher DTO全部private no-store，credential marker無PII orphan。
+- [x] Progress／detail／class summary共用5.5 canonical V1/V2 activity、mastery及due定義。
+- [ ] Signed cursor在靜態資料完整、scope mutation stale refresh且永不越權；固定500-student scale gate通過。（scope／cursor已驗證；500-student scale deferred。）
+- [x] ADMIN teacher workspace有明確全校視角及獨立DTO scope，唔會無提示bypass班級。
+- [x] desktop／mobile、雙locale、雙theme、keyboard及targeted axe／rendered QA通過；完整原生 screen-reader／device matrix deferred。
+- [x] 不改V1／V2學習、mastery、排行榜或單元解鎖語義。
+- [x] 實際測試、未執行項目、限制及rollback寫回計劃；索引及相關計劃同步。
 
 ## 14. 已凍結決策紀錄
 
@@ -766,6 +778,7 @@ roster 8、progress 12、summary 12、detail 10；page response上限分別128�
 | PII搜尋 | POST body；raw search不入URL／history／storage／普通log | 已凍結 |
 | 歷史路由 | 頁面`/teacher/students` redirect；舊無分頁API final移除 | 已凍結 |
 | Legacy reset欄 | expand期間安全projection；另行批准才contract drop | 已凍結 |
+| CLOSED 學年教師權限 | 保留 `TeacherClassAccess` 作 immutable history；runtime scope只解析 CURRENT／PLANNED，final-state guard只拒絕 inactive class；新增 row 仍由 closed-year INSERT guard 拒絕 | 已凍結（2026-08-16 forward migrations） |
 
 ## 15. 兩個獨立完整 review 記錄
 

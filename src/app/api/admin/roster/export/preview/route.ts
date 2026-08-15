@@ -6,7 +6,10 @@ import { resolveExportRows, validateExportRequest } from "@/lib/roster-export";
 export async function POST(req: Request) {
   const gate = await requireAdminMutation(req);
   if (!gate.ok) return gate.response;
-  const body = await req.json().catch(() => null);
+  if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) return NextResponse.json({ code: "EXPORT_INPUT_INVALID" }, { status: 422 });
+  const rawBody = await req.text().catch(() => "");
+  if (Buffer.byteLength(rawBody, "utf8") > 16 * 1024) return NextResponse.json({ code: "EXPORT_INPUT_INVALID" }, { status: 422 });
+  const body = (() => { try { return JSON.parse(rawBody); } catch { return null; } })();
   const validated = validateExportRequest(body);
   if (!validated.ok) return NextResponse.json({ code: validated.code }, { status: 422 });
   try {

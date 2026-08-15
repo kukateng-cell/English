@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { getClientIp, checkLimit } from "@/lib/login-limiter";
+import { getClientIp, checkLimit, checkReauthSessionLimit } from "@/lib/login-limiter";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { getRequestToken, issueRecentAuthGrant } from "@/lib/recent-auth";
 import { securityEventData } from "@/lib/security-events";
@@ -27,7 +27,14 @@ export async function POST(req: Request) {
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSec ?? 60) } },
     );
   }
-  const body = await req.json().catch(() => null);
+  const sessionLimit = await checkReauthSessionLimit(token.sessionJti);
+  if (!sessionLimit.ok) {
+    return NextResponse.json({ code: "REAUTH_RATE_LIMITED" }, { status: 429, headers: { "Retry-After": String(sessionLimit.retryAfterSec ?? 60) } });
+  }
+  if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) return NextResponse.json({ code: "PASSWORD_REQUIRED" }, { status: 422 });
+  const rawBody = await req.text().catch(() => "");
+  if (Buffer.byteLength(rawBody, "utf8") > 16 * 1024) return NextResponse.json({ code: "PASSWORD_REQUIRED" }, { status: 422 });
+  const body = (() => { try { return JSON.parse(rawBody) as { password?: unknown }; } catch { return null; } })();
   const password = typeof body?.password === "string" ? body.password : "";
   if (!password) return NextResponse.json({ code: "PASSWORD_REQUIRED" }, { status: 422 });
 

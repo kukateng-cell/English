@@ -60,7 +60,7 @@ const STATUS_KEY_PREFIX = "login-status";
  */
 const STATUS_MAX = 20;
 
-type Dimension = "account" | "ip";
+type Dimension = "account" | "ip" | "session";
 
 interface LimitResult {
   ok: boolean;
@@ -239,6 +239,16 @@ const statusBackend: LimiterBackend = useUpstash
   : (() => {
       const mem = createMemoryBackend(STATUS_MAX, WINDOW_MS);
       memoryResets.push(mem.resetAllForTests);
+    return mem.backend;
+  })();
+
+/** Re-authentication has its own session bucket in addition to account/IP. */
+const REAUTH_SESSION_MAX = 10;
+const reauthSessionBackend: LimiterBackend = useUpstash
+  ? createUpstashBackend(REAUTH_SESSION_MAX, WINDOW, sharedRedis!, "reauth-session")
+  : (() => {
+      const mem = createMemoryBackend(REAUTH_SESSION_MAX, WINDOW_MS);
+      memoryResets.push(mem.resetAllForTests);
       return mem.backend;
     })();
 
@@ -333,6 +343,18 @@ export async function checkLimit(
     return productionRateLimitRequired
       ? { ok: false, retryAfterSec: 60 }
       : { ok: true };
+  }
+}
+
+/** Consume a session-bound reauth bucket after the normal account/IP gate. */
+export async function checkReauthSessionLimit(sessionJti: string): Promise<LimitResult> {
+  if (productionRateLimitRequired && !useUpstash) return { ok: false, retryAfterSec: 60, dimension: "session" };
+  try {
+    const result = await reauthSessionBackend.limit(sessionJti);
+    return result.ok ? { ok: true } : { ok: false, retryAfterSec: toRetryAfterSec(result.reset), dimension: "session" };
+  } catch (err) {
+    console.error("[login-limiter] reauth session bucket failure", { errorType: describeBackendFailure(err) });
+    return productionRateLimitRequired ? { ok: false, retryAfterSec: 60, dimension: "session" } : { ok: true };
   }
 }
 

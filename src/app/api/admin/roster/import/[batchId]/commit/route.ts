@@ -15,6 +15,7 @@ import { prepareCredentials } from "@/lib/credential-batch";
 import { actorAuditFields } from "@/lib/admin-receipts";
 import { stableRosterCode } from "@/lib/roster-api";
 import { deriveRolloverDisposition } from "@/lib/roster-domain";
+import { touchRosterRevision } from "@/lib/teacher-workspace";
 
 function response(code: string, status: number) {
   return NextResponse.json({ code }, { status });
@@ -84,7 +85,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
   if (!auth.ok) return response("AUTH_REQUIRED", auth.status);
   if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) return response("RECENT_AUTH_REQUIRED", 401);
   const { batchId } = await params;
-  const body = await req.json().catch(() => null);
+  if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) return response("ROSTER_INPUT_INVALID", 422);
+  const rawBody = await req.text().catch(() => "");
+  if (Buffer.byteLength(rawBody, "utf8") > 16 * 1024) return response("ROSTER_INPUT_INVALID", 422);
+  const body = (() => { try { return JSON.parse(rawBody) as { operationId?: unknown }; } catch { return null; } })();
   const requestedOperationId = typeof body?.operationId === "string" ? body.operationId : null;
   const batch = await prisma.rosterImportBatch.findFirst({ where: { id: batchId, actorUserId: auth.userId } });
   if (!batch) return response("ROSTER_BATCH_NOT_FOUND", 404);
@@ -114,6 +118,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
       if (!actor || actor.role !== ROLE_VALUES.ADMIN || actor.status !== "ACTIVE") throw new Error("ACTOR_INVALID");
       const lockedBatch = await tx.rosterImportBatch.findUnique({ where: { id: batch.id } });
       if (!lockedBatch || lockedBatch.status !== "PREVIEWED" || lockedBatch.expiresAt <= new Date() || lockedBatch.canonicalDigest !== batch.canonicalDigest || lockedBatch.fingerprint !== batch.fingerprint || lockedBatch.academicYearId !== batch.academicYearId || lockedBatch.operationId !== batch.operationId) throw new Error("STALE_PREVIEW");
+      const batchSummary = lockedBatch.summary && typeof lockedBatch.summary === "object" && !Array.isArray(lockedBatch.summary) ? lockedBatch.summary as { immediateGlobalCapabilityChange?: unknown; acknowledgeImmediateGlobalCapabilityChange?: unknown } : {};
+      if (batchSummary.immediateGlobalCapabilityChange === true && batchSummary.acknowledgeImmediateGlobalCapabilityChange !== true) throw new Error("IMMEDIATE_EFFECT_ACK_REQUIRED");
       const year = await tx.academicYear.findUnique({ where: { id: academicYearId } });
       if (!year || year.status === "CLOSED") throw new Error("ACADEMIC_YEAR_READ_ONLY");
       if (batch.entityType === "STUDENT" && year.status === "PLANNED") {
@@ -186,6 +192,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
         }
         await tx.rosterImportBatchUserLink.upsert({ where: { batchId_userId_linkRole: { batchId: batch.id, userId, linkRole: "TARGET" } }, create: { batchId: batch.id, userId, linkRole: "TARGET" }, update: {} });
       }
+      if (createdCount > 0 || updatedCount > 0) await touchRosterRevision(tx);
       const result = { operationId: batch.operationId, createdCount, updatedCount, skippedCount, rowCount: rows.length };
       const createdSnapshots = createdIds.length
         ? await tx.user.findMany({ where: { id: { in: createdIds } }, select: { id: true, credentialRevision: true, tokenVersion: true } })
@@ -205,7 +212,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
     if (error instanceof Error && error.message === "STALE_PREVIEW") return response("ROSTER_BATCH_STALE", 409);
     if (error instanceof Error && error.message === "ROSTER_BATCH_EXPIRED") return response(error.message, 410);
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response("ROSTER_ACCOUNT_CONFLICT", 409);
-    const code = stableRosterCode(error, ["ACTOR_INVALID", "ACADEMIC_YEAR_READ_ONLY", "ACADEMIC_YEAR_NOT_IMMEDIATE_SUCCESSOR", "ROLE_COLLISION", "ACCOUNT_COLLISION", "ACCOUNT_CHANGED", "CREDENTIAL_MISSING", "GRADE_MISSING", "CLASS_NOT_FOUND", "PROFILE_MISSING", "GRADE_CLASS_REQUIRED", "PENDING_TRANSITION_REQUIRES_REPLAN", "TRANSITION_DISPOSITION_REQUIRED", "YEAR_TRANSITION_INVALID", "ROSTER_MUTATION_STATE_MISSING"], "ROSTER_COMMIT_FAILED");
-    return response(code, 409);
+    const code = stableRosterCode(error, ["ROSTER_INPUT_INVALID", "IMMEDIATE_EFFECT_ACK_REQUIRED", "ACTOR_INVALID", "ACADEMIC_YEAR_READ_ONLY", "ACADEMIC_YEAR_NOT_IMMEDIATE_SUCCESSOR", "ROLE_COLLISION", "ACCOUNT_COLLISION", "ACCOUNT_CHANGED", "CREDENTIAL_MISSING", "GRADE_MISSING", "CLASS_NOT_FOUND", "PROFILE_MISSING", "GRADE_CLASS_REQUIRED", "PENDING_TRANSITION_REQUIRES_REPLAN", "TRANSITION_DISPOSITION_REQUIRED", "YEAR_TRANSITION_INVALID", "ROSTER_MUTATION_STATE_MISSING"], "ROSTER_COMMIT_FAILED");
+    return response(code, code === "ROSTER_INPUT_INVALID" ? 422 : code === "IMMEDIATE_EFFECT_ACK_REQUIRED" ? 422 : 409);
   }
 }

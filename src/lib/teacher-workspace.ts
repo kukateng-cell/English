@@ -378,7 +378,13 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
   const latest = new Map<string, Date>();
   for (const row of encounters) if (row._max?.acknowledgedAt) latest.set(row.userId, row._max.acknowledgedAt);
   for (const row of validEvents) if (!latest.has(row.userId) || latest.get(row.userId)! < row.createdAt) latest.set(row.userId, row.createdAt);
-  return { totalWords, levels, perUser, objectiveCount, reviewCount, daySets, latest, todayDate, sevenDayStart };
+  return { totalWords, levels, perUser, objectiveCount, reviewCount, daySets, latest, todayDate, sevenDayStart, asOf: now };
+}
+
+function shanghaiDateStart(dateKey: string) {
+  // StudyDay stores a pure Asia/Shanghai date key.  Keep the response boundary
+  // explicit rather than letting the browser reinterpret a server-local date.
+  return new Date(`${dateKey}T00:00:00+08:00`).toISOString();
 }
 
 function itemMetrics(id: string, snapshot: Awaited<ReturnType<typeof metricSnapshot>>) {
@@ -429,7 +435,16 @@ export async function queryTeacherClassSummary(input: { userId: string; role: Ro
     return { classId: schoolClass.id, grade: schoolClass.grade, classCode: schoolClass.classCode, studentCount: ids.length, activeTodayCount: metrics.filter((metric) => metric.activeToday).length, activeSevenDayCount: metrics.filter((metric) => metric.activeSevenDay).length, masteredWordCount: metrics.reduce((sum, metric) => sum + metric.masteredWords, 0), masteryAveragePercent: averages.length ? Math.round(averages.reduce((sum, value) => sum + value, 0) / averages.length) : null, dueStudentCount: metrics.filter((metric) => metric.dueReviewCount > 0).length, inactiveSevenDayCount: metrics.filter((metric) => !metric.activeSevenDay).length, totalWords: snapshot.totalWords };
   });
   const unassigned = input.role === ROLES.ADMIN ? await prisma.user.count({ where: { ...context.studentWhere, studentProfile: { is: { enrollments: { some: { academicYearId: context.academicYear.id, status: "ACTIVE", classId: null } } } } } }) : 0;
-  return { context, items, unassignedStudentCount: unassigned };
+  return {
+    context,
+    window: {
+      asOf: snapshot.asOf.toISOString(),
+      todayStart: shanghaiDateStart(snapshot.todayDate),
+      sevenDayStart: shanghaiDateStart(snapshot.sevenDayStart),
+    },
+    items,
+    unassignedStudentCount: unassigned,
+  };
 }
 
 export async function getTeacherStudentDetail(input: { userId: string; role: Role; studentId: string; sessionJti?: string }) {

@@ -7,11 +7,12 @@ export type TeacherStudentCapability =
   | "RESET_STUDENT_PASSWORD";
 
 function capabilityWhere(capability?: TeacherStudentCapability) {
-  // Reset is an account-level teacher capability. The class row remains the
-  // view boundary; the actor profile is checked separately because this
-  // predicate is applied to the target student's User row.
-  void capability;
-  return { canViewProgress: true };
+  // Reset is an account-level teacher capability.  Include the profile
+  // relation here as well as in the transaction helper so ordinary list
+  // queries cannot render reset actions merely because a class row is visible.
+  return capability === "RESET_STUDENT_PASSWORD"
+    ? { canViewProgress: true, teacher: { canResetStudentPassword: true } }
+    : { canViewProgress: true };
 }
 
 /** One object-level scope shared by every teacher student read route. */

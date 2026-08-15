@@ -50,7 +50,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (!gate.ok) return gate.response;
   const { id } = await params;
   if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) return rosterResponse("ACCESS_INPUT_INVALID", 422);
-  const body = await req.json().catch(() => null) as { accessRevision?: unknown; globalCapabilities?: { canResetStudentPassword?: unknown; acknowledgeImmediateEffect?: unknown }; classAccess?: { academicYearId?: unknown; classIds?: unknown } | null } | null;
+  const rawBody = await req.text().catch(() => "");
+  if (Buffer.byteLength(rawBody, "utf8") > 16 * 1024) return rosterResponse("ACCESS_INPUT_INVALID", 422);
+  const body = (() => { try { return JSON.parse(rawBody) as { accessRevision?: unknown; globalCapabilities?: { canResetStudentPassword?: unknown; acknowledgeImmediateEffect?: unknown }; classAccess?: { academicYearId?: unknown; classIds?: unknown } | null }; } catch { return null; } })();
   const expectedAccessRevision = Number(body?.accessRevision);
   const canReset = body?.globalCapabilities?.canResetStudentPassword;
   const acknowledge = body?.globalCapabilities?.acknowledgeImmediateEffect;

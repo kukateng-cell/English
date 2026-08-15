@@ -325,10 +325,10 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     teacherPassword = teacher.temporaryPassword ?? "";
     expect(teacherPassword).toBeTruthy();
     createdUsers.push({ id: teacher.id, accountName: teacherAccount });
-    const teacherStateResponse = await page.request.get(`/api/admin/roster/teachers/${teacher.id}/class-access?academicYearId=${encodeURIComponent(targetYear.id)}`);
+    const teacherStateResponse = await page.request.get(`/api/admin/roster/teachers/${teacher.id}/access-settings?academicYearId=${encodeURIComponent(targetYear.id)}`);
     expect(teacherStateResponse.ok(), await teacherStateResponse.text()).toBeTruthy();
-    const teacherState = await teacherStateResponse.json() as { teacher: { teacherProfile: { accessRevision: number } } };
-    const teacherAccessResponse = await page.request.put(`/api/admin/roster/teachers/${teacher.id}/class-access`, { headers, data: { academicYearId: targetYear.id, accessRevision: teacherState.teacher.teacherProfile.accessRevision, access: [{ classId: targetClasses[0].id, canViewProgress: true, canResetStudentPassword: true }] } });
+    const teacherState = await teacherStateResponse.json() as { accessRevision: number };
+    const teacherAccessResponse = await page.request.put(`/api/admin/roster/teachers/${teacher.id}/access-settings`, { headers, data: { accessRevision: teacherState.accessRevision, globalCapabilities: { canResetStudentPassword: true, acknowledgeImmediateEffect: true }, classAccess: { academicYearId: targetYear.id, classIds: [targetClasses[0].id] } } });
     expect(teacherAccessResponse.ok(), await teacherAccessResponse.text()).toBeTruthy();
 
     const accountName = `flowstudent${Date.now().toString(36)}`;
@@ -528,9 +528,14 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     await teacherPage.getByLabel(/密码|密碼/).fill(teacherNewPassword);
     await teacherPage.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await teacherPage.waitForURL((url) => !url.pathname.startsWith("/login"));
-    const teacherStudentsResponse = await teacherPage.request.get("/api/teacher/students");
+    const teacherCsrfResponse = await teacherPage.request.get("/api/auth/csrf");
+    expect(teacherCsrfResponse.ok()).toBeTruthy();
+    const teacherCsrf = (await teacherCsrfResponse.json() as { csrfToken?: string }).csrfToken;
+    expect(teacherCsrf).toBeTruthy();
+    const teacherHeaders = { Origin: "http://127.0.0.1:3100", "x-csrf-token": teacherCsrf!, "Content-Type": "application/json" };
+    const teacherStudentsResponse = await teacherPage.request.post("/api/teacher/roster/query", { headers: teacherHeaders, data: { limit: 50 } });
     expect(teacherStudentsResponse.ok(), await teacherStudentsResponse.text()).toBeTruthy();
-    const teacherStudents = await teacherStudentsResponse.json() as Array<{ id: string; accountName: string; grade: string | null; classCode: string | null; canResetStudentPassword: boolean }>;
+    const teacherStudents = (await teacherStudentsResponse.json() as { items: Array<{ id: string; accountName: string; grade: string | null; classCode: string | null; canResetStudentPassword: boolean; resetPrecondition: string | null }> }).items;
     expect(teacherStudents.length).toBeGreaterThan(0);
     expect(teacherStudents.every((student) => student.grade === "JUNIOR_2" && student.classCode === "A")).toBeTruthy();
     expect(teacherStudents.every((student) => student.canResetStudentPassword)).toBeTruthy();
@@ -541,12 +546,7 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     const targetRoster = await targetRosterResponse.json() as { items?: Array<{ id: string; grade: string | null; classCode: string | null }> };
     const unauthorizedStudentId = targetRoster.items?.find((student) => student.id !== authorizedStudentId && (student.grade !== "JUNIOR_2" || student.classCode !== "A"))?.id;
     expect(unauthorizedStudentId).toBeTruthy();
-    const teacherCsrfResponse = await teacherPage.request.get("/api/auth/csrf");
-    expect(teacherCsrfResponse.ok()).toBeTruthy();
-    const teacherCsrf = (await teacherCsrfResponse.json() as { csrfToken?: string }).csrfToken;
-    expect(teacherCsrf).toBeTruthy();
-    const teacherHeaders = { Origin: "http://127.0.0.1:3100", "x-csrf-token": teacherCsrf!, "Content-Type": "application/json" };
-    const authorizedReset = await teacherPage.request.post(`/api/teacher/students/${authorizedStudentId}/reset-password`, { headers: teacherHeaders, data: {} });
+    const authorizedReset = await teacherPage.request.post(`/api/teacher/students/${authorizedStudentId}/reset-password`, { headers: teacherHeaders, data: { resetPrecondition: teacherStudents[0]!.resetPrecondition } });
     expect(authorizedReset.ok()).toBeTruthy();
     const authorizedResetPayload = await authorizedReset.json() as { temporaryPassword?: string };
     expect(authorizedResetPayload.temporaryPassword).toBeTruthy();
@@ -557,34 +557,39 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     await forcedStudentPage.getByLabel(/密码|密碼/).fill(authorizedResetPayload.temporaryPassword!);
     await forcedStudentPage.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await expect.poll(() => forcedStudentPage.url()).toMatch(/\/reset-password/u);
-    const unauthorizedReset = await teacherPage.request.post(`/api/teacher/students/${unauthorizedStudentId}/reset-password`, { headers: teacherHeaders, data: {} });
-    expect(unauthorizedReset.status()).toBe(404);
+    const unauthorizedReset = await teacherPage.request.post(`/api/teacher/students/${unauthorizedStudentId}/reset-password`, { headers: teacherHeaders, data: { resetPrecondition: teacherStudents[0]!.resetPrecondition } });
+    // The precondition is target-bound, so reusing another student's token is
+    // rejected before any credential write and must not become an IDOR.
+    expect(unauthorizedReset.status()).toBe(422);
+    const unauthorizedDetail = await teacherPage.request.get(`/api/teacher/students/${unauthorizedStudentId}`);
+    expect(unauthorizedDetail.status()).toBe(404);
 
-    const teacherAccessStateResponse = await page.request.get(`/api/admin/roster/teachers/${teacher.id}/class-access?academicYearId=${encodeURIComponent(targetYear.id)}`);
+    const teacherAccessStateResponse = await page.request.get(`/api/admin/roster/teachers/${teacher.id}/access-settings?academicYearId=${encodeURIComponent(targetYear.id)}`);
     expect(teacherAccessStateResponse.ok()).toBeTruthy();
-    const teacherAccessState = await teacherAccessStateResponse.json() as { teacher: { teacherProfile: { accessRevision: number } } };
-    const removeResetAccessResponse = await page.request.put(`/api/admin/roster/teachers/${teacher.id}/class-access`, { headers, data: { academicYearId: targetYear.id, accessRevision: teacherAccessState.teacher.teacherProfile.accessRevision, access: [{ classId: targetClasses[0].id, canViewProgress: true, canResetStudentPassword: false }] } });
+    const teacherAccessState = await teacherAccessStateResponse.json() as { accessRevision: number };
+    const removeResetAccessResponse = await page.request.put(`/api/admin/roster/teachers/${teacher.id}/access-settings`, { headers, data: { accessRevision: teacherAccessState.accessRevision, globalCapabilities: { canResetStudentPassword: false, acknowledgeImmediateEffect: true }, classAccess: { academicYearId: targetYear.id, classIds: [targetClasses[0].id] } } });
     expect(removeResetAccessResponse.ok()).toBeTruthy();
-    const noResetStudentsResponse = await teacherPage.request.get("/api/teacher/students");
+    const noResetStudentsResponse = await teacherPage.request.post("/api/teacher/roster/query", { headers: teacherHeaders, data: { limit: 50 } });
     expect(noResetStudentsResponse.ok()).toBeTruthy();
-    const noResetStudents = await noResetStudentsResponse.json() as Array<{ id: string; accountName: string; canResetStudentPassword: boolean }>;
+    const noResetStudents = (await noResetStudentsResponse.json() as { items: Array<{ id: string; accountName: string; canResetStudentPassword: boolean }> }).items;
     const noResetStudent = noResetStudents.find((student) => student.id === authorizedStudentId);
     expect(noResetStudent?.canResetStudentPassword).toBe(false);
     await teacherPage.goto("/teacher/students");
     await expect(teacherPage.getByRole("heading", { name: /学生进度|學生進度/ })).toBeVisible();
-    const studentCard = teacherPage.locator('[role="button"]').filter({ hasText: authorizedStudentAccountName }).first();
-    await expect(studentCard).toBeVisible();
-    await studentCard.click();
+    const studentRow = teacherPage.locator("tr").filter({ hasText: authorizedStudentAccountName }).first();
+    await expect(studentRow).toBeVisible();
+    await studentRow.getByRole("link", { name: /查看/u }).click();
+    await expect(teacherPage.getByText(authorizedStudentAccountName, { exact: true })).toBeVisible();
     await expect(teacherPage.getByRole("button", { name: /重置密码|重設密碼/ })).toHaveCount(0);
 
-    const revokeStateResponse = await page.request.get(`/api/admin/roster/teachers/${teacher.id}/class-access?academicYearId=${encodeURIComponent(targetYear.id)}`);
+    const revokeStateResponse = await page.request.get(`/api/admin/roster/teachers/${teacher.id}/access-settings?academicYearId=${encodeURIComponent(targetYear.id)}`);
     expect(revokeStateResponse.ok()).toBeTruthy();
-    const revokeState = await revokeStateResponse.json() as { teacher: { teacherProfile: { accessRevision: number } } };
-    const revokeAccessResponse = await page.request.put(`/api/admin/roster/teachers/${teacher.id}/class-access`, { headers, data: { academicYearId: targetYear.id, accessRevision: revokeState.teacher.teacherProfile.accessRevision, access: [] } });
+    const revokeState = await revokeStateResponse.json() as { accessRevision: number };
+    const revokeAccessResponse = await page.request.put(`/api/admin/roster/teachers/${teacher.id}/access-settings`, { headers, data: { accessRevision: revokeState.accessRevision, globalCapabilities: { canResetStudentPassword: false }, classAccess: { academicYearId: targetYear.id, classIds: [] } } });
     expect(revokeAccessResponse.ok()).toBeTruthy();
-    const afterRevokeStudents = await teacherPage.request.get("/api/teacher/students");
-    expect(await afterRevokeStudents.json()).toEqual([]);
-    const afterRevokeReset = await teacherPage.request.post(`/api/teacher/students/${authorizedStudentId}/reset-password`, { headers: teacherHeaders, data: {} });
+    const afterRevokeStudents = await teacherPage.request.post("/api/teacher/roster/query", { headers: teacherHeaders, data: { limit: 50 } });
+    expect((await afterRevokeStudents.json() as { items: unknown[] }).items).toEqual([]);
+    const afterRevokeReset = await teacherPage.request.post(`/api/teacher/students/${authorizedStudentId}/reset-password`, { headers: teacherHeaders, data: { resetPrecondition: teacherStudents[0]!.resetPrecondition } });
     expect(afterRevokeReset.status()).toBe(404);
   } finally {
     await studentContext?.close();

@@ -18,6 +18,8 @@ const result = spawnSync(command, args, {
     // a real configured value wins when one is supplied by CI/local setup.
     SECURITY_AUDIT_HMAC_SECRET: process.env.SECURITY_AUDIT_HMAC_SECRET ?? randomBytes(32).toString("hex"),
     SECURITY_AUDIT_HMAC_KEY_ID: process.env.SECURITY_AUDIT_HMAC_KEY_ID ?? "e2e-v1",
+    TEACHER_RESET_PRECONDITION_KEY_CURRENT: process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT ?? randomBytes(32).toString("base64url"),
+    TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID: process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID ?? "e2e-teacher-reset-v1",
   },
 });
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ErrorBanner from "@/components/ErrorBanner";
 import Icon from "@/components/ui/Icon";
 import TeacherFilters, { type TeacherClassOption } from "@/components/teacher/TeacherFilters";
@@ -26,21 +26,30 @@ export default function TeacherProgressPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestController = useRef<AbortController | null>(null);
 
   const load = useCallback(async (nextCursor: string | null = null, append = false) => {
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     if (append) setLoadingMore(true); else setLoading(true);
     setError(null);
     try {
-      const classResponse = await fetch("/api/teacher/classes");
+      const classResponse = await fetch("/api/teacher/classes", { signal: controller.signal });
       if (!classResponse.ok) throw new Error(await responseErrorMessage(classResponse));
       setClasses((await classResponse.json() as { items: TeacherClassOption[] }).items);
-      const response = await rosterFetch("/api/teacher/progress/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ grade: grade || undefined, classId: classId || undefined, search: search || undefined, cursor: nextCursor || undefined, limit: 50 }) });
+      const response = await rosterFetch("/api/teacher/progress/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ grade: grade || undefined, classId: classId || undefined, search: search || undefined, cursor: nextCursor || undefined, limit: 50 }), signal: controller.signal });
       if (!response.ok) throw new Error(await responseErrorMessage(response));
       const payload = await response.json() as { items: Item[]; nextCursor: string | null };
       setItems((current) => append ? [...current, ...payload.items] : payload.items); setCursor(payload.nextCursor);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : tc("讀取學生進度失敗")); }
-    finally { setLoading(false); setLoadingMore(false); }
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setError(cause instanceof Error ? cause.message : tc("讀取學生進度失敗"));
+    }
+    finally { if (requestController.current === controller) { setLoading(false); setLoadingMore(false); } }
   }, [classId, grade, search, tc]);
+
+  useEffect(() => () => requestController.current?.abort(), []);
 
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 180); return () => window.clearTimeout(timer); }, [load]);
 

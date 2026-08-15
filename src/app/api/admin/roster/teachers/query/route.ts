@@ -13,7 +13,9 @@ export async function POST(req: Request) {
   if (auth instanceof Response) return auth;
   try {
     if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) throw new Error("QUERY_INVALID");
-    const body = await req.json().catch(() => null) as { search?: unknown; status?: unknown; cursor?: unknown; limit?: unknown } | null;
+    const rawBody = await req.text().catch(() => "");
+    if (Buffer.byteLength(rawBody, "utf8") > 16 * 1024) throw new Error("QUERY_INVALID");
+    const body = (() => { try { return JSON.parse(rawBody) as { search?: unknown; status?: unknown; cursor?: unknown; limit?: unknown }; } catch { return null; } })();
     const search = typeof body?.search === "string" ? body.search.normalize("NFKC").trim() : "";
     if ([...new Intl.Segmenter("zh", { granularity: "grapheme" }).segment(search)].length > 80) throw new Error("QUERY_INVALID");
     const status: "ACTIVE" | "SUSPENDED" | undefined = body?.status === "ACTIVE" || body?.status === "SUSPENDED" ? body.status : undefined;

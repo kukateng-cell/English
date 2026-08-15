@@ -8,15 +8,16 @@ async function main() {
   const { authorizedStudentWhere } = await import("../src/lib/teacher-access");
   const suffix = randomUUID();
   const createdUserIds: string[] = [];
-  let yearId: string | null = null;
+  const createdClassIds: string[] = [];
   try {
     const year = await prisma.academicYear.findFirst({ where: { status: "CURRENT" } });
     if (!year) throw new Error("current academic year fixture is required");
-    yearId = year.id;
-    const [classA, classB] = await Promise.all([
-      prisma.schoolClass.create({ data: { academicYearId: year.id, grade: "JUNIOR_1", classCode: "B" } }),
-      prisma.schoolClass.create({ data: { academicYearId: year.id, grade: "JUNIOR_1", classCode: "C" } }),
-    ]);
+    const available = await prisma.schoolClass.findMany({ where: { academicYearId: year.id, grade: "JUNIOR_1" }, select: { classCode: true } });
+    const classCode = ["B", "C", "D", "E", "F", "G", "H"].filter((value) => !available.some((item) => item.classCode === value)).slice(0, 2) as Array<"B" | "C" | "D" | "E" | "F" | "G" | "H">;
+    if (classCode.length < 2) throw new Error("two unused current classes are required for the access fixture");
+    const classA = await prisma.schoolClass.create({ data: { academicYearId: year.id, grade: "JUNIOR_1", classCode: classCode[0] } });
+    const classB = await prisma.schoolClass.create({ data: { academicYearId: year.id, grade: "JUNIOR_1", classCode: classCode[1] } });
+    createdClassIds.push(classA.id, classB.id);
     const teacher = await prisma.user.create({
       data: {
         accountName: `access-teacher-${suffix}`,
@@ -25,7 +26,7 @@ async function main() {
         credentialRevision: 1,
         role: "TEACHER",
         mustChangePassword: false,
-        teacherProfile: { create: { legalName: "權限測試老師" } },
+      teacherProfile: { create: { legalName: "權限測試老師", canResetStudentPassword: false } },
       },
     });
     createdUserIds.push(teacher.id);
@@ -84,10 +85,7 @@ async function main() {
       }),
     });
     if (resetDenied !== 0) throw new Error("reset capability was inferred from view access");
-    await prisma.teacherClassAccess.update({
-      where: { teacherId_classId: { teacherId: teacher.id, classId: classA.id } },
-      data: { canResetStudentPassword: true },
-    });
+    await prisma.teacherProfile.update({ where: { userId: teacher.id }, data: { canResetStudentPassword: true } });
     const resetAllowed = await prisma.user.count({
       where: authorizedStudentWhere({
         userId: teacher.id,
@@ -106,9 +104,7 @@ async function main() {
     if (createdUserIds.length) {
       await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     }
-    if (yearId) {
-      await prisma.schoolClass.deleteMany({ where: { academicYearId: yearId, classCode: { in: ["B", "C"] } } });
-    }
+    if (createdClassIds.length) await prisma.schoolClass.deleteMany({ where: { id: { in: createdClassIds } } });
     await prisma.$disconnect();
   }
 }
