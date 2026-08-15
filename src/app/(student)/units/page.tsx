@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
+import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
@@ -94,7 +95,7 @@ export default function UnitsPage() {
 
   if (error) {
     return (
-      <div className="mx-auto w-full max-w-[420px] px-5 pt-6 pb-24">
+      <div className="units-page-error">
         <ErrorBanner
           message={error}
           onRetry={() => setReloadKey((k) => k + 1)}
@@ -111,16 +112,14 @@ export default function UnitsPage() {
     grandTotal > 0 ? Math.round((grandMastered / grandTotal) * 100) : 0;
 
   return (
-    <div className="mx-auto w-full max-w-[420px] px-5 pt-6 pb-24">
+    <div className="units-page">
       {/* 顶部导航 */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="units-page-topbar flex items-center justify-between">
         <Link
           href="/"
           className="flex items-center gap-1 text-[14px] text-[var(--muted)] transition hover:text-[var(--text)] dark:text-[var(--muted)] dark:hover:text-[var(--text)]"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
+          <Icon name="arrow-left" size={16} />
           {tc("首页")}
         </Link>
         <Link
@@ -128,9 +127,7 @@ export default function UnitsPage() {
           className="flex items-center gap-1 text-[14px] font-medium text-[var(--primary)] transition hover:text-[var(--primary-2)]"
         >
           {tc("今日学习")}
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-          </svg>
+          <Icon name="chevron-right" size={14} />
         </Link>
       </div>
 
@@ -168,13 +165,10 @@ export default function UnitsPage() {
               }`}
             >
               {!unlocked && (
-                <svg className="mr-1 inline-block h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
+                <Icon name="lock" size={14} className="mr-1 inline-block" />
               )}
               {lvl}
-              {unlocked && st?.completed && <span className="ml-1">✓</span>}
+              {unlocked && st?.completed && <Icon name="check" size={14} className="ml-1 inline-block" />}
             </button>
           );
         })}
@@ -184,10 +178,7 @@ export default function UnitsPage() {
       {!levelUnlocked && (
         <div className="mb-6 rounded-2xl bg-[var(--warning-bg)] p-5 shadow-sm dark:bg-[var(--warning-bg)]">
           <p className="flex items-center gap-2 text-[14px] font-semibold text-[var(--warning)] dark:text-[var(--warning)]">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
+            <Icon name="lock" size={18} />
             {tc(`${level} 级别尚未解锁`)}
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--warning)]">
@@ -197,7 +188,7 @@ export default function UnitsPage() {
       )}
 
       {/* 级别总览卡片 */}
-      <div className="relative mb-8 overflow-hidden rounded-[22px] bg-[var(--primary)] p-6 text-[var(--color-surface)] shadow-card">
+      <div className="units-page-summary relative overflow-hidden rounded-[22px] bg-[var(--primary)] p-6 text-[var(--color-surface)] shadow-card">
         {/* 装饰圆形 */}
         <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[var(--surface)] opacity-[0.06]" />
         <div className="absolute -bottom-4 right-12 h-16 w-16 rounded-full bg-[var(--surface)] opacity-[0.04]" />
@@ -233,7 +224,7 @@ export default function UnitsPage() {
           {tc("该级别暂无单词数据")}
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="units-grid">
           {units.map((u, idx) => (
             <UnitCard
               key={u.name}
@@ -275,7 +266,7 @@ function UnitCard({
       disabled={locked}
       aria-disabled={locked}
       whileTap={locked ? undefined : { scale: 0.98 }}
-      className={`group relative flex flex-col rounded-2xl border bg-[var(--surface)] p-5 text-left transition-all ${
+      className={`unit-card group relative flex flex-col rounded-2xl border bg-[var(--surface)] p-5 text-left transition-all ${
         locked
           ? "cursor-not-allowed border-[var(--border)] opacity-60 dark:border-[var(--border)] dark:bg-[var(--surface)]"
           : "border-[var(--border)] hover:-translate-y-0.5 hover:border-[var(--primary)]/20 hover:shadow-[var(--shadow-card)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:hover:border-[var(--border-soft)] dark:hover:shadow-[var(--shadow-card)]"
@@ -284,14 +275,14 @@ function UnitCard({
       {/* 状态徽章 */}
       {completed ? (
         <span className="absolute right-4 top-4 rounded-full bg-[var(--success-bg)] px-2.5 py-1 text-[11px] font-semibold text-[var(--success)] dark:bg-[var(--success-bg)] dark:text-[var(--success)]">
-          {tc("✓ 已完成")}
+          <span className="flex items-center gap-1">
+            <Icon name="check" size={13} />
+            {tc("已完成")}
+          </span>
         </span>
       ) : locked ? (
         <span className="absolute right-4 top-4 flex items-center gap-1 rounded-full bg-[var(--border-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--muted)]">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
+          <Icon name="lock" size={12} />
           {tc("未解锁")}
         </span>
       ) : null}
@@ -339,16 +330,17 @@ function UnitCard({
         <span>
           {unit.mastered}/{unit.total} {tc("词")}
         </span>
-        <span className={`font-medium ${locked ? "" : "text-[var(--primary)] dark:text-[var(--primary)]"}`}>
+        <span className={`inline-flex items-center gap-1 font-medium ${locked ? "" : "text-[var(--primary)] dark:text-[var(--primary)]"}`}>
           {locked
             ? tc("完成上一单元解锁")
             : completed
-              ? tc("巩固复习 →")
+              ? tc("巩固复习")
               : started
                 ? unit.due > 0
-                  ? tc(`${unit.due} 词待复习 →`)
-                  : tc("继续练习 →")
-                : tc("开始学习 →")}
+                  ? tc(`${unit.due} 词待复习`)
+                  : tc("继续练习")
+                : tc("开始学习")}
+          {!locked && <Icon name="arrow-right" size={14} />}
         </span>
       </div>
     </motion.button>

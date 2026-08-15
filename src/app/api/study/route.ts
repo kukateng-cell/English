@@ -34,6 +34,7 @@ import {
   isRetryableTransactionConflict,
   waitForTransactionRetry,
 } from "@/lib/transaction-retry";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 /**
  * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
@@ -439,6 +440,7 @@ export async function GET(req: Request) {
 
 /** POST /api/study — 提交一次学习结果（认字评估手势 或 测试 quality） */
 export async function POST(req: Request) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireUser();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.message }, { status: auth.status });

@@ -41,3 +41,76 @@ test("teacher and admin fixtures retain role boundaries when seeded credentials 
     await context.close();
   }
 });
+
+test("admin workspace highlights only the current route and keeps role metrics readable", async ({ page }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the admin workspace smoke.");
+
+  await page.goto("/login");
+  await page.getByLabel(/账号|賬號/).fill("admin");
+  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
+  await page.waitForURL((url) => url.pathname === "/admin");
+
+  const workspaceNav = page.getByRole("navigation", { name: /工作區導航|工作区导航/ });
+  const assertActive = async (currentHref: string) => {
+    const states = await workspaceNav.locator("a").evaluateAll((links) => links.map((link) => ({
+      href: new URL((link as HTMLAnchorElement).href).pathname,
+      active: link.classList.contains("is-active"),
+    })));
+    expect(states.filter((link) => link.active).map((link) => link.href)).toEqual([currentHref]);
+  };
+
+  await expect(page.locator(".admin-role-metrics")).toBeVisible();
+  await expect(page.locator(".admin-role-metric")).toHaveCount(3);
+  await expect(page.locator(".admin-role-metric strong")).toHaveCount(3);
+  await assertActive("/admin");
+
+  for (const route of ["/admin/users", "/admin/words"] as const) {
+    await page.goto(route);
+    await expect(page.locator(`h1`)).toBeVisible();
+    await assertActive(route);
+    await expect(page.locator(".ui-icon").first()).toBeVisible();
+  }
+});
+
+test("teacher and admin desktop sidebars keep account controls in the viewport on long pages", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the seeded workspace smoke.");
+
+  for (const fixture of [
+    { username: "teacher", home: "/teacher", longRoute: "/teacher/students" },
+    { username: "admin", home: "/admin", longRoute: "/admin/roster" },
+  ]) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    await page.goto("/login");
+    await page.getByLabel(/账号|賬號/).fill(fixture.username);
+    await page.getByLabel(/密码|密碼/).fill(password!);
+    await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
+    await page.waitForURL((url) => url.pathname === fixture.home);
+    await page.goto(fixture.longRoute, { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".workspace-sidebar")).toBeVisible();
+
+    const readSidebar = () => page.locator(".workspace-sidebar").evaluate((sidebar) => {
+      const style = getComputedStyle(sidebar);
+      const account = sidebar.querySelector<HTMLElement>(".account-controls")?.getBoundingClientRect();
+      return {
+        position: style.position,
+        height: sidebar.getBoundingClientRect().height,
+        viewportHeight: window.innerHeight,
+        accountBottom: account?.bottom ?? 0,
+      };
+    });
+
+    const initial = await readSidebar();
+    expect(initial.position).toBe("sticky");
+    expect(initial.height).toBeGreaterThanOrEqual(initial.viewportHeight);
+    expect(initial.accountBottom).toBeGreaterThan(initial.viewportHeight - 100);
+
+    await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" as ScrollBehavior }));
+    const afterScroll = await readSidebar();
+    expect(afterScroll.accountBottom).toBeGreaterThan(afterScroll.viewportHeight - 100);
+    await context.close();
+  }
+});

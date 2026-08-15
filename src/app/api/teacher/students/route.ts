@@ -3,19 +3,47 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
+import { authorizedStudentWhere, teacherActorIsActive } from "@/lib/teacher-access";
 
 export async function GET() {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+  if (auth.role === ROLES.TEACHER && !(await teacherActorIsActive(prisma, auth.userId))) return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
 
   try {
+    const studentWhere = authorizedStudentWhere({
+      userId: auth.userId,
+      role: auth.role,
+    });
     // totalReviews：评测事件数，而不是「有 Review 状态的不同单词数」。
     const students = await prisma.user.findMany({
-      where: { role: ROLES.STUDENT },
+      where: studentWhere,
       select: {
         id: true,
-        name: true,
-        email: true,
+        accountName: true,
+        studentProfile: {
+          select: {
+            legalName: true,
+            nickname: true,
+            enrollments: {
+              where: { status: "ACTIVE", academicYear: { status: "CURRENT" } },
+              take: 1,
+              select: {
+                grade: true,
+                schoolClass: {
+                  select: {
+                    grade: true,
+                    classCode: true,
+                    teacherAccess: {
+                      where: { teacherId: auth.userId },
+                      select: { canResetStudentPassword: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         _count: { select: { reviewEvents: true } },
       },
       orderBy: { createdAt: "asc" },
@@ -30,7 +58,7 @@ export async function GET() {
     // Review 行，where 下推到 DB；这里只传输满足条件的子集（而非全部 Review），
     // 再在内存按 (学生, 级别) 聚合。
     const masteredRows = await prisma.review.findMany({
-      where: { user: { role: ROLES.STUDENT }, interval: { gte: MASTERED_MIN_INTERVAL } },
+      where: { user: studentWhere, interval: { gte: MASTERED_MIN_INTERVAL } },
       select: {
         userId: true,
         word: { select: { level: true } },
@@ -64,8 +92,16 @@ export async function GET() {
 
         return {
           id: s.id,
-          name: s.name,
-          email: s.email,
+          name: s.studentProfile?.legalName ?? s.accountName,
+          nickname: s.studentProfile?.nickname ?? "",
+          email: s.accountName,
+          accountName: s.accountName,
+          grade: s.studentProfile?.enrollments[0]?.grade ?? null,
+          classCode:
+            s.studentProfile?.enrollments[0]?.schoolClass?.classCode ?? null,
+          canResetStudentPassword:
+            auth.role === ROLES.ADMIN ||
+            Boolean(s.studentProfile?.enrollments[0]?.schoolClass?.teacherAccess?.some((access) => access.canResetStudentPassword)),
           totalReviews: s._count.reviewEvents,
           masteredWords: mastered,
           totalWords,

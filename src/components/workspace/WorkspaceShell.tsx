@@ -18,7 +18,8 @@ const ITEMS: Record<"teacher" | "admin", WorkspaceItem[]> = {
   ],
   admin: [
     { href: "/admin", label: "概览", icon: "bar-chart" },
-    { href: "/admin/users", label: "用户管理", icon: "home" },
+    { href: "/admin/roster", label: "班级与名单", icon: "book" },
+    { href: "/admin/users", label: "用户管理", icon: "users" },
     { href: "/admin/words", label: "单词库", icon: "book" },
   ],
 };
@@ -37,6 +38,7 @@ export default function WorkspaceShell({
   const items = ITEMS[role];
   const homeHref = role === "admin" ? "/admin" : "/teacher";
   const roleTitle = role === "admin" ? "管理工作台" : "教师工作台";
+  const isActivePath = (href: string) => href === homeHref ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
   return (
     <div className="workspace-shell">
       <a className="skip-link" href="#workspace-main">{tc("跳到主要内容")}</a>
@@ -45,7 +47,7 @@ export default function WorkspaceShell({
         <div className="workspace-role-label">{tc(roleTitle)}</div>
         <nav className="workspace-nav" aria-label={tc("工作区导航") as string}>
           {items.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = isActivePath(item.href);
             return <Link key={item.href} href={item.href} className={active ? "workspace-nav-link is-active" : "workspace-nav-link"} aria-current={active ? "page" : undefined}><Icon name={item.icon} size={19} /><span>{tc(item.label)}</span></Link>;
           })}
         </nav>
@@ -59,7 +61,7 @@ export default function WorkspaceShell({
         </header>
         <nav className="workspace-mobile-nav" aria-label={tc("工作区导航") as string}>
           {items.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = isActivePath(item.href);
             return <Link key={item.href} href={item.href} className={active ? "workspace-mobile-nav-link is-active" : "workspace-mobile-nav-link"} aria-current={active ? "page" : undefined}>{tc(item.label)}</Link>;
           })}
         </nav>

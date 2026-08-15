@@ -64,6 +64,8 @@ import {
   type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
 import { canResumeStudySession } from "@/lib/study-session";
+import { rosterFetch } from "@/lib/roster-client";
+import { clearStudyClientState } from "@/lib/study-client-state";
 import StudyStreamV2 from "@/components/study-stream/StudyStreamV2";
 
 interface WordFull {
@@ -426,18 +428,7 @@ function PendingSyncBanner({
           className="study-warning-card mx-auto mb-3 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl px-4 py-2.5 text-[12px] font-medium"
         >
           <span className="flex items-center gap-1.5">
-            <svg
-              className="h-3.5 w-3.5 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              <polyline points="21 4 21 10 15 10" />
-            </svg>
+            <Icon name="refresh" size={14} className="shrink-0" />
             {legacy > 0
               ? tc(`发现旧版留下的 ${legacy} 条记录，请确认是否属于当前账号`)
               : blocked > 0
@@ -622,9 +613,15 @@ function StudyFlowRouter() {
   const [assignment, setAssignment] = useState<StudyFlowAssignmentResponse | null>(null);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const userId = session?.user?.id ?? null;
+  const lastKnownUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (userId) lastKnownUserIdRef.current = userId;
+  }, [userId]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
+      if (lastKnownUserIdRef.current) clearStudyClientState(lastKnownUserIdRef.current);
       router.push("/login");
       return;
     }
@@ -632,6 +629,11 @@ function StudyFlowRouter() {
     let cancelled = false;
     fetch("/api/study/stream?assignmentOnly=1", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
+        if (response.status === 401) {
+          clearStudyClientState(userId);
+          router.replace(`/login?callbackUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+          return null;
+        }
         const data: unknown = await response.json().catch(() => null);
         if (!response.ok) {
           const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
@@ -642,7 +644,7 @@ function StudyFlowRouter() {
         return data as StudyFlowAssignmentResponse;
       })
       .then((data) => {
-        if (!cancelled) setAssignment(data);
+        if (!cancelled && data) setAssignment(data);
       })
       .catch((error: unknown) => {
         if (!cancelled) setAssignmentError(error instanceof Error ? error.message : "学习流程分配暂时不可用");
@@ -1586,7 +1588,7 @@ function LegacyStudyPage() {
         retryLater("学习队列无法安全续期，请重新载入页面");
         return;
       }
-      const response = await fetch("/api/study/session/rotate", {
+      const response = await rosterFetch("/api/study/session/rotate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1782,7 +1784,8 @@ function LegacyStudyPage() {
         });
         if (!canApply()) return { kind: "failed" };
         if (res.status === 401) {
-          router.push("/login");
+          clearStudyClientState(userId);
+          router.replace(`/login?callbackUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`);
           return { kind: "failed" };
         }
         if (res.status === 403) {
@@ -2592,10 +2595,7 @@ function LegacyStudyPage() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-5 text-center">
         <div className="study-warning-card mb-5 flex h-20 w-20 items-center justify-center rounded-[28px]">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
+          <Icon name="lock" size={36} />
         </div>
         <h2 className="mb-2 text-xl font-bold text-[var(--text)]">{tc("单元尚未解锁")}</h2>
         <p className="study-muted mb-8 max-w-xs text-[14px] leading-relaxed">
@@ -2608,7 +2608,8 @@ function LegacyStudyPage() {
             onClick={guardStudyNavigation}
             className="study-link-primary font-medium transition"
           >
-            {tc("← 返回单元列表")}
+            <Icon name="arrow-left" size={16} />
+            {tc("返回单元列表")}
           </Link>
           <Link href="/" onClick={guardStudyNavigation} className="study-link-muted transition">
             {tc("返回首页")}
@@ -2761,10 +2762,7 @@ function LegacyStudyPage() {
           onDiscardLegacy={discardLegacy}
         />
         <div className="study-success-icon mb-5 flex h-20 w-20 items-center justify-center rounded-[28px]">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M8 12l3 3 5-5" />
-          </svg>
+          <Icon name="check" size={36} />
         </div>
         <h2 className="mb-2 text-xl font-bold text-[var(--text)]">
           {hasQuiz ? tc("测试完成！") : tc("全部完成！")}
@@ -2806,9 +2804,7 @@ function LegacyStudyPage() {
               ) : (
                 <>
                   {tc("下一个单元")}
-                  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-                  </svg>
+                  <Icon name="arrow-right" size={16} />
                 </>
               )}
             </button>
@@ -2827,7 +2823,7 @@ function LegacyStudyPage() {
               onClick={guardStudyNavigation}
               className="study-link-primary font-medium transition"
             >
-              {tc(unitCategory ? "← 返回单元列表" : "返回首页")}
+              {unitCategory ? <><Icon name="arrow-left" size={16} />{tc("返回单元列表")}</> : tc("返回首页")}
             </Link>
             {unitCategory ? <Link href="/" onClick={guardStudyNavigation} className="study-link-muted transition">{tc("返回首页")}</Link> : null}
           </div>
@@ -2894,7 +2890,8 @@ function LegacyStudyPage() {
         <div className="study-unit-context mx-auto mb-4 flex w-full px-4">
           <div className="study-context flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium">
             <Link href="/units" onClick={guardStudyNavigation} className="hover:underline">
-              {tc("← 单元列表")}
+              <Icon name="arrow-left" size={15} />
+              {tc("单元列表")}
             </Link>
             <span className="opacity-40">·</span>
             <span>{tc(unitCategory)}</span>
@@ -2931,9 +2928,7 @@ function LegacyStudyPage() {
                   onClick={() => cardActionControllerRef.current?.onLeft()}
                   className="swipe-action swipe-action-left"
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M19 12H5M11 6l-6 6 6 6" />
-                  </svg>
+                  <Icon name="arrow-left" size={20} />
                   {tc("还不会")}
                 </button>
                 <button
@@ -2944,9 +2939,7 @@ function LegacyStudyPage() {
                   className="swipe-action swipe-action-right"
                 >
                   {tc("我会")}
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
+                  <Icon name="arrow-right" size={20} />
                 </button>
               </div>
               <p data-testid="study-swipe-guide" className="swipe-guide">

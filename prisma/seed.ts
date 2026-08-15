@@ -9,12 +9,14 @@
  */
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
-import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient, type Level } from "../src/generated/prisma";
 import { ROLES } from "../src/lib/roles";
 import { passwordPolicyError } from "../src/lib/password-policy";
+import { generateTemporaryPassword } from "../src/lib/temporary-password";
+import { replacePasswordCredential } from "../src/lib/password-credentials";
+import { currentAcademicYearDates } from "../src/lib/roster-domain";
 
 // seed 是独立脚本（tsx 运行），不会自动读环境变量，手动加载 .env.local。
 dotenv.config({ path: ".env.local" });
@@ -87,7 +89,40 @@ async function requireDatabaseEnvironment(): Promise<DatabaseEnvironment> {
   );
 }
 
+const SEED_GRADES = [
+  "JUNIOR_1",
+  "JUNIOR_2",
+  "JUNIOR_3",
+  "SENIOR_1",
+  "SENIOR_2",
+  "SENIOR_3",
+] as const;
+
+async function ensureSeedCurrentYear() {
+  const current = await prisma.academicYear.findFirst({ where: { status: "CURRENT" } });
+  if (current) return current;
+  const anyYear = await prisma.academicYear.count();
+  if (anyYear > 0) throw new Error("Seed 找不到 CURRENT 学年；请先由管理员完成学年启用或重设 disposable local DB。");
+  const input = currentAcademicYearDates();
+  return prisma.academicYear.create({ data: { ...input, isCurrent: true, status: "CURRENT" } });
+}
+
+async function ensureSeedClasses(academicYearId: string) {
+  const result: Array<Record<(typeof SEED_GRADES)[number], string>> = [];
+  for (const grade of SEED_GRADES) {
+    const schoolClass = await prisma.schoolClass.upsert({
+      where: { academicYearId_grade_classCode: { academicYearId, grade, classCode: "A" } },
+      create: { academicYearId, grade, classCode: "A", active: true },
+      update: { active: true },
+    });
+    result.push({ [grade]: schoolClass.id } as Record<(typeof SEED_GRADES)[number], string>);
+  }
+  return result;
+}
+
 async function seedStudents() {
+  const currentYear = await ensureSeedCurrentYear();
+  const classes = await ensureSeedClasses(currentYear.id);
   let created = 0;
   let rotated = 0;
   let existed = 0;
@@ -95,7 +130,7 @@ async function seedStudents() {
   for (let i = 1; i <= STUDENT_COUNT; i++) {
     const account = `student${String(i).padStart(2, "0")}`; // student01, student02, ...
     const credentialMarkerKey = `studentTemporaryCredential:${account}`;
-    const existing = await prisma.user.findUnique({ where: { email: account } });
+    const existing = await prisma.user.findUnique({ where: { accountName: account } });
     const credentialMarker = await prisma.databaseMetadata.findUnique({
       where: { key: credentialMarkerKey },
     });
@@ -117,22 +152,19 @@ async function seedStudents() {
       existed++;
       continue;
     }
-    const temporaryPassword = randomBytes(18).toString("base64url");
+    const temporaryPassword = generateTemporaryPassword();
     const policyError = passwordPolicyError(temporaryPassword);
     if (policyError) throw new Error(policyError);
     const hash = await bcrypt.hash(temporaryPassword, 12);
     if (existing) {
       await prisma.$transaction(async (tx) => {
-        const updated = await tx.user.updateMany({
-          where: {
-            id: existing.id,
-            role: ROLES.STUDENT,
-            mustChangePassword: true,
-            tokenVersion: existing.tokenVersion,
-          },
-          data: { passwordHash: hash, tokenVersion: { increment: 1 } },
+        const updated = await replacePasswordCredential(tx, {
+          userId: existing.id,
+          passwordHash: hash,
+          mustChangePassword: true,
+          expectedTokenVersion: existing.tokenVersion,
         });
-        if (updated.count !== 1) {
+        if (!updated) {
           throw new Error(`${account} 已被并发修改，请重新执行 seed。`);
         }
         await tx.databaseMetadata.upsert({
@@ -144,12 +176,34 @@ async function seedStudents() {
       rotated++;
     } else {
       await prisma.$transaction(async (tx) => {
+        const grade = (["JUNIOR_1", "JUNIOR_2", "JUNIOR_3", "SENIOR_1", "SENIOR_2", "SENIOR_3"] as const)[(i - 1) % 6];
+        const classId = classes[(i - 1) % classes.length]?.[grade] ?? null;
         await tx.user.create({
           data: {
-            email: account,
+            accountName: account,
+            accountNameCanonical: account,
             passwordHash: hash,
-            name: `学生 ${i}`,
+            credentialRevision: 1,
+            legacyName: `学生 ${i}`,
             mustChangePassword: true,
+            studentProfile: {
+              create: {
+                legalName: `学生 ${i}`,
+                nickname: `學員-${String(i).padStart(2, "0")}`,
+                nicknameNormalized: `學員-${String(i).padStart(2, "0")}`,
+                enrollments: {
+                  create: {
+                    academicYearId: currentYear.id,
+                    grade,
+                    classId,
+                    isCurrent: true,
+                    status: "ACTIVE",
+                    origin: "SEED",
+                    startedAt: new Date(),
+                  },
+                },
+              },
+            },
           },
         });
         await tx.databaseMetadata.upsert({
@@ -185,8 +239,11 @@ async function seedTestStudent(
   const policyError = passwordPolicyError(password);
   if (policyError) throw new Error(policyError);
   const hash = await bcrypt.hash(password, 12);
+  const currentYear = await ensureSeedCurrentYear();
+  const classes = await ensureSeedClasses(currentYear.id);
+  const classId = classes[0]?.JUNIOR_1 ?? null;
   const existing = await prisma.user.findUnique({
-    where: { email: username },
+    where: { accountName: username },
   });
   if (existing) {
     throw new Error(
@@ -196,12 +253,32 @@ async function seedTestStudent(
   }
   await prisma.user.create({
     data: {
-      email: username,
+      accountName: username,
+      accountNameCanonical: username,
       passwordHash: hash,
-      name: "本地测试学生",
+      credentialRevision: 1,
+      legacyName: "本地测试学生",
       role: ROLES.STUDENT,
       // 这组独立测试凭证视为已经完成首次改密，可直接进入学习页。
       mustChangePassword: false,
+      studentProfile: {
+        create: {
+          legalName: "本地测试学生",
+          nickname: "本地測試生",
+          nicknameNormalized: "本地測試生",
+          enrollments: {
+            create: {
+              academicYearId: currentYear.id,
+              grade: "JUNIOR_1",
+              classId,
+              isCurrent: true,
+              status: "ACTIVE",
+              origin: "SEED",
+              startedAt: new Date(),
+            },
+          },
+        },
+      },
     },
   });
   console.log(`Test student ready: ${username} (created)`);
@@ -217,32 +294,49 @@ async function seedRoles(password: string) {
   const hash = await bcrypt.hash(password, 12);
 
   const ensureRole = async (
-    email: string,
-    name: string,
+    accountName: string,
+    legalName: string,
     role: typeof ROLES.ADMIN | typeof ROLES.TEACHER,
   ) => {
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findUnique({ where: { accountName } });
     if (!existing) {
       return prisma.user.create({
         data: {
-          email,
+          accountName,
+          accountNameCanonical: accountName,
           passwordHash: hash,
-          name,
+          credentialRevision: 1,
+          legacyName: legalName,
           role,
           mustChangePassword: false,
+          ...(role === ROLES.TEACHER
+            ? { teacherProfile: { create: { legalName } } }
+            : {}),
         },
       });
     }
-    if (existing.role === role) return existing;
+    if (role === ROLES.TEACHER) {
+      await prisma.teacherProfile.upsert({
+        where: { userId: existing.id },
+        create: { userId: existing.id, legalName, accessRevision: 0 },
+        update: {},
+      });
+    }
+    if (existing.role === role) {
+      return prisma.user.update({
+        where: { id: existing.id },
+        data: { accountNameCanonical: accountName },
+      });
+    }
     if (existing.role === ROLES.ADMIN && role !== ROLES.ADMIN) {
       console.warn(
-        `保留现有管理员账号 ${email}，不会因 seed 的教师角色配置将其降级。`,
+        `保留现有管理员账号 ${accountName}，不会因 seed 的教师角色配置将其降级。`,
       );
       return existing;
     }
     return prisma.user.update({
       where: { id: existing.id },
-      data: { role, tokenVersion: { increment: 1 } },
+      data: { role, tokenVersion: { increment: 1 }, accountNameCanonical: accountName },
     });
   };
 
@@ -441,7 +535,7 @@ async function main() {
           `${name} 必须为 3–64 位，只可包含字母、数字、点、下划线或连字符。`,
         );
       }
-      if (!username.startsWith("__test_student__")) {
+      if (!username.startsWith("__test_student__") && !username.startsWith("student-test")) {
         throw new Error(
           `${name} 必须使用保留前缀 __test_student__，避免误用现有账号。`,
         );

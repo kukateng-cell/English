@@ -85,6 +85,8 @@ export default function StudentDashboard({ userId }: { userId: string }) {
           <div className="dashboard-links-grid">
         <Link className="dashboard-link-card" href="/units"><Icon name="spark" size={22} /><span><strong>{tc("单元闯关")}</strong><small>{tc("查看解锁与认字进度")}</small></span><Icon name="arrow-right" size={18} /></Link>
         <Link className="dashboard-link-card" href="/stats"><Icon name="bar-chart" size={22} /><span><strong>{tc("统计与成就")}</strong><small>{tc("查看活动、排行榜及成就")}</small></span><Icon name="arrow-right" size={18} /></Link>
+        <Link className="dashboard-link-card" href="/leaderboard"><Icon name="bar-chart" size={22} /><span><strong>{tc("排行榜")}</strong><small>{tc("查看学习排行")}</small></span><Icon name="arrow-right" size={18} /></Link>
+        <Link className="dashboard-link-card" href="/achievements"><Icon name="spark" size={22} /><span><strong>{tc("成就")}</strong><small>{tc("查看已解锁成就")}</small></span><Icon name="arrow-right" size={18} /></Link>
           </div>
           </div>
 

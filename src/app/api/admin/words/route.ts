@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { isLevel, normalizeLevel } from "@/lib/units";
 import { getAllowedImageOrigin, isSameOriginImageUrl } from "@/lib/image-policy";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 // normalizeLevel 统一来自 @/lib/units（返回 LevelCode 字面量联合，
 // 直接兼容 Prisma 的 enum Level，无需强转）。
@@ -67,6 +68,7 @@ function toExamples(v: unknown): { en: string; zh: string }[] {
 }
 
 export async function POST(req: Request) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 

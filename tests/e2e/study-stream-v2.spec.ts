@@ -167,6 +167,19 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(back.locator(".word-card-term")).toHaveText(term);
         await expect(back.getByTestId("word-card-phonetic")).toHaveCount(1);
         await expect(back.locator(".word-card-answer-content")).toContainText("中文意思");
+        const answerAlignment = await back.evaluate((element) => {
+          const content = element.querySelector<HTMLElement>(".word-card-answer-content");
+          const definition = element.querySelector<HTMLElement>(".word-card-answer-definition");
+          if (!content || !definition) return null;
+          const contentRect = content.getBoundingClientRect();
+          const definitionRect = definition.getBoundingClientRect();
+          return {
+            contentCenter: contentRect.left + contentRect.width / 2,
+            definitionCenter: definitionRect.left + definitionRect.width / 2,
+          };
+        });
+        expect(answerAlignment).not.toBeNull();
+        expect(Math.abs((answerAlignment?.contentCenter ?? 0) - (answerAlignment?.definitionCenter ?? 0))).toBeLessThanOrEqual(1);
         await expect(back.locator(".keyboard-hint")).toHaveCount(0);
         await expect(back.getByRole("button", { name: "發音" })).toBeVisible();
         await page.mouse.up();

@@ -32,7 +32,8 @@ test("production configuration requires distributed limits and cron auth", () =>
   assert.deepEqual(productionConfigurationErrors({}, 0), [
     "distributed Upstash login/study rate limiting is required",
     "CRON_SECRET must contain at least 16 characters",
-    "SECURITY_AUDIT_HASH_SECRET must contain at least 32 characters",
+    "SECURITY_AUDIT_HMAC_SECRET must contain at least 32 characters",
+    "SECURITY_AUDIT_HMAC_KEY_ID must be a safe non-empty key id",
   ]);
 });
 
@@ -60,6 +61,7 @@ test("strict production configuration rejects the old shared switch", () => {
         UPSTASH_REDIS_REST_TOKEN: "token",
         CRON_SECRET: "1234567890abcdef",
         SECURITY_AUDIT_HASH_SECRET: "1234567890abcdef1234567890abcdef",
+        SECURITY_AUDIT_HMAC_KEY_ID: "v1",
         REQUIRE_STUDY_OPERATION_ID: "0",
       },
       0,
@@ -74,6 +76,7 @@ test("production configuration rejects the browser-test queue limit override", (
     UPSTASH_REDIS_REST_TOKEN: "test-token",
     CRON_SECRET: "local-check-secret",
     SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
+    SECURITY_AUDIT_HMAC_KEY_ID: "v1",
     E2E_STUDY_QUEUE_LOAD_LIMIT: "1000",
   });
   assert.ok(errors.some((error) => error.includes("E2E_STUDY_QUEUE_LOAD_LIMIT")));
@@ -85,6 +88,7 @@ test("production configuration rejects browser-only test routes", () => {
     UPSTASH_REDIS_REST_TOKEN: "test-token",
     CRON_SECRET: "local-check-secret",
     SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
+    SECURITY_AUDIT_HMAC_KEY_ID: "v1",
     ENABLE_TEST_ROUTES: "1",
   });
   assert.ok(errors.some((error) => error.includes("ENABLE_TEST_ROUTES")));
@@ -96,6 +100,7 @@ test("production configuration rejects local all-user V2 assignment", () => {
     UPSTASH_REDIS_REST_TOKEN: "test-token",
     CRON_SECRET: "local-check-secret",
     SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
+    SECURITY_AUDIT_HMAC_KEY_ID: "v1",
     NODE_ENV: "production",
     STUDY_V2_ASSIGNMENT_MODE: "all",
   });

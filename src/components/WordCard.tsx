@@ -1519,14 +1519,14 @@ export default function WordCard({
             style={{ opacity: 0 }}
             className="word-card-swipe-label word-card-swipe-label-danger"
           >
-            ← {resolvedSwipeLeftLabel}
+            <Icon name="arrow-left" size={14} /> {resolvedSwipeLeftLabel}
           </span>
           <span
             ref={rightLabelRef}
             style={{ opacity: 0 }}
             className="word-card-swipe-label word-card-swipe-label-success"
           >
-            {resolvedSwipeRightLabel} →
+            {resolvedSwipeRightLabel} <Icon name="arrow-right" size={14} />
           </span>
         </div>
       ) : null}
@@ -1553,10 +1553,10 @@ export default function WordCard({
             {showInteractionHint ? (
               <>
                 <span ref={leftBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-left" aria-hidden="true">
-                  ← {resolvedSwipeLeftLabel}
+                  <Icon name="arrow-left" size={14} /> {resolvedSwipeLeftLabel}
                 </span>
                 <span ref={rightBadgeRef} style={{ opacity: 0 }} className="word-card-drag-badge word-card-drag-badge-right" aria-hidden="true">
-                  {resolvedSwipeRightLabel} →
+                  {resolvedSwipeRightLabel} <Icon name="arrow-right" size={14} />
                 </span>
               </>
             ) : null}

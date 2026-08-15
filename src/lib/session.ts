@@ -33,6 +33,9 @@ export async function getSessionRole(): Promise<Role | null> {
 export async function getCurrentUser(): Promise<{
   id: string;
   role: Role;
+  accountName: string;
+  displayName: string;
+  /** Compatibility aliases for existing shell props during the roster migration. */
   name: string | null;
   email: string;
 } | null> {
@@ -42,8 +45,10 @@ export async function getCurrentUser(): Promise<{
   return {
     id: (session.user as { id: string }).id,
     role: (session.user as { role: Role }).role,
-    name: session.user.name ?? null,
-    email: session.user.email,
+    accountName: session.user.accountName,
+    displayName: session.user.displayName,
+    name: session.user.displayName ?? null,
+    email: session.user.accountName,
   };
 }
 

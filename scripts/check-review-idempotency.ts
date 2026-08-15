@@ -46,7 +46,7 @@ async function main() {
 
     const user = await prisma.user.create({
       data: {
-        email: `codex-idempotency-${suffix}`,
+        accountName: `codex-idempotency-${suffix}`,
         passwordHash: "not-a-login-account",
         mustChangePassword: false,
       },
@@ -1090,7 +1090,7 @@ async function main() {
 
     const auditSubject = await prisma.user.create({
       data: {
-        email: `codex-audit-subject-${suffix}`,
+        accountName: `codex-audit-subject-${suffix}`,
         passwordHash: "not-a-login-account",
         mustChangePassword: false,
       },

@@ -19,7 +19,7 @@ export default function AccountControls({
   homeHref = "/",
   homeLabel = "回到首页",
 }: {
-  user: { name: string | null; email: string };
+  user: { name: string | null; email: string; role?: string };
   compact?: boolean;
   homeHref?: string;
   homeLabel?: string;
@@ -81,6 +81,11 @@ export default function AccountControls({
         <div ref={menuRef} className="account-menu" role="menu" aria-label={tc("账户菜单") as string}>
           <div className="account-menu-heading">{label}</div>
           <LinkHome href={homeHref} label={homeLabel} onNavigate={() => setOpen(false)} />
+          {user.role === "STUDENT" ? (
+            <Link href="/profile" role="menuitem" className="account-menu-item" onClick={() => setOpen(false)}>
+              <Icon name="home" size={18} /><span>{tc("我的资料")}</span>
+            </Link>
+          ) : null}
           <button type="button" role="menuitem" className="account-menu-item" onClick={toggleTheme} disabled={!mounted}>
             <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
             <span>{tc(theme === "dark" ? "切换到浅色模式" : "切换到深色模式")}</span>

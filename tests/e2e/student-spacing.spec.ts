@@ -100,6 +100,87 @@ test("dashboard spacing references are captured at mobile, tablet, and desktop s
   }
 });
 
+test("desktop student surfaces keep the account rail and secondary destinations balanced", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /今天继续学习|今天繼續學習/ })).toBeVisible();
+  await expect(page.locator(".next-session-card")).toBeVisible();
+
+  const railMetrics = await page.locator(".student-rail").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const account = element.querySelector<HTMLElement>(".account-controls")?.getBoundingClientRect();
+    return {
+      position: style.position,
+      height: rect.height,
+      viewportHeight: window.innerHeight,
+      accountBottom: account?.bottom ?? 0,
+    };
+  });
+  expect(railMetrics.position).toBe("sticky");
+  expect(railMetrics.height).toBeGreaterThanOrEqual(railMetrics.viewportHeight);
+  expect(railMetrics.accountBottom).toBeGreaterThan(railMetrics.viewportHeight - 100);
+
+  const linkCardHeights = await page.locator(".dashboard-links-grid .dashboard-link-card").evaluateAll((cards) => cards.map((card) => card.getBoundingClientRect().height));
+  expect(linkCardHeights).toHaveLength(4);
+  expect(Math.max(...linkCardHeights) - Math.min(...linkCardHeights)).toBeLessThanOrEqual(1);
+  const dashboardLinkTitles = await page.locator(".dashboard-links-grid .dashboard-link-card strong").evaluateAll((titles) => titles.map((title) => ({ text: title.textContent?.trim() ?? "", wraps: title.scrollWidth > title.clientWidth + 1 })));
+  expect(dashboardLinkTitles).toHaveLength(4);
+  expect(dashboardLinkTitles.every(({ wraps }) => !wraps)).toBe(true);
+  await expect(page.locator('.dashboard-links-grid a[href="/leaderboard"]')).toBeVisible();
+  await expect(page.locator('.dashboard-links-grid a[href="/achievements"]')).toBeVisible();
+
+  await page.goto("/stats", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /学习统计|學習統計/ })).toBeVisible();
+  await expect(page.locator(".stats-range-row")).toBeVisible();
+  const statsLinkHeights = await page.locator(".stats-secondary-links a").evaluateAll((links) => links.map((link) => link.getBoundingClientRect().height));
+  expect(statsLinkHeights.length).toBe(2);
+  expect(statsLinkHeights.every((height) => height >= 48)).toBe(true);
+
+  await page.goto("/words", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /词表|詞表/ })).toBeVisible();
+  const wordsSwitchMetrics = await page.locator(".words-ia-switch").evaluate((switchElement) => {
+    const links = Array.from(switchElement.querySelectorAll<HTMLElement>("a"));
+    return {
+      heights: links.map((link) => link.getBoundingClientRect().height),
+      overflowing: links.some((link) => link.scrollWidth > link.clientWidth + 1),
+      switchOverflowing: switchElement.scrollWidth > switchElement.clientWidth + 1,
+    };
+  });
+  expect(wordsSwitchMetrics.heights).toHaveLength(2);
+  expect(wordsSwitchMetrics.heights.every((height) => height >= 48)).toBe(true);
+  expect(wordsSwitchMetrics.overflowing).toBe(false);
+  expect(wordsSwitchMetrics.switchOverflowing).toBe(false);
+
+  await page.goto("/units", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /单元闯关|單元闖關/ })).toBeVisible();
+  const unitsLayout = await page.locator(".units-page").evaluate((pageElement) => {
+    const grid = pageElement.querySelector<HTMLElement>(".units-grid");
+    if (!grid) throw new Error("units grid is missing");
+    return {
+      contentWidth: pageElement.getBoundingClientRect().width,
+      columns: getComputedStyle(grid).gridTemplateColumns.split(" ").length,
+    };
+  });
+  expect(unitsLayout.contentWidth).toBeGreaterThan(700);
+  expect(unitsLayout.columns).toBeGreaterThanOrEqual(2);
+});
+
+test("leaderboard and achievement reward icons keep the shared visual treatment", async ({ page }) => {
+  for (const route of ["/leaderboard", "/achievements"] as const) {
+    await page.goto(route, { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".student-reward-hero-icon")).toBeVisible();
+    await expect(page.locator(".student-reward-hero-icon .reward-icon-svg")).toBeVisible();
+
+    const iconMetrics = await page.locator(".reward-icon-svg").evaluateAll((icons) => icons.map((icon) => {
+      const rect = icon.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, display: getComputedStyle(icon).display };
+    }));
+    expect(iconMetrics.length).toBeGreaterThan(0);
+    expect(iconMetrics.every((metric) => metric.width > 0 && metric.height > 0 && metric.display === "block")).toBe(true);
+  }
+});
+
 test("student surfaces reflow without clipping under WCAG text-spacing overrides", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
 

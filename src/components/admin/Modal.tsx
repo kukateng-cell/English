@@ -3,6 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 
 interface ModalProps {
   open: boolean;
@@ -102,9 +103,7 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
             className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--muted)] transition hover:bg-[var(--border-soft)] dark:text-[var(--muted)] dark:hover:bg-[var(--border)]"
                 aria-label={tc("关闭")}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
+                <Icon name="close" size={18} />
               </button>
             </div>
             {children}

@@ -106,7 +106,7 @@ export default function LeaderboardPage() {
           <Icon name="chevron-left" size={26} />
         </Link>
         <div className="mb-5 text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[20px] border border-[var(--border)] bg-[var(--border-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
+          <div className="student-reward-hero-icon mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[20px] border border-[var(--border)] bg-[var(--border-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
             <RewardIcon name="trophy" size={38} />
           </div>
           <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">
@@ -138,7 +138,7 @@ export default function LeaderboardPage() {
         <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] dark:border-[var(--border)] dark:bg-[var(--surface)]">
           {list.entries.map((e, i) => (
             <div
-              key={e.userId}
+              key={`${e.rank}:${e.name}:${i}`}
               className={`flex items-center gap-3 px-4 py-3 ${
                 e.isMe
                   ? "bg-[var(--border-soft)] dark:bg-[var(--border-soft)]"
@@ -172,7 +172,7 @@ export default function LeaderboardPage() {
                 </div>
               </div>
               <div className="flex min-w-[72px] items-center justify-end gap-1.5 text-[14px] font-semibold tabular-nums text-[var(--primary)]">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-[var(--border-soft)]">
+                <span className="student-reward-stat-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-[var(--border-soft)]">
                   <RewardIcon name={list.icon} size={19} />
                 </span>
                 <span>{e.value}</span>

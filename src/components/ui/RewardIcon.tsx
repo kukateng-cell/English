@@ -80,7 +80,7 @@ export default function RewardIcon({ name, size = 20, className, ...props }: Rew
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.65"
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden={props["aria-label"] ? undefined : true}
@@ -101,10 +101,10 @@ export function RankMedal({ rank, size = 30, className }: { rank: 1 | 2 | 3; siz
       aria-hidden="true"
     >
       <path d="M9 3.5h5.25L16 7l1.75-3.5H23l-4.2 8.1h-5.6L9 3.5Z" fill="currentColor" opacity="0.16" />
-      <path d="m9 3.5 4.2 8.1M23 3.5l-4.2 8.1M14.25 3.5 16 7l1.75-3.5" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m9 3.5 4.2 8.1M23 3.5l-4.2 8.1M14.25 3.5 16 7l1.75-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="16" cy="20" r="9" fill="currentColor" opacity="0.12" />
-      <circle cx="16" cy="20" r="8" stroke="currentColor" strokeWidth="1.65" />
-      <circle cx="16" cy="20" r="5.5" stroke="currentColor" strokeWidth="1" opacity="0.36" />
+      <circle cx="16" cy="20" r="8" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="16" cy="20" r="5.5" stroke="currentColor" strokeWidth="1.1" opacity="0.36" />
       <text
         x="16"
         y="20.5"

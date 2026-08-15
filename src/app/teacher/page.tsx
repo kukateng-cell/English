@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
+import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { useLocale } from "@/components/LocaleProvider";
 
@@ -79,28 +80,28 @@ export default function TeacherDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
+            <Icon name="users" size={20} />
           </div>
           <p className="text-[26px] font-bold text-[var(--text)] dark:text-[var(--text)]">{stats?.totalStudents ?? 0}</p>
           <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{tc("学生总数")}</p>
         </div>
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--success-bg)] text-[var(--success)] dark:bg-[var(--success-bg)] dark:text-[var(--success)]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+            <Icon name="clock" size={20} />
           </div>
           <p className="text-[26px] font-bold text-[var(--text)] dark:text-[var(--text)]">{stats?.activeToday ?? 0}</p>
           <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{tc("今日活跃")}</p>
         </div>
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[var(--primary-2)] dark:bg-[var(--border-soft)] dark:text-[var(--primary-2)]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" /></svg>
+            <Icon name="book" size={20} />
           </div>
           <p className="text-[26px] font-bold text-[var(--text)] dark:text-[var(--text)]">{stats?.totalWordsMastered ?? 0}</p>
           <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{tc("已掌握词汇")}</p>
         </div>
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--warning-bg)] text-[var(--warning)] dark:bg-[var(--warning-bg)] dark:text-[var(--warning)]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
+            <Icon name="trending-up" size={20} />
           </div>
           <p className="text-[26px] font-bold text-[var(--text)] dark:text-[var(--text)]">{stats?.avgProgress ?? 0}%</p>
           <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{tc("平均进度")}</p>
@@ -143,7 +144,9 @@ export default function TeacherDashboard() {
         href="/teacher/students"
         className="flex items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] py-3.5 text-[15px] font-semibold text-[var(--color-surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-2)] active:scale-[0.98]"
       >
-        {tc("📋 查看学生详细进度 →")}
+        <Icon name="clipboard" size={19} />
+        <span>{tc("查看学生详细进度")}</span>
+        <Icon name="arrow-right" size={18} />
       </Link>
 
       {/* 最近活跃 */}

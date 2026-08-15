@@ -25,7 +25,7 @@ test("linked audit subjects use a stable non-account pseudonym", () => {
     subjectAccount: "predictable-student01",
     eventType: "PASSWORD_CHANGED",
   });
-  assert.match(event.subjectAccountHash, /^uid-v1:[a-f0-9]{32}$/);
+  assert.match(event.subjectAccountHash, /^uid-v1:[a-f0-9]{64}$/);
   assert.doesNotMatch(event.subjectAccountHash, /student01/);
 });
 

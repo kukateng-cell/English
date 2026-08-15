@@ -20,7 +20,7 @@ export function AchievementCard({ a }: { a: AchievementStatus }) {
           : "border-[var(--border)] bg-[var(--surface)] dark:border-[var(--border)] dark:bg-[var(--surface)]"
       }`}
     >
-      <div className={`mb-2 flex h-12 w-12 items-center justify-center rounded-2xl ${a.unlocked ? "bg-[var(--surface)]/20 text-[var(--color-surface)]" : "bg-[var(--border-soft)] text-[var(--primary)] opacity-60"}`}>
+      <div className={`student-reward-achievement-icon mb-2 flex h-12 w-12 items-center justify-center rounded-2xl ${a.unlocked ? "bg-[var(--surface)]/20 text-[var(--color-surface)]" : "bg-[var(--border-soft)] text-[var(--primary)] opacity-60"}`}>
         <RewardIcon name={a.icon} size={29} />
       </div>
       <div className={`mb-1 text-[14px] font-bold ${a.unlocked ? "text-[var(--color-surface)]" : "text-[var(--text)]"}`}>
@@ -141,7 +141,7 @@ export default function AchievementsPage() {
         </Link>
         {/* 标题 + 总进度 */}
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[20px] border border-[var(--border)] bg-[var(--border-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
+          <div className="student-reward-hero-icon mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[20px] border border-[var(--border)] bg-[var(--border-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
             <RewardIcon name="trophy" size={38} />
           </div>
           <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">

@@ -173,18 +173,18 @@ export default function QuizCard({
                 <motion.span
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="quiz-feedback-correct text-lg"
+                  className="quiz-feedback-correct"
                 >
-                  ✓
+                  <Icon name="check" size={18} />
                 </motion.span>
               )}
               {answered && isWrong && (
                 <motion.span
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="quiz-feedback-wrong text-lg"
+                  className="quiz-feedback-wrong"
                 >
-                  ✕
+                  <Icon name="close" size={18} />
                 </motion.span>
               )}
             </motion.button>
@@ -200,10 +200,14 @@ export default function QuizCard({
           className="mt-5 text-center text-[14px]"
         >
           {selectedId === question.correctId ? (
-            <span className="quiz-feedback-correct font-medium">{tc("✓ 答对了！")}</span>
+            <span className="quiz-feedback-correct inline-flex items-center gap-1 font-medium">
+              <Icon name="check" size={16} />
+              {tc("答对了！")}
+            </span>
           ) : (
-            <span className="quiz-feedback-wrong font-medium">
-              {tc("✕ 答错了，再试一次吧")}
+            <span className="quiz-feedback-wrong inline-flex items-center gap-1 font-medium">
+              <Icon name="close" size={16} />
+              {tc("答错了，再试一次吧")}
             </span>
           )}
         </motion.p>

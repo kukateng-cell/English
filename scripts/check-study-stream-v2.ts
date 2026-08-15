@@ -31,12 +31,31 @@ async function main() {
   try {
     const user = await prisma.user.create({
       data: {
-        email: `codex-stream-${suffix}`,
+        accountName: `codex-stream-${suffix}`,
         passwordHash: "not-a-login-account",
         mustChangePassword: false,
+        studentProfile: {
+          create: {
+            legalName: "串流測試學生",
+            nickname: "串流測試生",
+            nicknameNormalized: "串流測試生",
+          },
+        },
       },
     });
     userId = user.id;
+    const currentAcademicYear = await prisma.academicYear.findFirstOrThrow({ where: { status: "CURRENT" } });
+    await prisma.studentEnrollment.create({
+      data: {
+        studentId: user.id,
+        academicYearId: currentAcademicYear.id,
+        grade: "JUNIOR_1",
+      status: "ACTIVE",
+      isCurrent: true,
+        origin: "SEED",
+        startedAt: new Date(),
+      },
+    });
 
     const jwtCallback = authOptions.callbacks?.jwt;
     assert.ok(jwtCallback);
@@ -45,8 +64,10 @@ async function main() {
       token: {},
       user: {
         id: user.id,
-        email: user.email,
-        name: user.name,
+        email: user.accountName,
+        name: user.legacyName,
+        accountName: user.accountName,
+        displayName: user.legacyName ?? user.accountName,
         role: user.role,
         tokenVersion: user.tokenVersion,
         mustChangePassword: user.mustChangePassword,
@@ -584,12 +605,30 @@ async function main() {
     // fixture has a StudyDay but no provenance-complete objective event.
     const studyDayOnlyUser = await prisma.user.create({
       data: {
-        email: `codex-study-day-only-${suffix}`,
+        accountName: `codex-study-day-only-${suffix}`,
         passwordHash: "not-a-login-account",
         mustChangePassword: false,
+        studentProfile: {
+          create: {
+            legalName: "學習日測試學生",
+            nickname: "學習日測試生",
+            nicknameNormalized: "學習日測試生",
+          },
+        },
       },
     });
     studyDayOnlyUserId = studyDayOnlyUser.id;
+    await prisma.studentEnrollment.create({
+      data: {
+        studentId: studyDayOnlyUser.id,
+        academicYearId: currentAcademicYear.id,
+        grade: "JUNIOR_1",
+      status: "ACTIVE",
+      isCurrent: true,
+        origin: "SEED",
+        startedAt: new Date(),
+      },
+    });
     await prisma.studyDay.create({ data: { userId: studyDayOnlyUser.id, date: todayKey() } });
     const leaderboard = await getLeaderboard(user.id);
     const scoredStreak = leaderboard.lists.find((list) => list.type === "streak");

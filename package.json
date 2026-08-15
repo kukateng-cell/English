@@ -12,12 +12,20 @@
     "test:e2e:card-motion": "ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 next build && npm run test:e2e:browser-primary && npm run test:e2e:browser-webkit-study",
     "test:e2e:browser-primary": "ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=desktop-chromium-motion --project=desktop-firefox-synthetic-pointer-motion --project=desktop-webkit-motion --project=mobile-chromium-emulation --project=mobile-webkit-synthetic-pointer-emulation --project=study-integration-chromium",
     "test:e2e:browser-webkit-study": "ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=study-integration-webkit --shard=1/2 && ENABLE_TEST_ROUTES=1 E2E_STUDY_QUEUE_LOAD_LIMIT=1000 playwright test --project=study-integration-webkit --shard=2/2",
-    "test:e2e:student-ia": "ENABLE_TEST_ROUTES=1 playwright test --project=student-shell-chromium --project=student-shell-mobile --project=role-redirects --project=locale-chromium --project=study-navigation-chromium --project=study-navigation-mobile",
-    "test:e2e:student-qa": "ENABLE_TEST_ROUTES=1 playwright test --project=student-final-qa --project=study-action-fidelity-desktop --project=study-action-fidelity-mobile --project=study-card-fidelity-chromium --project=study-card-fidelity-mobile",
+    "test:e2e:student-ia": "ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=off playwright test --project=student-shell-chromium --project=student-shell-mobile --project=role-redirects --project=locale-chromium --project=study-navigation-chromium --project=study-navigation-mobile",
+    "test:e2e:student-qa": "ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=off playwright test --project=student-final-qa --project=study-action-fidelity-desktop --project=study-action-fidelity-mobile --project=study-card-fidelity-chromium --project=study-card-fidelity-mobile",
     "test:e2e:study-stream-v2": "ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all playwright test --project=study-stream-v2-chromium",
     "test:e2e:workspace": "ENABLE_TEST_ROUTES=1 playwright test --project=role-redirects",
+    "test:e2e:admin-roster": "node scripts/run-admin-roster-e2e.mjs",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:db:stream-v2": "node --import tsx scripts/check-study-stream-v2.ts",
+    "test:roster": "node --import tsx scripts/check-roster-access.ts",
+    "test:roster:invariants": "node --import tsx scripts/check-roster-invariants.ts",
+    "test:roster:lifecycle": "node --import tsx scripts/check-roster-lifecycle.ts",
+    "test:roster:auth": "node --import tsx scripts/check-roster-auth.ts",
+    "test:roster:reset": "node scripts/check-roster-reset-guards.mjs",
+    "check:roster-workbook": "node --import tsx scripts/check-roster-workbook-spike.ts",
+    "check:roster-pii": "node --import tsx scripts/check-roster-pii.mjs",
     "check:study-credential-v2": "node scripts/check-study-credential-v2-inventory.mjs",
     "check:study-stream-v2:soak": "node scripts/check-study-stream-v2-soak.mjs",
     "test:migrations": "node scripts/check-migrations-fresh.mjs",
@@ -27,6 +35,9 @@
     "lint": "eslint",
     "seed": "npx tsx prisma/seed.ts",
     "db:deploy": "node scripts/migrate-deploy.mjs",
+    "db:deploy:local": "node scripts/migrate-local-expand.mjs",
+    "db:reset:roster": "node scripts/reset-local-roster.mjs",
+    "cleanup:roster-staging": "node --import tsx scripts/cleanup-roster-staging.ts",
     "db:contract": "node scripts/apply-ledger-contract.mjs"
   },
   "prisma": {
@@ -39,6 +50,7 @@
     "@upstash/redis": "^1.38.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.42.2",
     "next": "16.2.11",
     "next-auth": "^4.24.15",
@@ -56,14 +68,17 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "prisma": "^7.9.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5",
-    "prisma": "^7.9.0",
     "vercel": "41.7.2"
   },
   "overrides": {
     "nanoid": "3.3.18",
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
     "next": {
       "postcss": "8.5.23",
       "sharp": "0.35.3"

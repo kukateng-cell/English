@@ -9,6 +9,7 @@ import AuthShell from "@/components/auth/AuthShell";
 import Button from "@/components/ui/Button";
 import StatusBanner from "@/components/ui/StatusBanner";
 import Icon from "@/components/ui/Icon";
+import { rosterFetch } from "@/lib/roster-client";
 
 export default function ResetPasswordPage() {
   const { tc } = useLocale();
@@ -27,7 +28,7 @@ export default function ResetPasswordPage() {
     if (newPassword === currentPassword) { setError("新密码不能与当前密码相同"); return; }
     setLoading(true);
     try {
-      const response = await fetch("/api/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const response = await rosterFetch("/api/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
       const payload = await response.json().catch(() => null);
       if (!response.ok) { setError(payload?.error ?? "重设失败，请稍后重试"); setLoading(false); return; }
       setSuccess(true);

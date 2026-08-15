@@ -107,6 +107,11 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "admin-roster",
+      testMatch: /admin-roster\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "locale-chromium",
       testMatch: /locale\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },

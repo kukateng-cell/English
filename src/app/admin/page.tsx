@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon, { type IconName } from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface Stats {
@@ -82,34 +83,26 @@ export default function AdminDashboard() {
         <StatCard
           label={tc("总用户数")}
           value={stats?.totalUsers ?? 0}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>
-          }
+          icon={<Icon name="users" size={20} />}
           color="blue"
         />
         <StatCard
           label={tc("总单词数")}
           value={stats?.totalWords ?? 0}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" /></svg>
-          }
+          icon={<Icon name="book" size={20} />}
           color="indigo"
         />
         <StatCard
           label={tc("总复习次数")}
           value={stats?.totalReviews ?? 0}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
-          }
+          icon={<Icon name="refresh" size={20} />}
           color="green"
         />
         <StatCard
           label={tc("今日学习")}
           value={stats?.reviewsToday ?? 0}
           subtitle={tc("次")}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-          }
+          icon={<Icon name="clock" size={20} />}
           color="amber"
         />
       </div>
@@ -119,10 +112,10 @@ export default function AdminDashboard() {
         <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
           {tc("用户角色分布")}
         </h3>
-        <div className="space-y-3">
-          <RoleBar label={tc("学生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 1} color="bg-[var(--primary)]" />
-          <RoleBar label={tc("老师")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 1} color="bg-[var(--primary-2)]" />
-          <RoleBar label={tc("管理员")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 1} color="bg-[var(--primary-2)]" />
+        <div className="admin-role-metrics">
+          <RoleMetric label={tc("学生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 0} icon="users" tone="primary" />
+          <RoleMetric label={tc("老师")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 0} icon="user" tone="secondary" />
+          <RoleMetric label={tc("管理员")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 0} icon="shield" tone="warning" />
         </div>
       </div>
 
@@ -149,13 +142,13 @@ export default function AdminDashboard() {
           href="/admin/users"
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
-          👥 {tc("管理用户")}
+          <Icon name="users" size={18} /> {tc("管理用户")}
         </Link>
         <Link
           href="/admin/words"
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
-          📚 {tc("单词库")}
+          <Icon name="book" size={18} /> {tc("单词库")}
         </Link>
       </div>
     </motion.div>
@@ -197,31 +190,29 @@ function StatCard({
   );
 }
 
-function RoleBar({
+function RoleMetric({
   label,
   count,
   total,
-  color,
+  icon,
+  tone,
 }: {
   label: string;
   count: number;
   total: number;
-  color: string;
+  icon: IconName;
+  tone: "primary" | "secondary" | "warning";
 }) {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  const percentage = total > 0 ? (count / total) * 100 : 0;
+  const pctLabel = count > 0 && percentage < 1 ? "<1%" : `${Math.round(percentage)}%`;
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-12 text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{label}</span>
-      <div className="flex-1 h-2 rounded-full bg-[var(--border-soft)] dark:bg-[var(--border)] overflow-hidden">
-        <motion.div
-          className={`h-full rounded-full ${color}`}
-          style={{ width: `${pct}%` }}
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.6 }}
-        />
+    <div className="admin-role-metric">
+      <span className={`admin-role-metric-icon is-${tone}`}><Icon name={icon} size={18} /></span>
+      <div className="admin-role-metric-copy">
+        <span>{label}</span>
+        <strong>{count}</strong>
       </div>
-      <span className="w-10 text-right text-[13px] font-medium text-[var(--text)] dark:text-[var(--text)]">{count}</span>
+      <small>{pctLabel}</small>
     </div>
   );
 }

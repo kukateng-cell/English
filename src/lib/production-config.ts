@@ -65,11 +65,13 @@ export function productionConfigurationErrors(
   if (!env.CRON_SECRET || env.CRON_SECRET.length < 16) {
     errors.push("CRON_SECRET must contain at least 16 characters");
   }
-  if (
-    !env.SECURITY_AUDIT_HASH_SECRET ||
-    env.SECURITY_AUDIT_HASH_SECRET.length < 32
-  ) {
-    errors.push("SECURITY_AUDIT_HASH_SECRET must contain at least 32 characters");
+  const auditSecret = env.SECURITY_AUDIT_HMAC_SECRET ?? env.SECURITY_AUDIT_HASH_SECRET;
+  if (!auditSecret || auditSecret.length < 32) {
+    errors.push("SECURITY_AUDIT_HMAC_SECRET must contain at least 32 characters");
+  }
+  const auditKeyId = env.SECURITY_AUDIT_HMAC_KEY_ID ?? env.SECURITY_AUDIT_HASH_KEY_ID;
+  if (!auditKeyId || !/^[A-Za-z0-9._-]{1,64}$/u.test(auditKeyId)) {
+    errors.push("SECURITY_AUDIT_HMAC_KEY_ID must be a safe non-empty key id");
   }
   if (env.REQUIRE_STUDY_OPERATION_ID === "0") {
     errors.push("REQUIRE_STUDY_OPERATION_ID=0 is no longer permitted");

@@ -9,8 +9,14 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 export interface UserFormData {
   email: string;
   name: string;
+  contactEmail: string;
+  nickname: string;
+  grade: string;
+  classCode: string;
   role: Role;
+  status: "ACTIVE" | "SUSPENDED";
   password: string;
+  academicYearId: string;
 }
 
 interface UserFormModalProps {
@@ -20,8 +26,15 @@ interface UserFormModalProps {
     id: string;
     email: string;
     name: string | null;
+    contactEmail?: string | null;
+    nickname?: string | null;
+    grade?: string | null;
+    classCode?: string | null;
     role: string;
+    status?: "ACTIVE" | "SUSPENDED";
+    academicYearId?: string | null;
   } | null;
+  academicYears?: Array<{ id: string; label: string; status: "PLANNED" | "CURRENT" | "CLOSED" }>;
   /** 自己的 userId，用于禁止把自己降级提示。 */
   currentUserId?: string;
   onClose: () => void;
@@ -44,16 +57,25 @@ export default function UserFormModal({
   currentUserId,
   onClose,
   onSubmit,
+  academicYears = [],
 }: UserFormModalProps) {
   const isEdit = !!user;
   // 用 lazy initializer 从 props 取初值；父组件通过 key 在每次打开时强制 remount，
   // 从而避免在 effect 里 setState（react-hooks/set-state-in-effect）。
   const [email, setEmail] = useState(user?.email ?? "");
   const [name, setName] = useState(user?.name ?? "");
+  const [contactEmail, setContactEmail] = useState(user?.contactEmail ?? "");
+  const [nickname, setNickname] = useState(user?.nickname ?? "");
+  const [grade, setGrade] = useState(user?.grade ?? "");
+  const [classCode, setClassCode] = useState(user?.classCode ?? "");
   const [role, setRole] = useState<Role>(
     (user?.role as Role) ?? DEFAULT_ROLE
   );
+  const [status, setStatus] = useState<"ACTIVE" | "SUSPENDED">(
+    user?.status ?? "ACTIVE",
+  );
   const [password, setPassword] = useState("");
+  const [academicYearId, setAcademicYearId] = useState(user?.academicYearId ?? academicYears.find((year) => year.status === "CURRENT")?.id ?? academicYears.find((year) => year.status === "PLANNED")?.id ?? "");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { tc } = useLocale();
@@ -68,8 +90,24 @@ export default function UserFormModal({
       setError("账号不能为空");
       return;
     }
-    if (!isEdit && password.length < MIN_PASSWORD_LENGTH) {
+    if (!isEdit && password && password.length < MIN_PASSWORD_LENGTH) {
       setError(`密码至少 ${MIN_PASSWORD_LENGTH} 位`);
+      return;
+    }
+    if (role !== ROLES.ADMIN && !name.trim()) {
+      setError("真实姓名不能为空");
+      return;
+    }
+    if (!isEdit && role === ROLES.STUDENT && !nickname.trim()) {
+      setError("昵称不能为空");
+      return;
+    }
+    if (!isEdit && role === ROLES.STUDENT && !grade) {
+      setError("学生年级不能为空");
+      return;
+    }
+    if (!isEdit && role === ROLES.STUDENT && !academicYearId) {
+      setError("学生作用学年不能为空");
       return;
     }
     if (isEdit && password && password.length < MIN_PASSWORD_LENGTH) {
@@ -82,8 +120,14 @@ export default function UserFormModal({
       await onSubmit({
         email: email.trim(),
         name: name.trim(),
+        contactEmail: contactEmail.trim(),
+        nickname: nickname.trim(),
+        grade,
+        classCode,
         role,
+        status,
         password,
+        academicYearId,
       });
       onClose();
     } catch (err) {
@@ -101,10 +145,11 @@ export default function UserFormModal({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
+          <label htmlFor="user-form-account" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
             {tc("账号")}
           </label>
           <input
+            id="user-form-account"
             type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -119,11 +164,37 @@ export default function UserFormModal({
           )}
         </div>
 
+        {isEdit ? (
+          <div>
+            <label htmlFor="user-form-status" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">
+              {tc("账号状态")}
+            </label>
+            <select
+              id="user-form-status"
+              value={status}
+              onChange={(event) =>
+                setStatus(event.target.value as "ACTIVE" | "SUSPENDED")
+              }
+              disabled={isSelf}
+              className={inputClass}
+            >
+              <option value="ACTIVE">{tc("启用")}</option>
+              <option value="SUSPENDED">{tc("暂停登录")}</option>
+            </select>
+            {isSelf ? (
+              <p className="mt-1 text-[11px] text-[var(--muted)]">
+                {tc("不能暂停自己的管理员账号")}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("姓名（可选）")}
+          <label htmlFor="user-form-legal-name" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
+            {tc(role === ROLES.ADMIN ? "姓名（可选）" : "真实姓名")}
           </label>
           <input
+            id="user-form-legal-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -133,12 +204,63 @@ export default function UserFormModal({
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("角色")}
+          <label htmlFor="user-form-contact-email" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">
+            {tc("联络 Email（可选）")}
           </label>
+          <input
+            id="user-form-contact-email"
+            type="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            placeholder="student@example.com"
+            className={inputClass}
+          />
+        </div>
+
+        {role === ROLES.STUDENT ? (
+          <>
+            <div>
+              <label htmlFor="user-form-nickname" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">{tc("公开昵称")}</label>
+              <input id="user-form-nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={tc("排行榜显示名称")} className={inputClass} />
+            </div>
+            {!isEdit ? (
+              <>
+              <div className="mb-3">
+                <label htmlFor="user-form-academic-year" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">{tc("作用学年")}</label>
+                <select id="user-form-academic-year" value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} className={inputClass}>
+                  <option value="">{tc("请选择")}</option>
+                  {academicYears.map((year) => <option key={year.id} value={year.id} disabled={year.status === "CLOSED"}>{year.label} · {year.status}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="user-form-grade" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">{tc("年级")}</label>
+                  <select id="user-form-grade" value={grade} onChange={(e) => setGrade(e.target.value)} className={inputClass}>
+                    <option value="">{tc("请选择")}</option>
+                    <option value="JUNIOR_1">{tc("初一")}</option><option value="JUNIOR_2">{tc("初二")}</option><option value="JUNIOR_3">{tc("初三")}</option>
+                    <option value="SENIOR_1">{tc("高一")}</option><option value="SENIOR_2">{tc("高二")}</option><option value="SENIOR_3">{tc("高三")}</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="user-form-class-code" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">{tc("班别（可留空）")}</label>
+                  <select id="user-form-class-code" value={classCode} onChange={(e) => setClassCode(e.target.value)} className={inputClass}>
+                    <option value="">{tc("未分班")}</option>
+                    {[["A","甲"],["B","乙"],["C","丙"],["D","丁"],["E","戊"],["F","己"],["G","庚"],["H","辛"]].map(([value,label]) => <option key={value} value={value}>{tc(label)}</option>)}
+                  </select>
+                </div>
+              </div>
+              </>
+            ) : null}
+          </>
+        ) : null}
+
+        <div>
+          <span className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
+            {tc("角色")}
+          </span>
           <div className="flex gap-2">
             {ROLE_OPTIONS.map((opt) => {
-              const disabled = isSelf && opt.value !== ROLES.ADMIN;
+              const disabled = isEdit;
               return (
                 <button
                   key={opt.value}
@@ -156,30 +278,31 @@ export default function UserFormModal({
               );
             })}
           </div>
-          {isSelf && (
-            <p className="mt-1.5 text-[11px] text-[var(--warning)] dark:text-[var(--warning)]">
-              {tc("不能修改自己的管理员角色")}
+          {isEdit && (
+            <p className="mt-1.5 text-[11px] text-[var(--muted)]">
+              {tc("账号建立后不能直接转换角色")}
             </p>
           )}
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {isEdit ? tc("新密码（留空则不修改）") : tc("密码")}
+          <label htmlFor="user-form-password" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
+            {isEdit ? tc("新密码（留空则不修改）") : tc("密码（留空自动产生）")}
           </label>
           <input
+            id="user-form-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={
-              isEdit ? "••••••••" : tc(`至少 ${MIN_PASSWORD_LENGTH} 位`)
+              isEdit ? "••••••••" : tc("留空则产生一次性随机密码")
             }
             className={inputClass}
           />
         </div>
 
         {error && (
-          <div className="rounded-2xl bg-[var(--danger-bg)] px-4 py-2.5 text-[13px] text-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]">
+          <div id="user-form-error" role="alert" aria-live="assertive" className="rounded-2xl bg-[var(--danger-bg)] px-4 py-2.5 text-[13px] text-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]">
             {tc(error)}
           </div>
         )}

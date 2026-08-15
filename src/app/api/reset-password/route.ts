@@ -9,10 +9,10 @@ import {
   resetPasswordChangeUserLimit,
 } from "@/lib/password-change-limiter";
 import { passwordPolicyError } from "@/lib/password-policy";
-import {
-  hasRecentAuthentication,
-  securityEventData,
-} from "@/lib/security-events";
+import { securityEventData } from "@/lib/security-events";
+import { hasValidRecentAuthGrant } from "@/lib/recent-auth";
+import { replacePasswordCredential, BCRYPT_COST } from "@/lib/password-credentials";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 /**
  * 首次登入 / 主动修改密码。
@@ -26,13 +26,16 @@ import {
  * 因此重设完成后的下一次请求即被视为「已重设」，proxy 闸门不再拦截。
  */
 export async function POST(req: Request) {
+  if (!isSameOriginMutation(req)) {
+    return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
+  }
   const auth = await requireUser();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
   if (
     auth.role !== "STUDENT" &&
-    !hasRecentAuthentication(auth.authenticatedAt)
+    !(await hasValidRecentAuthGrant({ req, userId: auth.userId }))
   ) {
     return NextResponse.json(
       { error: "高权限账号修改密码前必须重新登录" },
@@ -75,7 +78,7 @@ export async function POST(req: Request) {
 
   const user = await prisma.user.findUnique({
     where: { id: auth.userId },
-    select: { email: true, passwordHash: true, tokenVersion: true },
+    select: { accountName: true, passwordHash: true, tokenVersion: true, credentialRevision: true },
   });
   if (!user) {
     return NextResponse.json({ error: "用户不存在" }, { status: 404 });
@@ -106,29 +109,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const newHash = await bcrypt.hash(newPassword, 12);
+  const newHash = await bcrypt.hash(newPassword, BCRYPT_COST);
   const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.user.updateMany({
-      // 比较并交换：bcrypt 验证后如管理员／教师已重设密码，旧请求不可覆盖新值。
-      where: {
-        id: auth.userId,
-        passwordHash: user.passwordHash,
-        tokenVersion: user.tokenVersion,
-      },
-      data: {
-        passwordHash: newHash,
-        mustChangePassword: false,
-        // 所有其他浏览器（以及当前浏览器）的旧 JWT 立即失效，防止临时密码外泄后
-        // 攻击者持有的 30 天 session 在受害者改密后继续使用。
-        tokenVersion: { increment: 1 },
-      },
+    const result = await replacePasswordCredential(tx, {
+      userId: auth.userId,
+      passwordHash: newHash,
+      mustChangePassword: false,
+      expectedTokenVersion: user.tokenVersion,
+      expectedCredentialRevision: user.credentialRevision,
     });
-    if (result.count === 1) {
+    if (result) {
       await tx.securityEvent.create({
         data: securityEventData({
           actorUserId: auth.userId,
           subjectUserId: auth.userId,
-          subjectAccount: user.email,
+          subjectAccount: user.accountName,
           eventType: "PASSWORD_CHANGED",
           ip,
         }),
@@ -137,14 +132,14 @@ export async function POST(req: Request) {
         data: securityEventData({
           actorUserId: auth.userId,
           subjectUserId: auth.userId,
-          subjectAccount: user.email,
+          subjectAccount: user.accountName,
           eventType: "SESSIONS_REVOKED",
           ip,
           metadata: { reason: "password_changed" },
         }),
       });
     }
-    return result.count;
+    return result ? 1 : 0;
   });
   if (updated !== 1) {
     return NextResponse.json(

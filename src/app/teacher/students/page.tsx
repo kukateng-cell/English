@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
 import Modal from "@/components/admin/Modal";
+import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { useLocale } from "@/components/LocaleProvider";
+import { rosterFetch } from "@/lib/roster-client";
 
 interface StudentItem {
   id: string;
@@ -15,6 +17,7 @@ interface StudentItem {
   masteredWords: number;
   totalWords: number;
   progress: number;
+  canResetStudentPassword: boolean;
   byLevel: { level: string; mastered: number; total: number; progress: number }[];
 }
 
@@ -57,7 +60,7 @@ export default function TeacherStudentsPage() {
     setResetError(null);
     setResetting(true);
     try {
-      const res = await fetch(
+        const res = await rosterFetch(
         `/api/teacher/students/${student.id}/reset-password`,
         {
           method: "POST",
@@ -190,21 +193,26 @@ export default function TeacherStudentsPage() {
                       </div>
                     ))}
                     <div className="flex items-center gap-3 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-                      <span>{tc(`📝 共复习 ${student.totalReviews} 次`)}</span>
+                      <span className="flex items-center gap-1.5">
+                        <Icon name="refresh" size={14} />
+                        {tc(`共复习 ${student.totalReviews} 次`)}
+                      </span>
                     </div>
-                    <div className="mt-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void resetPassword(student);
-                        }}
-                        disabled={resetting}
-                        className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[12px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.97] disabled:opacity-50 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
-                      >
-                        {resetting ? tc("重置中...") : tc("🔑 重置密码")}
-                      </button>
-                    </div>
+                    {student.canResetStudentPassword ? (
+                      <div className="mt-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void resetPassword(student);
+                          }}
+                          disabled={resetting}
+                          className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[12px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.97] disabled:opacity-50 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
+                        >
+                          {resetting ? tc("重置中...") : <><Icon name="lock" size={14} />{tc("重置密码")}</>}
+                        </button>
+                      </div>
+                    ) : null}
                   </motion.div>
                 )}
               </div>

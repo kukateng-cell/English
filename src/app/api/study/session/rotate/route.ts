@@ -8,10 +8,12 @@ import {
 import { checkStudyCredentialRate } from "@/lib/study-limiter";
 import { getClientIp } from "@/lib/login-limiter";
 import { canResumeStudySession } from "@/lib/study-session";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 
 export async function POST(req: Request) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireUser();
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
   const rate = await checkStudyCredentialRate(auth.userId, getClientIp(req.headers));

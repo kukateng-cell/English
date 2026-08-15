@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import RewardIcon from "@/components/ui/RewardIcon";
 import type { StreakInfo } from "@/lib/streak";
 
@@ -147,7 +148,7 @@ export default function StreakCalendar({
               ].join(" ")}
               title={c.key}
             >
-              {daysSet.has(c.key) ? "✓" : c.day}
+              {daysSet.has(c.key) ? <Icon name="check" size={12} /> : c.day}
             </div>
           ),
         )}

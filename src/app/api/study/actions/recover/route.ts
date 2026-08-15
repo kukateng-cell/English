@@ -9,6 +9,7 @@ import {
 import { parseStudyStreamAction } from "@/lib/study-stream/contracts";
 import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
 import { observeStudyStreamRequest } from "@/lib/study-stream/observability";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 function errorResponse(error: unknown): NextResponse {
   if (error instanceof StudyStreamError) {
@@ -24,6 +25,7 @@ function errorResponse(error: unknown): NextResponse {
  * replacement item is accepted here.
  */
 export async function POST(req: Request) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const context: {
     flowVersion?: "v2";
     actionKind?: string;

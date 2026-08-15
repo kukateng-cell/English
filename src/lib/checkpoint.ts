@@ -230,3 +230,24 @@ export function clearCheckpoint(userId: string, unitKey: string): void {
     // 忽略
   }
 }
+
+/**
+ * Clear every V1 checkpoint owned by one account.  This is used when the
+ * server invalidates a session (for example after suspension) so a later
+ * restore cannot replay an old browser-local study state.
+ */
+export function clearCheckpointsForUser(userId: string): void {
+  if (typeof window === "undefined") return;
+  const prefix = `${PREFIX}${encodeURIComponent(userId)}:`;
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+    for (const key of keys) window.localStorage.removeItem(key);
+  } catch {
+    // A blocked/quotas-full storage must never turn a security redirect into
+    // a retry loop. The caller still fails closed and navigates away.
+  }
+}

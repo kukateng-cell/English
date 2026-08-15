@@ -88,8 +88,9 @@ export default function StudyStats() {
         <span className="flex items-center gap-1.5 text-[14px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
           <Icon name="bar-chart" size={16} /> {tc("今日学习")}
         </span>
-        <span className="text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-          {tc("点击开始")} →
+        <span className="inline-flex items-center gap-1 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
+          {tc("点击开始")}
+          <Icon name="arrow-right" size={14} />
         </span>
       </div>
 

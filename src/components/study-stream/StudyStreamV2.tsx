@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import WordCard from "@/components/WordCard";
 import ErrorBanner from "@/components/ErrorBanner";
 import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/ThemeToggle";
 import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
+import { rosterFetch } from "@/lib/roster-client";
+import { clearStudyClientState } from "@/lib/study-client-state";
 import type {
   PublicStreamActionResponse,
   PublicStreamItemBase,
@@ -100,6 +103,7 @@ async function readResponse(response: Response): Promise<unknown> {
 
 export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const { tc } = useLocale();
+  const router = useRouter();
   const [session, setSession] = useState<PublicStreamResponse["session"] | null>(null);
   const [item, setItem] = useState<PublicStreamItemBase | null>(null);
   const [unitSummary, setUnitSummary] = useState<PublicStreamResponse["unitSummary"]>();
@@ -111,6 +115,23 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [epoch, setEpoch] = useState(0);
   const loadedRef = useRef(false);
+  const authInvalidatedRef = useRef(false);
+
+  const handleAuthInvalidation = useCallback(() => {
+    if (authInvalidatedRef.current) return;
+    authInvalidatedRef.current = true;
+    clearStudyClientState(userId);
+    setSession(null);
+    setItem(null);
+    setUnitSummary(undefined);
+    setOutboxCount(0);
+    setSyncBlocked(true);
+    setSyncError("登入已失效，请重新登录");
+    if (typeof window !== "undefined") {
+      const callbackUrl = `${window.location.pathname}${window.location.search}`;
+      router.replace(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+    }
+  }, [router, userId]);
 
   const updateCheckpoint = useCallback((nextItem: PublicStreamItemBase | null, nextSession = session, blocked = false) => {
     if (!nextSession) return;
@@ -153,7 +174,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   }, [updateCheckpoint]);
 
   const postAction = useCallback(async (action: StudyStreamActionInput): Promise<PublicStreamActionResponse> => {
-    const response = await fetch("/api/study/actions", {
+      const response = await rosterFetch("/api/study/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
@@ -167,7 +188,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   }, []);
 
   const recoverAction = useCallback(async (action: StudyStreamActionInput): Promise<PublicStreamActionResponse> => {
-    const response = await fetch("/api/study/actions/recover", {
+    const response = await rosterFetch("/api/study/actions/recover", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
@@ -213,11 +234,18 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setEpoch((value) => value + 1);
       refreshOutbox();
     } catch (error) {
+      const status = error instanceof Error && "status" in error && typeof error.status === "number"
+        ? error.status
+        : null;
+      const code = error instanceof Error && "code" in error && typeof error.code === "string"
+        ? error.code
+        : null;
+      if (status === 401 || code === "SESSION_REVOKED") handleAuthInvalidation();
       setSyncError(errorText(error));
     } finally {
       setLoading(false);
     }
-  }, [applyBootstrap, fetchStream, refreshOutbox]);
+  }, [applyBootstrap, fetchStream, handleAuthInvalidation, refreshOutbox]);
 
   const applyActionResponse = useCallback(async (
     action: StudyStreamActionInput,
@@ -267,6 +295,13 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       const status = error instanceof Error && "status" in error && typeof error.status === "number"
         ? error.status
         : null;
+      const code = error instanceof Error && "code" in error && typeof error.code === "string"
+        ? error.code
+        : null;
+      if (status === 401 || code === "SESSION_REVOKED") {
+        handleAuthInvalidation();
+        return;
+      }
       if (status === 403) {
         try {
           const refreshed = await fetchStream(row.action.itemCredential);
@@ -306,7 +341,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setSyncError(errorText(error));
       refreshOutbox();
     }
-  }, [applyActionResponse, fetchStream, postAction, postActionWithRecovery, refreshOutbox, userId]);
+  }, [applyActionResponse, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, refreshOutbox, userId]);
 
   const submitAction = useCallback(async (
     actionKind: StudyStreamActionInput["actionKind"],
@@ -337,6 +372,16 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       await applyActionResponse(action, response);
       setSyncError(null);
     } catch (error) {
+      const status = error instanceof Error && "status" in error && typeof error.status === "number"
+        ? error.status
+        : null;
+      const code = error instanceof Error && "code" in error && typeof error.code === "string"
+        ? error.code
+        : null;
+      if (status === 401 || code === "SESSION_REVOKED") {
+        handleAuthInvalidation();
+        return;
+      }
       try {
         markStudyStreamActionBlocked(userId, action.operationId, errorText(error));
       } catch {
@@ -349,7 +394,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setActionPending(false);
       refreshOutbox();
     }
-  }, [actionPending, applyActionResponse, item, postActionWithRecovery, refreshOutbox, session, syncBlocked, updateCheckpoint, userId]);
+  }, [actionPending, applyActionResponse, handleAuthInvalidation, item, postActionWithRecovery, refreshOutbox, session, syncBlocked, updateCheckpoint, userId]);
 
   const retrySync = useCallback(async () => {
     let rows: ReturnType<typeof loadStudyStreamOutbox>;

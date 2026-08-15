@@ -4,19 +4,25 @@ import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 import { todayStartUtc } from "@/lib/streak";
+import { authorizedStudentWhere, teacherActorIsActive } from "@/lib/teacher-access";
 
 export async function GET() {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+  if (auth.role === ROLES.TEACHER && !(await teacherActorIsActive(prisma, auth.userId))) return NextResponse.json({ totalStudents: 0, activeToday: 0, totalWordsMastered: 0, avgProgress: 0, byLevel: [], recentActivity: [] });
 
   try {
+    const studentWhere = authorizedStudentWhere({
+      userId: auth.userId,
+      role: auth.role,
+    });
     // ── 1. 学生基础数据（含 totalReviews 计数） ──
     const students = await prisma.user.findMany({
-      where: { role: ROLES.STUDENT },
+      where: studentWhere,
       select: {
         id: true,
-        name: true,
-        email: true,
+        accountName: true,
+        studentProfile: { select: { legalName: true, nickname: true } },
         _count: { select: { reviews: true } },
       },
     });
@@ -29,7 +35,7 @@ export async function GET() {
     //      与 /api/teacher/students 及排行榜共用同一判定（见 lib/mastered.ts），
     //      保证「已掌握 / 掌握词数 / 平均进度」在任意时刻一致。
     const masteredRows = await prisma.review.findMany({
-      where: { user: { role: ROLES.STUDENT }, interval: { gte: MASTERED_MIN_INTERVAL } },
+      where: { user: studentWhere, interval: { gte: MASTERED_MIN_INTERVAL } },
       select: {
         userId: true,
         word: { select: { level: true } },
@@ -68,7 +74,7 @@ export async function GET() {
       by: ["userId"],
       where: {
         lastReviewedAt: { gte: todayStart },
-        user: { role: ROLES.STUDENT },
+        user: studentWhere,
       },
     });
 
@@ -89,7 +95,7 @@ export async function GET() {
     const recentUsers = await prisma.review.groupBy({
       by: ["userId"],
       where: {
-        user: { role: ROLES.STUDENT },
+        user: studentWhere,
         lastReviewedAt: { not: null },
       },
       _max: { lastReviewedAt: true },
@@ -98,8 +104,12 @@ export async function GET() {
     });
     const recentIds = recentUsers.map((r) => r.userId);
     const recentProfiles = await prisma.user.findMany({
-      where: { id: { in: recentIds } },
-      select: { id: true, name: true, email: true },
+      where: { id: { in: recentIds }, AND: studentWhere },
+      select: {
+        id: true,
+        accountName: true,
+        studentProfile: { select: { legalName: true, nickname: true } },
+      },
     });
     const profileById = new Map(recentProfiles.map((u) => [u.id, u]));
 
@@ -108,8 +118,9 @@ export async function GET() {
       if (!user) return [];
       const mastered = masteredByUser.get(userId) ?? 0;
       return [{
-        name: user.name || user.email,
-        email: user.email,
+        name: user.studentProfile?.legalName ?? user.accountName,
+        nickname: user.studentProfile?.nickname ?? "",
+        email: user.accountName,
         level: "—",
         progress: totalWords > 0 ? Math.round((mastered / totalWords) * 100) : 0,
       }];

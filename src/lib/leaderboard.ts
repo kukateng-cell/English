@@ -84,11 +84,24 @@ export async function getLeaderboard(
   userId: string,
 ): Promise<LeaderboardData> {
   const users = await prisma.user.findMany({
-    where: { role: ROLES.STUDENT },
-    select: { id: true, name: true, email: true },
+    where: {
+      role: ROLES.STUDENT,
+      status: "ACTIVE",
+      studentProfile: { is: { enrollments: { some: { status: "ACTIVE", academicYear: { status: "CURRENT" } } } } },
+    },
+    select: {
+      id: true,
+      studentProfile: { select: { nickname: true } },
+    },
   });
-  const displayName = (u: { name: string | null; email: string }) =>
-    u.name || u.email;
+  const displayName = (u: {
+    studentProfile: { nickname: string } | null;
+  }) => {
+    if (!u.studentProfile) {
+      throw new Error("ACTIVE_STUDENT_PROFILE_MISSING");
+    }
+    return u.studentProfile.nickname;
+  };
 
   // 全量取 StudyDay / Review，在内存聚合
   const [studyDays, reviews, objectiveEvents] = await Promise.all([

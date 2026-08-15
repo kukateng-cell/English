@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { signIn, useSession } from "next-auth/react";
+import { signIn, signOut, useSession } from "next-auth/react";
 import { useLocale } from "@/components/LocaleProvider";
 import { safeCallbackPath } from "@/lib/safe-callback-url";
 import { DEFAULT_ROLE, homePathFor } from "@/lib/roles";
+import { clearAllStudyClientState } from "@/lib/study-client-state";
 import AuthShell from "@/components/auth/AuthShell";
 import Button from "@/components/ui/Button";
 import StatusBanner from "@/components/ui/StatusBanner";
@@ -19,7 +20,7 @@ function safePostLoginCallback(raw: string | null) {
 
 export default function LoginPage() {
   const { tc } = useLocale();
-  const { data: session, status, update } = useSession();
+  const { status, update } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,14 +29,58 @@ export default function LoginPage() {
   const [remainingSec, setRemainingSec] = useState(0);
 
   useEffect(() => {
-    if (status !== "authenticated" || loading) return;
-    const callback = safePostLoginCallback(new URLSearchParams(window.location.search).get("callbackUrl"));
-    const role = session?.user?.role ?? DEFAULT_ROLE;
-    const roleHome = homePathFor(role);
-    const destination = callback ?? roleHome;
-    const target = session?.user?.mustChangePassword ? `/reset-password?callbackUrl=${encodeURIComponent(destination)}` : destination;
-    window.location.replace(target);
-  }, [loading, session, status]);
+    // Protected-route redirects carry a callback URL. Clear the namespaced
+    // study state immediately at that boundary, even while NextAuth is still
+    // resolving whether the old JWT remains valid.
+    if (new URLSearchParams(window.location.search).has("callbackUrl")) {
+      clearAllStudyClientState();
+      const delayed = window.setTimeout(clearAllStudyClientState, 250);
+      return () => window.clearTimeout(delayed);
+    }
+    return;
+  }, []);
+
+  useEffect(() => {
+    if (status !== "authenticated" || loading) {
+      if (status === "unauthenticated") {
+        clearAllStudyClientState();
+        // Study-stream unmount handlers may finish a queued local write in
+        // the same navigation turn. Repeat once after that turn so a revoked
+        // session cannot leave state that would replay after restore.
+        const immediate = window.setTimeout(clearAllStudyClientState, 0);
+        const delayed = window.setTimeout(clearAllStudyClientState, 250);
+        return () => {
+          window.clearTimeout(immediate);
+          window.clearTimeout(delayed);
+        };
+      }
+      return;
+    }
+    let cancelled = false;
+    void update()
+      .then((freshSession) => {
+        if (cancelled) return;
+        if (!freshSession?.user) {
+          clearAllStudyClientState();
+          return;
+        }
+        const callback = safePostLoginCallback(new URLSearchParams(window.location.search).get("callbackUrl"));
+        const role = freshSession.user.role ?? DEFAULT_ROLE;
+        const roleHome = homePathFor(role);
+        const destination = callback ?? roleHome;
+        const target = freshSession.user.mustChangePassword ? `/reset-password?callbackUrl=${encodeURIComponent(destination)}` : destination;
+        window.location.replace(target);
+      })
+      .catch(async () => {
+        if (cancelled) return;
+        clearAllStudyClientState();
+        window.setTimeout(clearAllStudyClientState, 250);
+        await signOut({ redirect: false }).catch(() => undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, status, update]);
 
   useEffect(() => {
     if (lockUntil === null) return;

@@ -17,8 +17,14 @@
 | [study-credential-v2-migration.md](./study-credential-v2-migration.md) | 安全／資料遷移計劃 | 已完成（product scope） | Stream-item credential、v1/v2 coexistence、rotation 及 expand migrations；Stage E destructive cleanup deferred |
 | [research-learning-framework.md](./research-learning-framework.md) | 研究治理／telemetry 計劃 | 待審批（暫緩） | Research feature off；consent、privacy、diagnostic、telemetry 及 experiment 未獲外部批准 |
 | [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 已完成 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |
+| [class-roster-import-and-access-control.md](./class-roster-import-and-access-control.md) | 實施計劃 | 進行中／Phase 8 local verification | Revision 3 已經兩個相同全範圍 reviewer PASS；local implementation、43 個 normal forward migrations、guarded reset、roster/auth/invariant suites、4-test disposable admin workflow（含 explicit rollover dispositions）、500-row import／promotion boundary、5,000-row export／activation performance 及 5,001 caps 已完成；contract migration regression 已於 disposable schema 通過；production-only positive config、完整原生 screen-reader／device matrix仍 deferred |
 | [student-ui-fidelity-corrections.md](./student-ui-fidelity-corrections.md) | 修正計劃 | 已完成 | 修正 mobile 導覽、繁簡／品牌、學生頁 spacing 及認字卡 Prototype fidelity |
 | [study-header-floating-navigation.md](./study-header-floating-navigation.md) | 修正計劃 | 已完成 | 對齊認字頁 header，並把 mobile bottom navigation 改為 floating surface |
+| [student-desktop-layout-corrections.md](./student-desktop-layout-corrections.md) | 修正計劃 | 已完成 | 修正 desktop 認字卡置中、sticky 側欄帳戶控制、單元闖關寬版、首頁快捷卡高度及統計入口可見性；lint、typecheck、build 及 targeted browser geometry／study reveal tests 通過 |
+| [student-dashboard-navigation-corrections.md](./student-dashboard-navigation-corrections.md) | 修正計劃 | 已完成 | 修正「今日」四個快捷入口的 desktop 排列，加入排行榜／成就入口，並放大詞表頁切換控制；lint、typecheck、build 及 targeted browser screenshot／geometry tests 通過 |
+| [admin-and-student-icon-fidelity-corrections.md](./admin-and-student-icon-fidelity-corrections.md) | 修正計劃 | 已完成 | 修正管理工作台 active 導覽、角色概覽可讀性及管理／學生排行榜成就圖示一致性 |
+| [icon-system-audit-and-redesign.md](./icon-system-audit-and-redesign.md) | 修正計劃 | 已完成（local verification） | 全面清理學生、教師、管理員及共用頁面嘅舊 inline SVG、emoji、Unicode 視覺圖標，統一 EMM Style 02；authenticated browser matrix deferred |
+| [workspace-desktop-account-rail-correction.md](./workspace-desktop-account-rail-correction.md) | 修正計劃 | 已完成（local verification） | 修正教師／管理員 desktop sidebar 帳戶控制隨長頁下移，令其固定於左下 viewport；authenticated browser smoke deferred |
 
 新增、改名、完成或取代計劃書時，必須同步更新此表。
 

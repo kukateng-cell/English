@@ -8,10 +8,12 @@ import {
 } from "@/lib/study-session-server";
 import { checkStudyCredentialRate } from "@/lib/study-limiter";
 import { getClientIp } from "@/lib/login-limiter";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 const ID_PATTERN = /^[A-Za-z0-9:_-]{8,200}$/;
 
 export async function POST(req: Request) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireUser();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.message }, { status: auth.status });

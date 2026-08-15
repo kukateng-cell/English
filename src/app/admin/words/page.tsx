@@ -6,7 +6,9 @@ import WordFormModal, { type WordFormData } from "@/components/admin/WordFormMod
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
+import { rosterFetch } from "@/lib/roster-client";
 
 interface WordItem {
   id: string;
@@ -100,7 +102,7 @@ export default function AdminWordsPage() {
           : [],
       };
       if (editing) {
-        const res = await fetch(`/api/admin/words/${editing.id}`, {
+        const res = await rosterFetch(`/api/admin/words/${editing.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -117,7 +119,7 @@ export default function AdminWordsPage() {
           return next;
         });
       } else {
-        const res = await fetch("/api/admin/words", {
+        const res = await rosterFetch("/api/admin/words", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -143,7 +145,7 @@ export default function AdminWordsPage() {
     setSubmitting(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`/api/admin/words/${deleting.id}`, {
+        const res = await rosterFetch(`/api/admin/words/${deleting.id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -198,9 +200,7 @@ export default function AdminWordsPage() {
           onClick={openCreate}
           className="flex h-10 items-center gap-1.5 rounded-2xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-[var(--color-surface)] shadow-sm transition active:scale-[0.97]"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <Icon name="plus" size={16} />
           {tc("添加")}
         </button>
       </div>
@@ -208,12 +208,7 @@ export default function AdminWordsPage() {
       {/* 搜索 + 筛选 */}
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <svg
-            className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]"
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-          >
-            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
-          </svg>
+          <Icon name="search" size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
           <input
             type="text"
             placeholder={tc("搜索单词...")}
@@ -285,19 +280,14 @@ export default function AdminWordsPage() {
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
                     aria-label={tc("编辑")}
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
+                    <Icon name="edit" size={16} />
                   </button>
                   <button
                     onClick={() => setDeleting(word)}
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)]"
                     aria-label={tc("删除")}
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    </svg>
+                    <Icon name="trash" size={16} />
                   </button>
                 </div>
               </div>
@@ -307,7 +297,7 @@ export default function AdminWordsPage() {
                     {tc(word.category)}
                   </span>
                 )}
-                <span>📝 {word.reviewCount} {tc("次被学习")}</span>
+                <span className="admin-meta-item"><Icon name="refresh" size={14} /> {word.reviewCount} {tc("次被学习")}</span>
               </div>
             </div>
           ))}

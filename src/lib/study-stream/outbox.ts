@@ -135,6 +135,16 @@ export function studyStreamOutboxCount(userId: string): number {
   return read(userId).length;
 }
 
+/** Remove all V2 queued actions for one account after session invalidation. */
+export function clearStudyStreamOutbox(userId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(storageKey(userId));
+  } catch {
+    // Security callers still fail closed even when storage cannot be changed.
+  }
+}
+
 export interface StudyStreamCheckpoint {
   version: 1;
   sessionId: string;
@@ -210,4 +220,20 @@ export function saveStudyStreamCheckpoint(
 export function clearStudyStreamCheckpoint(userId: string, scopeKey: string): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(checkpointKey(userId, scopeKey));
+}
+
+/** Remove every V2 checkpoint (global and unit scopes) for one account. */
+export function clearStudyStreamCheckpoints(userId: string): void {
+  if (typeof window === "undefined") return;
+  const prefix = `english:study-stream-v2:checkpoint:${userId}:`;
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+    for (const key of keys) window.localStorage.removeItem(key);
+  } catch {
+    // The caller still redirects/fails closed when browser storage is blocked.
+  }
 }

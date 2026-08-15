@@ -9,6 +9,7 @@ import {
 } from "@/lib/study-stream/server";
 import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
 import { observeStudyStreamRequest } from "@/lib/study-stream/observability";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -43,6 +44,7 @@ function errorResponse(error: unknown): NextResponse {
 
 /** POST /api/study/sessions/renew — V2 item credential lineage only. */
 export async function POST(req: Request) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const context: {
     flowVersion?: "v2";
     outcome?: "assignment-off" | "rate-limited";

@@ -183,6 +183,34 @@ export function reviewQueueServerRevisionStorageKey(userId: string): string {
   return `${SERVER_REVISION_PREFIX}${encodeURIComponent(userId)}`;
 }
 
+/**
+ * Remove all V1 queue state for one account after server-side invalidation.
+ * The scan includes per-operation rows and active leases, not just the
+ * aggregate queue key, so a suspended account cannot be replayed by another
+ * tab after it is restored.
+ */
+export function clearReviewQueueForUser(userId: string): void {
+  if (typeof window === "undefined") return;
+  const exactKeys = new Set([
+    queueKey(userId),
+    reviewQueueMutationStorageKey(userId),
+    reviewQueueServerRevisionStorageKey(userId),
+  ]);
+  const prefixes = [itemPrefix(userId), reviewQueueActiveLeaseStoragePrefix(userId)];
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key && (exactKeys.has(key) || prefixes.some((prefix) => key.startsWith(prefix)))) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) window.localStorage.removeItem(key);
+  } catch {
+    // The caller still redirects/fails closed when browser storage is blocked.
+  }
+}
+
 export function reviewQueueActiveLeaseStoragePrefix(userId: string): string {
   return `${ACTIVE_LEASE_PREFIX}${encodeURIComponent(userId)}:`;
 }

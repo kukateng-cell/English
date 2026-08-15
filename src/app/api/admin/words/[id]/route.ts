@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { isLevel, normalizeLevel } from "@/lib/units";
 import { getAllowedImageOrigin, isSameOriginImageUrl } from "@/lib/image-policy";
+import { isSameOriginMutation } from "@/lib/csrf";
 
 function toArray(v: unknown): string[] {
   if (Array.isArray(v)) {
@@ -31,6 +32,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
@@ -122,9 +124,10 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 

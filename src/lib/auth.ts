@@ -9,6 +9,12 @@ import {
   resetAccount,
   getClientIp,
 } from "@/lib/login-limiter";
+import { roleDisplayName } from "@/lib/identity";
+import {
+  createSessionJti,
+  hashSessionJti,
+  issueRecentAuthGrant,
+} from "@/lib/recent-auth";
 
 /**
  * Revalidate the account-bound claims used by protected routes. Keeping this
@@ -25,7 +31,17 @@ export async function validateAuthTokenVersion(token: JWT): Promise<JWT> {
   try {
     dbUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true, tokenVersion: true, mustChangePassword: true },
+      select: {
+        role: true,
+        status: true,
+        tokenVersion: true,
+        credentialRevision: true,
+        mustChangePassword: true,
+        accountName: true,
+        legacyName: true,
+        studentProfile: { select: { nickname: true } },
+        teacherProfile: { select: { legalName: true } },
+      },
     });
   } catch (error) {
     console.error("[auth] session validation database unavailable", error);
@@ -33,9 +49,28 @@ export async function validateAuthTokenVersion(token: JWT): Promise<JWT> {
     return token;
   }
   if (!dbUser) throw new Error("SESSION_INVALIDATED");
+  if (dbUser.status !== "ACTIVE") throw new Error("SESSION_INVALIDATED");
+  if (dbUser.role === "STUDENT") {
+    const currentEnrollment = await prisma.studentEnrollment.findFirst({
+      where: { studentId: userId, status: "ACTIVE", academicYear: { status: "CURRENT" } },
+      select: { id: true },
+    });
+    if (!currentEnrollment) throw new Error("SESSION_INVALIDATED");
+  }
   if (dbUser.tokenVersion !== token.tokenVersion || dbUser.role !== token.role) {
     throw new Error("SESSION_INVALIDATED");
   }
+  if (
+    !token.sessionJti ||
+    dbUser.credentialRevision !== token.credentialRevision
+  ) {
+    throw new Error("SESSION_INVALIDATED");
+  }
+  const displayName = roleDisplayName(dbUser);
+  token.accountName = dbUser.accountName;
+  token.displayName = displayName;
+  token.name = displayName;
+  token.email = dbUser.accountName;
   token.mustChangePassword = dbUser.mustChangePassword;
   token.authUnavailable = false;
   return token;
@@ -69,8 +104,14 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const user = await prisma.user.findUnique({ where: { email: account } });
-        if (!user) {
+        const user = await prisma.user.findUnique({
+          where: { accountName: account },
+          include: {
+            studentProfile: { select: { nickname: true } },
+            teacherProfile: { select: { legalName: true } },
+          },
+        });
+        if (!user || user.status !== "ACTIVE") {
           // 失败已在 checkLimit 时计入滑动窗口，无需再记一笔。
           return null;
         }
@@ -83,12 +124,42 @@ export const authOptions: NextAuthOptions = {
 
         // 登录成功：清空该账号维度的计数（IP 维度继续累积）。
         await resetAccount(account);
+        if (user.role === "STUDENT") {
+          const currentEnrollment = await prisma.studentEnrollment.findFirst({
+            where: {
+              studentId: user.id,
+              status: "ACTIVE",
+              academicYear: { status: "CURRENT" },
+            },
+            select: { id: true },
+          });
+          if (!currentEnrollment) return null;
+        }
+        const sessionJti = createSessionJti();
+        try {
+          await prisma.$transaction((tx) =>
+            issueRecentAuthGrant(tx, {
+              sessionJti,
+              userId: user.id,
+              tokenVersion: user.tokenVersion,
+              credentialRevision: user.credentialRevision,
+            }),
+          );
+        } catch (error) {
+          console.error("[auth] recent-auth grant creation failed", error);
+          return null;
+        }
+        const displayName = roleDisplayName(user);
         return {
           id: user.id,
-          email: user.email,
-          name: user.name,
+          email: user.accountName,
+          name: displayName,
+          accountName: user.accountName,
+          displayName,
           role: user.role,
           tokenVersion: user.tokenVersion,
+          credentialRevision: user.credentialRevision,
+          sessionJti,
           mustChangePassword: user.mustChangePassword,
         };
       },
@@ -117,7 +188,13 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = user.role as Role;
         token.tokenVersion = user.tokenVersion as number;
+        token.credentialRevision = user.credentialRevision as number;
+        token.sessionJti = user.sessionJti as string;
         token.mustChangePassword = user.mustChangePassword as boolean;
+        token.accountName = user.accountName as string;
+        token.displayName = user.displayName as string;
+        token.name = user.displayName as string;
+        token.email = user.accountName as string;
         token.authenticatedAt = Date.now();
         token.authUnavailable = false;
         return token;
@@ -131,6 +208,10 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as { id: string }).id = token.id as string;
         (session.user as { role: Role }).role = token.role as Role;
+        session.user.accountName = token.accountName as string;
+        session.user.displayName = token.displayName as string;
+        session.user.name = token.displayName as string;
+        session.user.email = token.accountName as string;
         (session.user as { mustChangePassword: boolean }).mustChangePassword =
           token.mustChangePassword as boolean;
         (session.user as { authenticatedAt?: number }).authenticatedAt =
@@ -139,6 +220,19 @@ export const authOptions: NextAuthOptions = {
           token.authUnavailable === true;
       }
       return session;
+    },
+  },
+  events: {
+    async signOut({ token }) {
+      if (!token?.sessionJti) return;
+      try {
+        await prisma.recentAuthGrant.delete({
+          where: { id: hashSessionJti(token.sessionJti) },
+        });
+      } catch {
+        // Logout is best effort; token expiry and revision revocation remain
+        // authoritative even when the cleanup write is unavailable.
+      }
     },
   },
 };

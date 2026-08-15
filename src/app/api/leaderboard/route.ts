@@ -14,5 +14,15 @@ export async function GET() {
   const userId = auth.userId;
 
   const data = await getLeaderboard(userId);
-  return NextResponse.json(data);
+  const publicData = {
+    ...data,
+    me: "me",
+    lists: data.lists.map((list) => ({
+      ...list,
+      entries: list.entries.map((entry) => Object.fromEntries(
+        Object.entries(entry).filter(([key]) => key !== "userId"),
+      )),
+    })),
+  };
+  return NextResponse.json(publicData, { headers: { "Cache-Control": "no-store" } });
 }

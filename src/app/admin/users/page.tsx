@@ -6,15 +6,24 @@ import UserFormModal, { type UserFormData } from "@/components/admin/UserFormMod
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { ROLES, isRole, type Role } from "@/lib/roles";
 import { signOut } from "next-auth/react";
+import { rosterFetch } from "@/lib/roster-client";
 
 interface UserItem {
   id: string;
+  accountName?: string;
   email: string;
   name: string | null;
+  contactEmail?: string | null;
+  nickname?: string | null;
+  grade?: string | null;
+  classCode?: string | null;
+  status?: "ACTIVE" | "SUSPENDED";
   role: string;
+  academicYearId?: string | null;
   totalReviews: number;
   createdAt: string;
 }
@@ -42,6 +51,8 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [academicYears, setAcademicYears] = useState<Array<{ id: string; label: string; status: "PLANNED" | "CURRENT" | "CLOSED" }>>([]);
   const [search, setSearch] = useState("");
   const { tc, locale } = useLocale();
   // 依语言选择日期 locale（繁体用 zh-TW，简体用 zh-CN）
@@ -56,25 +67,36 @@ export default function AdminUsersPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // 每次「打开」表单时自增，作为 Modal 的 key 强制 remount，让表单从最新 props 重新初始化。
   const [formKey, setFormKey] = useState(0);
+  const [temporaryCredential, setTemporaryCredential] = useState<{
+    accountName: string;
+    password: string;
+  } | null>(null);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const [usersRes, sessionRes] = await Promise.all([
-          fetch("/api/admin/users"),
+        const [usersRes, sessionRes, yearsRes] = await Promise.all([
+          fetch(`/api/admin/users?limit=50${search ? `&search=${encodeURIComponent(search)}` : ""}`),
           fetch("/api/auth/session"),
+          fetch("/api/admin/academic-years"),
         ]);
         if (!usersRes.ok) {
           setError(await responseErrorMessage(usersRes));
           return;
         }
-        setUsers(await usersRes.json());
+        const payload = await usersRes.json() as { items?: UserItem[]; nextCursor?: string | null };
+        setUsers(payload.items ?? []);
+        setNextCursor(payload.nextCursor ?? null);
         // session 拉取失败不影响列表展示（仅丢失「你」徽标），静默跳过即可
         if (sessionRes.ok) {
           const me = await sessionRes.json();
           setCurrentUserId(me?.user?.id);
+        }
+        if (yearsRes.ok) {
+          const years = await yearsRes.json() as Array<{ id: string; label: string; status: "PLANNED" | "CURRENT" | "CLOSED" }>;
+          setAcademicYears(years);
         }
       } catch (e) {
         setError(networkErrorMessage(e));
@@ -82,7 +104,7 @@ export default function AdminUsersPage() {
         setLoading(false);
       }
     })();
-  }, [reloadKey]);
+  }, [reloadKey, search]);
 
   const filtered = users.filter(
     (u) =>
@@ -106,12 +128,15 @@ export default function AdminUsersPage() {
     setSubmitting(true);
     try {
       if (editing) {
-        const res = await fetch(`/api/admin/users/${editing.id}`, {
+        const res = await rosterFetch(`/api/admin/users/${editing.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: data.name,
+            legalName: data.name,
+            contactEmail: data.contactEmail,
+            ...(data.nickname ? { nickname: data.nickname } : {}),
             role: data.role,
+            status: data.status,
             ...(data.password ? { password: data.password } : {}),
           }),
         });
@@ -128,7 +153,7 @@ export default function AdminUsersPage() {
         }
         setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       } else {
-        const res = await fetch("/api/admin/users", {
+        const res = await rosterFetch("/api/admin/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
@@ -137,7 +162,15 @@ export default function AdminUsersPage() {
           const err = await res.json().catch(() => null);
           throw new Error(err?.error ?? "创建失败");
         }
-        const created: UserItem = await res.json();
+        const created = (await res.json()) as UserItem & {
+          temporaryPassword?: string;
+        };
+        if (created.temporaryPassword) {
+          setTemporaryCredential({
+            accountName: created.accountName ?? created.email,
+            password: created.temporaryPassword,
+          });
+        }
         setUsers((prev) => [created, ...prev]);
       }
     } finally {
@@ -150,7 +183,7 @@ export default function AdminUsersPage() {
     setSubmitting(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`/api/admin/users/${deleting.id}`, {
+        const res = await rosterFetch(`/api/admin/users/${deleting.id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -203,25 +236,21 @@ export default function AdminUsersPage() {
           onClick={openCreate}
           className="flex h-10 items-center gap-1.5 rounded-2xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-[var(--color-surface)] shadow-sm transition active:scale-[0.97]"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <Icon name="plus" size={16} />
           {tc("新建")}
         </button>
       </div>
 
       {/* 搜索框 */}
+      {temporaryCredential ? (
+        <div className="rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)] p-4 text-[13px] text-[var(--text)]">
+          <p className="font-semibold">{tc("一次性临时密码（请立即安全交给用户）")}</p>
+          <p className="mt-2 font-mono">{temporaryCredential.accountName}　{temporaryCredential.password}</p>
+          <button className="mt-2 text-[var(--primary)]" onClick={() => setTemporaryCredential(null)}>{tc("已保存，关闭")}</button>
+        </div>
+      ) : null}
       <div className="relative">
-        <svg
-          className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)] dark:text-[var(--muted)]"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
+        <Icon name="search" size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)] dark:text-[var(--muted)]" />
         <input
           type="text"
           placeholder={tc("搜索用户名或邮箱...")}
@@ -268,6 +297,11 @@ export default function AdminUsersPage() {
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${roleStyles[roleOf(user)]}`}>
                       {tc(roleLabels[roleOf(user)])}
                     </span>
+                    {user.status === "SUSPENDED" ? (
+                      <span className="rounded-full bg-[var(--danger-bg)] px-2.5 py-1 text-[11px] font-semibold text-[var(--danger)]">
+                        {tc("已暂停")}
+                      </span>
+                    ) : null}
                     {/* 操作按钮 */}
                     <div className="flex items-center gap-1">
                       <button
@@ -275,10 +309,7 @@ export default function AdminUsersPage() {
                         className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
                         aria-label={tc("编辑")}
                       >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                        </svg>
+                        <Icon name="edit" size={16} />
                       </button>
                       <button
                         onClick={() => setDeleting(user)}
@@ -286,22 +317,36 @@ export default function AdminUsersPage() {
                         className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] disabled:cursor-not-allowed disabled:opacity-30 dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)]"
                         aria-label={tc("删除")}
                       >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
+                        <Icon name="trash" size={16} />
                       </button>
                     </div>
                   </div>
                 </div>
                 <div className="mt-3 flex items-center gap-4 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-                  <span>📝 {user.totalReviews} {tc("次复习")}</span>
-                  <span>🕐 {new Date(user.createdAt).toLocaleDateString(dateLocale)} {tc("加入")}</span>
+                  <span className="admin-meta-item"><Icon name="refresh" size={14} /> {user.totalReviews} {tc("次复习")}</span>
+                  <span className="admin-meta-item"><Icon name="clock" size={14} /> {new Date(user.createdAt).toLocaleDateString(dateLocale)} {tc("加入")}</span>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {nextCursor ? (
+        <button
+          type="button"
+          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-[13px] font-semibold text-[var(--primary)]"
+          onClick={async () => {
+            const response = await fetch(`/api/admin/users?limit=50&cursor=${encodeURIComponent(nextCursor)}`);
+            if (!response.ok) return;
+            const payload = await response.json() as { items?: UserItem[]; nextCursor?: string | null };
+            setUsers((current) => [...current, ...(payload.items ?? [])]);
+            setNextCursor(payload.nextCursor ?? null);
+          }}
+        >
+          {tc("载入更多")}
+        </button>
+      ) : null}
 
       {/* 新建 / 编辑弹窗 */}
       <UserFormModal
@@ -311,6 +356,7 @@ export default function AdminUsersPage() {
         currentUserId={currentUserId}
         onClose={() => setFormOpen(false)}
         onSubmit={handleSubmit}
+        academicYears={academicYears}
       />
       {/* 删除确认 */}
       <ConfirmDialog
