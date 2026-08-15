@@ -12,6 +12,13 @@
 >
 > 範圍：只限本機開發及測試；不包括 production、push、deploy 或真實學生資料
 
+> **2026-08-16 後續計劃提示：** 本文件準確記錄目前已實作的per-class view／reset baseline及其歷史驗證，
+> 但未來教師reset target model已由
+> [`teacher-workspace-roster-progress-redesign.md`](./teacher-workspace-roster-progress-redesign.md) Revision 2取代：
+> class row只決定學生資料scope，reset改為default-false教師級global capability AND class scope。新模型尚未實作，
+> 所以現況仍以程式／schema為準；任何後續設計、import/export、activation coverage及rollback工作必須跟新計劃，
+> 不可把本文件下列per-class reset歷史段落誤當未來canonical contract。
+
 ## 1. 執行摘要
 
 本計劃把現有只有 `STUDENT`、`TEACHER`、`ADMIN` 角色但沒有正式班級邊界的詞彙平台，
@@ -384,6 +391,9 @@ Activation把incoming enrollment轉ACTIVE後自然取得登入資格；已被管
 
 ### 6.7 TeacherClassAccess
 
+> 現況／歷史baseline：下列`canResetStudentPassword`仍是目前物理及runtime per-class欄。Future target、default-false
+> migration、safe compatibility projection及rollback contract見後續教師工作台計劃§6；本段不再規範下一版reset語義。
+
 - composite key：`teacherId + classId`
 - `canViewProgress`
 - `canResetStudentPassword`
@@ -632,6 +642,9 @@ immediate-successor `PLANNED`，拒絕更遠future／`CLOSED`；教師匯入可�
 
 ### 9.3 教師匯入欄位
 
+> 下列是目前teacher-roster-v1格式。Future teacher-roster-v2會以versioned global
+> `resetPasswordCapability`取代per-class `resetPasswordAccess`；v1非blank reset不得自動擴成global，詳見後續計劃§6.3。
+
 | 欄位 | 必填 | 說明 |
 |---|---:|---|
 | accountName | ✅ | 教師登入帳號 |
@@ -780,6 +793,10 @@ Merge 不改密碼、不改角色、不刪除檔案中未列出的帳號。Previ
   `RosterMutationState.revision`到coverage fingerprint，並把全部候選教師寫入batch user links；新授權、撤權、role/status／profile
   變更都會increment global revision，commit重算predicate且任何差異一律409要求重新preview。零view coverage要逐班ack；
   reset coverage只作清晰提示，不把無reset權誤報為可重設密碼；
+
+> Future activation reset coverage會改為`ACTIVE teacher + TeacherProfile global reset=true + target class view row`，並把global
+> Boolean納入snapshot／fingerprint；本段per-class predicate只記錄目前已驗證baseline，詳見後續教師工作台計劃§6.4。
+
 - Teacher access editor 可預先設定 `PLANNED` year，不限 current year；
 - Preview建立`AdminMutationBatch`並snapshot source／target year revisions、所有target class revisions／active flags、所有受影響
   transition及source／target enrollment revisions、`RosterMutationState.revision`、相關teacher User role／status／revision、
@@ -807,6 +824,9 @@ Merge 不改密碼、不改角色、不刪除檔案中未列出的帳號。Previ
   contract，加入V1及V2 active-study suspension／restore-no-replay E2E。
 
 ## 11. 教師班級權限管理
+
+> 本節記錄目前per-class editor。Future editor會把reset switch移至獨立教師帳號能力區，班級matrix只保留view scope，
+> 並加入教師搜尋、grade／selected filters及safe CAS／compatibility，詳見後續教師工作台計劃§7.5及§8。
 
 - 管理員在教師名單選擇教師後，可選 `CURRENT` 或 `PLANNED` academic year，再看 grade／class matrix；
   `CLOSED` 只讀。
@@ -855,6 +875,9 @@ Merge 不改密碼、不改角色、不刪除檔案中未列出的帳號。Previ
 - createdAt
 
 永不提供：`passwordHash`、temporary password、tokenVersion、session、audit digest、rate-limit key、internal user ID。
+
+`resetPasswordAccess`是目前v1/per-class export歷史欄；future v2 canonical export改為typed Boolean
+`resetPasswordCapability`＋獨立`classAccess`，詳見後續教師工作台計劃§6.3。
 
 ### 12.3 CSV／XLSX 安全
 
@@ -1325,7 +1348,7 @@ Phase 1 是所有產品實作的硬依賴；Phase 2、3 完成前不可把 roste
 | 暱稱 | 學生必填、可自行修改、不要求唯一、公開 surface 唯一顯示身份 |
 | 年級 | 六個固定 enum；學生匯入必填 |
 | 班別 | 甲至辛；optional；不必八班全部存在 |
-| 教師權限 | Per-class；view 與 reset-password capability 分開 |
+| 教師權限 | 目前已實作baseline為per-class view／reset；future target已由後續教師工作台計劃凍結為default-false教師級global reset AND per-class view scope，尚未實作 |
 | Role change | 建立後鎖定，不直接轉換 profile 角色 |
 | 離校／離職 | 預設 suspend；single hard delete 仍保留 |
 | Bulk delete | 不提供 |
@@ -1429,6 +1452,7 @@ production contract rollout、缺少 production-only secrets 的 production conf
 | 2026-08-15 | Deferred gates | production-config positive secrets／Upstash（local check 明確 fail closed）及完整原生 screen-reader／device matrix仍未執行；500-row import、explicit rollover、5,000-row export／activation 已以 fresh local cold/warm＋100ms worker-RSS protocol通過 budget；surface-specific PII scan、parser／bulk／activation cap boundary及browser axe/keyboard/accessibility-tree matrix均有證據，仍不冒充 release gate完成 |
 | 2026-08-15 | Teacher reset UI permission correction | Teacher student roster response now includes per-class `canResetStudentPassword`; reset control is omitted when a teacher can view but cannot reset; admin-roster E2E adds the no-reset capability assertion; lint、typecheck及build通過 |
 | 2026-08-16 | Student status action correction | 學生名冊的停權／恢復由純文字樣式改為明確可操作、可聚焦及有 busy guard 的按鈕；成功後即時更新列表並保留 server refresh。新增 mobile roster E2E 驗證停權、恢復及資料庫狀態；`npm test` 166 passed、lint、typecheck、build及focused admin-roster browser test通過 |
+| 2026-08-16 | Teacher workspace redesign plan | 新增 `teacher-workspace-roster-progress-redesign.md`，取代本計劃未來的教師 reset 權限及教師工作台目標：名冊／進度分家、學生詳情、server搜尋／篩選／分頁、班級洞察，以及 default-false 教師級 reset capability AND CURRENT class scope；本列只記錄計劃定稿，不冒充已實作。 |
 
 ## 24. 實際執行紀錄與限制
 
