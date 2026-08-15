@@ -7,7 +7,12 @@ import { isSameOriginMutation } from "@/lib/csrf";
 export function rosterResponse(code: string, status: number, extra?: Record<string, unknown>) {
   return NextResponse.json({ code, ...extra }, {
     status,
-    headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+    headers: {
+      "Cache-Control": "private, no-store",
+      "Vary": "Cookie",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+    },
   });
 }
 

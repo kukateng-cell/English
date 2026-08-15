@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
-import { authorizedStudentWhere, teacherActorIsActive } from "@/lib/teacher-access";
+import { authorizedStudentWhere, teacherActorCanResetStudentPassword, teacherActorIsActive } from "@/lib/teacher-access";
 
 export async function GET() {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
@@ -11,6 +11,7 @@ export async function GET() {
   if (auth.role === ROLES.TEACHER && !(await teacherActorIsActive(prisma, auth.userId))) return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
 
   try {
+    const actorCanReset = auth.role === ROLES.ADMIN || await teacherActorCanResetStudentPassword(prisma, auth.userId);
     const studentWhere = authorizedStudentWhere({
       userId: auth.userId,
       role: auth.role,
@@ -34,10 +35,6 @@ export async function GET() {
                   select: {
                     grade: true,
                     classCode: true,
-                    teacherAccess: {
-                      where: { teacherId: auth.userId },
-                      select: { canResetStudentPassword: true },
-                    },
                   },
                 },
               },
@@ -99,9 +96,7 @@ export async function GET() {
           grade: s.studentProfile?.enrollments[0]?.grade ?? null,
           classCode:
             s.studentProfile?.enrollments[0]?.schoolClass?.classCode ?? null,
-          canResetStudentPassword:
-            auth.role === ROLES.ADMIN ||
-            Boolean(s.studentProfile?.enrollments[0]?.schoolClass?.teacherAccess?.some((access) => access.canResetStudentPassword)),
+          canResetStudentPassword: actorCanReset,
           totalReviews: s._count.reviewEvents,
           masteredWords: mastered,
           totalWords,

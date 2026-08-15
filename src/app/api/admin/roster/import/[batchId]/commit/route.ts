@@ -142,7 +142,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
             const created = await tx.user.create({ data: { accountName: row.accountName, accountNameCanonical: row.accountName, contactEmail: row.contactEmail, contactEmailCanonical: row.contactEmail, legacyName: row.legalName, role: ROLE_VALUES.STUDENT, ...passwordCredentialCreateData({ passwordHash: credential.passwordHash, mustChangePassword: true }), studentProfile: { create: { legalName: row.legalName, nickname: row.nickname, nicknameNormalized: row.nicknameNormalized, moderationPolicyVersion: "nickname-v1", enrollments: { create: { academicYearId: year.id, grade: row.grade, classId, isCurrent: year.status === "CURRENT", status: year.status === "CURRENT" ? "ACTIVE" : "PLANNED", origin: "IMPORT", startedAt: year.status === "CURRENT" ? new Date() : null } } } } }, select: { id: true } });
             userId = created.id;
           } else {
-            const created = await tx.user.create({ data: { accountName: row.accountName, accountNameCanonical: row.accountName, contactEmail: row.contactEmail, contactEmailCanonical: row.contactEmail, legacyName: row.legalName, role: ROLE_VALUES.TEACHER, ...passwordCredentialCreateData({ passwordHash: credential.passwordHash, mustChangePassword: true }), teacherProfile: { create: { legalName: row.legalName } } }, select: { id: true } });
+            const created = await tx.user.create({ data: { accountName: row.accountName, accountNameCanonical: row.accountName, contactEmail: row.contactEmail, contactEmailCanonical: row.contactEmail, legacyName: row.legalName, role: ROLE_VALUES.TEACHER, ...passwordCredentialCreateData({ passwordHash: credential.passwordHash, mustChangePassword: true }), teacherProfile: { create: { legalName: row.legalName, canResetStudentPassword: row.canResetStudentPassword ?? false } } }, select: { id: true } });
             userId = created.id;
           }
           createdIds.push(userId); createdCount += 1;
@@ -161,7 +161,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
             if (row.classCode && !classId) throw new Error("CLASS_NOT_FOUND");
             await upsertStudentEnrollment(tx, { userId, academicYearId: year.id, yearStatus: year.status, grade: row.grade, classId, actorUserId: auth.userId });
           } else {
-            await tx.teacherProfile.update({ where: { userId }, data: { legalName: row.legalName, profileRevision: { increment: 1 } } });
+            const profile = await tx.teacherProfile.findUnique({ where: { userId }, select: { canResetStudentPassword: true } });
+            if (!profile) throw new Error("PROFILE_MISSING");
+            await tx.teacherProfile.update({ where: { userId }, data: { legalName: row.legalName, ...(row.canResetStudentPassword === undefined ? {} : { canResetStudentPassword: row.canResetStudentPassword }), profileRevision: { increment: 1 }, ...(row.canResetStudentPassword !== undefined && row.canResetStudentPassword !== profile.canResetStudentPassword ? { accessRevision: { increment: 1 } } : {}) } });
           }
           updatedCount += 1;
         }
@@ -169,12 +171,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
           if (row.action !== "UNCHANGED") {
             if (row.accessAction !== "PRESERVE") {
               await tx.teacherClassAccess.deleteMany({ where: { teacherId: userId, schoolClass: { academicYearId: year.id } } });
+              const globalReset = row.canResetStudentPassword ?? (await tx.teacherProfile.findUniqueOrThrow({ where: { userId }, select: { canResetStudentPassword: true } })).canResetStudentPassword;
               for (const access of row.access) {
                 const classId = classMap.get(`${access.grade}:${access.classCode}`);
                 if (!classId) throw new Error("CLASS_NOT_FOUND");
-                await tx.teacherClassAccess.create({ data: { teacherId: userId, classId, canViewProgress: true, canResetStudentPassword: access.canResetStudentPassword, grantedById: auth.userId } });
+                await tx.teacherClassAccess.create({ data: { teacherId: userId, classId, canViewProgress: true, canResetStudentPassword: globalReset, grantedById: auth.userId } });
               }
               await tx.teacherProfile.update({ where: { userId }, data: { accessRevision: { increment: 1 } } });
+            }
+            if (row.canResetStudentPassword !== undefined) {
+              await tx.teacherClassAccess.updateMany({ where: { teacherId: userId, schoolClass: { academicYear: { status: { in: ["CURRENT", "PLANNED"] } } } }, data: { canResetStudentPassword: row.canResetStudentPassword } });
             }
           }
         }

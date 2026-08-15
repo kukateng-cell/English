@@ -5,7 +5,7 @@ import { ROLES } from "@/lib/roles";
 
 const templates = {
   STUDENT: ["accountName", "legalName", "nickname", "grade", "classCode", "contactEmail"],
-  TEACHER: ["accountName", "legalName", "contactEmail", "classAccess", "resetPasswordAccess"],
+  TEACHER: ["templateVersion", "accountName", "legalName", "contactEmail", "classAccess", "resetPasswordCapability"],
 } as const;
 
 export async function GET(_req: Request, { params }: { params: Promise<{ entity: string; format: string }> }) {
@@ -15,7 +15,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ entity:
   const key = entity.toUpperCase() as keyof typeof templates;
   if (!(key in templates) || !["csv", "xlsx"].includes(format.toLowerCase())) return NextResponse.json({ code: "TEMPLATE_NOT_FOUND" }, { status: 404 });
   const headers = [...templates[key]];
-  const filename = `${key.toLowerCase()}-roster-v1-template.${format.toLowerCase()}`;
+  const filename = `${key.toLowerCase()}-roster-v2-template.${format.toLowerCase()}`;
   if (format.toLowerCase() === "csv") {
     return new Response(`\uFEFF${headers.join(",")}\r\n`, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${filename}"`, "Cache-Control": "no-store" } });
   }

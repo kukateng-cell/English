@@ -25,10 +25,11 @@ export type StagedTeacherRow = {
   contactEmail: string | null;
   contactEmailAction?: "SET" | "PRESERVE" | "CLEAR";
   accessAction?: "REPLACE" | "PRESERVE";
+  templateVersion?: "teacher-roster-v2" | "v1";
+  canResetStudentPassword?: boolean;
   access: Array<{
     grade: StudentGrade;
     classCode: ClassCode;
-    canResetStudentPassword: boolean;
   }>;
   errors: string[];
   diff?: Record<string, { before: string | null; after: string | null }>;

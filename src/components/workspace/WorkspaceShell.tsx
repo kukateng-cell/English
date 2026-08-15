@@ -14,7 +14,8 @@ type WorkspaceItem = { href: string; label: string; icon: IconName };
 const ITEMS: Record<"teacher" | "admin", WorkspaceItem[]> = {
   teacher: [
     { href: "/teacher", label: "概览", icon: "bar-chart" },
-    { href: "/teacher/students", label: "学生进度", icon: "book" },
+    { href: "/teacher/roster", label: "学生名册", icon: "users" },
+    { href: "/teacher/progress", label: "学生进度", icon: "book" },
   ],
   admin: [
     { href: "/admin", label: "概览", icon: "bar-chart" },

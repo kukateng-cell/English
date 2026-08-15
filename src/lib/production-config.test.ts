@@ -6,6 +6,7 @@ import {
   legacyOperationIdCompatibilityEndsAt,
   productionConfigurationErrors,
   requiresDistributedRateLimitBackend,
+  teacherResetPreconditionConfigurationErrors,
 } from "./production-config";
 
 test("backend failure diagnostics omit exception messages and unsafe names", () => {
@@ -105,4 +106,14 @@ test("production configuration rejects local all-user V2 assignment", () => {
     STUDY_V2_ASSIGNMENT_MODE: "all",
   });
   assert.ok(errors.some((error) => error.includes("STUDY_V2_ASSIGNMENT_MODE=all")));
+});
+
+test("teacher reset keyring validation is independent from production-only gates", () => {
+  assert.ok(teacherResetPreconditionConfigurationErrors({}).some((error) => error.includes("CURRENT")));
+  assert.deepEqual(teacherResetPreconditionConfigurationErrors({
+    TEACHER_RESET_PRECONDITION_KEY_CURRENT: Buffer.alloc(32, 1).toString("base64url"),
+    TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID: "current-v1",
+    TEACHER_RESET_PRECONDITION_KEY_PREVIOUS: Buffer.alloc(32, 2).toString("base64url"),
+    TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID: "previous-v1",
+  }), []);
 });

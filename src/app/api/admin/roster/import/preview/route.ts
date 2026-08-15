@@ -38,16 +38,18 @@ function validateHeaders(rows: RosterCellRow[], entityType: "STUDENT" | "TEACHER
   const headers = Object.keys(rows[0] ?? {});
   const aliases = entityType === "STUDENT"
     ? [...ACCOUNT_HEADERS, ...LEGAL_NAME_HEADERS, ...NICKNAME_HEADERS, ...GRADE_HEADERS, ...CLASS_HEADERS, ...EMAIL_HEADERS]
-    : [...ACCOUNT_HEADERS, ...LEGAL_NAME_HEADERS, ...EMAIL_HEADERS, "classAccess", "班級權限", "班级权限", "resetPasswordAccess", "canResetStudentPassword", "重設密碼權限", "可重設密碼", "可重设密码"];
+    : [...ACCOUNT_HEADERS, ...LEGAL_NAME_HEADERS, ...EMAIL_HEADERS, "templateVersion", "classAccess", "班級權限", "班级权限", "resetPasswordAccess", "canResetStudentPassword", "resetPasswordCapability", "重設密碼權限", "可重設密碼", "可重设密码"];
   const allowed = new Set(aliases);
   const unknown = headers.filter((header) => !allowed.has(header));
   if (unknown.length) throw new Error("ROSTER_HEADER_UNKNOWN");
+  const teacherV2 = entityType === "TEACHER" && headers.includes("templateVersion");
+  if (teacherV2 && (headers.length !== 6 || !["templateVersion", "accountName", "legalName", "contactEmail", "classAccess", "resetPasswordCapability"].every((header) => headers.includes(header)))) throw new Error("ROSTER_HEADER_REQUIRED");
   const required = entityType === "STUDENT"
     ? [ACCOUNT_HEADERS, LEGAL_NAME_HEADERS, NICKNAME_HEADERS, GRADE_HEADERS]
     : [ACCOUNT_HEADERS, LEGAL_NAME_HEADERS];
   const semanticGroups = entityType === "STUDENT"
     ? [ACCOUNT_HEADERS, LEGAL_NAME_HEADERS, NICKNAME_HEADERS, GRADE_HEADERS, CLASS_HEADERS, EMAIL_HEADERS]
-    : [ACCOUNT_HEADERS, LEGAL_NAME_HEADERS, EMAIL_HEADERS, ["classAccess", "班級權限", "班级权限"], ["resetPasswordAccess", "canResetStudentPassword", "重設密碼權限", "可重設密碼", "可重设密码"]];
+    : [ACCOUNT_HEADERS, LEGAL_NAME_HEADERS, EMAIL_HEADERS, ["classAccess", "班級權限", "班级权限"], ["resetPasswordCapability", "resetPasswordAccess", "canResetStudentPassword", "重設密碼權限", "可重設密碼", "可重设密码"]];
   if (semanticGroups.some((group) => headers.filter((header) => group.includes(header)).length > 1)) {
     throw new Error("ROSTER_HEADER_DUPLICATE");
   }
@@ -56,17 +58,9 @@ function validateHeaders(rows: RosterCellRow[], entityType: "STUDENT" | "TEACHER
   }
 }
 
-function parseAccess(value: string, resetValue: string) {
+function parseAccess(value: string) {
   const accessClear = value.trim() === "__CLEAR__";
-  const resetClear = resetValue.trim() === "__CLEAR__";
   if (accessClear) value = "";
-  if (resetClear) resetValue = "";
-  const resetAll = /^(true|yes|1|是)$/iu.test(resetValue.trim());
-  const resetRefs = new Set(
-    resetValue.split(/[|,;，；]+/u).map((part) => parseClassReference(part)).filter(
-      (item): item is NonNullable<typeof item> => item !== null,
-    ).map((item) => `${item.grade}:${item.classCode}`),
-  );
   const errors: string[] = [];
   const access = value.split(/[|,;，；]+/u).map((part) => part.trim()).filter(Boolean).flatMap((part) => {
     const parsed = parseClassReference(part);
@@ -74,15 +68,17 @@ function parseAccess(value: string, resetValue: string) {
       errors.push(`无法识别班级权限「${part}」`);
       return [];
     }
-    const key = `${parsed.grade}:${parsed.classCode}`;
-    return [{ ...parsed, canResetStudentPassword: resetAll || resetRefs.has(key) }];
+    return [parsed];
   });
-  if (!resetAll) {
-    for (const key of resetRefs) if (!access.some((item) => `${item.grade}:${item.classCode}` === key)) {
-      errors.push("重设密码权限必须是查看班级权限的子集");
-    }
-  }
-  return { access, errors, accessClear, resetClear };
+  return { access, errors, accessClear };
+}
+
+function parseTeacherReset(value: string, templateVersion: "teacher-roster-v2" | "v1") {
+  const trimmed = value.trim();
+  if (!trimmed) return { value: undefined, error: null };
+  if (templateVersion === "v1") return { value: undefined, error: "LEGACY_RESET_SCOPE_UNSUPPORTED" };
+  if (!/^(true|false)$/iu.test(trimmed)) return { value: undefined, error: "resetPasswordCapability 必须为 TRUE 或 FALSE" };
+  return { value: trimmed.toLowerCase() === "true", error: null };
 }
 
 function digest(value: unknown): string {
@@ -143,7 +139,7 @@ export async function POST(req: Request) {
       select: {
         id: true, accountName: true, accountNameCanonical: true, contactEmail: true, contactEmailCanonical: true, role: true,
         studentProfile: { select: { legalName: true, nickname: true, nicknameNormalized: true, enrollments: { where: { academicYearId }, select: { id: true, grade: true, classId: true, status: true, schoolClass: { select: { classCode: true } } } } } },
-        teacherProfile: { select: { legalName: true, classAccess: { where: { schoolClass: { academicYearId } }, select: { classId: true, canViewProgress: true, canResetStudentPassword: true, schoolClass: { select: { grade: true, classCode: true } } } } } },
+        teacherProfile: { select: { legalName: true, canResetStudentPassword: true, classAccess: { where: { schoolClass: { academicYearId } }, select: { classId: true, canViewProgress: true, schoolClass: { select: { grade: true, classCode: true } } } } } },
       },
     });
     const existingByAccount = new Map(existing.flatMap((user) => [[user.accountName, user], ...(user.accountNameCanonical ? [[user.accountNameCanonical, user] as const] : [])]));
@@ -204,20 +200,26 @@ export async function POST(req: Request) {
         const action = errors.length ? "ERROR" : unchanged ? "UNCHANGED" : baseAction;
         return { entityType, rowNumber, action, accountName, legalName, nickname: nickname.ok ? nickname.value : "", nicknameNormalized: nickname.ok ? nickname.normalized : "", contactEmail, contactEmailAction, grade, classCode, errors, diff } satisfies StagedStudentRow;
       }
+      const rawTemplateVersion = field(row, ["templateVersion"]).trim().toLowerCase();
+      const templateVersion = rawTemplateVersion === "teacher-roster-v2" ? "teacher-roster-v2" as const : "v1" as const;
+      if (Object.prototype.hasOwnProperty.call(row, "templateVersion") && templateVersion !== "teacher-roster-v2") errors.push("templateVersion 必须为 teacher-roster-v2");
       const rawAccessField = field(row, ["classAccess", "班級權限", "班级权限"]);
-      const rawResetField = field(row, ["resetPasswordAccess", "canResetStudentPassword", "重設密碼權限", "可重設密碼", "可重设密码"]);
-      const parsedAccess = parseAccess(rawAccessField, rawResetField);
+      const rawResetField = field(row, ["resetPasswordCapability", "resetPasswordAccess", "canResetStudentPassword", "重設密碼權限", "可重設密碼", "可重设密码"]);
+      const parsedAccess = parseAccess(rawAccessField);
+      const parsedReset = parseTeacherReset(rawResetField, templateVersion);
       errors.push(...parsedAccess.errors);
-      if (existingUser && !rawAccessField && rawResetField) errors.push("MERGE 不能只替换重设密码权限");
+      if (parsedReset.error) errors.push(parsedReset.error);
+      if (templateVersion === "v1" && rawResetField.trim()) errors.push("LEGACY_RESET_SCOPE_UNSUPPORTED");
       for (const access of parsedAccess.access) if (!classMap.has(`${access.grade}:${access.classCode}`)) errors.push("所选学年不存在教师权限班级");
       const existingAccess = existingUser?.teacherProfile?.classAccess ?? [];
-      const incomingAccess = parsedAccess.access.map((item) => `${item.grade}:${item.classCode}:${item.canResetStudentPassword ? "1" : "0"}`).sort().join("|");
-      const savedAccess = existingAccess.map((item) => `${item.schoolClass.grade}:${item.schoolClass.classCode}:${item.canResetStudentPassword ? "1" : "0"}`).sort().join("|");
+      const incomingAccess = parsedAccess.access.map((item) => `${item.grade}:${item.classCode}`).sort().join("|");
+      const savedAccess = existingAccess.filter((item) => item.canViewProgress).map((item) => `${item.schoolClass.grade}:${item.schoolClass.classCode}`).sort().join("|");
       const contactEmailAction = existingUser && !rawEmail ? "PRESERVE" : rawEmail.trim() === "__CLEAR__" ? "CLEAR" : "SET";
-      const unchanged = Boolean(mergeMode && existingUser?.teacherProfile && !errors.length && existingUser.teacherProfile.legalName === legalName && contactEmailAction === "PRESERVE" && (parsedAccess.access.length ? incomingAccess === savedAccess : !rawAccessField && !rawResetField));
+      const resetUnchanged = parsedReset.value === undefined || parsedReset.value === existingUser?.teacherProfile?.canResetStudentPassword;
+      const unchanged = Boolean(mergeMode && existingUser?.teacherProfile && !errors.length && existingUser.teacherProfile.legalName === legalName && contactEmailAction === "PRESERVE" && resetUnchanged && (parsedAccess.access.length ? incomingAccess === savedAccess : !rawAccessField));
       const action = errors.length ? "ERROR" : unchanged ? "UNCHANGED" : baseAction;
-      const accessAction = existingUser && !rawAccessField && !rawResetField ? "PRESERVE" : "REPLACE";
-      return { entityType, rowNumber, action, accountName, legalName, contactEmail, contactEmailAction, access: parsedAccess.access, accessAction, errors } satisfies StagedTeacherRow;
+      const accessAction = existingUser && !rawAccessField ? "PRESERVE" : "REPLACE";
+      return { entityType, rowNumber, action, accountName, legalName, contactEmail, contactEmailAction, templateVersion, canResetStudentPassword: parsedReset.value, access: parsedAccess.access, accessAction, errors } satisfies StagedTeacherRow;
     });
     const errorCount = staged.filter((row) => row.errors.length).length;
     const createCount = staged.filter((row) => row.action === "CREATE").length;

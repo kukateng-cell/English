@@ -1,5 +1,6 @@
 const MAX_COMPATIBILITY_WINDOW_MS = 30 * 60_000;
 const SAFE_ERROR_TYPE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+const RESET_KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 
 type Environment = Record<string, string | undefined>;
 
@@ -92,6 +93,41 @@ export function productionConfigurationErrors(
     errors.push(
       "STUDY_OPERATION_ID_COMPAT_UNTIL must be a future ISO timestamp no more than 30 minutes away",
     );
+  }
+  return errors;
+}
+
+/**
+ * Validate the dedicated reset-precondition keyring independently from the
+ * wider production gate. Local development may run with a valid keyring even
+ * when production-only Upstash/CRON/audit configuration is intentionally
+ * absent.
+ */
+export function teacherResetPreconditionConfigurationErrors(
+  env: Environment = process.env,
+): string[] {
+  const errors: string[] = [];
+  const current = env.TEACHER_RESET_PRECONDITION_KEY_CURRENT;
+  const currentId = env.TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID;
+  const previous = env.TEACHER_RESET_PRECONDITION_KEY_PREVIOUS;
+  const previousId = env.TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID;
+  if (!current || Buffer.from(current, "base64url").length !== 32) {
+    errors.push("TEACHER_RESET_PRECONDITION_KEY_CURRENT must be a 32-byte base64url secret");
+  }
+  if (!currentId || !RESET_KEY_ID.test(currentId)) {
+    errors.push("TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID must be a safe non-empty key id");
+  }
+  if (Boolean(previous) !== Boolean(previousId)) {
+    errors.push("TEACHER_RESET_PRECONDITION_KEY_PREVIOUS and _PREVIOUS_ID must be configured together");
+  }
+  if (previous && Buffer.from(previous, "base64url").length !== 32) {
+    errors.push("TEACHER_RESET_PRECONDITION_KEY_PREVIOUS must be a 32-byte base64url secret");
+  }
+  if (previousId && !RESET_KEY_ID.test(previousId)) {
+    errors.push("TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID must be a safe key id");
+  }
+  if (currentId && previousId && currentId === previousId) {
+    errors.push("teacher reset current and previous key ids must differ");
   }
   return errors;
 }

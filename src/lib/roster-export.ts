@@ -3,7 +3,7 @@ import { parseClassCode, parseStudentGrade } from "@/lib/roster-domain";
 
 export const EXPORT_ROW_CAP = 5_000;
 export const STUDENT_EXPORT_FIELDS = ["accountName", "legalName", "nickname", "grade", "classCode", "contactEmail", "status", "mustChangePassword", "createdAt"] as const;
-export const TEACHER_EXPORT_FIELDS = ["accountName", "legalName", "contactEmail", "status", "classAccess", "resetPasswordAccess", "createdAt"] as const;
+export const TEACHER_EXPORT_FIELDS = ["templateVersion", "accountName", "legalName", "contactEmail", "classAccess", "resetPasswordCapability", "status", "createdAt"] as const;
 
 export type ExportEntity = "STUDENT" | "TEACHER";
 export type ExportFormat = "CSV" | "XLSX";
@@ -71,13 +71,13 @@ export async function resolveExportRows(tx: Prisma.TransactionClient, request: E
   const users = await tx.user.findMany({
     where: { role: "TEACHER", ...(status ? { status } : {}), ...searchFilter(search, "TEACHER"), ...(grade || classCode ? { teacherProfile: { is: { classAccess: { some: { schoolClass: { academicYearId: year.id, ...(grade ? { grade } : {}), ...(classCode ? { classCode } : {}) } } } } } } : {}) },
     orderBy: [{ accountName: "asc" }, { id: "asc" }], take: EXPORT_ROW_CAP + 1,
-    select: { accountName: true, contactEmail: true, status: true, createdAt: true, teacherProfile: { select: { legalName: true, classAccess: { where: { schoolClass: { academicYearId: year.id } }, orderBy: [{ schoolClass: { grade: "asc" } }, { schoolClass: { classCode: "asc" } }], select: { canResetStudentPassword: true, schoolClass: { select: { grade: true, classCode: true } } } } } } },
+    select: { accountName: true, contactEmail: true, status: true, createdAt: true, teacherProfile: { select: { legalName: true, canResetStudentPassword: true, classAccess: { where: { schoolClass: { academicYearId: year.id }, canViewProgress: true }, orderBy: [{ schoolClass: { grade: "asc" } }, { schoolClass: { classCode: "asc" } }], select: { schoolClass: { select: { grade: true, classCode: true } } } } } } },
   });
   if (users.length > EXPORT_ROW_CAP) throw new Error("EXPORT_TOO_LARGE");
   return users.map((user) => {
     const access = user.teacherProfile?.classAccess ?? [];
     const filtered = grade || classCode ? access.filter((item) => (!grade || item.schoolClass.grade === grade) && (!classCode || item.schoolClass.classCode === classCode)) : access;
-    return { accountName: user.accountName, legalName: user.teacherProfile?.legalName ?? "", contactEmail: user.contactEmail ?? "", status: user.status, classAccess: filtered.map((item) => `${item.schoolClass.grade}:${item.schoolClass.classCode}`).join("|"), resetPasswordAccess: filtered.filter((item) => item.canResetStudentPassword).map((item) => `${item.schoolClass.grade}:${item.schoolClass.classCode}`).join("|"), createdAt: user.createdAt.toISOString() };
+    return { templateVersion: "teacher-roster-v2", accountName: user.accountName, legalName: user.teacherProfile?.legalName ?? "", contactEmail: user.contactEmail ?? "", status: user.status, classAccess: filtered.map((item) => `${item.schoolClass.grade}:${item.schoolClass.classCode}`).join("|"), resetPasswordCapability: user.teacherProfile?.canResetStudentPassword ? "TRUE" : "FALSE", createdAt: user.createdAt.toISOString() };
   });
 }
 

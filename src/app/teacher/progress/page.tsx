@@ -1,0 +1,59 @@
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import ErrorBanner from "@/components/ErrorBanner";
+import Icon from "@/components/ui/Icon";
+import TeacherFilters, { type TeacherClassOption } from "@/components/teacher/TeacherFilters";
+import { useLocale } from "@/components/LocaleProvider";
+import { responseErrorMessage } from "@/lib/api-error";
+import { rosterFetch } from "@/lib/roster-client";
+import { CLASS_LABELS, GRADE_LABELS } from "@/lib/roster-domain";
+import type { ClassCode, StudentGrade } from "@/generated/prisma";
+
+type Item = { id: string; accountName: string; legalName: string; nickname: string; grade: StudentGrade | null; classId: string | null; classCode: ClassCode | null; masteredWords: number; totalWords: number; masteryPercent: number | null; effectiveObjectiveProbeCount: number; effectiveReviewEventCount: number; lastActivityAt: string | null; dueReviewCount: number; byLevel: Array<{ level: string; mastered: number; total: number; progress: number }> };
+
+export default function TeacherProgressPage() {
+  const { tc } = useLocale();
+  const params = useSearchParams();
+  const [classes, setClasses] = useState<TeacherClassOption[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
+  const [grade, setGrade] = useState(() => params.get("grade") ?? "");
+  const [classId, setClassId] = useState(() => params.get("classId") ?? "");
+  const [search, setSearch] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (nextCursor: string | null = null, append = false) => {
+    if (append) setLoadingMore(true); else setLoading(true);
+    setError(null);
+    try {
+      const classResponse = await fetch("/api/teacher/classes");
+      if (!classResponse.ok) throw new Error(await responseErrorMessage(classResponse));
+      setClasses((await classResponse.json() as { items: TeacherClassOption[] }).items);
+      const response = await rosterFetch("/api/teacher/progress/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ grade: grade || undefined, classId: classId || undefined, search: search || undefined, cursor: nextCursor || undefined, limit: 50 }) });
+      if (!response.ok) throw new Error(await responseErrorMessage(response));
+      const payload = await response.json() as { items: Item[]; nextCursor: string | null };
+      setItems((current) => append ? [...current, ...payload.items] : payload.items); setCursor(payload.nextCursor);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : tc("讀取學生進度失敗")); }
+    finally { setLoading(false); setLoadingMore(false); }
+  }, [classId, grade, search, tc]);
+
+  useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 180); return () => window.clearTimeout(timer); }, [load]);
+
+  return (
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold text-[var(--primary)]">{tc("教師工作台")}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)]">{tc("學生進度")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc("以一致口徑查看學習進度、到期複習及最近活動。")}</p></div><Link href="/teacher/roster" className="ui-button ui-button-secondary ui-button-small"><Icon name="users" size={17} />{tc("學生名冊")}</Link></header>
+      <TeacherFilters classes={classes} grade={grade} classId={classId} search={search} onGradeChange={setGrade} onClassChange={setClassId} onSearchChange={setSearch} />
+      {error ? <ErrorBanner message={error} onRetry={() => void load()} /> : null}
+      {loading ? <div className="ui-card ui-card-padding text-sm text-[var(--muted)]">{tc("正在讀取進度…")}</div> : items.length === 0 ? <div className="ui-card ui-card-padding text-center text-sm text-[var(--muted)]">{tc("目前沒有可查看的學生")}</div> : <>
+        <div className="hidden overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] md:block"><table className="w-full text-left text-sm"><caption className="sr-only">{tc("學生進度")}</caption><thead className="border-b border-[var(--border)] text-xs text-[var(--muted)]"><tr><th className="px-4 py-3">{tc("學生")}</th><th className="px-4 py-3">{tc("年級／班別")}</th><th className="px-4 py-3">{tc("掌握")}</th><th className="px-4 py-3">{tc("客觀評測／有效評測")}</th><th className="px-4 py-3">{tc("到期複習")}</th><th className="px-4 py-3">{tc("最近學習")}</th><th className="px-4 py-3 text-right">{tc("詳情")}</th></tr></thead><tbody>{items.map((item) => <tr key={item.id} className="border-b border-[var(--border)] last:border-0"><td className="px-4 py-4"><p className="font-bold text-[var(--text)]">{item.nickname || item.legalName}</p><p className="text-xs text-[var(--muted)]">{item.accountName} · {item.legalName}</p></td><td className="px-4 py-4 text-[var(--muted)]">{item.grade ? `${tc(GRADE_LABELS[item.grade])} · ${item.classCode ? tc(CLASS_LABELS[item.classCode]) : tc("未分班")}` : tc("未分配")}</td><td className="px-4 py-4"><strong className="text-[var(--primary)]">{item.masteryPercent === null ? "—" : `${item.masteryPercent}%`}</strong><span className="ml-2 text-xs text-[var(--muted)]">{item.masteredWords}/{item.totalWords}</span></td><td className="px-4 py-4 text-[var(--muted)]">{item.effectiveObjectiveProbeCount} / {item.effectiveReviewEventCount}</td><td className="px-4 py-4 text-[var(--muted)]">{item.dueReviewCount}</td><td className="px-4 py-4 text-[var(--muted)]">{item.lastActivityAt ? new Date(item.lastActivityAt).toLocaleDateString() : "—"}</td><td className="px-4 py-4 text-right"><Link href={`/teacher/students/${item.id}?from=progress`} className="ui-button ui-button-secondary ui-button-small">{tc("查看")}</Link></td></tr>)}</tbody></table></div>
+        <div className="grid gap-3 md:hidden">{items.map((item) => <article key={item.id} className="ui-card ui-card-padding"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-[var(--text)]">{item.nickname || item.legalName}</p><p className="mt-1 text-xs text-[var(--muted)]">{item.accountName} · {item.grade ? `${tc(GRADE_LABELS[item.grade])} · ${item.classCode ? tc(CLASS_LABELS[item.classCode]) : tc("未分班")}` : tc("未分配")}</p></div><strong className="text-xl text-[var(--primary)]">{item.masteryPercent === null ? "—" : `${item.masteryPercent}%`}</strong></div><div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[var(--muted)]"><span>{tc("掌握")} {item.masteredWords}/{item.totalWords}</span><span>{tc("到期")} {item.dueReviewCount}</span><span className="col-span-2">{tc("最近學習")} {item.lastActivityAt ? new Date(item.lastActivityAt).toLocaleDateString() : "—"}</span></div><Link href={`/teacher/students/${item.id}?from=progress`} className="ui-button ui-button-secondary ui-button-small mt-4 w-full">{tc("查看學生詳情")}</Link></article>)}</div>
+        {cursor ? <div className="flex justify-center"><button type="button" className="ui-button ui-button-secondary" disabled={loadingMore} onClick={() => void load(cursor, true)}>{loadingMore ? tc("正在讀取…") : tc("載入更多")}</button></div> : null}
+      </>}
+    </div>
+  );
+}

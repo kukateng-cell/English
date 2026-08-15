@@ -7,12 +7,11 @@ export type TeacherStudentCapability =
   | "RESET_STUDENT_PASSWORD";
 
 function capabilityWhere(capability?: TeacherStudentCapability) {
-  return capability === "RESET_STUDENT_PASSWORD"
-    ? {
-        canViewProgress: true,
-        canResetStudentPassword: true,
-      }
-    : { canViewProgress: true };
+  // Reset is an account-level teacher capability. The class row remains the
+  // view boundary; the actor profile is checked separately because this
+  // predicate is applied to the target student's User row.
+  void capability;
+  return { canViewProgress: true };
 }
 
 /** One object-level scope shared by every teacher student read route. */
@@ -26,7 +25,18 @@ export function authorizedStudentWhere(input: {
     role: ROLES.STUDENT,
     ...(input.includeSuspended ? {} : { status: "ACTIVE" }),
   };
-  if (input.role === ROLES.ADMIN) return base;
+  if (input.role === ROLES.ADMIN) {
+    return {
+      ...base,
+      studentProfile: {
+        is: {
+          enrollments: {
+            some: { status: "ACTIVE", academicYear: { status: "CURRENT" } },
+          },
+        },
+      },
+    };
+  }
 
   return {
     ...base,
@@ -65,6 +75,9 @@ export async function teacherCanAccessStudent(
     includeSuspended?: boolean;
   },
 ): Promise<boolean> {
+  if (input.capability === "RESET_STUDENT_PASSWORD" && !(await teacherActorCanResetStudentPassword(tx, input.teacherId))) {
+    return false;
+  }
   const student = await tx.user.findFirst({
     where: {
       id: input.studentId,
@@ -85,5 +98,21 @@ export async function teacherActorIsActive(
   teacherId: string,
 ): Promise<boolean> {
   const actor = await tx.user.findFirst({ where: { id: teacherId, role: ROLES.TEACHER, status: "ACTIVE", teacherProfile: { isNot: null } }, select: { id: true } });
+  return Boolean(actor);
+}
+
+export async function teacherActorCanResetStudentPassword(
+  tx: Prisma.TransactionClient | typeof prisma,
+  teacherId: string,
+): Promise<boolean> {
+  const actor = await tx.user.findFirst({
+    where: {
+      id: teacherId,
+      role: ROLES.TEACHER,
+      status: "ACTIVE",
+      teacherProfile: { is: { canResetStudentPassword: true } },
+    },
+    select: { id: true },
+  });
   return Boolean(actor);
 }
