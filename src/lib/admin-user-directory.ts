@@ -75,7 +75,9 @@ export function encodeAdminDirectoryCursor(payload: Omit<CursorPayload, "v">) {
 
 export function decodeAdminDirectoryCursor(value: string): CursorPayload | null {
   if (!value || Buffer.byteLength(value, "utf8") > 2048) return null;
-  const [body, supplied] = value.split(".");
+  const parts = value.split(".");
+  if (parts.length !== 2) return null;
+  const [body, supplied] = parts;
   if (!body || !supplied) return null;
   const expected = signature(body);
   const left = Buffer.from(supplied, "utf8");

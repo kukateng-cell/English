@@ -37,6 +37,7 @@
     "seed": "npx tsx prisma/seed.ts",
     "seed:demo-analytics": "node --import tsx scripts/seed-demo-analytics.ts",
     "check:demo-analytics-fixture": "node --import tsx scripts/check-demo-analytics-fixture.ts",
+    "test:learning-analytics:scale": "node --import tsx scripts/check-learning-analytics-scale.ts",
     "db:deploy": "node scripts/migrate-deploy.mjs",
     "db:deploy:local": "node scripts/migrate-local-expand.mjs",
     "db:reset:roster": "node scripts/reset-local-roster.mjs",

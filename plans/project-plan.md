@@ -97,6 +97,11 @@
 | 12 | **PWA** | ⏳ 未实现 | 尚无 web app manifest、service worker 或安装流程 |
 | 13 | **班級與名冊管理** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲兩個相同全範圍 reviewer PASS；47 個 normal forward migrations、guarded reset／reseed、roster/auth/invariant suites、fresh 4-test disposable admin workflow（含 explicit rollover dispositions）、teacher canonical workspace／global reset、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy仍 deferred |
 
+管理員用戶頁的 `PATCH /api/admin/users/[id]` 現在只接受明確的
+`UPDATE_IDENTITY` 或 `CHANGE_STATUS` command：身份欄位使用 detail-query 的 User／Profile revision、近期重新驗證及
+canonical identity validation；停權／恢復一律委派名冊 lifecycle service。密碼不再由 generic PATCH 處理，管理員／教師必須使用
+各自 audience-bound 的 prepare→commit reset route；所有 callers 及測試均按此 contract，避免重複 status／credential writer。
+
 ### 3.1 Learning Card 揭示后的内容
 
 - **音标 + TTS 发音**（浏览器内置 SpeechSynthesis，零成本）

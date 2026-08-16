@@ -11,6 +11,8 @@ const BODY_LIMIT = 16 * 1024;
 const MAX_DAYS = 180;
 const TIMEZONE = "Asia/Shanghai";
 const CURSOR_VERSION = 1;
+const LOCAL_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+const LOCAL_DATE_CACHE = new Map<number, string>();
 
 export type AnalyticsQuery = {
   fromDate: string;
@@ -100,7 +102,15 @@ function validDate(value: unknown): value is string { return typeof value === "s
 function dateDistance(from: string, to: string) { const [fy, fm, fd] = from.split("-").map(Number); const [ty, tm, td] = to.split("-").map(Number); return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000); }
 function atShanghaiStart(key: string) { return new Date(`${key}T00:00:00+08:00`); }
 function atShanghaiEnd(key: string) { return new Date(`${offsetDay(key, 1)}T00:00:00+08:00`); }
-function localDate(value: Date) { return todayKey(value); }
+function localDate(value: Date) {
+  const cached = LOCAL_DATE_CACHE.get(value.getTime());
+  if (cached) return cached;
+  const parts = LOCAL_DATE_FORMATTER.formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  const result = `${get("year")}-${get("month")}-${get("day")}`;
+  LOCAL_DATE_CACHE.set(value.getTime(), result);
+  return result;
+}
 function daysBetween(from: string, to: string) { const rows: string[] = []; for (let cursor = from; cursor <= to; cursor = offsetDay(cursor, 1)) rows.push(cursor); return rows; }
 function median(values: number[]) { if (!values.length) return null; const sorted = [...values].sort((a, b) => a - b); const mid = Math.floor(sorted.length / 2); return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2; }
 function mean(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null; }
@@ -189,10 +199,20 @@ type LoadedActivity = {
   studyDays: Array<{ userId: string; date: string; createdAt: Date }>;
   reviews: Array<{ userId: string; interval: number; nextReviewDate: Date }>;
   wordCount: number;
+  reviewEventsByUser: Map<string, LoadedActivity["reviewEvents"]>;
+  encountersByUser: Map<string, LoadedActivity["encounters"]>;
+  studyDaysByUser: Map<string, LoadedActivity["studyDays"]>;
+  reviewsByUser: Map<string, LoadedActivity["reviews"]>;
 };
 
+function indexByUser<T extends { userId: string }>(rows: T[]): Map<string, T[]> {
+  const result = new Map<string, T[]>();
+  for (const row of rows) (result.get(row.userId) ?? (result.set(row.userId, []), result.get(row.userId)!)).push(row);
+  return result;
+}
+
 async function loadActivity(db: Db, memberIds: string[], range: EffectiveRange, asOf: Date): Promise<LoadedActivity> {
-  if (!memberIds.length) return { reviewEvents: [], encounters: [], studyDays: [], reviews: [], wordCount: await db.word.count() };
+  if (!memberIds.length) return { reviewEvents: [], encounters: [], studyDays: [], reviews: [], wordCount: await db.word.count(), reviewEventsByUser: new Map(), encountersByUser: new Map(), studyDaysByUser: new Map(), reviewsByUser: new Map() };
   const from = atShanghaiStart(range.from); const to = atShanghaiEnd(range.to);
   const [reviewEvents, encounters, studyDays, reviews, wordCount] = await Promise.all([
     db.reviewEvent.findMany({ where: { userId: { in: memberIds }, eventKind: "REVIEW", createdAt: { gte: from, lte: asOf } }, select: { id: true, operationId: true, userId: true, submittedWordId: true, quality: true, createdAt: true, isHistorical: true, evidenceKind: true, flowVersion: true, qualityPolicyVersion: true, probePurpose: true, objectiveEvidenceTargetId: true, objectiveQuestionSnapshotId: true, objectiveEvidenceTarget: { select: { status: true, winningOperationId: true, winningReviewEventId: true, purpose: true, obligation: { select: { status: true } }, questionSnapshot: { select: { id: true } } } } } }),
@@ -201,7 +221,7 @@ async function loadActivity(db: Db, memberIds: string[], range: EffectiveRange, 
     db.review.findMany({ where: { userId: { in: memberIds } }, select: { userId: true, interval: true, nextReviewDate: true } }),
     db.word.count(),
   ]);
-  return { reviewEvents, encounters, studyDays, reviews, wordCount };
+  return { reviewEvents, encounters, studyDays, reviews, wordCount, reviewEventsByUser: indexByUser(reviewEvents), encountersByUser: indexByUser(encounters), studyDaysByUser: indexByUser(studyDays), reviewsByUser: indexByUser(reviews) };
 }
 
 function objectiveFor(memberIds: string[], events: LoadedActivity["reviewEvents"], dateFrom?: string, dateTo?: string) {
@@ -233,26 +253,26 @@ function objectiveFor(memberIds: string[], events: LoadedActivity["reviewEvents"
 function metricFor(members: Member[], activity: LoadedActivity, range: EffectiveRange, dateFrom?: string, dateTo?: string, asOf = new Date()): Metric {
   const from = dateFrom ?? range.from; const to = dateTo ?? range.to;
   const eligible = members.filter((member) => { const start = member.startedAt ? localDate(member.startedAt) : range.from; const exposureStart = start > from ? start : from; return exposureStart <= to; });
-  const eligibleIds = new Set(eligible.map((member) => member.id));
-  const memberById = new Map(members.map((member) => [member.id, member]));
-  const exposedOn = (userId: string, date: string) => {
-    const member = memberById.get(userId);
-    const start = member?.startedAt ? localDate(member.startedAt) : from;
-    return date >= from && date <= to && date >= start;
-  };
-  const daysByUser = new Map<string, Set<string>>();
-  for (const row of activity.studyDays) if (eligibleIds.has(row.userId) && exposedOn(row.userId, row.date)) (daysByUser.get(row.userId) ?? (daysByUser.set(row.userId, new Set()), daysByUser.get(row.userId)!)).add(row.date);
   const active = new Set<string>();
-  for (const row of activity.studyDays) if (eligibleIds.has(row.userId) && exposedOn(row.userId, row.date)) active.add(row.userId);
-  for (const row of activity.encounters) if (eligibleIds.has(row.userId) && exposedOn(row.userId, localDate(row.acknowledgedAt))) active.add(row.userId);
-  for (const row of activity.reviewEvents) if (eligibleIds.has(row.userId) && exposedOn(row.userId, localDate(row.createdAt)) && !row.isHistorical) active.add(row.userId);
-  const encounters = activity.encounters.filter((row) => eligibleIds.has(row.userId) && exposedOn(row.userId, localDate(row.acknowledgedAt)));
-  const reviews = activity.reviewEvents.filter((row) => eligibleIds.has(row.userId) && exposedOn(row.userId, localDate(row.createdAt)) && !row.isHistorical);
+  const studies: number[] = [];
+  const encounterCounts: number[] = [];
+  const encounters: LoadedActivity["encounters"] = [];
+  const reviews: LoadedActivity["reviewEvents"] = [];
+  const stock = new Map<string, { mastered: number; due: number }>();
+  for (const member of members) {
+    const exposureStart = member.startedAt ? localDate(member.startedAt) : from;
+    const isExposed = (date: string) => date >= from && date <= to && date >= exposureStart;
+    const days = new Set<string>();
+    for (const row of activity.studyDaysByUser.get(member.id) ?? []) if (isExposed(row.date) && row.createdAt <= asOf) days.add(row.date);
+    const memberEncounters = (activity.encountersByUser.get(member.id) ?? []).filter((row) => isExposed(localDate(row.acknowledgedAt)) && row.acknowledgedAt <= asOf);
+    const memberReviews = (activity.reviewEventsByUser.get(member.id) ?? []).filter((row) => !row.isHistorical && isExposed(localDate(row.createdAt)) && row.createdAt <= asOf);
+    if (days.size || memberEncounters.length || memberReviews.length) active.add(member.id);
+    studies.push(days.size); encounterCounts.push(memberEncounters.length); encounters.push(...memberEncounters); reviews.push(...memberReviews);
+    const memberStock = activity.reviewsByUser.get(member.id) ?? [];
+    stock.set(member.id, { mastered: memberStock.filter((row) => row.interval >= MASTERED_MIN_INTERVAL).length, due: memberStock.filter((row) => row.nextReviewDate <= asOf).length });
+  }
+  const eligibleIds = new Set(eligible.map((member) => member.id));
   const objective = objectiveFor([...eligibleIds], reviews, from, to).metric;
-  const studies = eligible.map((member) => daysByUser.get(member.id)?.size ?? 0);
-  const encounterCounts = eligible.map((member) => encounters.filter((row) => row.userId === member.id).length);
-  const stock = new Map<string, { mastered: number; due: number }>(); for (const member of members) stock.set(member.id, { mastered: 0, due: 0 });
-  for (const review of activity.reviews) { const item = stock.get(review.userId); if (!item) continue; if (review.interval >= MASTERED_MIN_INTERVAL) item.mastered += 1; if (review.nextReviewDate <= asOf) item.due += 1; }
   const mastery = members.map((member) => (activity.wordCount ? (stock.get(member.id)?.mastered ?? 0) / activity.wordCount * 100 : 0));
   const dueStudentCount = members.filter((member) => (stock.get(member.id)?.due ?? 0) > 0).length;
   return { currentMemberCount: members.length, eligibleMemberCount: eligible.length, activeStudentCount: active.size, activeRate: eligible.length ? round(active.size / eligible.length * 100) : null, studyDays: studies.reduce((sum, value) => sum + value, 0), medianStudyDays: median(studies), learningEncounterCount: encounters.length, medianLearningEncounters: median(encounterCounts), effectiveReviewCount: reviews.length, reviewsPerEligibleMember: eligible.length ? round(reviews.length / eligible.length) : null, objective, mastery: { meanPercent: round(mean(mastery)), medianPercent: round(median(mastery)) }, due: { studentCount: dueStudentCount, rate: members.length ? round(dueStudentCount / members.length * 100) : null } };
@@ -263,14 +283,16 @@ function memberMetric(members: Member[], activity: LoadedActivity, range: Effect
   const exposureStart = member.startedAt ? localDate(member.startedAt) : range.from;
   const inRangeReview = (row: LoadedActivity["reviewEvents"][number]) => row.userId === member.id && !row.isHistorical && localDate(row.createdAt) >= range.from && localDate(row.createdAt) <= range.to && localDate(row.createdAt) >= exposureStart && row.createdAt <= asOf;
   const inRangeEncounter = (row: LoadedActivity["encounters"][number]) => row.userId === member.id && localDate(row.acknowledgedAt) >= range.from && localDate(row.acknowledgedAt) <= range.to && localDate(row.acknowledgedAt) >= exposureStart && row.acknowledgedAt <= asOf;
-  const reviewWords = new Set(activity.reviewEvents.filter(inRangeReview).map((row) => row.submittedWordId));
-  const encounterWords = new Set(activity.encounters.filter((row) => inRangeEncounter(row) && row.wordId).map((row) => row.wordId!));
-  const lastReview = activity.reviewEvents.filter(inRangeReview).map((row) => row.createdAt.getTime());
-  const lastEncounter = activity.encounters.filter(inRangeEncounter).map((row) => row.acknowledgedAt.getTime());
-  const stock = activity.reviews.filter((row) => row.userId === member.id); const mastered = stock.filter((row) => row.interval >= MASTERED_MIN_INTERVAL).length; const due = stock.filter((row) => row.nextReviewDate <= asOf).length;
+  const userReviews = activity.reviewEventsByUser.get(member.id) ?? [];
+  const userEncounters = activity.encountersByUser.get(member.id) ?? [];
+  const reviewWords = new Set(userReviews.filter(inRangeReview).map((row) => row.submittedWordId));
+  const encounterWords = new Set(userEncounters.filter((row) => inRangeEncounter(row) && row.wordId).map((row) => row.wordId!));
+  const lastReview = userReviews.filter(inRangeReview).map((row) => row.createdAt.getTime());
+  const lastEncounter = userEncounters.filter(inRangeEncounter).map((row) => row.acknowledgedAt.getTime());
+  const stock = activity.reviewsByUser.get(member.id) ?? []; const mastered = stock.filter((row) => row.interval >= MASTERED_MIN_INTERVAL).length; const due = stock.filter((row) => row.nextReviewDate <= asOf).length;
   const start = member.startedAt ? localDate(member.startedAt) : range.from; const exposureFrom = start > range.from ? start : range.from; const eligibleDayCount = exposureFrom <= range.to ? dateDistance(exposureFrom, range.to) + 1 : 0;
-  const activeDayCount = new Set(activity.studyDays.filter((row) => row.userId === member.id && row.date >= range.from && row.date <= range.to && row.createdAt <= asOf).map((row) => row.date)).size;
-  const unknownEncounterWordCount = activity.encounters.filter((row) => inRangeEncounter(row) && !row.wordId).length;
+  const activeDayCount = new Set((activity.studyDaysByUser.get(member.id) ?? []).filter((row) => row.date >= range.from && row.date <= range.to && row.createdAt <= asOf).map((row) => row.date)).size;
+  const unknownEncounterWordCount = userEncounters.filter((row) => inRangeEncounter(row) && !row.wordId).length;
   return { id: member.id, accountName: member.accountName, legalName: member.legalName, nickname: member.nickname, grade: member.grade, classId: member.classId, classCode: member.classCode, exposureStart: exposureFrom, eligibleDayCount, activeDayCount, learningEncounterCount: metric.learningEncounterCount, effectiveReviewCount: metric.effectiveReviewCount, evaluatedDistinctWordCount: reviewWords.size, encounteredDistinctWordCount: encounterWords.size, unknownEncounterWordCount, objective: metric.objective, currentMastery: { masteredWordCount: mastered, wordCount: activity.wordCount, percent: activity.wordCount ? round(mastered / activity.wordCount * 100) : null }, dueReviewCount: due, lastStudyAt: [...lastReview, ...lastEncounter].length ? new Date(Math.max(...lastReview, ...lastEncounter)).toISOString() : null };
 }
 
@@ -330,7 +352,10 @@ export async function queryLearningAnalyticsClasses(input: { userId: string; rol
     const items = selected.map((schoolClass) => { const members = allMembers.filter((member) => member.classId === schoolClass.id); return { classId: schoolClass.id, grade: schoolClass.grade, classCode: schoolClass.classCode, ...metricFor(members, activity, range, undefined, undefined, asOf) }; });
     const unassignedMembers = input.role === "ADMIN" ? allMembers.filter((member) => member.classId === null) : [];
     const unassignedSummary = input.role === "ADMIN" && unassignedMembers.length ? metricFor(unassignedMembers, activity, range, undefined, undefined, asOf) : null;
-    const timeline = comparison ? daysBetween(range.from, range.to).map((date) => ({ date, classes: selected.map((schoolClass) => { const members = allMembers.filter((member) => member.classId === schoolClass.id); const metric = metricFor(members, activity, range, date, date, asOf); return { classId: schoolClass.id, ...metric }; }) })) : [];
+    // Timeline is a comparison chart, not a second copy of the full summary
+    // DTO. Keep only the three chart dimensions used by the UI so a 6-class ×
+    // 180-day response stays within the documented response budget.
+    const timeline = comparison ? daysBetween(range.from, range.to).map((date) => ({ date, classes: selected.map((schoolClass) => { const members = allMembers.filter((member) => member.classId === schoolClass.id); const metric = metricFor(members, activity, range, date, date, asOf); return { classId: schoolClass.id, activeRate: metric.activeRate, objective: { accuracyPercent: metric.objective.accuracyPercent }, mastery: { meanPercent: metric.mastery.meanPercent } }; }) })) : [];
     return { ...baseEnvelope(input.role === "ADMIN" ? "ADMIN" : "TEACHER", year, range, asOf, scopeRevision), items, unassignedSummary, timeline };
   });
   return result.value;

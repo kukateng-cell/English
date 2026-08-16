@@ -362,7 +362,7 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
 
     const rosterResponse = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(source!.id)}&role=STUDENT&search=${encodeURIComponent(accountName)}`);
     expect(rosterResponse.ok()).toBeTruthy();
-    const roster = await rosterResponse.json() as { items?: Array<{ id: string; accountName: string }> };
+    const roster = await rosterResponse.json() as { items?: Array<{ id: string; accountName: string; revision: number }> };
     const importedStudent = roster.items?.find((item) => item.accountName === accountName);
     expect(importedStudent).toBeTruthy();
     createdUsers.push({ id: importedStudent!.id, accountName });
@@ -425,8 +425,9 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
       localStorage.setItem(`study:checkpoint:${encoded}:global`, "{}");
       localStorage.setItem(`study:review-queue:${encoded}`, "{}");
     }, importedStudent!.id);
-    const suspendStudentResponse = await page.request.patch(`/api/admin/users/${importedStudent!.id}`, { headers, data: { status: "SUSPENDED" } });
+    const suspendStudentResponse = await page.request.patch(`/api/admin/users/${importedStudent!.id}`, { headers, data: { operation: "CHANGE_STATUS", status: "SUSPENDED", expectedUserRevision: importedStudent!.revision } });
     expect(suspendStudentResponse.ok()).toBeTruthy();
+    const suspendedStudent = await suspendStudentResponse.json() as { revision: number };
     await studentPage.reload();
     await expect.poll(() => studentPage.url()).toMatch(/\/login/u);
     await expect.poll(
@@ -437,7 +438,7 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     expect([401, 403, 503].includes(suspendedProfileResponse.status())).toBeTruthy();
     const suspendedV2StreamResponse = await studentPage.request.get("/api/study/stream");
     expect([401, 403, 503].includes(suspendedV2StreamResponse.status())).toBeTruthy();
-    const restoreStudentResponse = await page.request.patch(`/api/admin/users/${importedStudent!.id}`, { headers, data: { status: "ACTIVE" } });
+    const restoreStudentResponse = await page.request.patch(`/api/admin/users/${importedStudent!.id}`, { headers, data: { operation: "CHANGE_STATUS", status: "ACTIVE", expectedUserRevision: suspendedStudent.revision } });
     expect(restoreStudentResponse.ok()).toBeTruthy();
     await studentContext.clearCookies();
     await studentPage.goto("/login");
@@ -625,7 +626,12 @@ test("admin roster persists explicit rollover dispositions and activates incomin
   expect(source).toBeTruthy();
   const sourceLabel = source!.label.match(/^(\d{4})-(\d{4})$/u);
   expect(sourceLabel).toBeTruthy();
-  const targetLabel = `${Number(sourceLabel![2])}-${Number(sourceLabel![2]) + 1}`;
+  const existingLabels = new Set(years.map((year) => year.label));
+  let targetLabel = `${Number(sourceLabel![2])}-${Number(sourceLabel![2]) + 1}`;
+  while (existingLabels.has(targetLabel)) {
+    const nextStart = Number(targetLabel.slice(0, 4)) + 1;
+    targetLabel = `${nextStart}-${nextStart + 1}`;
+  }
   const targetResponse = await page.request.post("/api/admin/academic-years", { headers, data: { label: targetLabel } });
   expect(targetResponse.status(), await targetResponse.text()).toBe(201);
   const target = await targetResponse.json() as { id: string; status: string };
@@ -694,19 +700,25 @@ test("admin roster persists explicit rollover dispositions and activates incomin
     if (academicYearId) query.set("academicYearId", academicYearId);
     const response = await page.request.get(`/api/admin/users?${query.toString()}`);
     expect(response.ok(), await response.text()).toBeTruthy();
-    const payload = await response.json() as { items?: Array<{ id: string; accountName: string }> };
+    const payload = await response.json() as { items?: Array<{ id: string; accountName: string; revision: number }> };
     const student = payload.items?.find((item) => item.accountName === accountName);
     expect(student, `student ${accountName} should exist`).toBeTruthy();
-    return student!.id;
+    return student!;
   }
 
-  const repeatId = await findStudentId(variantAccounts.repeat, source!.id);
-  const holdId = await findStudentId(variantAccounts.hold, source!.id);
-  const graduateId = await findStudentId(variantAccounts.graduate, source!.id);
-  const leaveId = await findStudentId(variantAccounts.leave, source!.id);
-  const suspendedId = await findStudentId(variantAccounts.suspended, source!.id);
-  const incomingId = await findStudentId(variantAccounts.incoming, target.id);
-  const suspendResponse = await page.request.patch(`/api/admin/users/${suspendedId}`, { headers, data: { status: "SUSPENDED" } });
+  const repeatStudent = await findStudentId(variantAccounts.repeat, source!.id);
+  const holdStudent = await findStudentId(variantAccounts.hold, source!.id);
+  const graduateStudent = await findStudentId(variantAccounts.graduate, source!.id);
+  const leaveStudent = await findStudentId(variantAccounts.leave, source!.id);
+  const suspendedStudent = await findStudentId(variantAccounts.suspended, source!.id);
+  const incomingStudent = await findStudentId(variantAccounts.incoming, target.id);
+  const repeatId = repeatStudent.id;
+  const holdId = holdStudent.id;
+  const graduateId = graduateStudent.id;
+  const leaveId = leaveStudent.id;
+  const suspendedId = suspendedStudent.id;
+  const incomingId = incomingStudent.id;
+  const suspendResponse = await page.request.patch(`/api/admin/users/${suspendedId}`, { headers, data: { operation: "CHANGE_STATUS", status: "SUSPENDED", expectedUserRevision: suspendedStudent.revision } });
   expect(suspendResponse.ok(), await suspendResponse.text()).toBeTruthy();
 
   const promotionGrades = ["JUNIOR_1", "JUNIOR_2", "JUNIOR_3", "SENIOR_1", "SENIOR_2", "SENIOR_3"] as const;
@@ -761,8 +773,8 @@ test("admin roster persists explicit rollover dispositions and activates incomin
   expect(await readRoster(variantAccounts.leave)).toBeNull();
 
   for (const accountName of Object.values(variantAccounts)) {
-    const userId = await findStudentId(accountName);
-    const deleteResponse = await page.request.delete(`/api/admin/users/${userId}`, { headers, data: { confirmation: accountName } });
+    const user = await findStudentId(accountName);
+    const deleteResponse = await page.request.delete(`/api/admin/users/${user.id}`, { headers, data: { confirmation: accountName } });
     expect(deleteResponse.ok(), `${accountName}: ${await deleteResponse.text()}`).toBeTruthy();
   }
 });

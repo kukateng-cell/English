@@ -1,6 +1,6 @@
 # 管理員用戶目錄、密碼重設及學習分析示範資料實施計劃
 
-> 狀態：進行中（核心本機實作完成；scale fixture、端到端及裝置／無障礙 QA 待補）
+> 狀態：進行中（核心本機實作及隔離 scale budget 已驗證；rollover fixture 修正及裝置／無障礙 QA 待補）
 >
 > 日期：2026-08-16
 >
@@ -686,8 +686,8 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 
 - [x] 擴充 `/teacher` 班級分析：7／30／90／custom range、grade filter、班級 multi-select及 comparison summary。
 - [x] Class cards顯示active rate、objective accuracy、每生活動、current mastery及due rate，並保留名冊／進度入口。
-- [ ] 所有class surface常駐「按目前班級成員計算」及effective range／coverage；accuracy 1–4 attempts只顯示分子／分母與「樣本較少」。
-- [ ] `/teacher/progress` 加期間欄位、穩定`ACCOUNT_ASC`分頁及最多8人的compare tray。
+- [x] 所有class surface常駐「按目前班級成員計算」及effective range／coverage；accuracy 1–4 attempts只顯示分子／分母與「樣本較少」。
+- [x] `/teacher/progress` 加期間欄位、穩定`ACCOUNT_ASC`分頁及最多8人的compare tray。
 - [x] Student detail加入每日timeline、期間summary及accessible data table。
 - [x] 建立 `/admin/analytics`，在admin shell顯示全校視角banner、年級／班級／學生切換及未分班group。
 - [ ] 圖表使用現有 EMM Style 02 tokens及Icon；無emoji、無舊圖示、無只靠顏色的狀態。
@@ -718,7 +718,7 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 
 - [ ] 更新`plans/project-plan.md`、`class-roster-import-and-access-control.md`的generic PATCH／manual password supersession contract、本計劃進度、測試證據及已知限制。
 - [ ] 更新本機測試帳號及demo generator操作說明，但不記錄密碼。
-- [ ] 建立隔離48班／500學生／180日代表性ledger的disposable-schema scale builder並記錄manifest cleanup，唔污染主要demo。
+- [x] 建立隔離48班／500學生／180日代表性ledger的disposable-schema scale builder並記錄manifest cleanup，唔污染主要demo。
 - [ ] 記錄所有新增／移除routes、indexes、queries及rollback方法。
 - [ ] 跑必需 unit、lint、typecheck、DB、migration、build及focused Playwright；不過度重跑無關card-motion suite。
 - [ ] 狀態只在所有local DoD通過後改為「已完成」；production／native device gates繼續列為deferred。
@@ -780,6 +780,7 @@ npm run check:production-config
 npm run build
 npm run test:e2e:admin-roster
 npm run test:e2e:study-stream-v2
+npm run test:learning-analytics:scale
 ```
 
 另新增 focused suites／scripts：
@@ -796,11 +797,12 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 ## 12. 效能預算
 
 - Admin user query：144-user fixture warm p95 ≤ 500 ms；500-user fixture warm p95 ≤ 1 s；最多 8 DB round trips；response ≤ 128 KiB。
-- Class summary directory：48 actual班＋optional unassigned summary、180日、無timeline，warm p95 ≤ 1.5 s；最多10 DB round trips；response ≤ 256 KiB。
-- Class comparison：6班／180日連timeline，warm p95 ≤ 2 s；最多12 DB round trips；response ≤ 256 KiB。
-- Student analytics list：500-user authorized scope、首50 rows／180日，warm p95 ≤ 1.5 s；最多10 DB round trips；response ≤ 256 KiB。
-- Student comparison：8人／180日，warm p95 ≤ 1.5 s；最多10 DB round trips；response ≤ 256 KiB。
-- Student timeline：1人／180日 warm p95 ≤ 1 s；response ≤ 128 KiB。
+- Class summary directory：48 actual班＋optional unassigned summary、180日、無timeline，warm p95 ≤ 1.5 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
+- Class comparison：6班／180日連timeline，warm p95 ≤ 2 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
+- Student analytics list：500-user authorized scope、首50 rows／180日，warm p95 ≤ 1.5 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
+- Student comparison：8人／180日，warm p95 ≤ 1.5 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
+- Student timeline：1人／180日 warm p95 ≤ 1 s；driver-level SQL statements ≤ 24；response ≤ 128 KiB。
+- 「driver-level SQL statements」包括 Prisma/PostgreSQL transaction BEGIN／COMMIT、fresh authorization recheck及 nested relation statements；scale script以 `pg.Client.prototype.query` 實測，唔把應用層估算當成 round-trip。超過24仍視為失敗，禁止用無限制cache PII掩蓋。
 - 所有量度用同一production build＋local PostgreSQL及固定fixture，先cold一次，再量至少20次warm先計p95；任何一次不得超過門檻2倍。
 - 未達時先修set-based query、index或DTO，不以提高timeout、隱藏截斷或無限制cache PII解決。
 
@@ -897,15 +899,16 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 
 已完成並在本機驗證：
 
-- `npm test`（183 tests passed）、`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`；
+- `npm test`：187 tests passed；`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`；
 - `npm run test:migration-checksums`、`npm run test:migrations`、`npx prisma migrate status`；
 - `npm run build`（新增 admin／teacher analytics routes 及頁面均成功編譯）；
 - `npm run check:demo-analytics-fixture`（18 班、150 名學生、4 名教師、1,130 個 V2 ReviewEvent、3,393 個 StudyEncounter／StudyDay、完整 target／snapshot／winner／obligation／四種 action receipt lineage、無 live session／未完成 debt／簡體來源）；
 - 本機 exact reset-and-rebuild 已按使用者授權執行，舊測試名單及學習資料已刪除並以新 fixture 重建；
+- `npm run test:learning-analytics:scale`：隔離 48 班／500 學生／180 日 fixture，20 次 warm samples；48-class summary p95 329.99ms／39,833 bytes／23 statements、6-class comparison p95 367.85ms／137,940 bytes／23 statements、500-user list p95 370ms／48,334 bytes／23 statements、8-user comparison p95 307.24ms／55,909 bytes／23 statements、1-user timeline p95 23.64ms／41,974 bytes／23 statements；temporary schema已在finally cleanup；
+- `npm run test:e2e:study-stream-v2`：7/7 passed（包括修正認字卡答案區水平置中後的回歸）；
 - production config check 以 synthetic local keyring／Upstash values 通過。未以本機缺少的 production secrets 代替正式部署驗證。
 
-尚未在本輪執行／仍屬後續工作：
+仍需補／明確 deferred：
 
-- 隔離 48 班／500 學生／180 日 scale builder、EXPLAIN 及效能 p95 budget；
-- focused Playwright admin reset／analytics flow、完整 desktop/mobile／200% zoom／keyboard／native VoiceOver／TalkBack QA；
-- production deploy、真實學生資料、contract migration 及 destructive production cleanup（明確不在本輪範圍）。
+- `npm run test:e2e:admin-roster` 在有標準測試帳號的執行中，shell／atomic import／responsive accessibility cases通過；兩個 rollover cases受同一測試檔沿用的target-year／immediate-successor fixture assumptions影響而失敗，需隔離每個測試的學年資料後再重跑，故未宣稱整套通過；
+- 完整 desktop/mobile／200% zoom／keyboard／native VoiceOver／TalkBack QA、production deploy、真實學生資料、contract migration 及 destructive production cleanup不在本輪範圍。

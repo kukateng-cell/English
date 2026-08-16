@@ -955,6 +955,14 @@ PATCH      /api/admin/classes/[id]
 GET/POST   /api/admin/users
 PATCH/DELETE /api/admin/users/[id]
 
+`PATCH /api/admin/users/[id]` 只係一個 adapter，唔再接受模糊的 generic body：`operation=UPDATE_IDENTITY`
+只處理已核准的 legalName／contactEmail／student nickname，使用 detail query 回傳的 User／Profile revisions、
+recent-auth、body cap、strict fields、identity normalization／unique lock及CAS；`operation=CHANGE_STATUS`只委派
+canonical roster lifecycle service，保留停權、CURRENT／PRE_ENROLLED restore、session revoke、self／last-admin guard
+及audit。任何 `password`／`passwordHash` 欄位一律拒絕，管理員及教師改密碼必須使用各自 audience-bound
+prepare→commit reset route；所有既有 users／roster caller 均使用 typed command，唔可由 generic PATCH 另建一套
+status／credential writer。
+
 GET        /api/admin/roster/import/templates/[entity]/[format]
 POST       /api/admin/roster/import/preview
 GET        /api/admin/roster/import/[batchId]
