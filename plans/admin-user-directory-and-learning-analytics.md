@@ -691,6 +691,7 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 - [x] Student detail加入每日timeline、期間summary及accessible data table。
 - [x] 建立 `/admin/analytics`，在admin shell顯示全校視角banner、年級／班級／學生切換及未分班group。
 - [x] 補上管理員「查看學生」流程：由班級卡片帶入 `classId`，呼叫學生分析查詢，顯示班內學生、搜尋及 signed-cursor 載入更多；清除／切換年級會離開班級學生視角。
+- [x] 修正班級卡片「查看學生」後的導向：直接捲動至所選班級學生名單；固定指標列高度、關鍵數值不換行及卡片按鈕底部對齊。
 - [ ] 圖表使用現有 EMM Style 02 tokens及Icon；無emoji、無舊圖示、無只靠顏色的狀態。
 - [ ] Desktop、mobile、200% zoom、keyboard、focus、live region、繁／簡及light／dark targeted QA。
 - [ ] 空資料、部分日期無資料、0 attempts、極端高低值及長姓名不破版。
@@ -917,6 +918,7 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 - `npm run test:e2e:study-stream-v2`：7/7 passed（包括修正認字卡答案區水平置中後的回歸）；
 - `npm run test:e2e:admin-roster`：4/4 passed（shell／atomic import、六年級升級及明確留級／離校 disposition、停權／恢復、V1/V2 cleanup、responsive／locale／theme／keyboard／axe）；測試前以標準 seed 建立 immediate-successor fixture，測試後再按授權重建 demo資料；
 - 本次修正補上管理員班級「查看學生」UI，新增 class-filtered student query、搜尋及 cursor pagination；`npx tsc --noEmit`、`npm run lint`、`npm test`（188 tests）及 `npm run build` 通過；對應 admin browser assertion 已加入 `tests/e2e/role-redirects.spec.ts`，尚未在本輪以登入瀏覽器執行；
+- 本次後續 UI 修正讓班級卡片的「查看學生」連結帶入 anchor 並自動捲動至已載入的班內名單；指標網格固定兩行高度、客觀正確率保持單行、操作按鈕底部對齊。`git diff --check`、`npx tsc --noEmit`、`npm run lint`、`npm test`（188 tests）及授權模式 `npm run build` 通過；未重跑需登入資料的瀏覽器 smoke。
 - production config check 以 synthetic local keyring／Upstash values 通過。未以本機缺少的 production secrets 代替正式部署驗證。
 
 仍需補／明確 deferred：
