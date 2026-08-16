@@ -116,13 +116,13 @@ export default function AdminUsersPage() {
         }
       } catch (e) {
         if (controller.signal.aborted) return;
-        setError(networkErrorMessage(e));
+        setError(tc(networkErrorMessage(e)));
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
     })(), 180);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [reloadKey, search, roleFilter, statusFilter, gradeFilter, classFilter, yearFilter]);
+  }, [reloadKey, search, roleFilter, statusFilter, gradeFilter, classFilter, yearFilter, tc]);
 
   const openCreate = () => {
     setEditing(null);
@@ -135,8 +135,9 @@ export default function AdminUsersPage() {
     setError(null);
     try {
       const response = await rosterFetch(`/api/admin/users/${user.id}/detail/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const payload = await response.json().catch(() => null) as { user?: { id: string; accountName: string; role: string; status: "ACTIVE" | "SUSPENDED"; contactEmail: string | null; userRevision: number; profile: { legalName: string; nickname?: string; profileRevision?: number | null } | null }; currentEnrollment?: { academicYearId: string; grade: string; classCode: string | null } | null; } | { code?: string } | null;
-      if (!response.ok || !payload || !("user" in payload) || !payload.user) throw new Error((payload && "code" in payload ? payload.code : null) ?? "讀取用戶資料失敗");
+      if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+      const payload = await response.json().catch(() => null) as { user?: { id: string; accountName: string; role: string; status: "ACTIVE" | "SUSPENDED"; contactEmail: string | null; userRevision: number; profile: { legalName: string; nickname?: string; profileRevision?: number | null } | null }; currentEnrollment?: { academicYearId: string; grade: string; classCode: string | null } | null } | null;
+      if (!payload?.user) throw new Error(tc("读取用户资料失败"));
       const detail = payload.user;
       setEditing({ ...user, id: detail.id, accountName: detail.accountName, email: detail.accountName, role: detail.role, status: detail.status, contactEmail: detail.contactEmail, legalName: detail.profile?.legalName ?? "", nickname: detail.profile?.nickname ?? null, grade: payload.currentEnrollment?.grade ?? null, classCode: payload.currentEnrollment?.classCode ?? null, academicYearId: payload.currentEnrollment?.academicYearId ?? null, revision: detail.userRevision, profileRevision: detail.profile?.profileRevision ?? undefined });
       setFormKey((k) => k + 1);
@@ -153,11 +154,13 @@ export default function AdminUsersPage() {
     setResettingId(user.id);
     try {
       const prepared = await rosterFetch(`/api/admin/users/${user.id}/password-reset/prepare`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const preparePayload = await prepared.json().catch(() => null) as { resetPrecondition?: string; code?: string } | null;
-      if (!prepared.ok || !preparePayload?.resetPrecondition) throw new Error(preparePayload?.code ?? tc("無法準備重設密碼"));
+      if (!prepared.ok) throw new Error(await responseErrorMessage(prepared, tc));
+      const preparePayload = await prepared.json().catch(() => null) as { resetPrecondition?: string } | null;
+      if (!preparePayload?.resetPrecondition) throw new Error(tc("无法准备重设密码"));
       const committed = await rosterFetch(`/api/admin/users/${user.id}/password-reset`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resetPrecondition: preparePayload.resetPrecondition }) });
-      const commitPayload = await committed.json().catch(() => null) as { temporaryPassword?: string; code?: string } | null;
-      if (!committed.ok || !commitPayload?.temporaryPassword) throw new Error(commitPayload?.code ?? tc("重設密碼失敗"));
+      if (!committed.ok) throw new Error(await responseErrorMessage(committed, tc));
+      const commitPayload = await committed.json().catch(() => null) as { temporaryPassword?: string } | null;
+      if (!commitPayload?.temporaryPassword) throw new Error(tc("重设密码失败"));
       setTemporaryCredential({ accountName: user.accountName, password: commitPayload.temporaryPassword });
       setReloadKey((key) => key + 1);
     } catch (cause) {
@@ -182,8 +185,7 @@ export default function AdminUsersPage() {
           }),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          throw new Error(err?.error ?? "更新失败");
+          throw new Error(await responseErrorMessage(res, tc));
         }
         const updated = (await res.json()) as UserItem & {
           sessionInvalidated?: boolean;
@@ -199,8 +201,7 @@ export default function AdminUsersPage() {
             body: JSON.stringify({ operation: "CHANGE_STATUS", status: data.status, expectedUserRevision: updated.revision ?? editing.revision }),
           });
           if (!statusResponse.ok) {
-            const statusError = await statusResponse.json().catch(() => null) as { code?: string } | null;
-            throw new Error(statusError?.code ?? "更新帳號狀態失敗");
+            throw new Error(await responseErrorMessage(statusResponse, tc));
           }
         }
         setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
@@ -211,8 +212,7 @@ export default function AdminUsersPage() {
           body: JSON.stringify(data),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          throw new Error(err?.error ?? "创建失败");
+          throw new Error(await responseErrorMessage(res, tc));
         }
         const created = (await res.json()) as UserItem & {
           temporaryPassword?: string;
@@ -239,8 +239,7 @@ export default function AdminUsersPage() {
         method: "DELETE",
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.error ?? "删除失败");
+        throw new Error(await responseErrorMessage(res, tc));
       }
       setUsers((prev) => prev.filter((u) => u.id !== deleting.id));
       setDeleting(null);
@@ -308,7 +307,7 @@ export default function AdminUsersPage() {
         <Icon name="search" size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)] dark:text-[var(--muted)]" />
         <input
           type="text"
-          placeholder={tc("搜索用户名或邮箱...")}
+          placeholder={tc("搜索账号、姓名或电邮…")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="h-[44px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] pl-10 pr-4 text-[14px] text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)] dark:focus:border-[var(--primary)]"
@@ -370,7 +369,7 @@ export default function AdminUsersPage() {
                     </span>
                     {user.status === "SUSPENDED" ? (
                       <span className="rounded-full bg-[var(--danger-bg)] px-2.5 py-1 text-[11px] font-semibold text-[var(--danger)]">
-                        {tc("已暂停")}
+                        {tc("已停权")}
                       </span>
                     ) : null}
                     {/* 操作按钮 */}

@@ -47,6 +47,12 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: ROLES.ADMIN, label: "管理员" },
 ];
 
+function academicYearStatusLabel(status: "PLANNED" | "CURRENT" | "CLOSED") {
+  if (status === "CURRENT") return "目前使用中";
+  if (status === "PLANNED") return "准备中";
+  return "已结束（只读）";
+}
+
 /** 共用的输入框样式，与登录页风格保持一致。 */
 const inputClass =
   "h-[44px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 text-[14px] text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)] dark:focus:border-[var(--primary)]";
@@ -175,7 +181,7 @@ export default function UserFormModal({
               className={inputClass}
             >
               <option value="ACTIVE">{tc("启用")}</option>
-              <option value="SUSPENDED">{tc("暂停登录")}</option>
+                <option value="SUSPENDED">{tc("停权")}</option>
             </select>
             {isSelf ? (
               <p className="mt-1 text-[11px] text-[var(--muted)]">
@@ -201,7 +207,7 @@ export default function UserFormModal({
 
         <div>
           <label htmlFor="user-form-contact-email" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">
-            {tc("联络 Email（可选）")}
+            {tc("联络电邮（可选）")}
           </label>
           <input
             id="user-form-contact-email"
@@ -222,10 +228,10 @@ export default function UserFormModal({
             {!isEdit ? (
               <>
               <div className="mb-3">
-                <label htmlFor="user-form-academic-year" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">{tc("作用学年")}</label>
+                <label htmlFor="user-form-academic-year" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">{tc("指定学年")}</label>
                 <select id="user-form-academic-year" value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} className={inputClass}>
                   <option value="">{tc("请选择")}</option>
-                  {academicYears.map((year) => <option key={year.id} value={year.id} disabled={year.status === "CLOSED"}>{year.label} · {year.status}</option>)}
+                  {academicYears.map((year) => <option key={year.id} value={year.id} disabled={year.status === "CLOSED"}>{year.label} · {tc(academicYearStatusLabel(year.status))}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">

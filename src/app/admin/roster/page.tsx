@@ -29,10 +29,110 @@ const secondaryButton = "rounded-2xl border border-[var(--border)] bg-[var(--sur
 const rosterStatusButton = "ui-button ui-button-small text-[12px]";
 const suspendButton = `${rosterStatusButton} ui-button-danger`;
 const restoreButton = `${rosterStatusButton} ui-button-secondary`;
+const ADMIN_ERROR_MESSAGES: Record<string, string> = {
+  AUTH_REQUIRED: "尚未登录，请先登录。",
+  AUTH_BACKEND_UNAVAILABLE: "登录服务暂时无法使用，请稍后再试。",
+  ROLE_FORBIDDEN: "你没有权限进行这个操作。",
+  RECENT_AUTH_REQUIRED: "安全验证已过期，请重新验证。",
+  RECENT_AUTH_SESSION_INVALID: "登录状态需要重新验证，请重新登录。",
+  ACADEMIC_YEAR_READ_ONLY: "这个学年已经结束，只能查看，不能修改。",
+  ACADEMIC_YEAR_REQUIRED: "请选择学年。",
+  ACADEMIC_YEAR_NOT_FOUND: "找不到所选学年。",
+  ACADEMIC_YEAR_NOT_IMMEDIATE_SUCCESSOR: "目标学年必须是下一个学年。",
+  ACADEMIC_YEAR_OVERLAP: "这个学年的日期与其他学年重叠。",
+  CLASS_NOT_FOUND: "找不到所选班级。",
+  CLASS_IN_USE: "这个班级仍有学生或教师使用，暂时不能停用。",
+  CLASS_INVALID: "班级资料不正确，请重新选择。",
+  ROSTER_BATCH_EXPIRED: "这份名单预览已经过期，请重新验证。",
+  ROSTER_BATCH_STALE: "名单资料已经改变，请重新预览。",
+  ROSTER_INPUT_INVALID: "名单格式不正确，请检查后再试。",
+  ROSTER_FILE_REQUIRED: "请选择名单文件。",
+  ROSTER_FILE_EMPTY: "名单文件没有资料。",
+  ROSTER_FORMAT_INVALID: "名单格式不正确，请使用 CSV 或 XLSX。",
+  ROSTER_HEADER_REQUIRED: "名单缺少必要栏位。",
+  ROSTER_HEADER_UNKNOWN: "名单包含无法识别的栏位。",
+  EXPORT_TOO_LARGE: "资料太多，暂时不能一次汇出。",
+  EXPORT_INPUT_INVALID: "汇出设定不正确，请重新选择。",
+  EXPORT_RATE_LIMITED: "汇出次数过多，请稍后再试。",
+  ACCESS_UPDATE_STALE: "教师权限已经改变，请重新载入后再保存。",
+  TEACHER_QUERY_STALE: "教师名单已经改变，请重新载入。",
+  USER_NOT_FOUND: "找不到这个用户。",
+  RESET_TARGET_NOT_ACTIVE: "这个用户目前不能重设密码。",
+  RESET_TARGET_ROLE_FORBIDDEN: "只能为学生或教师重设密码。",
+  ACCOUNT_OR_EMAIL_EXISTS: "账号或联络电邮已经被使用。",
+  NICKNAME_INVALID: "昵称不符合规定，请重新输入。",
+  LEGAL_NAME_INVALID: "真实姓名不符合规定，请重新输入。",
+  PROMOTION_INPUT_INVALID: "升级资料不正确，请检查后再试。",
+  PROMOTION_DISPOSITION_REQUIRED: "请先为每位学生选择安排方式。",
+  YEAR_STATE_INVALID: "学年状态不适合这个操作。",
+  STALE_PREVIEW: "预览资料已经改变，请重新预览。",
+  ROSTER_STATE_MISSING: "名单服务暂时无法使用，请稍后再试。",
+};
 
 async function responseMessage(response: Response) {
   const payload = await response.json().catch(() => null) as { code?: string; error?: string } | null;
-  return payload?.code ?? payload?.error ?? `请求失败 (${response.status})`;
+  return (payload?.code && ADMIN_ERROR_MESSAGES[payload.code]) || payload?.error || "操作未能完成，请稍后再试。";
+}
+
+function yearStatusLabel(status: AcademicYearStatus) {
+  if (status === "CURRENT") return "目前使用中";
+  if (status === "PLANNED") return "准备中";
+  return "已结束（只读）";
+}
+
+function dispositionLabel(value: string) {
+  switch (value) {
+    case "PROMOTE": return "正常升班";
+    case "REPEAT": return "留级";
+    case "HOLD_UNASSIGNED": return "暂不分班";
+    case "GRADUATE": return "毕业";
+    case "LEAVE": return "离校";
+    case "MANUAL": return "手动安排";
+    default: return "待处理";
+  }
+}
+
+function exportFieldLabel(field: string) {
+  const labels: Record<string, string> = {
+    accountName: "账号",
+    legalName: "真实姓名",
+    nickname: "昵称",
+    grade: "年级",
+    classCode: "班别",
+    contactEmail: "联络电邮",
+    status: "账号状态",
+    mustChangePassword: "下次登录需更改密码",
+    createdAt: "建立日期",
+    templateVersion: "名单格式",
+    classAccess: "可查看班级",
+    resetPasswordCapability: "可重设学生密码",
+  };
+  return labels[field] ?? field;
+}
+
+function importActionLabel(action: string) {
+  const labels: Record<string, string> = {
+    CREATE: "新增",
+    UPDATE: "更新",
+    UNCHANGED: "没有改变",
+    ERROR: "有错误",
+  };
+  return labels[action] ?? "待处理";
+}
+
+function importErrorLabel(error: string) {
+  const replacements: Array<[string, string]> = [
+    ["MERGE 必须提供真实姓名", "合并资料时必须填写真实姓名"],
+    ["MERGE 必须提供昵称", "合并资料时必须填写昵称"],
+    ["档案内联络 Email 重复", "名单中的联络电邮重复"],
+    ["联络 Email 已被其他账号使用", "联络电邮已经被其他账号使用"],
+    ["templateVersion 必须为 teacher-roster-v2", "教师名单格式不正确，请下载最新模板"],
+    ["LEGACY_RESET_SCOPE_UNSUPPORTED", "旧格式不支援重设密码权限，请下载最新教师模板"],
+    ["create-only 不会覆盖", "只新增，不会覆盖现有账号"],
+  ];
+  return replacements.reduce((value, [from, to]) => value.replace(from, to), error)
+    .replace(/^无法识别班级权限/, "无法识别班级")
+    .replace(/所选学年不存在教师权限班级/, "所选学年不存在这个班级");
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -46,13 +146,17 @@ function downloadBlob(blob: Blob, filename: string) {
 
 async function downloadCredentialXlsx(rows: Array<{ accountName: string; legalName: string; temporaryPassword: string }>) {
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Credentials");
-  sheet.columns = ["accountName", "legalName", "temporaryPassword"].map((header) => ({ header, key: header, style: { numFmt: "@" } }));
+  const sheet = workbook.addWorksheet("临时密码");
+  sheet.columns = [
+    { header: "学生证号", key: "accountName", style: { numFmt: "@" } },
+    { header: "真实姓名", key: "legalName", style: { numFmt: "@" } },
+    { header: "一次性密码", key: "temporaryPassword", style: { numFmt: "@" } },
+  ];
   const safeText = (value: string) => /^[=+\-@\t\r]/u.test(value) ? `'${value}` : value;
   for (const row of rows) sheet.addRow({ accountName: safeText(String(row.accountName)), legalName: safeText(String(row.legalName)), temporaryPassword: safeText(String(row.temporaryPassword)) });
   sheet.getRow(1).font = { bold: true };
   const buffer = await workbook.xlsx.writeBuffer();
-  downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "one-time-credentials.xlsx");
+  downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "一次性密码.xlsx");
 }
 
 export default function AdminRosterPage() {
@@ -192,7 +296,7 @@ export default function AdminRosterPage() {
   async function downloadTemplate() {
     const response = await fetch(`/api/admin/roster/import/templates/${importType}/${importTemplateFormat}`);
     if (!response.ok) throw new Error(await responseMessage(response));
-    downloadBlob(await response.blob(), `${importType.toLowerCase()}-roster-v1-template.${importTemplateFormat}`);
+    downloadBlob(await response.blob(), `${importType === "TEACHER" ? "教师" : "学生"}-名单模板.${importTemplateFormat}`);
   }
   async function previewBulk() {
     if (!yearId || !selected.size) throw new Error("请选择学生");
@@ -207,7 +311,7 @@ export default function AdminRosterPage() {
     setMessage("批量转班已完成。"); setBulkPreview(null); setSelected(new Set()); await loadData();
   }
   async function previewPromotion() {
-    if (!yearId || !promotionTargetYear) throw new Error("请选择 source／target 学年");
+    if (!yearId || !promotionTargetYear) throw new Error("请选择原学年及目标学年");
     const response = await rosterFetch("/api/admin/roster/students/promote/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceAcademicYearId: yearId, targetAcademicYearId: promotionTargetYear, sourceGrade: promotionGrade, excludedStudentIds: [], classMapping: {}, operationId: crypto.randomUUID() }) });
     if (!response.ok) throw new Error(await responseMessage(response));
     const payload = await response.json() as MutationPreview; setPromotionPreview(payload); setExcludedPromotion(new Set());
@@ -226,7 +330,7 @@ export default function AdminRosterPage() {
     }
     const response = await rosterFetch("/api/admin/roster/students/promote/commit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batchId, operationId }) });
     if (!response.ok) throw new Error(await responseMessage(response));
-    setMessage("升级计划已保存至目标学年，须在启用学年前完成 activation。"); setPromotionPreview(null); await loadData();
+    setMessage("升级计划已保存至目标学年，须在启用学年前完成学年启用。"); setPromotionPreview(null); await loadData();
   }
   async function setStatus(user: RosterUser, status: "ACTIVE" | "SUSPENDED") {
     const response = await rosterFetch(`/api/admin/users/${user.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "CHANGE_STATUS", status, expectedUserRevision: user.revision }) });
@@ -240,7 +344,7 @@ export default function AdminRosterPage() {
     if (!newYearLabel) throw new Error("请输入学年，例如 2026-2027");
     const response = await rosterFetch("/api/admin/academic-years", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: newYearLabel }) });
     if (!response.ok) throw new Error(await responseMessage(response));
-    setNewYearLabel(""); setMessage("PLANNED 学年已建立。 "); await loadYears();
+    setNewYearLabel(""); setMessage("新学年已建立。 "); await loadYears();
   }
   async function createClass() {
     if (!yearId) throw new Error("请选择学年");
@@ -254,16 +358,16 @@ export default function AdminRosterPage() {
     await loadData();
   }
   async function previewActivation() {
-    if (!yearId || !activationTargetYear) throw new Error("请选择 source／target 学年");
+    if (!yearId || !activationTargetYear) throw new Error("请选择原学年及目标学年");
     const response = await rosterFetch(`/api/admin/academic-years/${yearId}/activation/preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetAcademicYearId: activationTargetYear, acknowledgedClassIds: [...activationAcknowledged], operationId: crypto.randomUUID() }) });
     if (!response.ok) throw new Error(await responseMessage(response));
     setActivationPreview(await response.json() as ActivationPreview);
   }
   async function commitActivation() {
-    if (!activationPreview?.batchId) throw new Error("请先完成 coverage acknowledgement");
+    if (!activationPreview?.batchId) throw new Error("请先确认每个班级的教师查看权限");
     const response = await rosterFetch(`/api/admin/academic-years/${yearId}/activation/commit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batchId: activationPreview.batchId, operationId: activationPreview.operationId }) });
     if (!response.ok) throw new Error(await responseMessage(response));
-    setActivationPreview(null); setMessage("学年已原子启用。 "); await loadYears(); await loadData();
+    setActivationPreview(null); setMessage("学年已启用。 "); await loadYears(); await loadData();
   }
   async function exportRoster() {
     if (!yearId || !exportFields.length) throw new Error("请选择学年及至少一栏");
@@ -296,9 +400,9 @@ export default function AdminRosterPage() {
     const selectLabels: Record<Tab, string[]> = {
       students: [],
       teachers: ["选择教师"],
-      years: ["新学年年级", "新学年班别", "选择目标 PLANNED 学年"],
+      years: ["新学年年级", "新学年班别", "选择目标学年"],
       imports: ["名单类型", "导入模板格式"],
-      promotion: ["升级年级", "选择目标 PLANNED 学年"],
+      promotion: ["升级年级", "选择目标学年"],
       export: ["汇出类型", "汇出格式"],
     };
     root.querySelectorAll<HTMLSelectElement>("select:not([aria-label])").forEach((select, index) => {
@@ -316,22 +420,22 @@ export default function AdminRosterPage() {
   }, [tab, tc]);
 
   return <div data-roster-page className="space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">{tc("学校名册")}</p><h1 className="mt-1 text-[24px] font-bold text-[var(--text)]">{tc("班级、学生与教师")}</h1><p className="mt-1 text-[13px] text-[var(--muted)]">{tc("所有 mutation 只作用于明确选择的学年。")}</p></div><Link href="/admin/users" className={secondaryButton}>{tc("逐个新增／编辑账号")}</Link></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">{tc("学校名册")}</p><h1 className="mt-1 text-[24px] font-bold text-[var(--text)]">{tc("班级、学生与教师")}</h1><p className="mt-1 text-[13px] text-[var(--muted)]">{tc("所有操作只作用于你所选的学年。")}</p></div><Link href="/admin/users" className={secondaryButton}>{tc("逐个新增／编辑账号")}</Link></div>
     {error ? <div aria-live="assertive"><ErrorBanner message={error} /></div> : null}{message ? <div role="status" aria-live="polite" className="rounded-2xl bg-[var(--border-soft)] p-4 text-[13px] text-[var(--primary)]">{tc(message)}</div> : null}
     <div className="flex flex-wrap gap-2" role="tablist" aria-label={tc("名册管理区段")}>{tabs.map((item, index) => <button key={item} id={`roster-tab-${item}`} role="tab" aria-selected={tab === item} aria-controls={`roster-panel-${item}`} tabIndex={tab === item ? 0 : -1} className={tab === item ? primaryButton : secondaryButton} onClick={() => setTab(item)} onKeyDown={(event) => handleTabKeyDown(event, index)}>{tc(tabLabels[item])}</button>)}</div>
-    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"><label className="text-[13px] text-[var(--muted)]">{tc("作用学年")}</label><select aria-label={tc("作用学年")} className={controlClass} value={yearId} onChange={(event) => setYearId(event.target.value)}>{years.map((year) => <option key={year.id} value={year.id}>{year.label} · {year.status}</option>)}</select>{currentYear ? <span className="text-[12px] text-[var(--muted)]">{currentYear.status === "CLOSED" ? tc("历史只读") : tc("可编辑")}</span> : null}</div>
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"><label className="text-[13px] text-[var(--muted)]">{tc("指定学年")}</label><select aria-label={tc("指定学年")} className={controlClass} value={yearId} onChange={(event) => setYearId(event.target.value)}>{years.map((year) => <option key={year.id} value={year.id}>{year.label} · {tc(yearStatusLabel(year.status))}</option>)}</select>{currentYear ? <span className="text-[12px] text-[var(--muted)]">{currentYear.status === "CLOSED" ? tc("历史只读") : tc("可以编辑")}</span> : null}</div>
     {tab === "students" && nextUserCursor ? <button className={secondaryButton} disabled={busy} onClick={() => void run(loadMoreUsers)}>{tc("载入更多学生／教师")}</button> : null}
 
     {tab === "students" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold text-[var(--text)]">{tc("学生名册")}</h2><div className="mt-3 flex flex-wrap gap-2"><input className={controlClass} placeholder={tc("搜寻账号／姓名／昵称")} value={search} onChange={(event) => setSearch(event.target.value)} /><select aria-label={tc("年级筛选")} value={filterGrade} onChange={(event) => setFilterGrade(event.target.value)} className={controlClass}><option value="">{tc("所有年级")}</option>{STUDENT_GRADES.map((grade) => <option key={grade} value={grade}>{tc(GRADE_LABELS[grade])}</option>)}</select><select aria-label={tc("班别筛选")} value={filterClass} onChange={(event) => setFilterClass(event.target.value)} className={controlClass}><option value="">{tc("所有班别")}</option>{CLASS_CODES.map((code) => <option key={code} value={code}>{tc(CLASS_LABELS[code])}</option>)}</select><button className={secondaryButton} onClick={() => setSelected(new Set(students.map((student) => student.id)))}>{tc(`全选本页 ${students.length} 人`)}</button><button className={secondaryButton} onClick={() => setSelected(new Set())}>{tc("清除选择")}</button></div><div className="mt-3 space-y-2 md:hidden">{students.map((student) => <article key={student.id} className="rounded-2xl border border-[var(--border)] p-3 text-[12px]"><div className="flex items-start justify-between gap-3"><label className="flex items-center gap-2 font-semibold"><input aria-label={student.accountName} type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(student.id)) next.delete(student.id); else next.add(student.id); return next; })} /><span>{student.accountName}</span></label><button type="button" data-testid="roster-status-toggle" aria-label={tc(student.status === "ACTIVE" ? "停权学生" : "恢复学生")} className={student.status === "ACTIVE" ? suspendButton : restoreButton} disabled={busy} onClick={() => void run(() => setStatus(student, student.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE"))}>{student.status === "ACTIVE" ? tc("停权") : tc("恢复")}</button></div><dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2"><div><dt className="text-[var(--muted)]">{tc("真实姓名")}</dt><dd>{student.legalName}</dd></div><div><dt className="text-[var(--muted)]">{tc("昵称")}</dt><dd>{student.nickname ?? "—"}</dd></div><div><dt className="text-[var(--muted)]">{tc("年级")}</dt><dd>{student.grade ? tc(GRADE_LABELS[student.grade]) : tc("未分配")}</dd></div><div><dt className="text-[var(--muted)]">{tc("班别")}</dt><dd>{student.classCode ? tc(CLASS_LABELS[student.classCode]) : tc("未分班")}</dd></div><div><dt className="text-[var(--muted)]">{tc("状态")}</dt><dd>{student.status === "ACTIVE" ? tc("使用中") : tc("已停权")}</dd></div></dl></article>)}</div><div className="mt-3 hidden max-h-[28rem] overflow-auto md:block"><table className="w-full min-w-[760px] text-left text-[12px]"><thead><tr><th></th><th>{tc("学生证")}</th><th>{tc("真实姓名")}</th><th>{tc("昵称")}</th><th>{tc("年级")}</th><th>{tc("班别")}</th><th>{tc("状态")}</th><th>{tc("操作")}</th></tr></thead><tbody>{students.map((student) => <tr key={student.id} className="border-t border-[var(--border)]"><td className="py-2"><input aria-label={student.accountName} type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(student.id)) next.delete(student.id); else next.add(student.id); return next; })} /></td><td>{student.accountName}</td><td>{student.legalName}</td><td>{student.nickname ?? "—"}</td><td>{student.grade ? tc(GRADE_LABELS[student.grade]) : tc("未分配")}</td><td>{student.classCode ? tc(CLASS_LABELS[student.classCode]) : tc("未分班")}</td><td>{student.status === "ACTIVE" ? tc("使用中") : tc("已停权")}</td><td><button type="button" data-testid="roster-status-toggle" aria-label={tc(student.status === "ACTIVE" ? "停权学生" : "恢复学生")} className={student.status === "ACTIVE" ? suspendButton : restoreButton} disabled={busy} onClick={() => void run(() => setStatus(student, student.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE"))}>{student.status === "ACTIVE" ? tc("停权") : tc("恢复")}</button></td></tr>)}</tbody></table></div><div className="mt-4 flex flex-wrap items-center gap-2"><span className="text-[13px] text-[var(--muted)]">{tc(`已选 ${selected.size} 人`)}</span><select aria-label={tc("目标班别")} value={targetClass} onChange={(event) => setTargetClass(event.target.value)} className={controlClass}><option value="">{tc("转为未分班")}</option>{CLASS_CODES.map((code) => <option key={code} value={code}>{tc(`${CLASS_LABELS[code]}班`)}</option>)}</select><button className={primaryButton} disabled={busy || !selected.size || currentYear?.status !== "CURRENT"} onClick={() => void run(previewBulk)}>{tc("预览批量转班")}</button></div>{bulkPreview ? <div className="mt-4 rounded-2xl border border-[var(--border)] p-4"><p className="text-[13px]">{tc(`已选 ${bulkPreview.payload?.selectedCount ?? 0} 人；确认后才会写入。`)}</p><button className={`${primaryButton} mt-3`} onClick={() => void run(commitBulk)}>{tc("确认批量转班")}</button></div> : null}</section> : null}
 
     {tab === "teachers" ? <AdminTeacherAccessEditor yearId={yearId} onMessage={setMessage} /> : null}
 
-    {tab === "years" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold text-[var(--text)]">{tc("学年及班级设定")}</h2><div className="mt-3 flex flex-wrap gap-2"><input className={controlClass} placeholder="2026-2027" value={newYearLabel} onChange={(event) => setNewYearLabel(event.target.value)} /><button className={primaryButton} onClick={() => void run(createYear)}>{tc("建立 PLANNED 学年")}</button></div><div className="mt-4 flex flex-wrap gap-2"><select className={controlClass} value={newClassGrade} onChange={(event) => setNewClassGrade(event.target.value as StudentGrade)}>{STUDENT_GRADES.map((grade) => <option key={grade} value={grade}>{tc(GRADE_LABELS[grade])}</option>)}</select><select className={controlClass} value={newClassCode} onChange={(event) => setNewClassCode(event.target.value as ClassCode)}>{CLASS_CODES.map((code) => <option key={code} value={code}>{tc(CLASS_LABELS[code])}</option>)}</select><button className={primaryButton} disabled={!yearId || currentYear?.status === "CLOSED"} onClick={() => void run(createClass)}>{tc("建立班级")}</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{classes.map((schoolClass) => <div key={schoolClass.id} className="rounded-2xl border border-[var(--border)] p-3 text-[12px]"><div className="font-semibold">{tc(GRADE_LABELS[schoolClass.grade])}{tc(`${CLASS_LABELS[schoolClass.classCode]}班`)}</div><div className="mt-1 text-[var(--muted)]">{schoolClass.active ? tc("启用") : tc("已停用")}</div><button className="mt-2 text-[var(--primary)] disabled:opacity-50" disabled={currentYear?.status === "CLOSED"} onClick={() => void run(() => toggleClass(schoolClass))}>{schoolClass.active ? tc("停用") : tc("重新启用")}</button></div>)}</div><div className="mt-6 rounded-2xl border border-[var(--border)] p-4"><h3 className="font-semibold">{tc("学年启用")}</h3><div className="mt-3 flex flex-wrap gap-2"><select className={controlClass} value={activationTargetYear} onChange={(event) => { setActivationTargetYear(event.target.value); setActivationPreview(null); }}><option value="">{tc("选择目标 PLANNED 学年")}</option>{plannedYears.filter((year) => year.id !== yearId).map((year) => <option key={year.id} value={year.id}>{year.label}</option>)}</select><button className={primaryButton} disabled={busy || currentYear?.status !== "CURRENT"} onClick={() => void run(previewActivation)}>{tc("预览启用")}</button></div>{activationPreview?.coverage ? <div className="mt-3 space-y-2 text-[12px]"><p>{tc(`source ${activationPreview.sourceCount ?? 0} 人；target ${activationPreview.targetCount ?? 0} 人`)}</p>{activationPreview.coverage.map((item) => <label key={item.classId} className="flex items-center gap-2 rounded-xl border border-[var(--border)] p-2"><input type="checkbox" checked={activationAcknowledged.has(item.classId)} onChange={(event) => setActivationAcknowledged((current) => { const next = new Set(current); if (event.target.checked) next.add(item.classId); else next.delete(item.classId); return next; })} disabled={item.viewTeacherIds.length > 0} /><span>{tc(GRADE_LABELS[item.grade])}{tc(`${CLASS_LABELS[item.classCode]}班`)} · {item.viewTeacherIds.length ? tc(`${item.viewTeacherIds.length} 位可查看教师`) : tc("没有可查看教师，需确认")}</span></label>)}<div className="flex gap-2"><button className={secondaryButton} onClick={() => void run(previewActivation)}>{tc("按确认重新预览")}</button>{activationPreview.batchId ? <button className={primaryButton} onClick={() => void run(commitActivation)}>{tc("确认启用")}</button> : null}</div></div> : null}</div></section> : null}
+    {tab === "years" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold text-[var(--text)]">{tc("学年及班级设定")}</h2><div className="mt-3 flex flex-wrap gap-2"><input className={controlClass} placeholder="2026-2027" value={newYearLabel} onChange={(event) => setNewYearLabel(event.target.value)} /><button className={primaryButton} onClick={() => void run(createYear)}>{tc("建立新学年")}</button></div><div className="mt-4 flex flex-wrap gap-2"><select className={controlClass} value={newClassGrade} onChange={(event) => setNewClassGrade(event.target.value as StudentGrade)}>{STUDENT_GRADES.map((grade) => <option key={grade} value={grade}>{tc(GRADE_LABELS[grade])}</option>)}</select><select className={controlClass} value={newClassCode} onChange={(event) => setNewClassCode(event.target.value as ClassCode)}>{CLASS_CODES.map((code) => <option key={code} value={code}>{tc(CLASS_LABELS[code])}</option>)}</select><button className={primaryButton} disabled={!yearId || currentYear?.status === "CLOSED"} onClick={() => void run(createClass)}>{tc("建立班级")}</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{classes.map((schoolClass) => <div key={schoolClass.id} className="rounded-2xl border border-[var(--border)] p-3 text-[12px]"><div className="font-semibold">{tc(GRADE_LABELS[schoolClass.grade])}{tc(`${CLASS_LABELS[schoolClass.classCode]}班`)}</div><div className="mt-1 text-[var(--muted)]">{schoolClass.active ? tc("启用") : tc("已停用")}</div><button className="mt-2 text-[var(--primary)] disabled:opacity-50" disabled={currentYear?.status === "CLOSED"} onClick={() => void run(() => toggleClass(schoolClass))}>{schoolClass.active ? tc("停用") : tc("重新启用")}</button></div>)}</div><div className="mt-6 rounded-2xl border border-[var(--border)] p-4"><h3 className="font-semibold">{tc("启用新学年")}</h3><div className="mt-3 flex flex-wrap gap-2"><select className={controlClass} value={activationTargetYear} onChange={(event) => { setActivationTargetYear(event.target.value); setActivationPreview(null); }}><option value="">{tc("选择目标学年")}</option>{plannedYears.filter((year) => year.id !== yearId).map((year) => <option key={year.id} value={year.id}>{year.label}</option>)}</select><button className={primaryButton} disabled={busy || currentYear?.status !== "CURRENT"} onClick={() => void run(previewActivation)}>{tc("预览启用")}</button></div>{activationPreview?.coverage ? <div className="mt-3 space-y-2 text-[12px]"><p>{tc(`目前学年 ${activationPreview.sourceCount ?? 0} 人；目标学年 ${activationPreview.targetCount ?? 0} 人`)}</p>{activationPreview.coverage.map((item) => <label key={item.classId} className="flex items-center gap-2 rounded-xl border border-[var(--border)] p-2"><input type="checkbox" checked={activationAcknowledged.has(item.classId)} onChange={(event) => setActivationAcknowledged((current) => { const next = new Set(current); if (event.target.checked) next.add(item.classId); else next.delete(item.classId); return next; })} disabled={item.viewTeacherIds.length > 0} /><span>{tc(GRADE_LABELS[item.grade])}{tc(`${CLASS_LABELS[item.classCode]}班`)} · {item.viewTeacherIds.length ? tc(`${item.viewTeacherIds.length} 位可查看教师`) : tc("没有可查看教师，需确认")}</span></label>)}<div className="flex gap-2"><button className={secondaryButton} onClick={() => void run(previewActivation)}>{tc("按确认重新预览")}</button>{activationPreview.batchId ? <button className={primaryButton} onClick={() => void run(commitActivation)}>{tc("确认启用")}</button> : null}</div></div> : null}</div></section> : null}
 
-    {tab === "imports" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold">{tc("学生／教师 CSV、XLSX 汇入")}</h2><p className="mt-1 text-[13px] text-[var(--muted)]">{tc("先预览；所有错误修正后才可提交。暂存资料 30 分钟后失效。")}</p><div className="mt-4 flex flex-wrap gap-2"><select value={importType} onChange={(event) => { setImportType(event.target.value as "STUDENT" | "TEACHER"); setImportPreview(null); }} className={controlClass}><option value="STUDENT">{tc("学生名单")}</option><option value="TEACHER">{tc("教师名单")}</option></select><input ref={fileRef} type="file" accept=".csv,.xlsx" className={`${controlClass} max-w-full pt-2`} /><label className="flex items-center gap-2 px-2 text-[13px] text-[var(--muted)]"><input type="checkbox" checked={mergeMode} onChange={(event) => setMergeMode(event.target.checked)} />{tc("MERGE 现有同角色账号")}</label>{importType === "TEACHER" && currentYear?.status === "PLANNED" ? <label className="flex items-center gap-2 px-2 text-[13px] text-[var(--muted)]"><input type="checkbox" checked={ackImmediateGlobalReset} onChange={(event) => setAckImmediateGlobalReset(event.target.checked)} />{tc("确认教师全局重设能力会即时影响目前班级")}</label> : null}<select value={importTemplateFormat} onChange={(event) => setImportTemplateFormat(event.target.value as "csv" | "xlsx")} className={controlClass} aria-label={tc("模板格式")}><option value="csv">CSV</option><option value="xlsx">XLSX</option></select><button className={secondaryButton} onClick={() => void run(downloadTemplate)}>{tc(importType === "TEACHER" ? "下载 v2 模板" : "下载 v1 模板")}</button><button className={primaryButton} disabled={busy || currentYear?.status === "CLOSED"} onClick={() => void run(previewImport)}>{tc("验证及预览")}</button></div>{importPreview ? <div className="mt-4 rounded-2xl border border-[var(--border)] p-4"><p className="text-[13px]">{tc(`共 ${importPreview.rowCount} 行：新建 ${importPreview.createCount}、更新 ${importPreview.updateCount}、错误 ${importPreview.errorCount}`)}</p>{importPreview.requiresImmediateGlobalCapabilityAck ? <p className="mt-2 text-[13px] text-[var(--warning)]">{tc("此预览包含会即时影响目前班级的教师全局重设能力变更；请勾选确认后重新预览。")}</p> : null}<div className="mt-3 max-h-64 overflow-auto text-[12px]"><table className="w-full text-left"><thead><tr><th>{tc("原始行")}</th><th>{tc("账号")}</th><th>{tc("姓名")}</th><th>{tc("动作／错误")}</th></tr></thead><tbody>{importPreview.rows.map((row) => <tr key={row.rowNumber} className="border-t border-[var(--border)]"><td className="py-2">{row.rowNumber}</td><td>{row.accountName}</td><td>{row.legalName}</td><td className={row.errors.length ? "text-[var(--danger)]" : "text-[var(--primary)]"}>{row.errors.join("；") || row.action}</td></tr>)}</tbody></table></div><div className="mt-3 flex flex-wrap gap-3"><button className={primaryButton} disabled={busy || !importPreview.canCommit} onClick={() => void run(commitImport)}>{tc("确认并汇入")}</button>{importPreview.nextCursor ? <button className={secondaryButton} disabled={busy} onClick={() => void run(loadMoreImportRows)}>{tc("载入更多预览行")}</button> : null}<button className="text-[13px] text-[var(--muted)]" onClick={() => void run(async () => { const response = await rosterFetch(`/api/admin/roster/import/${importPreview.batchId}/cancel`, { method: "POST" }); if (!response.ok) throw new Error(await responseMessage(response)); setImportPreview(null); })}>{tc("取消暂存")}</button></div></div> : null}{lastImportBatchId ? <div className="mt-3 rounded-2xl border border-[var(--border)] p-3 text-[12px]"><p>{tc("如一次性密码遗失，可在 24 小时内重新预览未改密账号。")}</p><button className={`${secondaryButton} mt-2`} onClick={() => void run(previewRotation)}>{tc("预览重新产生密码")}</button>{rotationPreview ? <><span className="ml-2">{tc(`符合条件 ${rotationPreview.eligible.length} 人；冲突 ${rotationPreview.conflicts.length} 人`)}</span><button className={`${primaryButton} ml-2`} onClick={() => void run(commitRotation)}>{tc("确认重新产生")}</button></> : null}</div> : null}{credentials ? <div className="mt-4 rounded-2xl border border-[var(--warning)]/40 bg-[var(--warning-bg)] p-4"><p className="font-semibold text-[var(--warning)]">{tc("一次性临时密码：关闭后不可再次取得。")}</p><div className="mt-2 max-h-48 overflow-auto font-mono text-[12px]">{credentials.map((item) => <div key={item.accountName}>{item.accountName}　{item.legalName}　{item.temporaryPassword}</div>)}</div><button className={`${secondaryButton} mt-3`} onClick={() => void run(() => downloadCredentialXlsx(credentials))}>{tc("下载 typed XLSX 报告")}</button><button className="ml-3 text-[13px] text-[var(--warning)]" onClick={() => setCredentials(null)}>{tc("保存並關閉")}</button></div> : null}</section> : null}
+    {tab === "imports" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold">{tc("学生／教师 CSV、XLSX 汇入")}</h2><p className="mt-1 text-[13px] text-[var(--muted)]">{tc("先预览；所有错误修正后才可提交。暂存资料 30 分钟后失效。")}</p><div className="mt-4 flex flex-wrap gap-2"><select value={importType} onChange={(event) => { setImportType(event.target.value as "STUDENT" | "TEACHER"); setImportPreview(null); }} className={controlClass}><option value="STUDENT">{tc("学生名单")}</option><option value="TEACHER">{tc("教师名单")}</option></select><input ref={fileRef} type="file" accept=".csv,.xlsx" className={`${controlClass} max-w-full pt-2`} /><label className="flex items-center gap-2 px-2 text-[13px] text-[var(--muted)]"><input type="checkbox" checked={mergeMode} onChange={(event) => setMergeMode(event.target.checked)} />{tc("合并现有同角色账号")}</label>{importType === "TEACHER" && currentYear?.status === "PLANNED" ? <label className="flex items-center gap-2 px-2 text-[13px] text-[var(--muted)]"><input type="checkbox" checked={ackImmediateGlobalReset} onChange={(event) => setAckImmediateGlobalReset(event.target.checked)} />{tc("确认教师的全部班级重设权限会即时影响目前班级")}</label> : null}<select value={importTemplateFormat} onChange={(event) => setImportTemplateFormat(event.target.value as "csv" | "xlsx")} className={controlClass} aria-label={tc("模板格式")}><option value="csv">CSV</option><option value="xlsx">XLSX</option></select><button className={secondaryButton} onClick={() => void run(downloadTemplate)}>{tc(importType === "TEACHER" ? "下载教师名单模板" : "下载学生名单模板")}</button><button className={primaryButton} disabled={busy || currentYear?.status === "CLOSED"} onClick={() => void run(previewImport)}>{tc("验证及预览")}</button></div>{importPreview ? <div className="mt-4 rounded-2xl border border-[var(--border)] p-4"><p className="text-[13px]">{tc(`共 ${importPreview.rowCount} 行：新建 ${importPreview.createCount}、更新 ${importPreview.updateCount}、错误 ${importPreview.errorCount}`)}</p>{importPreview.requiresImmediateGlobalCapabilityAck ? <p className="mt-2 text-[13px] text-[var(--warning)]">{tc("此预览包含会即时影响目前班级的教师全局重设能力变更；请勾选确认后重新预览。")}</p> : null}<div className="mt-3 max-h-64 overflow-auto text-[12px]"><table className="w-full text-left"><thead><tr><th>{tc("行号")}</th><th>{tc("账号")}</th><th>{tc("姓名")}</th><th>{tc("结果")}</th></tr></thead><tbody>{importPreview.rows.map((row) => <tr key={row.rowNumber} className="border-t border-[var(--border)]"><td className="py-2">{row.rowNumber}</td><td>{row.accountName}</td><td>{row.legalName}</td><td className={row.errors.length ? "text-[var(--danger)]" : "text-[var(--primary)]"}>{row.errors.length ? row.errors.map(importErrorLabel).join("；") : tc(importActionLabel(row.action))}</td></tr>)}</tbody></table></div><div className="mt-3 flex flex-wrap gap-3"><button className={primaryButton} disabled={busy || !importPreview.canCommit} onClick={() => void run(commitImport)}>{tc("确认并汇入")}</button>{importPreview.nextCursor ? <button className={secondaryButton} disabled={busy} onClick={() => void run(loadMoreImportRows)}>{tc("载入更多预览行")}</button> : null}<button className="text-[13px] text-[var(--muted)]" onClick={() => void run(async () => { const response = await rosterFetch(`/api/admin/roster/import/${importPreview.batchId}/cancel`, { method: "POST" }); if (!response.ok) throw new Error(await responseMessage(response)); setImportPreview(null); })}>{tc("取消暂存")}</button></div></div> : null}{lastImportBatchId ? <div className="mt-3 rounded-2xl border border-[var(--border)] p-3 text-[12px]"><p>{tc("如一次性密码遗失，可在 24 小时内重新预览未改密账号。")}</p><button className={`${secondaryButton} mt-2`} onClick={() => void run(previewRotation)}>{tc("预览重新产生密码")}</button>{rotationPreview ? <><span className="ml-2">{tc(`符合条件 ${rotationPreview.eligible.length} 人；冲突 ${rotationPreview.conflicts.length} 人`)}</span><button className={`${primaryButton} ml-2`} onClick={() => void run(commitRotation)}>{tc("确认重新产生")}</button></> : null}</div> : null}{credentials ? <div className="mt-4 rounded-2xl border border-[var(--warning)]/40 bg-[var(--warning-bg)] p-4"><p className="font-semibold text-[var(--warning)]">{tc("一次性临时密码：关闭后不可再次取得。")}</p><div className="mt-2 max-h-48 overflow-auto font-mono text-[12px]">{credentials.map((item) => <div key={item.accountName}>{item.accountName}　{item.legalName}　{item.temporaryPassword}</div>)}</div><button className={`${secondaryButton} mt-3`} onClick={() => void run(() => downloadCredentialXlsx(credentials))}>{tc("下载 Excel（XLSX）报告")}</button><button className="ml-3 text-[13px] text-[var(--warning)]" onClick={() => setCredentials(null)}>{tc("保存並關閉")}</button></div> : null}</section> : null}
 
-    {tab === "promotion" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold">{tc("全级升级与 exclusions")}</h2><div className="mt-3 flex flex-wrap gap-2"><select className={controlClass} value={promotionGrade} onChange={(event) => setPromotionGrade(event.target.value as StudentGrade)}>{STUDENT_GRADES.map((grade) => <option key={grade} value={grade}>{tc(GRADE_LABELS[grade])}</option>)}</select><select className={controlClass} value={promotionTargetYear} onChange={(event) => setPromotionTargetYear(event.target.value)}><option value="">{tc("选择目标 PLANNED 学年")}</option>{plannedYears.filter((year) => year.id !== yearId).map((year) => <option key={year.id} value={year.id}>{year.label}</option>)}</select><button className={primaryButton} disabled={busy} onClick={() => void run(previewPromotion)}>{tc("预览升级")}</button></div>{promotionPreview?.students ? <div className="mt-4"><p className="text-[13px] text-[var(--muted)]">{tc(`共 ${promotionPreview.students.length} 人；剔除者必须另定 disposition。`)}</p><div className="mt-2 max-h-64 overflow-auto">{promotionPreview.students.map((student) => <label key={student.studentId} className="flex items-center gap-3 border-t border-[var(--border)] py-2 text-[12px]"><input type="checkbox" checked={!excludedPromotion.has(student.studentId)} onChange={() => setExcludedPromotion((current) => { const next = new Set(current); if (next.has(student.studentId)) next.delete(student.studentId); else next.add(student.studentId); return next; })} /><span className="font-mono">{student.accountName}</span><span>{student.legalName}</span><span>{student.disposition}</span><span>{student.targetClassCode ? tc(`${CLASS_LABELS[student.targetClassCode]}班`) : tc("未分班")}</span></label>)}</div><button className={`${primaryButton} mt-3`} disabled={busy} onClick={() => void run(commitPromotion)}>{tc("保存升级 planned roster")}</button></div> : null}</section> : null}
+    {tab === "promotion" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold">{tc("全级升级及剔除名单")}</h2><div className="mt-3 flex flex-wrap gap-2"><select className={controlClass} value={promotionGrade} onChange={(event) => setPromotionGrade(event.target.value as StudentGrade)}>{STUDENT_GRADES.map((grade) => <option key={grade} value={grade}>{tc(GRADE_LABELS[grade])}</option>)}</select><select className={controlClass} value={promotionTargetYear} onChange={(event) => setPromotionTargetYear(event.target.value)}><option value="">{tc("选择目标学年")}</option>{plannedYears.filter((year) => year.id !== yearId).map((year) => <option key={year.id} value={year.id}>{year.label}</option>)}</select><button className={primaryButton} disabled={busy} onClick={() => void run(previewPromotion)}>{tc("预览升级")}</button></div>{promotionPreview?.students ? <div className="mt-4"><p className="text-[13px] text-[var(--muted)]">{tc(`共 ${promotionPreview.students.length} 人；未升班的学生会列在剔除名单中。`)}</p><div className="mt-2 max-h-64 overflow-auto">{promotionPreview.students.map((student) => <label key={student.studentId} className="flex items-center gap-3 border-t border-[var(--border)] py-2 text-[12px]"><input type="checkbox" checked={!excludedPromotion.has(student.studentId)} onChange={() => setExcludedPromotion((current) => { const next = new Set(current); if (next.has(student.studentId)) next.delete(student.studentId); else next.add(student.studentId); return next; })} /><span className="font-mono">{student.accountName}</span><span>{student.legalName}</span><span>{tc(dispositionLabel(student.disposition))}</span><span>{student.targetClassCode ? tc(`${CLASS_LABELS[student.targetClassCode]}班`) : tc("未分班")}</span></label>)}</div><button className={`${primaryButton} mt-3`} disabled={busy} onClick={() => void run(commitPromotion)}>{tc("保存升级名单")}</button></div> : null}</section> : null}
 
-    {tab === "export" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold">{tc("汇出目前名单")}</h2><p className="mt-1 text-[13px] text-[var(--muted)]">{tc("汇出作用于全部 server-resolved rows；超过 5,000 行会整体拒绝。")}</p><div className="mt-3 flex flex-wrap gap-2"><select value={exportType} onChange={(event) => { const next = event.target.value as "STUDENT" | "TEACHER"; setExportType(next); setExportFields(next === "STUDENT" ? STUDENT_FIELDS : TEACHER_FIELDS); }} className={controlClass}><option value="STUDENT">{tc("学生")}</option><option value="TEACHER">{tc("教师")}</option></select><select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "CSV" | "XLSX")} className={controlClass}><option value="XLSX">XLSX</option><option value="CSV">CSV</option></select><button className={primaryButton} disabled={busy || !exportFields.length} onClick={() => void run(exportRoster)}>{tc("预览并下载")}</button></div><div className="mt-3 flex flex-wrap gap-3">{(exportType === "STUDENT" ? STUDENT_FIELDS : TEACHER_FIELDS).map((field) => <label key={field} className="text-[12px] text-[var(--muted)]"><input className="mr-1" type="checkbox" checked={exportFields.includes(field)} onChange={() => setExportFields((current) => current.includes(field) ? current.filter((item) => item !== field) : [...current, field])} />{field}</label>)}</div></section> : null}
+    {tab === "export" ? <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm"><h2 className="text-[17px] font-bold">{tc("汇出目前名单")}</h2><p className="mt-1 text-[13px] text-[var(--muted)]">{tc("汇出目前系统整理出的全部资料；超过 5,000 行会整体拒绝。")}</p><div className="mt-3 flex flex-wrap gap-2"><select value={exportType} onChange={(event) => { const next = event.target.value as "STUDENT" | "TEACHER"; setExportType(next); setExportFields(next === "STUDENT" ? STUDENT_FIELDS : TEACHER_FIELDS); }} className={controlClass}><option value="STUDENT">{tc("学生")}</option><option value="TEACHER">{tc("教师")}</option></select><select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "CSV" | "XLSX")} className={controlClass}><option value="XLSX">XLSX</option><option value="CSV">CSV</option></select><button className={primaryButton} disabled={busy || !exportFields.length} onClick={() => void run(exportRoster)}>{tc("预览并下载")}</button></div><div className="mt-3 flex flex-wrap gap-3">{(exportType === "STUDENT" ? STUDENT_FIELDS : TEACHER_FIELDS).map((field) => <label key={field} className="text-[12px] text-[var(--muted)]"><input className="mr-1" type="checkbox" checked={exportFields.includes(field)} onChange={() => setExportFields((current) => current.includes(field) ? current.filter((item) => item !== field) : [...current, field])} />{tc(exportFieldLabel(field))}</label>)}</div></section> : null}
   </div>;
 }

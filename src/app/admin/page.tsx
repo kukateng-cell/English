@@ -33,17 +33,17 @@ export default function AdminDashboard() {
       try {
         const res = await fetch("/api/admin/stats");
         if (!res.ok) {
-          setError(await responseErrorMessage(res));
+          setError(await responseErrorMessage(res, tc));
           return;
         }
         setStats(await res.json());
       } catch (e) {
-        setError(networkErrorMessage(e));
+        setError(tc(networkErrorMessage(e)));
       } finally {
         setLoading(false);
       }
     })();
-  }, [reloadKey]);
+  }, [reloadKey, tc]);
 
   if (loading) {
     return (

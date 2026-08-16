@@ -48,6 +48,7 @@ export default function AdminWordsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // 每次「打开」表单时自增，作为 Modal 的 key 强制 remount，让表单从最新 props 重新初始化。
   const [formKey, setFormKey] = useState(0);
+  const { tc } = useLocale();
 
   useEffect(() => {
     (async () => {
@@ -56,17 +57,17 @@ export default function AdminWordsPage() {
       try {
         const res = await fetch("/api/admin/words");
         if (!res.ok) {
-          setError(await responseErrorMessage(res));
+          setError(await responseErrorMessage(res, tc));
           return;
         }
         setWords(await res.json());
       } catch (e) {
-        setError(networkErrorMessage(e));
+        setError(tc(networkErrorMessage(e)));
       } finally {
         setLoading(false);
       }
     })();
-  }, [reloadKey]);
+  }, [reloadKey, tc]);
 
   const filtered = words.filter((w) => {
     const matchSearch =
@@ -108,8 +109,7 @@ export default function AdminWordsPage() {
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          throw new Error(err?.error ?? "更新失败");
+          throw new Error(await responseErrorMessage(res, tc));
         }
         const updated: WordItem = await res.json();
         setWords((prev) => {
@@ -125,8 +125,7 @@ export default function AdminWordsPage() {
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          throw new Error(err?.error ?? "创建失败");
+          throw new Error(await responseErrorMessage(res, tc));
         }
         const created: WordItem = await res.json();
         setWords((prev) => {
@@ -149,8 +148,7 @@ export default function AdminWordsPage() {
         method: "DELETE",
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.error ?? "删除失败");
+        throw new Error(await responseErrorMessage(res, tc));
       }
       setWords((prev) => prev.filter((w) => w.id !== deleting.id));
       setDeleting(null);
@@ -162,8 +160,6 @@ export default function AdminWordsPage() {
   };
 
   const levels = ["ALL", "A1", "A2", "B1", "B2"];
-  const { tc } = useLocale();
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
