@@ -4,18 +4,19 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ErrorBanner from "@/components/ErrorBanner";
+import RecentAuthDialog from "@/components/auth/RecentAuthDialog";
 import Modal from "@/components/admin/Modal";
 import CopyButton from "@/components/ui/CopyButton";
 import Icon from "@/components/ui/Icon";
 import TeacherFilters, { type TeacherClassOption } from "@/components/teacher/TeacherFilters";
 import { useLocale } from "@/components/LocaleProvider";
 import { rosterFetch } from "@/lib/roster-client";
-import { responseErrorMessage } from "@/lib/api-error";
+import { responseErrorDetails, responseErrorMessage } from "@/lib/api-error";
 import { CLASS_LABELS, GRADE_LABELS } from "@/lib/roster-domain";
 import type { ClassCode, StudentGrade } from "@/generated/prisma";
 
 type Item = { id: string; accountName: string; legalName: string; nickname: string; grade: StudentGrade | null; classId: string | null; classCode: ClassCode | null; status: "ACTIVE" | "SUSPENDED"; canResetStudentPassword: boolean; resetPrecondition: string | null };
-type Payload = { items: Item[]; nextCursor: string | null; viewMode: "TEACHER" | "ADMIN"; scope: { academicYearId: string } };
+type Payload = { items: Item[]; nextCursor: string | null; viewMode: "TEACHER" | "ADMIN"; scope: { academicYearId: string }; resetRequiresRecentAuth?: boolean };
 
 export default function TeacherRosterPage() {
   const { tc } = useLocale();
@@ -29,6 +30,8 @@ export default function TeacherRosterPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetRequiresRecentAuth, setResetRequiresRecentAuth] = useState(false);
+  const [recentAuthOpen, setRecentAuthOpen] = useState(false);
   const [reset, setReset] = useState<{ student: Item; password?: string; error?: string } | null>(null);
   const [resetting, setResetting] = useState(false);
   const requestController = useRef<AbortController | null>(null);
@@ -48,6 +51,7 @@ export default function TeacherRosterPage() {
       if (!rosterResponse.ok) throw new Error(await responseErrorMessage(rosterResponse));
       const payload = await rosterResponse.json() as Payload;
       setItems((current) => append ? [...current, ...payload.items] : payload.items);
+      setResetRequiresRecentAuth(payload.resetRequiresRecentAuth === true);
       setCursor(payload.nextCursor);
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
@@ -66,10 +70,11 @@ export default function TeacherRosterPage() {
     setResetting(true); setReset({ student });
     try {
       const response = await rosterFetch(`/api/teacher/students/${student.id}/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resetPrecondition: student.resetPrecondition }) });
-      const payload = await response.json().catch(() => null) as { temporaryPassword?: string; code?: string } | null;
+      const details = response.ok ? null : await responseErrorDetails(response, tc);
+      const payload = response.ok ? await response.json().catch(() => null) as { temporaryPassword?: string } | null : null;
       if (!response.ok) {
-        if (payload?.code === "RESET_PRECONDITION_INVALID" || payload?.code === "RESET_CREDENTIAL_STALE") await load();
-        setReset({ student, error: payload?.code === "RESET_PRECONDITION_UNAVAILABLE" ? tc("目前無法安全產生重設確認，請稍後再試。") : payload?.code ?? tc("重設密碼失敗") });
+        if (details?.code === "RESET_PRECONDITION_INVALID" || details?.code === "RESET_CREDENTIAL_STALE") await load();
+        setReset({ student, error: details?.message ?? tc("重設密碼失敗") });
       }
       else setReset({ student, password: payload?.temporaryPassword ?? "" });
     } catch (cause) {
@@ -84,6 +89,7 @@ export default function TeacherRosterPage() {
         <Link href="/teacher/progress" className="ui-button ui-button-secondary ui-button-small"><Icon name="trending-up" size={17} />{tc("查看學生進度")}</Link>
       </header>
       <TeacherFilters classes={classes} grade={grade} classId={classId} search={search} onGradeChange={setGrade} onClassChange={setClassId} onSearchChange={setSearch} />
+      {resetRequiresRecentAuth ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--border-soft)] px-4 py-3 text-sm text-[var(--muted)]"><span>{tc("目前可以查看學生名冊；如要重設學生密碼，請先重新驗證身份。")}</span><button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => setRecentAuthOpen(true)}>{tc("重新驗證")}</button></div> : null}
       {error ? <ErrorBanner message={error} onRetry={() => void load()} /> : null}
       {loading ? <div className="ui-card ui-card-padding text-sm text-[var(--muted)]">{tc("正在讀取名冊…")}</div> : items.length === 0 ? <div className="ui-card ui-card-padding text-center text-sm text-[var(--muted)]">{search || grade || classId ? tc("找不到符合條件的學生") : tc("目前沒有可查看的學生")}</div> : <>
         <div className="hidden overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] md:block">
@@ -93,6 +99,7 @@ export default function TeacherRosterPage() {
         {cursor ? <div className="flex justify-center"><button type="button" className="ui-button ui-button-secondary" disabled={loadingMore} onClick={() => void load(cursor, true)}>{loadingMore ? tc("正在讀取…") : tc("載入更多")}</button></div> : null}
       </>}
       <Modal open={Boolean(reset)} onClose={() => setReset(null)} title={tc("重設學生密碼")}>{reset?.password ? <div className="space-y-4 text-center"><p className="text-sm text-[var(--muted)]">{tc("請只向學生展示這次產生的臨時密碼：")}</p><div className="flex flex-wrap items-center justify-center gap-2"><p className="select-all rounded-xl bg-[var(--border-soft)] px-4 py-3 text-2xl font-black tracking-widest text-[var(--primary)]">{reset.password}</p><CopyButton value={reset.password} /></div><p className="text-xs text-[var(--warning)]">{tc("學生下次登入時必須修改密碼，舊會話已失效。")}</p><button type="button" className="ui-button ui-button-primary w-full" onClick={() => setReset(null)}>{tc("完成")}</button></div> : <div className="space-y-4 text-center"><p className="text-sm text-[var(--danger)]">{reset?.error ?? tc("正在產生臨時密碼…")}</p><button type="button" className="ui-button ui-button-secondary w-full" onClick={() => setReset(null)}>{tc("關閉")}</button></div>}</Modal>
+      <RecentAuthDialog open={recentAuthOpen} onClose={() => setRecentAuthOpen(false)} onSuccess={() => { setRecentAuthOpen(false); void load(); }} />
     </div>
   );
 }

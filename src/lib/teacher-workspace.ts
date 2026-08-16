@@ -271,11 +271,16 @@ export async function queryTeacherRoster(input: { userId: string; role: Role; qu
   const result = await readMembers(input);
   const last = result.rows.at(-1);
   const canReset = input.role === ROLES.TEACHER && await awaitTeacherGlobalReset(input.userId);
-  if (canReset && !input.sessionJti) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
   const actorSnapshot = canReset && input.sessionJti ? await readRecentAuthGrantForSession({ userId: input.userId, sessionJti: input.sessionJti }) : null;
-  if (canReset && !actorSnapshot) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
+  // A recent-auth grant is only needed to issue the reset precondition.  It
+  // must not make the read-only roster unavailable: an existing session can
+  // outlive the 15-minute sensitive-action window.  In that case the UI gets
+  // the roster normally and can ask the teacher to re-authenticate before
+  // showing reset actions.
+  const effectiveCanReset = canReset && Boolean(actorSnapshot);
   return {
     context: result.context,
+    resetRequiresRecentAuth: canReset && !effectiveCanReset,
     items: result.rows.map((user) => {
       const enrollment = user.studentProfile?.enrollments[0];
       return {
@@ -289,8 +294,8 @@ export async function queryTeacherRoster(input: { userId: string; role: Role; qu
         status: user.status,
         // The account-level switch is checked once per request; class scope
         // is already enforced by the membership query.
-        canResetStudentPassword: canReset,
-        resetPrecondition: canReset && input.sessionJti && actorSnapshot
+        canResetStudentPassword: effectiveCanReset,
+        resetPrecondition: effectiveCanReset && input.sessionJti && actorSnapshot
           ? issuePasswordResetPrecondition({
               audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET,
               targetId: user.id,
@@ -494,10 +499,9 @@ export async function getTeacherStudentDetail(input: { userId: string; role: Rol
   const snapshot = await metricSnapshot([user.id]);
   const enrollment = user.studentProfile.enrollments[0];
   const canResetStudentPassword = input.role === ROLES.TEACHER && await awaitTeacherGlobalReset(input.userId);
-  if (canResetStudentPassword && !input.sessionJti) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
   const actorSnapshot = canResetStudentPassword && input.sessionJti ? await readRecentAuthGrantForSession({ userId: input.userId, sessionJti: input.sessionJti }) : null;
-  if (canResetStudentPassword && !actorSnapshot) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
-  return { context, student: { id: user.id, accountName: user.accountName, legalName: user.studentProfile.legalName, nickname: user.studentProfile.nickname, grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, canResetStudentPassword, resetPrecondition: canResetStudentPassword && input.sessionJti && actorSnapshot ? issuePasswordResetPrecondition({ audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, actorId: input.userId, actorRole: "TEACHER", targetId: user.id, targetRole: "STUDENT", sessionJti: input.sessionJti, actorTokenVersion: actorSnapshot.user.tokenVersion, actorCredentialRevision: actorSnapshot.user.credentialRevision, targetTokenVersion: user.tokenVersion, targetCredentialRevision: user.credentialRevision, targetRevision: user.revision, targetAccessRevision: null, actorAccessRevision: context.accessRevision, grantReauthenticatedAt: actorSnapshot.grant.reauthenticatedAt.getTime(), grantExpiresAt: actorSnapshot.grant.expiresAt.getTime() }) : null, userRevision: user.revision, profileRevision: user.studentProfile.profileRevision, enrollmentRevision: enrollment?.revision ?? null, ...itemMetrics(user.id, snapshot) } };
+  const effectiveCanReset = canResetStudentPassword && Boolean(actorSnapshot);
+  return { context, student: { id: user.id, accountName: user.accountName, legalName: user.studentProfile.legalName, nickname: user.studentProfile.nickname, grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, canResetStudentPassword: effectiveCanReset, resetRequiresRecentAuth: canResetStudentPassword && !effectiveCanReset, resetPrecondition: effectiveCanReset && input.sessionJti && actorSnapshot ? issuePasswordResetPrecondition({ audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, actorId: input.userId, actorRole: "TEACHER", targetId: user.id, targetRole: "STUDENT", sessionJti: input.sessionJti, actorTokenVersion: actorSnapshot.user.tokenVersion, actorCredentialRevision: actorSnapshot.user.credentialRevision, targetTokenVersion: user.tokenVersion, targetCredentialRevision: user.credentialRevision, targetRevision: user.revision, targetAccessRevision: null, actorAccessRevision: context.accessRevision, grantReauthenticatedAt: actorSnapshot.grant.reauthenticatedAt.getTime(), grantExpiresAt: actorSnapshot.grant.expiresAt.getTime() }) : null, userRevision: user.revision, profileRevision: user.studentProfile.profileRevision, enrollmentRevision: enrollment?.revision ?? null, ...itemMetrics(user.id, snapshot) } };
 }
 
 export async function touchRosterRevision(tx: Prisma.TransactionClient) {

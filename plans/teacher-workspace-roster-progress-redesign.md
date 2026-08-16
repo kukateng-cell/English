@@ -663,6 +663,8 @@ performance及完整原生 screen-reader／device matrix仍保留為明確 defer
 - `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run check:teacher-global-reset-cutover` dry-run通過：
   no legacy global drift、沒有原始PII輸出；`npm run check:production-config`按預期因缺production-only Upstash／CRON／HMAC／teacher-reset
   secrets fail closed，未冒充production pass。
+- Follow-up修正：教師的15分鐘近期驗證過期或尚未建立時，學生名冊／學生詳情仍可正常讀取；只有重設密碼操作暫時隱藏，頁面會提示
+  教師重新驗證身份。驗證成功後會重新載入名冊並恢復獲授權學生的重設按鈕，避免把可讀資料誤報為伺服器錯誤。
 - `npm run test:e2e:admin-roster` fresh local wrapper 4 passed，覆蓋canonical teacher roster／progress／detail、global reset off/on、
   target-bound precondition／IDOR、selected-year access replacement、rollover activation、responsive locale/theme及keyboard／axe smoke。
 - 未執行：production positive secret gate、完整48班／500名教師workspace scale budget、原生 VoiceOver／TalkBack／device matrix、production
@@ -682,7 +684,7 @@ performance及完整原生 screen-reader／device matrix仍保留為明確 defer
 | Student detail | 身份／enrollment／nickname／progress正確；其他班或不存在同為404 |
 | Metrics | V1/V2、StudyDay、self-rating only、V2 provenance-complete operational first-response objective probe（purpose allowlist、version bundle、target winning link）、research／unapproved diagnostic／non-winning／缺version排除、V1／legacy review event（含null-row compatibility）分拆、historical/bridge排除、0 words／students、Asia/Shanghai日界、mastery分母／due |
 | Class summary | 0學生、0活動、多班、同一學生唯一CURRENT enrollment、逐班合計與detail一致、unassigned admin count |
-| Password lifecycle | confirm、AEAD opaque precondition missing／tampered／expired／missing-key／rotated-key、wrong-session／wrong-target、合法replay後credential revision mismatch、recent-auth expiry／一次續接、四維limiter、double-click（同一precondition最多一個成功）、撤權race、one-time response、must-change、session revoke |
+| Password lifecycle | confirm、AEAD opaque precondition missing／tampered／expired／missing-key／rotated-key、wrong-session／wrong-target、合法replay後credential revision mismatch、recent-auth expiry時名冊仍可讀並提示重新驗證、重新驗證後恢復reset action、四維limiter、double-click（同一precondition最多一個成功）、撤權race、one-time response、must-change、session revoke |
 | Import／export | v2 exact headers／TRUE/FALSE／blank、typed round-trip、v1 reset拒絕、PLANNED immediate impact ack、stale batch purge |
 | Activation | global+class coverage、preview後global/status/access變更409、舊batch stale、restore re-preview |
 | ADMIN mode | 常駐全校視角banner、CURRENT enrollment scope、unassigned、admin reset bypass、DTO viewMode |

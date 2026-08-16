@@ -40,6 +40,7 @@ const CODE_MESSAGES: Record<string, string> = {
   RESET_TARGET_NOT_ACTIVE: "这个用户目前不能重设密码",
   RESET_TARGET_ROLE_FORBIDDEN: "只能为学生或教师重设密码",
   RESET_PRECONDITION_INVALID: "重设密码资料已失效，请重新操作",
+  RESET_PRECONDITION_UNAVAILABLE: "目前无法准备重设密码，请稍后再试",
   RESET_CREDENTIAL_STALE: "密码资料已经改变，请重新操作",
   RESET_ACTOR_CREDENTIAL_STALE: "你的登录状态已经改变，请重新登录",
   ACCOUNT_SUSPENDED: "账号已停权",

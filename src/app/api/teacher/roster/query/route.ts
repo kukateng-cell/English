@@ -18,6 +18,7 @@ export async function POST(req: Request) {
       viewMode: result.context.viewMode,
       scope: { academicYearId: result.context.academicYear.id, ...query, accessRevision: result.context.accessRevision, rosterRevision: result.context.rosterRevision },
       items: result.items,
+      resetRequiresRecentAuth: result.resetRequiresRecentAuth,
       nextCursor: result.nextCursor,
       generatedAt: new Date().toISOString(),
     }, { headers: { "Cache-Control": "private, no-store", "Vary": "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
