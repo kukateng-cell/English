@@ -20,6 +20,8 @@ export type IconName =
   | "menu"
   | "moon"
   | "edit"
+  | "eye"
+  | "eye-off"
   | "plus"
   | "refresh"
   | "search"
@@ -53,6 +55,8 @@ const paths: Record<IconName, ReactNode> = {
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   moon: <path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2z" />,
   edit: <><path d="M12 20H4a2 2 0 0 1-2-2v-8" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L10 16l-4 1 1-4 9.5-9.5Z" /></>,
+  eye: <><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.5" /></>,
+  "eye-off": <><path d="m3 3 18 18" /><path d="M10.6 6.2A10.7 10.7 0 0 1 12 6c6 0 9.5 6 9.5 6a17.8 17.8 0 0 1-3.2 3.7M6.2 6.2C3.8 7.8 2.5 12 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 3.4-.6" /><path d="M9.9 9.9a2.5 2.5 0 0 0 3.5 3.5" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   refresh: <><path d="M20 11a8 8 0 1 0 1 4" /><path d="M20 5v6h-6" /></>,
   search: <><circle cx="11" cy="11" r="7.5" /><path d="m16.5 16.5 4.5 4.5" /></>,

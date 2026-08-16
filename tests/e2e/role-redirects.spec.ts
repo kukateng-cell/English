@@ -1,5 +1,24 @@
 import { expect, test } from "@playwright/test";
 
+test("login password visibility toggle reveals and hides the entered value", async ({ page }) => {
+  await page.goto("/login");
+
+  const password = page.getByRole("textbox", { name: /密码|密碼/ });
+  await password.fill("test-secret");
+  await expect(password).toHaveAttribute("type", "password");
+
+  const showButton = page.getByRole("button", { name: /显示密码|顯示密碼/ });
+  await expect(showButton).toHaveAttribute("aria-pressed", "false");
+  await showButton.click();
+  await expect(password).toHaveAttribute("type", "text");
+  await expect(password).toHaveValue("test-secret");
+
+  const hideButton = page.getByRole("button", { name: /隐藏密码|隱藏密碼/ });
+  await expect(hideButton).toHaveAttribute("aria-pressed", "true");
+  await hideButton.click();
+  await expect(password).toHaveAttribute("type", "password");
+});
+
 test("unauthenticated root, student pages, and student APIs follow the role contract", async ({ page }) => {
   for (const path of ["/", "/words", "/stats"]) {
     await page.goto(path);

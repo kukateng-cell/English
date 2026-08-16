@@ -23,6 +23,7 @@ export default function LoginPage() {
   const { status, update } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [lockUntil, setLockUntil] = useState<number | null>(null);
@@ -147,7 +148,22 @@ export default function LoginPage() {
         <div className="auth-panel-header"><span className="auth-panel-icon"><Icon name="book" size={28} /></span><h1 id="login-title">{tc("英语单词认读")}</h1><p>{tc("登录以继续学习")}</p></div>
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <div className="ui-field"><label htmlFor="login-account">{tc("账号")}</label><input id="login-account" type="text" placeholder={tc("例如 student01")} value={email} onChange={(event) => { setEmail(event.target.value); setLockUntil(null); setError(""); }} autoComplete="username" required /></div>
-          <div className="ui-field"><label htmlFor="login-password">{tc("密码")}</label><input id="login-password" type="password" placeholder={tc("输入密码")} value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} autoComplete="current-password" required /></div>
+          <div className="ui-field">
+            <label htmlFor="login-password">{tc("密码")}</label>
+            <div className="password-input-wrap">
+              <input id="login-password" type={showPassword ? "text" : "password"} placeholder={tc("输入密码")} value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} autoComplete="current-password" required />
+              <button
+                type="button"
+                className="password-visibility-toggle"
+                aria-label={tc(showPassword ? "隐藏密码" : "显示密码")}
+                aria-pressed={showPassword}
+                title={tc(showPassword ? "隐藏密码" : "显示密码")}
+                onClick={() => setShowPassword((visible) => !visible)}
+              >
+                <Icon name={showPassword ? "eye-off" : "eye"} size={20} />
+              </button>
+            </div>
+          </div>
           <Button className="auth-form-submit" size="large" type="submit" loading={loading || lockUntil !== null}>{lockUntil !== null && remainingSec > 0 ? tc("暂时锁定") : tc("登录")}</Button>
         </form>
         {error ? <div className="auth-error" id="login-error"><StatusBanner variant="error" message={<>{tc(error)}{lockUntil !== null && remainingSec > 0 ? <span className="auth-error-countdown">{tc(`（剩余 ${Math.floor(remainingSec / 60)} 分 ${remainingSec % 60} 秒）`)}</span> : null}</>} /></div> : null}
