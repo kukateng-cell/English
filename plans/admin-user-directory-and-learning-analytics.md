@@ -910,5 +910,5 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 
 仍需補／明確 deferred：
 
-- `npm run test:e2e:admin-roster` 在有標準測試帳號的執行中，shell／atomic import／responsive accessibility cases通過；兩個 rollover cases受同一測試檔沿用的target-year／immediate-successor fixture assumptions影響而失敗，需隔離每個測試的學年資料後再重跑，故未宣稱整套通過；
+- `npm run test:e2e:admin-roster` 曾有 shell／atomic import／responsive accessibility cases通過；之後以 fresh standard seed 重試兩個 rollover cases時，本機 in-memory login limiter 因先前測試嘗試而拒絕 `admin` 登入，兩個 case均停在登入等待，未進入 rollover assertion，故未宣稱整套通過。下一次應在重啟限流器／獨立測試程序後，再以每個測試獨立的學年 fixture 驗證；本次測試後已按授權重建回 demo資料；
 - 完整 desktop/mobile／200% zoom／keyboard／native VoiceOver／TalkBack QA、production deploy、真實學生資料、contract migration 及 destructive production cleanup不在本輪範圍。
