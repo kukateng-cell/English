@@ -235,6 +235,9 @@ refresh callback重跑絕不可延長15分鐘window；其後Reauth先可upsert�
 Logout刪當前grant；password change/reset、suspend、hard delete刪該user全部grants。Reauth password驗證另有account／HMAC-IP／
 session三層limiter及security audit；兩個device只有實際reauth嗰個取得grant。
 
+強制首次改密碼仍然要先撤銷舊 `tokenVersion`／全部舊 session；成功後 reset UI 以新密碼透明建立一個全新的
+Credentials JWT／RecentAuthGrant，再返回安全的原始 `callbackUrl`。這不是保留舊 session，亦不把新密碼寫入 storage；若透明續接失敗，才顯示已更新並退回登入頁。
+
 ### 6.2 StudentProfile
 
 - `userId`：PK／FK，只能連到 `STUDENT`
@@ -1065,6 +1068,7 @@ POST       /api/teacher/students/[id]/reset-password
 - [x] Student login／JWT revalidation另要求CURRENT-year ACTIVE enrollment；planned-only新生activation前fail closed。
 - [x] 建立唯一`replacePasswordCredential` primitive；self／forced change、admin／teacher reset、rotation每次
   `credentialRevision+1`及`tokenVersion+1`並撤銷grants／session；create／seed初始化revision=1，merge不改密碼。
+- [x] 強制首次改密碼成功後，reset UI 以新密碼透明建立 fresh session 並返回安全 callback；續接失敗有 fallback 登入頁，並清除表單內密碼記憶體；成功續接 browser smoke 已驗證。
 - [x] 抽出共用安全temporary-password generator（CSPRNG、10 chars、無歧義小寫／數字 alphabet、bcrypt cost 12）及tests；教師／管理員臨時密碼畫面提供明確一鍵複製，仍只在memory顯示及首次登入強制改密碼。
 - [x] 管理員manual create／edit使用profile-aware transaction、`User.revision`及各aggregate CAS；直接role conversion拒絕。
 - [x] 建立nickname NFKC、grapheme、invisible、contact、profanity、reserved-name及本人legalName／account/contact exact-token validator。
@@ -1238,7 +1242,7 @@ POST       /api/teacher/students/[id]/reset-password
 |---|---|
 | Reset／migration | wrong client/server topology／schema／role／marker／confirmation／fallback、TCP／Docker／Unix socket entries、disposable positive target、legacy identity＋SecurityEvent expand fixture、fresh replay、checksum、draft-migration disposition、seed twice |
 | Identity | leading zero account、leading hyphen reject、case／trim、optional email unique、role locked、profile relation、User/profile/enrollment CAS |
-| Auth／status | current-enrolled active login、planned-only PRE_ENROLLED deny→activation allow、suspended login、active session invalidation、restore、tokenVersion、mustChangePassword、password credential writer matrix |
+| Auth／status | current-enrolled active login、planned-only PRE_ENROLLED deny→activation allow、suspended login、active session invalidation、restore、tokenVersion、mustChangePassword、forced-reset fresh-session continuation／safe callback／fallback、password credential writer matrix |
 | Recent auth／CSRF | fresh-login grant、15m expiry、two-device isolation、wrong/missing sessionJti HMAC、logout、password/status/tokenVersion/credentialRevision revoke、account/IP/session limiter、reauth及admin/student/teacher cross-site mutation reject、GET無副作用、backend fail-closed |
 | Nickname | NFKC、graphemes、zero-width、bidi、contact、reserved、legalName/account exact-token、legalName-after-nickname conflict、粵／中／英粗口、rate limit、CAS |
 | Privacy | leaderboard／session／achievement／error／export 無 legalName／account fallback |
@@ -1247,7 +1251,7 @@ POST       /api/teacher/students/[id]/reset-password
 | Teacher access | CURRENT auth scope、GET selected-year DTO、PLANNED replacement preserves CURRENT/other/CLOSED、current-vs-planned global revision 409、active-class raw/concurrent invariant、assigned、unassigned、多班、多教師、zero-row empty set、撤權 TOCTOU、ADMIN bypass、IDOR、reset capability |
 | Student import | selected year、CSV／XLSX、numeric account reject、leading zero、existing-enrollment grade-change＋blank error、missing CURRENT／PLANNED enrollment＋blank→unassigned及雙向transition推導、field matrix、diff、hash期間cancel／expire／second-commit race、atomicity、fingerprint、idempotency |
 | Teacher import | canonical class keys、reset subset、unknown class、pair matrix blank／clear／replacement、accessRevision CAS |
-| Password | 10-char unambiguous lowercase/digit CSPRNG、bcrypt12、all-writer credentialRevision matrix、bounded hashing、hash only、one-time response、teacher/admin copy action、typed-XLSX adversarial legalName、response loss、rotation excludes changed revisions、ROTATE batch user links、hard-delete live/expired rotation preview→old GET/commit deny＋staged zero、session revoke、artifact scan |
+| Password | 10-char unambiguous lowercase/digit CSPRNG、bcrypt12、all-writer credentialRevision matrix、bounded hashing、hash only、one-time response、teacher/admin copy action、forced-reset fresh-session continuation／fallback、typed-XLSX adversarial legalName、response loss、rotation excludes changed revisions、ROTATE batch user links、hard-delete live/expired rotation preview→old GET/commit deny＋staged zero、session revoke、artifact scan |
 | Bulk class | CURRENT-only、canonical AdminMutationBatch、explicit／allMatching cross-page selection、filter hash、exclusions、unassign、PRE_ACTIVATION PLANNED HOLD普通assign拒絕、ACTIVATED HOLD轉成CURRENT後bulk assign容許且不改歷史snapshot、transition revision stale、retry、500／501 students |
 | Promotion／activation | J1→J2、J3→S1、S3 graduate/repeat/hold、promote/repeat/hold/leave、incoming、suspended student stays suspended、teacher coverage只計ACTIVE TEACHER＋profile＋target active-class capability、preview前suspended teacher不計、preview後ACTIVE→SUSPENDED或restore／access change令commit 409並須re-preview、class/access/coverage stale、planned-only、atomic activation、concurrency |
 | Suspension／delete | student restore with／without current enrollment、terminal activation→independent MANUAL restore、target/email-owner/coverage-teacher hard-delete during import/error-report/promotion/activation/rotation preview、old batch GET/commit deny＋staged zero、promotion/activation/import commit×actor/dependency delete total-lock concurrency、raw NOWAIT 40001 bounded retry、teacher、self guard、last admin、complete FK inventory/cascade、audit actor SetNull/HMAC、recreate same account |
@@ -1324,6 +1328,7 @@ Phase 1 是所有產品實作的硬依賴；Phase 2、3 完成前不可把 roste
 - [x] 六年級、A–H班、只經activation切換的學年UI、PLANNED／ACTIVE／ENDED enrollment及optional class可用；browser years tab 以6 grade／8 class options驗證，raw DB invariant suite驗證三態及atomic activation final-state guard。
 - [x] Teacher access full replacement 有 aggregate CAS；所有資料及密碼重設均在 transaction 內限制於獲授權班級／capability。
 - [x] Session-bound RecentAuthGrant在fresh login／reauth、two-device isolation、expiry、logout及credential/status revoke均fail closed。
+- [x] 首次強制改密碼後不要求學生再次手動登入：舊 session 仍被撤銷，reset UI 只以新密碼建立 fresh session；安全 callback、成功續接 browser smoke、續接失敗 fallback 及清除表單密碼行為均已落實。
 - [x] 學生可安全修改 nickname；moderation、rate limit、CAS、audit 完整。
 - [x] 管理員可逐個及批量建立學生／教師、設定班級access、取得一次性密碼；response loss只rotate credential snapshot
   仍eligible的帳號，絕不覆蓋已自行改／另行reset密碼。
