@@ -39,7 +39,7 @@ function randomId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
 function hash(value: string) { return crypto.createHash("sha256").update(value).digest("hex"); }
 function dateAt(key: string, hour = 12) { return new Date(`${key}T${String(hour).padStart(2, "0")}:00:00+08:00`); }
 function archetype(index: number) { const ratio = index % 20; return ratio < 4 ? "STEADY_HIGH" : ratio < 9 ? "STEADY_GENERAL" : ratio < 13 ? "IMPROVING" : ratio < 16 ? "INTERMITTENT" : ratio < 19 ? "FOLLOW_UP" : "NEW"; }
-function fixturePassword(envName: string, fallback: string) { const value = process.env[envName] ?? fallback; if (passwordPolicyError(value)) fail(`${envName} 不符合密碼政策。`); return value; }
+function fixturePassword(envName: string) { const value = process.env[envName] ?? ""; if (passwordPolicyError(value)) fail(`${envName} 不符合密碼政策。`); return value; }
 
 async function previewReset(env: Environment) {
   const [users, years, classes, reviews, events, encounters, days] = await Promise.all([
@@ -74,9 +74,12 @@ async function buildDemo() {
   const effectiveStart = dateAt(offsetDay(effectiveEnd, -89)) > dates.startsOn ? offsetDay(effectiveEnd, -89) : start;
   const effectiveDays = dateDistance(effectiveStart, effectiveEnd) + 1;
   if (effectiveDays < 1) fail("示範資料日期範圍無效。");
-  const adminPassword = fixturePassword("DEMO_ADMIN_PASSWORD", "DemoAdmin-2026");
-  const teacherPassword = fixturePassword("DEMO_TEACHER_PASSWORD", "DemoTeacher-2026");
-  const studentPassword = fixturePassword("DEMO_STUDENT_PASSWORD", "DemoStudent-2026");
+  // The rich analytics fixture deliberately reuses the normal local test
+  // identities and their existing env-owned credentials. It is the data
+  // that is special, not a second set of "demo" accounts.
+  const adminPassword = fixturePassword("INITIAL_ADMIN_PASSWORD");
+  const teacherPassword = adminPassword;
+  const studentPassword = fixturePassword("TEST_STUDENT_PASSWORD");
 
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('demo-analytics-reset-v1'))`;
@@ -87,9 +90,15 @@ async function buildDemo() {
       const row = await tx.schoolClass.create({ data: { academicYearId: year.id, grade, classCode: code, active: true, revision: 1 } });
       classMap.set(`${grade}:${code}`, row.id);
     }
-    const admin = await createUser(tx, { accountName: "demo-admin", legalName: "示範管理員", role: "ADMIN", password: adminPassword });
+    const admin = await createUser(tx, { accountName: "admin", legalName: "管理員", role: "ADMIN", password: adminPassword });
     const teachers = [];
-    for (const [index, name] of ["王老師", "李老師", "陳老師", "周老師"].entries()) teachers.push(await createUser(tx, { accountName: `demo-teacher-${index + 1}`, legalName: name, role: "TEACHER", password: teacherPassword, canResetStudentPassword: index < 3 }));
+    const teacherFixtures = [
+      ["teacher", "王老師"],
+      ["teacher-reset", "重設密碼測試老師"],
+      ["teacher-analytics-3", "分析測試老師三"],
+      ["teacher-analytics-4", "分析測試老師四"],
+    ] as const;
+    for (const [index, [accountName, name]] of teacherFixtures.entries()) teachers.push(await createUser(tx, { accountName, legalName: name, role: "TEACHER", password: teacherPassword, canResetStudentPassword: index < 3 }));
     for (const [index, teacher] of teachers.entries()) {
       const assigned = [...classMap.values()].filter((_, classIndex) => classIndex % teachers.length === index || (index === 0 && classIndex < 6));
       for (const classId of assigned) await tx.teacherClassAccess.create({ data: { teacherId: teacher.id, classId, canViewProgress: true, canResetStudentPassword: index < 3, grantedById: admin.id } });
@@ -103,22 +112,23 @@ async function buildDemo() {
     for (let classIndex = 0; classIndex < 18; classIndex += 1) {
       const grade = STUDENT_GRADES[Math.floor(classIndex / 3)]!; const code = ["A", "B", "C"][classIndex % 3] as ClassCode; const classId = classMap.get(`${grade}:${code}`)!;
       for (let studentIndex = 0; studentIndex < 8; studentIndex += 1) {
-        const index = classIndex * 8 + studentIndex; const accountName = `demo-student-${String(index + 1).padStart(3, "0")}`;
-        const user = await createUser(tx, { accountName, legalName: `示範學生${String(index + 1).padStart(3, "0")}`, nickname: `學習者${String(index + 1).padStart(3, "0")}`, role: "STUDENT", password: studentPassword, grade, classId, startedAt: dateAt(effectiveStart) });
+        const index = classIndex * 8 + studentIndex;
+        const accountName = index === 0 ? "student-test" : index === 1 ? "student-test_webkit" : `student-${String(index + 1).padStart(3, "0")}`;
+        const user = await createUser(tx, { accountName, legalName: `測試學生${String(index + 1).padStart(3, "0")}`, nickname: `學習者${String(index + 1).padStart(3, "0")}`, role: "STUDENT", password: studentPassword, grade, classId, startedAt: dateAt(effectiveStart) });
         students.push({ id: user.id, grade, classId, index });
       }
     }
     const specialSpecs: Array<{ accountName: string; legalName: string; grade: StudentGrade; status?: "SUSPENDED"; classId?: string | null; startedAt?: Date }> = [
-      { accountName: "demo-special-unassigned", legalName: "示範未分班學生", grade: "JUNIOR_1", classId: null },
-      { accountName: "demo-special-new", legalName: "示範新加入學生", grade: "JUNIOR_1", classId: null, startedAt: dateAt(offsetDay(effectiveEnd, -2)) },
-      { accountName: "demo-special-quiet", legalName: "示範低活動學生", grade: "JUNIOR_2", classId: null },
-      { accountName: "demo-special-suspended", legalName: "示範停權學生", grade: "JUNIOR_3", classId: null, status: "SUSPENDED" },
-      { accountName: "demo-special-transfer", legalName: "示範轉班學生", grade: "SENIOR_1", classId: null },
-      { accountName: "demo-special-followup", legalName: "示範跟進學生", grade: "SENIOR_2", classId: null },
+      { accountName: "student-unassigned", legalName: "未分班測試學生", grade: "JUNIOR_1", classId: null },
+      { accountName: "student-new", legalName: "新加入測試學生", grade: "JUNIOR_1", classId: null, startedAt: dateAt(offsetDay(effectiveEnd, -2)) },
+      { accountName: "student-quiet", legalName: "低活動測試學生", grade: "JUNIOR_2", classId: null },
+      { accountName: "student-suspended", legalName: "停權測試學生", grade: "JUNIOR_3", classId: null, status: "SUSPENDED" },
+      { accountName: "student-transfer", legalName: "轉班測試學生", grade: "SENIOR_1", classId: null },
+      { accountName: "student-followup", legalName: "跟進測試學生", grade: "SENIOR_2", classId: null },
     ];
     const special = [] as string[];
     for (const spec of specialSpecs) {
-      const user = await createUser(tx, { accountName: spec.accountName, legalName: spec.legalName, nickname: `示範${spec.legalName.slice(2)}`, role: "STUDENT", password: studentPassword, grade: spec.grade, classId: spec.classId ?? null, startedAt: spec.startedAt ?? dateAt(effectiveStart) });
+      const user = await createUser(tx, { accountName: spec.accountName, legalName: spec.legalName, nickname: `測試${spec.legalName}`, role: "STUDENT", password: studentPassword, grade: spec.grade, classId: spec.classId ?? null, startedAt: spec.startedAt ?? dateAt(effectiveStart) });
       if (spec.status) await tx.user.update({ where: { id: user.id }, data: { status: spec.status, suspendedAt: new Date(), tokenVersion: { increment: 1 }, revision: { increment: 1 } } });
       special.push(user.id);
     }

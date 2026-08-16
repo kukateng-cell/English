@@ -510,8 +510,8 @@ Development 預設 fixture：
 - 每級 A／B／C 三班，共 18 班；
 - 每班 8 名 ACTIVE 學生，共 144 名；
 - 額外 6 名特殊狀態學生：未分班、剛加入、停權、長期無活動等，供 admin filter／empty state 使用，但不混入 18 班固定比較基數；
-- 6–8 名 reserved demo 教師，包含單班、多班、跨年級、reset on／off、suspended fixture；
-- 一個由`DEMO_TEACHER_PASSWORD`供密碼的專用可登入demo teacher獲授權6班，方便即時比較。
+- 4 名 reserved local test 教師（`teacher`、`teacher-reset` 及兩個 analytics access fixture），包含單班、多班、跨年級、reset on／off、suspended fixture；
+- 可登入教師沿用 `INITIAL_ADMIN_PASSWORD`，方便直接測試多班比較及 reset 權限。
 
 為保證「每班8人」及metric可重現，主demo只經exact-guarded local reset建立，唔在有手動／非manifest ACTIVE enrollment的既有班上疊加資料。Reset後以`DEMO_ANALYTICS_BASE_SEED=1`執行base seed：保留word catalog、base admin／teacher accountName及env password contract，但唔建立原本40名generic students或額外test student enrollment；可登入test student改由本demo manifest其中一名學生承擔。18班、144名班內學生、6名特殊學生、demo教師、access及全部學習ledger都由同一fixture version擁有。一般`npm run seed`在非demo mode維持既有帳號數量行為，但可見文案同樣改成繁體。
 
@@ -883,7 +883,7 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 | Analytics排序 | 分頁只用immutable accountName＋id；current Review唔扮成asOf歷史snapshot |
 | Demo規模 | 6級 × 3班 × 8人＝144名班內學生，另6名特殊fixture |
 | Demo期間 | anchor end=`min(today, endsOn)`，最多90日；future-start／零日fail closed，manifest／UI明示effective days及clamp |
-| Demo ownership | 依使用者授權exact reset本機schema；demo-mode base seed不建40名generic students，全部班級／學生／教師／ledger由同一fixture version擁有 |
+| Demo ownership | 依使用者授權exact reset本機schema；完整分析資料沿用標準 `admin`／`teacher`／`teacher-reset`／`student-test` 測試帳號及 `.env.local` 密碼 contract，不另建 `demo-*` 登入帳號；全部班級／學生／教師／ledger由同一fixture version擁有 |
 | Demo語言 | Base seed及demo fixture-owned可見資料直接保存繁體中文；strict server OpenCC fail closed，不依賴顯示層轉換 |
 | Demo learning data | 只建批准operational V2 terminal lineage；正式reducer重播Review；research／diagnostic只供隔離negative tests |
 | Historical SM-2 | 新增time-aware canonical reducer；production wrapper保持現有clock語義，fixture先可按event time重播 |
@@ -892,6 +892,7 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 | Reset route cutover | ADMIN全部轉新route；T0原子停止簽／讀v1、只接受v2、移除ADMIN exception並令teacher route全面TEACHER-only；舊v1即時安全拒絕／重新prepare |
 | Scale fixture | 獨立disposable schema：48班／500學生／180日代表性ledger，budget完成即完整清理 |
 | Admin analytics | 新增admin shell入口，但共用teacher analytics service |
+| 本機登入帳號 | 分析資料重建後仍使用標準測試帳號；管理員／教師讀取 `INITIAL_ADMIN_PASSWORD`，學生讀取 `TEST_STUDENT_PASSWORD`，不再使用 `DEMO_*` 密碼或 `demo-admin` 帳號 |
 
 如果實作途中發現現有 schema 無法可靠回答已凍結指標，必須先更新本計劃並說明資料 contract；不可在 UI 暗中改名或用近似數據頂替。
 
@@ -903,6 +904,7 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 - `npm run test:migration-checksums`、`npm run test:migrations`、`npx prisma migrate status`；
 - `npm run build`（新增 admin／teacher analytics routes 及頁面均成功編譯）；
 - `npm run check:demo-analytics-fixture`（18 班、150 名學生、4 名教師、1,130 個 V2 ReviewEvent、3,393 個 StudyEncounter／StudyDay、完整 target／snapshot／winner／obligation／四種 action receipt lineage、無 live session／未完成 debt／簡體來源）；
+- Demo rebuild 已改為沿用標準本機測試帳號（`admin`、`teacher`、`teacher-reset`、`student-test`、`student-test_webkit`）；管理員／教師密碼由 `INITIAL_ADMIN_PASSWORD`、學生密碼由 `TEST_STUDENT_PASSWORD` 提供，資料庫 hash 核對全部通過，沒有另建 `demo-*` 登入帳號；
 - 本機 exact reset-and-rebuild 已按使用者授權執行，舊測試名單及學習資料已刪除並以新 fixture 重建；
 - `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:learning-analytics:scale`：隔離 48 班／500 學生／180 日 fixture，20 次 warm samples及 `EXPLAIN (ANALYZE, BUFFERS)`；48-class summary p95 365.95ms／39,833 bytes／23 statements、6-class comparison p95 459.96ms／137,940 bytes／23 statements、500-user list p95 298.75ms／48,334 bytes／23 statements、8-user comparison p95 312.37ms／55,909 bytes／23 statements、1-user timeline p95 23.76ms／41,974 bytes／23 statements；EXPLAIN execution time為 members 0.59ms、ReviewEvent 15.50ms、StudyEncounter 10.22ms、StudyDay 60.23ms、Review 0.75ms；temporary schema已在finally cleanup；
 - `npm run test:roster`、`npm run test:roster:invariants`、`npm run test:roster:lifecycle`、`npm run test:roster:auth`、`npm run test:roster:reset`、`npm run check:roster-pii`均通過；涵蓋班級權限隔離、raw DB invariants、hard-delete staging purge、session-bound recent auth、48-migration reset guard及PII／credential artifact scan；

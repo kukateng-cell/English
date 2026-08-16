@@ -19,7 +19,7 @@ async function main() {
   if (!year) fail("找不到 CURRENT 學年。");
   const classes = await prisma.schoolClass.findMany({ where: { academicYearId: year.id, active: true }, select: { id: true, grade: true, classCode: true, _count: { select: { enrollments: { where: { status: "ACTIVE" } } } } } });
   if (classes.length !== 18 || classes.some((row) => row._count.enrollments !== 8)) fail("18 班或每班 8 名 ACTIVE 學生驗證失敗。");
-  const [students, teachers, events, encounters, days, openTargets, openObligations, liveSessions, liveItems, learningItems, objectiveTargets, remediationObligations, receipts] = await Promise.all([
+  const [students, teachers, events, encounters, days, openTargets, openObligations, liveSessions, liveItems, learningItems, objectiveTargets, remediationObligations, receipts, requiredAccounts] = await Promise.all([
     prisma.user.count({ where: { role: "STUDENT" } }),
     prisma.user.count({ where: { role: "TEACHER" } }),
     prisma.reviewEvent.count({ where: { flowVersion: "v2", isHistorical: false } }),
@@ -33,8 +33,11 @@ async function main() {
     prisma.objectiveEvidenceTarget.findMany({ select: { id: true, status: true, obligationId: true, winningOperationId: true, winningReviewEventId: true, obligation: { select: { status: true } }, questionSnapshot: { select: { id: true } }, streamItems: { select: { id: true, status: true, objectiveEvidenceTargetId: true, objectiveQuestionSnapshotId: true, workObligationId: true, clientRevision: true } }, reviewEvents: { select: { id: true, operationId: true } } } }),
     prisma.evidenceObligation.count({ where: { kind: "REMEDIATION", status: { notIn: ["ANSWERED", "EXPIRED"] } } }),
     prisma.operationReceipt.groupBy({ by: ["actionKind"], _count: { _all: true } }),
+    prisma.user.findMany({ where: { accountName: { in: ["admin", "teacher", "teacher-reset", "teacher-analytics-3", "teacher-analytics-4", "student-test", "student-test_webkit"] } }, select: { accountName: true, role: true, status: true } }),
   ]);
   if (students !== 150 || teachers < 4 || events === 0 || encounters === 0 || days === 0) fail("示範帳號或學習 ledger 數量不符合預期。");
+  const requiredAccountNames = new Set(requiredAccounts.map((row) => row.accountName));
+  if (["admin", "teacher", "teacher-reset", "teacher-analytics-3", "teacher-analytics-4", "student-test", "student-test_webkit"].some((accountName) => !requiredAccountNames.has(accountName))) fail("標準本機測試帳號未完整建立。");
   if (openTargets || openObligations || liveSessions || liveItems) fail("示範資料仍有可續接的學習狀態。");
   if (learningItems !== encounters) fail("Learning Card 與 StudyEncounter 未能一一對應。");
   for (const target of objectiveTargets) {
