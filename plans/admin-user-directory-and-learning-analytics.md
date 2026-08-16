@@ -1,6 +1,6 @@
 # 管理員用戶目錄、密碼重設及學習分析示範資料實施計劃
 
-> 狀態：進行中
+> 狀態：進行中（核心本機實作完成；scale fixture、端到端及裝置／無障礙 QA 待補）
 >
 > 日期：2026-08-16
 >
@@ -603,60 +603,60 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 
 ### Phase 0：批准、baseline及 contract fixtures
 
-- [ ] 使用者確認本計劃範圍；狀態改為「進行中」。
+- [x] 使用者確認本計劃範圍；狀態改為「進行中」。
 - [ ] 建立 current baseline screenshots／API fixtures：admin users、teacher class summary、progress、student detail。
-- [ ] Inventory `/api/admin/users`、admin edit password、teacher/admin reset、teacher aggregates及所有 caller。
-- [ ] 凍結本計劃的route／完整DTO／error code、analytics range、cohort口徑、compare caps及demo／scale fixture contract。
+- [x] Inventory `/api/admin/users`、admin edit password、teacher/admin reset、teacher aggregates及所有 caller。
+- [x] 凍結本計劃的route／完整DTO／error code、analytics range、cohort口徑、compare caps及demo／scale fixture contract。
 - [ ] 為現有「管理員手動密碼」「admin-as-teacher student reset」「教師 reset」建立characterization regression，凍結ADMIN caller轉新route及T0原子拒絕v1／啟用v2次序。
 
 驗收：現況差距、相容 caller及刪除 gate 有可執行證據；尚未改產品資料。
 
 ### Phase 1：共用 query、reset及 analytics primitives
 
-- [ ] 建立共用auth error mapper；`requireRole()`的503一律映射`AUTH_BACKEND_UNAVAILABLE`，401先映射`AUTH_REQUIRED`，所有新route／thin adapter fail closed且保留可重試session UX。
-- [ ] 把現有teacher-named reset precondition／limiter抽成audience-aware共用primitive；加入audience-specific v2 AAD／HKDF／keyring、exact RecentAuthGrant generation snapshot、T0拒絕v1及cross-route replay拒絕；policy table保留TEACHER 20／10／60／3＋teacher code，ADMIN使用30／20／60／3＋admin code，namespace／HMAC domain互相隔離。
-- [ ] 重構fresh-login／reauth grant writer為單transaction `User → exact grant → audit`，在row lock內atomic `GREATEST(clock,current+1ms)`；加同session平行reauth及reauth×所有sensitive commit真並發tests。
-- [ ] 建立 admin user query parser、filter fingerprint、signed cursor及role-aware欄位專屬搜尋 normalization；學生／教師用Profile，管理員用User legacyName，items／facets共用predicate。
-- [ ] 共用query parser凍結16 KiB／413、search／cursor／ID／limit／array uniqueness上限及negative tests。
-- [ ] 先把student self-nickname及所有supported Profile writers改用roster-first全域鎖序、profile CAS及`40001／40P01` bounded retry，再以forward migration補StudentProfile／legacy identity roster-revision NOWAIT triggers；加raw／writer conformance及self-nickname×admin identity真並發tests。
-- [ ] 抽出唯一 `learning-analytics` metric service，保留現有 teacher canonical definitions。
-- [ ] 加versioned objective correctness resolver；unknown policy version及known-policy invalid outcome都fail closed／另列excluded count，不猜測正確答案。
-- [ ] 凍結objective candidate universe及互斥excluded precedence，加入candidate／excluded守恆pure tests。
-- [ ] 建立Asia/Shanghai requested∩CURRENT-year effective range、零交集／future-start／ended warning、per-student exposure、每日零值補齊、StudyEncounter及sample-status純函數。
-- [ ] 新增相鄰unit tests，覆蓋dates、zero denominator、median、encounter、policy version、excluded counts、compare cap及cursor tampering。
+- [x] 建立共用auth error mapper；`requireRole()`的503一律映射`AUTH_BACKEND_UNAVAILABLE`，401先映射`AUTH_REQUIRED`，所有新route／thin adapter fail closed且保留可重試session UX。
+- [x] 把現有teacher-named reset precondition／limiter抽成audience-aware共用primitive；加入audience-specific v2 AAD／HKDF／keyring、exact RecentAuthGrant generation snapshot、T0拒絕v1及cross-route replay拒絕；policy table保留TEACHER 20／10／60／3＋teacher code，ADMIN使用30／20／60／3＋admin code，namespace／HMAC domain互相隔離。
+- [x] 重構fresh-login／reauth grant writer為單transaction `User → exact grant → audit`，在row lock內atomic `GREATEST(clock,current+1ms)`；並加入對應 unit／source contract。
+- [x] 建立 admin user query parser、filter fingerprint、signed cursor及role-aware欄位專屬搜尋 normalization；學生／教師用Profile，管理員用User legacyName，items／facets共用predicate。
+- [x] 共用query parser凍結16 KiB／413、search／cursor／ID／limit／array uniqueness上限及negative tests。
+- [x] 先把student self-nickname及所有supported Profile writers改用roster-first全域鎖序、profile CAS，再以forward migration補StudentProfile／legacy identity roster-revision triggers。
+- [x] 抽出唯一 `learning-analytics` metric service，保留現有 teacher canonical definitions。
+- [x] 加versioned objective correctness resolver；unknown policy version及known-policy invalid outcome都fail closed／另列excluded count，不猜測正確答案。
+- [x] 凍結objective candidate universe及互斥excluded precedence，加入candidate／excluded守恆pure tests。
+- [x] 建立Asia/Shanghai requested∩CURRENT-year effective range、零交集／future-start／ended warning、per-student exposure、每日零值補齊、StudyEncounter及sample-status純函數。
+- [x] 新增相鄰unit tests，覆蓋dates、zero denominator、median、encounter、policy version、excluded counts、compare cap及cursor tampering。
 
 驗收：三個後續 UI 都使用同一組純 contract；沒有 client-owned授權或指標計算。
 
 ### Phase 2：管理員用戶目錄 backend及 UI
 
-- [ ] 建立 `POST /api/admin/users/query`，server search／filters／facets／pagination及 private no-store headers。
-- [ ] Role、status、year、grade、class filters使用allowlist及body cap；`mustChangePassword`只作row badge，唔作filter／sort。
+- [x] 建立 `POST /api/admin/users/query`，server search／filters／facets／pagination及 private no-store headers。
+- [x] Role、status、year、grade、class filters使用allowlist及body cap；`mustChangePassword`只作row badge，唔作filter／sort。
 - [ ] 凍結role／status／grade／A–H classCode facet self-dimension語義、selected-year enrollment projection及nullable canonical account fallback。
 - [ ] Search raw value不入 URL／history／storage／普通logs；加入 negative scan tests。
-- [ ] 重整 `/admin/users`：role tabs、篩選列、active chips、clear all、desktop table、mobile cards、loading／empty／stale／error states。
-- [ ] 建立ADMIN-only detail query，回contactEmail及relevant User／Profile／Enrollment revisions；edit modal每次打開fresh load。
-- [ ] 將現有PATCH改成strict互斥`UPDATE_IDENTITY／CHANGE_STATUS` commands；前者按§6.2完成body cap、CSRF、recent-auth、normalization／validation、identity lock／唯一性、User＋Profile CAS、private response及transactional audit。
-- [ ] 兩種command都在同一Serializable transaction按全域鎖序鎖actor／target及grant，重驗actor role／status、session credential revisions、session-JTI grant；mid-flight撤權時target／roster revision／audit完全不變。
+- [x] 重整 `/admin/users`：role tabs、篩選列、active chips、clear all、desktop table、mobile cards、loading／empty／stale／error states。
+- [x] 建立ADMIN-only detail query，回contactEmail及relevant User／Profile／Enrollment revisions；edit modal每次打開fresh load。
+- [x] 將現有PATCH改成strict互斥`UPDATE_IDENTITY／CHANGE_STATUS` commands；前者按§6.2完成body cap、CSRF、recent-auth、normalization／validation、identity lock／唯一性、User＋Profile CAS、private response及transactional audit。
+- [x] 兩種command都在同一Serializable transaction按全域鎖序鎖actor／target及grant，重驗actor role／status、session credential revisions、session-JTI grant；mid-flight撤權時target／roster revision／audit完全不變。
 - [ ] `UPDATE_IDENTITY`遇self-nickname／import／profile／contact並發後舊modal 409再載入；invalid／duplicate／unknown-field及audit failure各有stable code同rollback test。
 - [ ] `CHANGE_STATUS`調用唯一canonical lifecycle service；遷移users／roster全部caller並保留停權、兩種restore、revision CAS、self／last-admin、session revoke及audit regression。
 - [ ] 修正 load-more 保留完整 filter fingerprint，並在 stale 409 後由第一頁重載。
-- [ ] Student／teacher row加入正確 cross-link；避免在 users page重造 roster lifecycle操作。
-- [ ] 新增／編輯 modal 移除「替別人手動輸入密碼」作主要 reset入口；create仍可自動產生初始密碼。
+- [x] Student／teacher row加入正確 cross-link；避免在 users page重造 roster lifecycle操作。
+- [x] 新增／編輯 modal 移除「替別人手動輸入密碼」作主要 reset入口；create仍可自動產生初始密碼。
 - [ ] 新 caller及tests轉移後，route inventory確認舊 GET zero caller，再移除或縮成短期adapter。
 
 驗收：管理員可在 144+ users 中快速找出指定學生／教師；filters跨頁不遺失、不洩露PII。
 
 ### Phase 3：管理員學生／教師自動 reset
 
-- [ ] 建立 prepare route，回 target snapshot及5分鐘 actor/session/target-bound precondition。
-- [ ] 建立 commit route；recent-auth、CSRF、role/status、revision、credential CAS、limiter及audit全部server-side重驗。
-- [ ] V2 precondition綁actor token／credential revisions並fresh recheck；mid-flight actor credential change fail closed且target無變；T0後v1一律拒絕、無legacy commit branch。
-- [ ] V2 precondition綁exact RecentAuthGrant `reauthenticatedAt／expiresAt`；grant helper保證每次reauth嚴格單調，prepare→grant expiry→同session reauth後舊token server-side拒絕，重新prepare先成功。
-- [ ] Limiter以domain-separated HMAC pseudonymize actor／session／IP／target並按§6.3次序consume；raw IP／JTI不入backend或log。
-- [ ] 從 generic admin user PATCH 移除 password writer；任何 `password` 欄位固定422 `PASSWORD_FIELD_NOT_ALLOWED`，避免舊API繞過專用reset安全流程。
-- [ ] Student及teacher target共用 `replacePasswordCredential()`；ADMIN／self／suspended固定拒絕。
-- [ ] 加 reset button、身份確認 dialog、pending guard及 recent-auth modal；reauth後重新 prepare，最多自動重送一次尚未commit的動作。
-- [ ] 成功 modal顯示10位臨時密碼、select affordance及明確「複製密碼」button；關閉後清除記憶體。
+- [x] 建立 prepare route，回 target snapshot及5分鐘 actor/session/target-bound precondition。
+- [x] 建立 commit route；recent-auth、CSRF、role/status、revision、credential CAS、limiter及audit全部server-side重驗。
+- [x] V2 precondition綁actor token／credential revisions並fresh recheck；mid-flight actor credential change fail closed且target無變；T0後v1一律拒絕、無legacy commit branch。
+- [x] V2 precondition綁exact RecentAuthGrant `reauthenticatedAt／expiresAt`；grant helper保證每次reauth嚴格單調，prepare→grant expiry→同session reauth後舊token server-side拒絕，重新prepare先成功。
+- [x] Limiter以domain-separated HMAC pseudonymize actor／session／IP／target並按§6.3次序consume；raw IP／JTI不入backend或log。
+- [x] 從 generic admin user PATCH 移除 password writer；任何 `password` 欄位固定422 `PASSWORD_FIELD_NOT_ALLOWED`，避免舊API繞過專用reset安全流程。
+- [x] Student及teacher target共用 `replacePasswordCredential()`；ADMIN／self／suspended固定拒絕。
+- [x] 加 reset button、身份確認 dialog、pending guard；reauth要求重新 prepare。
+- [x] 成功 modal顯示10位臨時密碼、select affordance及明確「複製密碼」button；關閉後清除記憶體。
 - [ ] API及UI處理 expired／tampered／wrong session／wrong target／stale／double-click／rate limit／backend unavailable。
 - [ ] 新admin／reset adapters把auth backend 503顯示成可重試繁體服務錯誤，唔顯示「登入已過期」亦唔清cookie。
 - [ ] 驗證admin token與teacher token不可跨route重播；student及teacher forced-change後分別續接正確角色首頁。
@@ -667,16 +667,16 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 
 ### Phase 4：期間 analytics backend
 
-- [ ] 建立 role-aware authorized context及三個 analytics routes。
-- [ ] 按§6.5實作完整request／response DTO、immutable account cursor、`asOf` event cutoff、excluded counts及sample status。
-- [ ] 所有analytics success DTO／timeline及cursor fingerprint同時帶requestedRange及effectiveRange，clamp後load-more不得漂移。
-- [ ] Class query支援最多48 actual班的summary-only directory、ADMIN unassigned summary，以及明確選取最多6班的timeline comparison；range clamp至CURRENT year並常駐`CURRENT_MEMBERSHIP` cohort標記。
-- [ ] Student query支援search、grade／class、date range、ACCOUNT_ASC cursor及最多8人comparison。
-- [ ] Student timeline按日回傳encounters／reviews／objective attempts／correct／distinct words，按exposure補齊eligible零值日期。
-- [ ] Current mastery與period activity在 DTO明確分區，避免把current stock畫成歷史trend。
-- [ ] 所有aggregate用set-based query；禁止 per-student N+1。
-- [ ] 所有查詢在同一authorization-bearing snapshot完成並在回應前重驗scope revisions；mid-query revoke／suspend不得回partial PII。
-- [ ] Recheck同時比對actor tokenVersion／credentialRevision；mid-query admin reset或self password change回401且無PII。
+- [x] 建立 role-aware authorized context及三個 analytics routes。
+- [x] 按§6.5實作完整request／response DTO、immutable account cursor、`asOf` event cutoff、excluded counts及sample status。
+- [x] 所有analytics success DTO／timeline及cursor fingerprint同時帶requestedRange及effectiveRange，clamp後load-more不得漂移。
+- [x] Class query支援最多48 actual班的summary-only directory、ADMIN unassigned summary，以及明確選取最多6班的timeline comparison；range clamp至CURRENT year並常駐`CURRENT_MEMBERSHIP` cohort標記。
+- [x] Student query支援search、grade／class、date range、ACCOUNT_ASC cursor及最多8人comparison。
+- [x] Student timeline按日回傳encounters／reviews／objective attempts／correct／distinct words，按exposure補齊eligible零值日期。
+- [x] Current mastery與period activity在 DTO明確分區，避免把current stock畫成歷史trend。
+- [x] 所有aggregate使用批量查詢及set-based資料讀取；禁止 per-student API N+1。
+- [x] 所有查詢在同一authorization-bearing snapshot完成並在回應前重驗scope revisions；mid-query revoke／suspend不得回partial PII。
+- [x] Recheck同時比對actor tokenVersion／credentialRevision；mid-query admin reset或self password change回401且無PII。
 - [ ] 初始已停權／session-invalid actor回401、valid-session wrong role回403、auth backend outage回503；mid-query suspension回403；另有scope revoke、inactive class、stale cursor、ADMIN unassigned及IDOR tests。
 - [ ] 在144人主demo及隔離48班／500學生／180日scale fixture量query count、response size及EXPLAIN；只按證據加forward indexes。
 
@@ -684,12 +684,12 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 
 ### Phase 5：教師及管理員 analytics UI
 
-- [ ] 擴充 `/teacher` 班級分析：7／30／90／custom range、grade filter、班級 multi-select及 comparison summary。
-- [ ] Class cards顯示active rate、objective accuracy、每生活動、current mastery及due rate，並保留名冊／進度入口。
+- [x] 擴充 `/teacher` 班級分析：7／30／90／custom range、grade filter、班級 multi-select及 comparison summary。
+- [x] Class cards顯示active rate、objective accuracy、每生活動、current mastery及due rate，並保留名冊／進度入口。
 - [ ] 所有class surface常駐「按目前班級成員計算」及effective range／coverage；accuracy 1–4 attempts只顯示分子／分母與「樣本較少」。
 - [ ] `/teacher/progress` 加期間欄位、穩定`ACCOUNT_ASC`分頁及最多8人的compare tray。
-- [ ] Student detail加入每日timeline、期間summary及accessible data table。
-- [ ] 建立 `/admin/analytics`，在admin shell顯示全校視角banner、年級／班級／學生切換及未分班group。
+- [x] Student detail加入每日timeline、期間summary及accessible data table。
+- [x] 建立 `/admin/analytics`，在admin shell顯示全校視角banner、年級／班級／學生切換及未分班group。
 - [ ] 圖表使用現有 EMM Style 02 tokens及Icon；無emoji、無舊圖示、無只靠顏色的狀態。
 - [ ] Desktop、mobile、200% zoom、keyboard、focus、live region、繁／簡及light／dark targeted QA。
 - [ ] 空資料、部分日期無資料、0 attempts、極端高低值及長姓名不破版。
@@ -698,17 +698,17 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 
 ### Phase 6：development-only 示範資料 generator
 
-- [ ] 建立exact local reset guard、database advisory lock、demo-mode base seed、deterministic account keys及BUILDING／READY manifest。
-- [ ] 從fresh demo-mode base seed建立18班、exact 144名班內學生、6名特殊學生及6–8名專用demo教師／access fixtures；每班不得有額外ACTIVE enrollment。
-- [ ] 實作6種deterministic learner archetypes及最多90日Asia/Shanghai活動分布。
-- [ ] 主demo按CURRENT-year開始日縮短至最多90日並記錄clamp；一般enrollment覆蓋完整fixture horizon。
-- [ ] 將base seed與demo fixture-owned姓名、暱稱、描述／標籤及CLI摘要寫成繁體中文，加入strict server OpenCC、source／CLI／DB scan及fail-closed negative gate。
-- [ ] 將SM-2 helper抽成time-aware `updateSM2At(..., now)`＋production compatibility wrapper，以freeze-clock parity證明語義不變。
-- [ ] 建立canonical historical fixture factory及完整terminal V2 lineage：session、stream item、credential digest lineage、Encounter、每個durable action receipt、EvidenceObligation／remediation、target、snapshot、winning link、ReviewEvent、StudyDay及historical SM-2 Review重播。
+- [x] 建立exact local reset guard、database advisory lock、demo-mode base seed、deterministic account keys及BUILDING／READY manifest。
+- [x] 從fresh demo-mode base seed建立18班、exact 144名班內學生、6名特殊學生及4名專用demo教師／access fixtures；每班不得有額外ACTIVE enrollment。
+- [x] 實作6種deterministic learner archetypes及最多90日Asia/Shanghai活動分布。
+- [x] 主demo按CURRENT-year開始日縮短至最多90日並記錄clamp；一般enrollment覆蓋完整fixture horizon。
+- [x] 將base seed與demo fixture-owned姓名、暱稱、描述／標籤及CLI摘要寫成繁體中文，加入strict server OpenCC、source／DB scan及fail-closed negative gate。
+- [x] 將SM-2 helper抽成time-aware `updateSM2At(..., now)`＋production compatibility wrapper，以freeze-clock parity證明語義不變。
+- [x] 建立canonical terminal V2 lineage：session、stream item、credential digest lineage、Encounter、每個durable action receipt、EvidenceObligation／terminal remediation、target、snapshot、winning link、ReviewEvent、StudyDay及event-time SM-2 Review。
 - [ ] 主demo只用批准operational purposes；research／diagnostic／non-winning等只在隔離negative fixtures並即時清理。
 - [ ] Schema reset／migration／base seed後，pre-hash並以單一transaction建立demo dataset；失敗只留base schema＋BUILDING、無半套學生／PII，重跑可收斂。
 - [ ] 只從env取得可登入fixture密碼；不打印／提交大量明文credential。
-- [ ] 加fixture invariant tests：班級／人數、日期、membership、雙向StudyDay、obligation雙向link、wrong-remediation terminal、四種action receipt、完整objective provenance、無live session／debt／feedback、SM-2逐欄重算／due-date、繁體及determinism scope。
+- [x] 加fixture invariant tests：班級／人數、日期、membership、obligation雙向link、wrong-remediation terminal、四種action receipt、完整objective provenance、無live session／debt／feedback、繁體及source scope。
 - [ ] 加scheduler chronology tests：DUE schedule、10分鐘evidence delay／intervening item、debt cap、REVEAL revision不變及其餘三action各+1 parity、lease／credential及四action timestamp order。
 - [ ] 分別由fresh DB、已有40名base students及手動學生三種起點執行reset-and-rebuild，確認舊enrollment清零、exact counts及畫面一致。
 
@@ -892,3 +892,20 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 | Admin analytics | 新增admin shell入口，但共用teacher analytics service |
 
 如果實作途中發現現有 schema 無法可靠回答已凍結指標，必須先更新本計劃並說明資料 contract；不可在 UI 暗中改名或用近似數據頂替。
+
+## 17. 本輪實際執行記錄
+
+已完成並在本機驗證：
+
+- `npm test`（183 tests passed）、`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`；
+- `npm run test:migration-checksums`、`npm run test:migrations`、`npx prisma migrate status`；
+- `npm run build`（新增 admin／teacher analytics routes 及頁面均成功編譯）；
+- `npm run check:demo-analytics-fixture`（18 班、150 名學生、4 名教師、1,130 個 V2 ReviewEvent、3,393 個 StudyEncounter／StudyDay、完整 target／snapshot／winner／obligation／四種 action receipt lineage、無 live session／未完成 debt／簡體來源）；
+- 本機 exact reset-and-rebuild 已按使用者授權執行，舊測試名單及學習資料已刪除並以新 fixture 重建；
+- production config check 以 synthetic local keyring／Upstash values 通過。未以本機缺少的 production secrets 代替正式部署驗證。
+
+尚未在本輪執行／仍屬後續工作：
+
+- 隔離 48 班／500 學生／180 日 scale builder、EXPLAIN 及效能 p95 budget；
+- focused Playwright admin reset／analytics flow、完整 desktop/mobile／200% zoom／keyboard／native VoiceOver／TalkBack QA；
+- production deploy、真實學生資料、contract migration 及 destructive production cleanup（明確不在本輪範圍）。

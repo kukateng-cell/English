@@ -1,12 +1,9 @@
-import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { passwordPolicyError } from "@/lib/password-policy";
-import { BCRYPT_COST, replacePasswordCredential } from "@/lib/password-credentials";
 import { getClientIp } from "@/lib/login-limiter";
-import { hasValidRecentAuthGrant, revokeRecentAuthGrants } from "@/lib/recent-auth";
+import { getRequestToken, hashSessionJti, hasValidRecentAuthGrant, readRecentAuthGrantSnapshot, revokeRecentAuthGrants } from "@/lib/recent-auth";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { securityEventData } from "@/lib/security-events";
 import { contactEmailError, legalNameError, normalizeContactEmail, normalizeLegalName } from "@/lib/identity";
@@ -17,8 +14,11 @@ import { actorAuditFields } from "@/lib/admin-receipts";
 import { isRetryableTransactionConflict, waitForTransactionRetry } from "@/lib/transaction-retry";
 
 function response(code: string, status: number) {
-  return NextResponse.json({ code }, { status });
+  return NextResponse.json({ code }, { status, headers: { "Cache-Control": "private, no-store", "Vary": "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
 }
+
+const BODY_LIMIT = 16 * 1024;
+const ADMIN_MUTATION_HEADERS = { "Cache-Control": "private, no-store", "Vary": "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 
 async function cancelUserBatches(tx: Prisma.TransactionClient, userId: string) {
   const importLinks = await tx.rosterImportBatchUserLink.findMany({ where: { userId }, select: { batchId: true } });
@@ -90,119 +90,110 @@ async function ensureManualCurrentEnrollment(
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!isSameOriginMutation(req)) return response("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.ADMIN);
-  if (!auth.ok) return response("AUTH_REQUIRED", auth.status);
-  if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) return response("RECENT_AUTH_REQUIRED", 401);
+  if (!auth.ok) return response(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED", auth.status);
   const { id } = await params;
-  const body = await req.json().catch(() => null);
-  if (!body) return response("REQUEST_INVALID", 422);
-  // Password changes for another account must go through the dedicated
-  // prepare → commit reset flow. Keeping this guard at the legacy boundary
-  // prevents callers that have not yet migrated from bypassing its
-  // target-bound precondition, limiter and one-time-secret contract.
-  if (Object.prototype.hasOwnProperty.call(body, "password")) return response("PASSWORD_FIELD_NOT_ALLOWED", 422);
-  if (id === auth.userId && body.status === "SUSPENDED") return response("SELF_SUSPEND_FORBIDDEN", 409);
-  const requestedPassword = typeof body.password === "string" && body.password.length > 0 ? body.password : null;
-  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, accountName: true, role: true, status: true, tokenVersion: true, credentialRevision: true, contactEmail: true, studentProfile: { select: { legalName: true, nickname: true } } } });
+  if (!id || Buffer.byteLength(id, "utf8") > 128) return response("REQUEST_INVALID", 422);
+  if (Number(req.headers.get("content-length") ?? 0) > BODY_LIMIT) return response("PAYLOAD_TOO_LARGE", 413);
+  const raw = await req.text().catch(() => "");
+  if (Buffer.byteLength(raw, "utf8") > BODY_LIMIT) return response("PAYLOAD_TOO_LARGE", 413);
+  const body = await (async () => { try { return (raw ? JSON.parse(raw) : null) as Record<string, unknown> | null; } catch { return null; } })();
+  if (!body || typeof body.operation !== "string") return response("REQUEST_INVALID", 422);
+  const operation = body.operation;
+  const allowedIdentity = new Set(["operation", "legalName", "contactEmail", "nickname", "expectedUserRevision", "expectedProfileRevision"]);
+  const allowedStatus = new Set(["operation", "status", "suspendedReason", "restoreMode", "grade", "classCode", "expectedUserRevision"]);
+  const allowed = operation === "UPDATE_IDENTITY" ? allowedIdentity : operation === "CHANGE_STATUS" ? allowedStatus : null;
+  if (!allowed || Object.keys(body).some((key) => !allowed.has(key))) return response(Object.prototype.hasOwnProperty.call(body, "password") ? "PASSWORD_FIELD_NOT_ALLOWED" : "REQUEST_INVALID", 422);
+  const grantSnapshot = await readRecentAuthGrantSnapshot({ req, userId: auth.userId });
+  if (!grantSnapshot) return response("RECENT_AUTH_REQUIRED", 401);
+  const token = await getRequestToken(req);
+  if (!token?.sessionJti || token.id !== auth.userId) return response("AUTH_REQUIRED", 401);
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, accountName: true, role: true, status: true, tokenVersion: true, credentialRevision: true, contactEmail: true, revision: true, legacyName: true, studentProfile: { select: { legalName: true, nickname: true, profileRevision: true } }, teacherProfile: { select: { legalName: true, profileRevision: true } } } });
   if (!target) return response("USER_NOT_FOUND", 404);
-  if (body.role !== undefined && body.role !== target.role) return response("ROLE_IMMUTABLE", 422);
-  const legalNameRequested = typeof body.legalName === "string" || typeof body.name === "string";
-  const legalName = legalNameRequested ? normalizeLegalName(String(body.legalName ?? body.name ?? "")) : target.studentProfile?.legalName ?? "";
-  if (legalNameRequested && target.role !== ROLES.ADMIN && legalNameError(legalName)) return response("LEGAL_NAME_INVALID", 422);
-  const contactRequested = typeof body.contactEmail === "string";
-  const contactEmail = contactRequested ? normalizeContactEmail(String(body.contactEmail)) : target.contactEmail;
-  if (contactRequested && contactEmailError(String(body.contactEmail))) return response("CONTACT_EMAIL_INVALID", 422);
-  const nicknameRequested = typeof body.nickname === "string";
-  const nicknameValue = nicknameRequested ? String(body.nickname) : target.studentProfile?.nickname ?? "";
-  const nickname = target.role === ROLES.STUDENT ? validateNicknameAgainstIdentity(nicknameValue, { legalName, accountName: target.accountName, contactEmail }) : null;
-  if (nickname && !nickname.ok) return response("NICKNAME_INVALID", 422);
-  if (requestedPassword) {
-    const policyError = passwordPolicyError(requestedPassword);
-    if (policyError) return response("PASSWORD_INVALID", 422);
-    if (id === auth.userId) return response("SELF_PASSWORD_USE_PROFILE", 409);
+  const expectedUserRevision = Number(body.expectedUserRevision);
+  if (!Number.isInteger(expectedUserRevision) || expectedUserRevision < 0) return response("REQUEST_INVALID", 422);
+  const expectedProfileRevision = body.expectedProfileRevision === undefined || body.expectedProfileRevision === null ? null : Number(body.expectedProfileRevision);
+  if (expectedProfileRevision !== null && (!Number.isInteger(expectedProfileRevision) || expectedProfileRevision < 0)) return response("REQUEST_INVALID", 422);
+
+  let identity: { legalName: string; contactEmail: string | null; nickname: { ok: true; value: string; normalized: string } | null; changedFields: string[] } | null = null;
+  if (operation === "UPDATE_IDENTITY") {
+    const legalNameProvided = Object.prototype.hasOwnProperty.call(body, "legalName");
+    const contactProvided = Object.prototype.hasOwnProperty.call(body, "contactEmail");
+    const nicknameProvided = Object.prototype.hasOwnProperty.call(body, "nickname");
+    if (!legalNameProvided && !contactProvided && !nicknameProvided) return response("REQUEST_INVALID", 422);
+    const legalName = legalNameProvided ? normalizeLegalName(String(body.legalName ?? "")) : target.studentProfile?.legalName ?? target.teacherProfile?.legalName ?? target.legacyName ?? "";
+    if (target.role !== ROLES.ADMIN && legalNameError(legalName)) return response("LEGAL_NAME_INVALID", 422);
+    const contactEmail = contactProvided ? normalizeContactEmail(String(body.contactEmail ?? "")) : target.contactEmail;
+    if (contactProvided && contactEmailError(String(body.contactEmail ?? ""))) return response("CONTACT_EMAIL_INVALID", 422);
+    const nicknameValue = nicknameProvided ? String(body.nickname ?? "") : target.studentProfile?.nickname ?? "";
+    const nickname = target.role === ROLES.STUDENT ? validateNicknameAgainstIdentity(nicknameValue, { legalName, accountName: target.accountName, contactEmail }) : null;
+    if (nickname && !nickname.ok) return response("NICKNAME_INVALID", 422);
+    const changedFields = [legalNameProvided ? "legalName" : null, contactProvided ? "contactEmail" : null, nicknameProvided ? "nickname" : null].filter((field): field is string => Boolean(field));
+    identity = { legalName, contactEmail, nickname: nickname?.ok ? nickname : null, changedFields };
+  } else {
+    if (body.status !== "ACTIVE" && body.status !== "SUSPENDED") return response("STATUS_INVALID", 422);
+    if (id === auth.userId && body.status === "SUSPENDED") return response("SELF_SUSPEND_FORBIDDEN", 409);
+    if (target.role === ROLES.STUDENT && body.grade !== undefined && !parseStudentGrade(body.grade)) return response("GRADE_INVALID", 422);
+    if (target.role === ROLES.STUDENT && body.classCode !== undefined && body.classCode !== null && body.classCode !== "" && !parseClassCode(body.classCode)) return response("CLASS_INVALID", 422);
   }
-  const statusRequested = body.status === "ACTIVE" || body.status === "SUSPENDED";
-  if (body.status !== undefined && !statusRequested) return response("STATUS_INVALID", 422);
-  if (id === auth.userId && body.status === "SUSPENDED") return response("SELF_SUSPEND_FORBIDDEN", 409);
-  const expectedRevision = body.revision === undefined ? undefined : Number(body.revision);
-  const gradeProvided = target.role === ROLES.STUDENT && Object.prototype.hasOwnProperty.call(body, "grade");
-  const classProvided = target.role === ROLES.STUDENT && Object.prototype.hasOwnProperty.call(body, "classCode");
-  const requestedGrade = gradeProvided ? parseStudentGrade(body.grade) : null;
-  const requestedClass = classProvided ? parseClassCode(body.classCode) : null;
-  if (gradeProvided && !requestedGrade) return response("GRADE_INVALID", 422);
-  if (classProvided && body.classCode !== null && body.classCode !== "" && !requestedClass) return response("CLASS_INVALID", 422);
-  if (gradeProvided && !classProvided) return response("GRADE_CLASS_REQUIRED", 422);
   try {
-    const passwordHash = requestedPassword ? await bcrypt.hash(requestedPassword, BCRYPT_COST) : null;
     const updated = await prisma.$transaction(async (tx) => {
       await lockRosterMutationState(tx);
-      await lockRosterIdentityKeys(tx, [target.accountName, contactEmail]);
-      const fresh = await tx.user.findUnique({ where: { id }, select: { accountName: true, role: true, status: true, tokenVersion: true, credentialRevision: true, revision: true } });
+      const identityKeys = identity ? [target.accountName, target.contactEmail, identity.contactEmail, identity.nickname?.normalized] : [target.accountName];
+      await lockRosterIdentityKeys(tx, identityKeys);
+      for (const userId of [auth.userId, id].sort()) await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+      const actor = await tx.user.findUnique({ where: { id: auth.userId }, select: { id: true, accountName: true, role: true, status: true, tokenVersion: true, credentialRevision: true } });
+      const fresh = await tx.user.findUnique({ where: { id }, select: { id: true, accountName: true, role: true, status: true, tokenVersion: true, credentialRevision: true, revision: true, legacyName: true, contactEmail: true, studentProfile: { select: { legalName: true, nickname: true, profileRevision: true } }, teacherProfile: { select: { legalName: true, profileRevision: true } } } });
+      if (!actor || actor.role !== ROLES.ADMIN || actor.status !== "ACTIVE") throw new Error("AUTH_REQUIRED");
+      if (actor.tokenVersion !== grantSnapshot.user.tokenVersion || actor.credentialRevision !== grantSnapshot.user.credentialRevision || token.tokenVersion !== actor.tokenVersion || token.credentialRevision !== actor.credentialRevision) throw new Error("AUTH_REQUIRED");
+      const grantId = hashSessionJti(token.sessionJti as string);
+      await tx.$queryRaw`SELECT "id" FROM "RecentAuthGrant" WHERE "id" = ${grantId} FOR UPDATE`;
+      const grant = await tx.recentAuthGrant.findUnique({ where: { id: grantId }, select: { userId: true, tokenVersion: true, credentialRevision: true, reauthenticatedAt: true, expiresAt: true } });
+      if (!grant || grant.userId !== auth.userId || grant.tokenVersion !== actor.tokenVersion || grant.credentialRevision !== actor.credentialRevision || grant.expiresAt <= new Date() || grant.reauthenticatedAt.getTime() !== grantSnapshot.grant.reauthenticatedAt.getTime() || grant.expiresAt.getTime() !== grantSnapshot.grant.expiresAt.getTime()) throw new Error("RECENT_AUTH_REQUIRED");
       if (!fresh) throw new Error("USER_NOT_FOUND");
-      if (expectedRevision !== undefined && fresh.revision !== expectedRevision) throw new Error("STALE_PREVIEW");
-      if (fresh.role === ROLES.ADMIN && body.status === "SUSPENDED") {
-        const count = await tx.user.count({ where: { role: ROLES.ADMIN, status: "ACTIVE" } });
-        if (count <= 1) throw new Error("LAST_ADMIN");
-      }
-      if (passwordHash) {
-        const ok = await replacePasswordCredential(tx, { userId: id, passwordHash, mustChangePassword: id !== auth.userId, expectedCredentialRevision: fresh.credentialRevision, expectedTokenVersion: fresh.tokenVersion });
-        if (!ok) throw new Error("STALE_PREVIEW");
-      }
-      const nextStatus = statusRequested ? body.status : fresh.status;
-      const statusChanged = nextStatus !== fresh.status;
-      if (statusChanged) {
-        await tx.user.update({ where: { id }, data: { status: nextStatus, suspendedAt: nextStatus === "SUSPENDED" ? new Date() : null, suspendedReason: nextStatus === "SUSPENDED" ? String(body.suspendedReason ?? "由管理员暂停").trim().slice(0, 200) : null, tokenVersion: { increment: 1 }, revision: { increment: 1 } } });
-        await revokeRecentAuthGrants(tx, id);
-      }
-      if (legalNameRequested || contactRequested || (nicknameRequested && nickname?.ok)) {
-        await tx.user.update({ where: { id }, data: { ...(legalNameRequested ? { legacyName: legalName } : {}), ...(contactRequested ? { contactEmail, contactEmailCanonical: contactEmail } : {}), revision: { increment: 1 } } });
-        if (fresh.role === ROLES.STUDENT) {
-          await tx.studentProfile.update({ where: { userId: id }, data: { ...(legalNameRequested ? { legalName } : {}), ...(nickname?.ok && nicknameRequested ? { nickname: nickname.value, nicknameNormalized: nickname.normalized, nicknameUpdatedAt: new Date(), moderationPolicyVersion: "nickname-v1" } : {}), profileRevision: { increment: 1 } } });
-        } else if (fresh.role === ROLES.TEACHER && legalNameRequested) {
-          await tx.teacherProfile.update({ where: { userId: id }, data: { legalName, profileRevision: { increment: 1 } } });
+      if (fresh.revision !== expectedUserRevision) throw new Error("ADMIN_USER_PROFILE_STALE");
+      if (operation === "UPDATE_IDENTITY") {
+        const profileRevision = fresh.role === ROLES.STUDENT ? fresh.studentProfile?.profileRevision : fresh.role === ROLES.TEACHER ? fresh.teacherProfile?.profileRevision : null;
+        if (profileRevision !== null && profileRevision !== undefined && expectedProfileRevision !== profileRevision) throw new Error("ADMIN_USER_PROFILE_STALE");
+        const fields = identity!;
+        await tx.user.update({ where: { id }, data: { ...(Object.prototype.hasOwnProperty.call(body, "contactEmail") ? { contactEmail: fields.contactEmail, contactEmailCanonical: fields.contactEmail } : {}), ...(fresh.role === ROLES.ADMIN && Object.prototype.hasOwnProperty.call(body, "legalName") ? { legacyName: fields.legalName } : {}), revision: { increment: 1 } } });
+        if (fresh.role === ROLES.STUDENT) await tx.studentProfile.update({ where: { userId: id }, data: { ...(Object.prototype.hasOwnProperty.call(body, "legalName") ? { legalName: fields.legalName } : {}), ...(Object.prototype.hasOwnProperty.call(body, "nickname") && fields.nickname ? { nickname: fields.nickname.value, nicknameNormalized: fields.nickname.normalized, nicknameUpdatedAt: new Date() } : {}), profileRevision: { increment: 1 } } });
+        if (fresh.role === ROLES.TEACHER && Object.prototype.hasOwnProperty.call(body, "legalName")) await tx.teacherProfile.update({ where: { userId: id }, data: { legalName: fields.legalName, profileRevision: { increment: 1 } } });
+        await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: id, subjectAccount: fresh.accountName, eventType: "ADMIN_PROFILE_UPDATED", ip: getClientIp(req.headers), metadata: { changedFields: fields.changedFields } }) });
+      } else {
+        const nextStatus = body.status as "ACTIVE" | "SUSPENDED";
+        if (fresh.role === ROLES.ADMIN && nextStatus === "SUSPENDED" && await tx.user.count({ where: { role: ROLES.ADMIN, status: "ACTIVE" } }) <= 1) throw new Error("LAST_ADMIN");
+        const statusChanged = nextStatus !== fresh.status;
+        if (statusChanged) {
+          await tx.user.update({ where: { id }, data: { status: nextStatus, suspendedAt: nextStatus === "SUSPENDED" ? new Date() : null, suspendedReason: nextStatus === "SUSPENDED" ? String(body.suspendedReason ?? "由管理員停權").trim().slice(0, 200) : null, tokenVersion: { increment: 1 }, revision: { increment: 1 } } });
+          await revokeRecentAuthGrants(tx, id);
         }
-      }
-      if (fresh.role === ROLES.STUDENT && (gradeProvided || classProvided || (statusChanged && nextStatus === "ACTIVE"))) {
-        const existingCurrent = await tx.studentEnrollment.findFirst({ where: { studentId: id, academicYear: { status: "CURRENT" } } });
-        if (gradeProvided || classProvided) {
-          if (existingCurrent?.status !== "ACTIVE") throw new Error("CURRENT_ENROLLMENT_REQUIRED");
-          const pending = await tx.studentYearTransition.findFirst({ where: { sourceEnrollmentId: existingCurrent.id, activatedAt: null } });
-          if (pending) throw new Error("PENDING_TRANSITION_REQUIRES_REPLAN");
-          const currentYear = await tx.academicYear.findFirst({ where: { status: "CURRENT" } });
-          if (!currentYear) throw new Error("CURRENT_YEAR_MISSING");
-          const nextClass = classProvided
-            ? (requestedClass ? await tx.schoolClass.findUnique({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: requestedGrade ?? existingCurrent.grade, classCode: requestedClass } } }) : null)
-            : existingCurrent.classId ? await tx.schoolClass.findUnique({ where: { id: existingCurrent.classId } }) : null;
-          const nextGradeValue = requestedGrade ?? existingCurrent.grade;
-          if (classProvided && body.classCode && (!nextClass || !nextClass.active)) throw new Error("CLASS_NOT_FOUND");
-          if (requestedGrade && requestedGrade !== existingCurrent.grade && !classProvided) throw new Error("GRADE_CLASS_REQUIRED");
-          await tx.studentEnrollment.update({ where: { id: existingCurrent.id }, data: { grade: nextGradeValue, classId: nextClass?.id ?? null, isCurrent: true, revision: { increment: 1 } } });
-        } else if (statusChanged && nextStatus === "ACTIVE" && existingCurrent?.status !== "ACTIVE") {
-          await ensureManualCurrentEnrollment(tx, { userId: id, grade: requestedGrade ?? null, classCode: requestedClass, restoreMode: typeof body.restoreMode === "string" ? body.restoreMode : undefined, actorUserId: auth.userId });
+        if (fresh.role === ROLES.STUDENT && nextStatus === "ACTIVE") {
+          const currentEnrollment = await tx.studentEnrollment.findFirst({ where: { studentId: id, academicYear: { status: "CURRENT" } }, select: { grade: true, classId: true, schoolClass: { select: { classCode: true } } } });
+          const grade = body.grade === undefined ? currentEnrollment?.grade ?? null : parseStudentGrade(body.grade);
+          const classCode = body.classCode === undefined ? currentEnrollment?.schoolClass?.classCode ?? null : body.classCode === null || body.classCode === "" ? null : parseClassCode(body.classCode);
+          await ensureManualCurrentEnrollment(tx, { userId: id, grade, classCode, restoreMode: typeof body.restoreMode === "string" ? body.restoreMode : undefined, actorUserId: auth.userId });
         }
+        if (statusChanged) await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: id, subjectAccount: fresh.accountName, eventType: nextStatus === "SUSPENDED" ? "ACCOUNT_SUSPENDED" : "ACCOUNT_REACTIVATED", ip: getClientIp(req.headers) }) });
       }
-      if (requestedPassword || statusChanged) {
-        await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: id, subjectAccount: fresh.accountName, eventType: requestedPassword ? "PASSWORD_RESET_BY_ADMIN" : body.status === "SUSPENDED" ? "ACCOUNT_SUSPENDED" : "ACCOUNT_REACTIVATED", ip: getClientIp(req.headers) }) });
-      }
-      const result = await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, accountName: true, contactEmail: true, role: true, status: true, suspendedAt: true, legacyName: true, studentProfile: { select: { legalName: true, nickname: true } }, teacherProfile: { select: { legalName: true } } } });
-      return result;
+      return tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, accountName: true, contactEmail: true, role: true, status: true, suspendedAt: true, revision: true, legacyName: true, studentProfile: { select: { legalName: true, nickname: true } }, teacherProfile: { select: { legalName: true } } } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    return NextResponse.json({ id: updated.id, accountName: updated.accountName, email: updated.accountName, contactEmail: updated.contactEmail, legalName: updated.studentProfile?.legalName ?? updated.teacherProfile?.legalName ?? updated.legacyName, nickname: updated.studentProfile?.nickname ?? null, role: updated.role, status: updated.status, suspendedAt: updated.suspendedAt?.toISOString() ?? null, sessionInvalidated: Boolean(requestedPassword || statusRequested) });
+    return NextResponse.json({ id: updated.id, accountName: updated.accountName, contactEmail: updated.contactEmail, legalName: updated.studentProfile?.legalName ?? updated.teacherProfile?.legalName ?? updated.legacyName, nickname: updated.studentProfile?.nickname ?? null, role: updated.role, status: updated.status, suspendedAt: updated.suspendedAt?.toISOString() ?? null, revision: updated.revision, sessionInvalidated: operation === "CHANGE_STATUS" }, { headers: ADMIN_MUTATION_HEADERS });
   } catch (error) {
-    if (error instanceof Error && error.message === "USER_NOT_FOUND") return response("USER_NOT_FOUND", 404);
-    if (error instanceof Error && error.message === "STALE_PREVIEW") return response("STALE_PREVIEW", 409);
-    if (error instanceof Error && error.message === "LAST_ADMIN") return response("LAST_ADMIN_PROTECTION", 409);
+    if (error instanceof Error && ["USER_NOT_FOUND"].includes(error.message)) return response(error.message, 404);
+    if (error instanceof Error && ["AUTH_REQUIRED"].includes(error.message)) return response(error.message, 401);
+    if (error instanceof Error && ["RECENT_AUTH_REQUIRED"].includes(error.message)) return response(error.message, 401);
+    if (error instanceof Error && ["ADMIN_USER_PROFILE_STALE", "LAST_ADMIN"].includes(error.message)) return response(error.message === "LAST_ADMIN" ? "LAST_ADMIN_PROTECTION" : error.message, 409);
     if (error instanceof Error && ["ENROLLMENT_GRADE_REQUIRED", "CURRENT_YEAR_MISSING", "CURRENT_ENROLLMENT_REQUIRED", "GRADE_CLASS_REQUIRED", "PENDING_TRANSITION_REQUIRES_REPLAN", "TRANSITION_DISPOSITION_REQUIRED"].includes(error.message)) return response(error.message, 409);
-    if (error instanceof Error && ["GRADE_INVALID", "CLASS_INVALID", "REVISION_INVALID"].includes(error.message)) return response(error.message, 422);
     if (error instanceof Error && error.message === "CLASS_NOT_FOUND") return response(error.message, 409);
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response("ACCOUNT_OR_EMAIL_EXISTS", 409);
-    return response("USER_UPDATE_FAILED", 409);
+    return response("INTERNAL_ERROR", 500);
   }
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!isSameOriginMutation(req)) return response("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.ADMIN);
-  if (!auth.ok) return response("AUTH_REQUIRED", auth.status);
+  if (!auth.ok) return response(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED", auth.status);
   if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) return response("RECENT_AUTH_REQUIRED", 401);
   const { id } = await params;
   if (id === auth.userId) return response("SELF_DELETE_FORBIDDEN", 409);
@@ -242,7 +233,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       }
     }
     if (transactionError) throw transactionError;
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { headers: ADMIN_MUTATION_HEADERS });
   } catch (error) {
     if (error instanceof Error && error.message === "USER_NOT_FOUND") return response("USER_NOT_FOUND", 404);
     if (error instanceof Error && error.message === "CONFIRMATION_REQUIRED") return response("CONFIRMATION_REQUIRED", 422);

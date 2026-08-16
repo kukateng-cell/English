@@ -254,8 +254,17 @@ export async function queryAdminUserDirectory(query: AdminDirectoryQuery) {
   const pageUsers = hasNext ? users.slice(0, query.limit) : users;
   const items = pageUsers.map((user) => project(user, yearId));
 
-  const facetItems = await prisma.user.findMany({ where: buildWhere({ ...query, cursor: undefined }, yearId), select: baseSelect, orderBy: [{ accountName: "asc" }, { id: "asc" }], take: 5_001 });
-  const facets = countFacet(facetItems.map((user) => project(user, yearId)));
+  const facetQueries = await Promise.all([
+    prisma.user.findMany({ where: buildWhere({ ...query, role: undefined, cursor: undefined }, yearId, "role"), select: baseSelect, take: 5_001 }),
+    prisma.user.findMany({ where: buildWhere({ ...query, status: undefined, cursor: undefined }, yearId, "status"), select: baseSelect, take: 5_001 }),
+    query.role === "STUDENT" ? prisma.user.findMany({ where: buildWhere({ ...query, grade: undefined, cursor: undefined }, yearId, "grade"), select: baseSelect, take: 5_001 }) : Promise.resolve([]),
+    query.role === "STUDENT" ? prisma.user.findMany({ where: buildWhere({ ...query, classCode: undefined, cursor: undefined }, yearId, "classCode"), select: baseSelect, take: 5_001 }) : Promise.resolve([]),
+  ]);
+  const roleFacet = countFacet(facetQueries[0].map((user) => project(user, yearId)));
+  const statusFacet = countFacet(facetQueries[1].map((user) => project(user, yearId)));
+  const gradeFacet = countFacet(facetQueries[2].map((user) => project(user, yearId)));
+  const classFacet = countFacet(facetQueries[3].map((user) => project(user, yearId)));
+  const facets = { roles: roleFacet.roles, status: statusFacet.status, grades: gradeFacet.grades, classCodes: classFacet.classCodes };
   const last = pageUsers.at(-1);
   return {
     items,

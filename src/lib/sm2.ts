@@ -36,9 +36,10 @@ export function createInitialState(): ReviewState {
  * - quality < 3 → 重置为 interval=1, repetitions=0
  * - quality >= 3 → 按 easFactor 推进 interval
  */
-export function updateSM2(
+export function updateSM2At(
   state: ReviewState,
-  quality: Quality
+  quality: Quality,
+  now: Date,
 ): ReviewState {
   let { easeFactor, interval, repetitions } = state;
 
@@ -61,7 +62,7 @@ export function updateSM2(
     easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
   );
 
-  const nextReviewDate = new Date();
+  const nextReviewDate = new Date(now);
   nextReviewDate.setDate(nextReviewDate.getDate() + interval);
 
   return {
@@ -69,8 +70,13 @@ export function updateSM2(
     interval,
     repetitions,
     nextReviewDate,
-    lastReviewedAt: new Date(),
+    lastReviewedAt: new Date(now),
   };
+}
+
+/** Production-clock wrapper; historical fixtures should call updateSM2At. */
+export function updateSM2(state: ReviewState, quality: Quality): ReviewState {
+  return updateSM2At(state, quality, new Date());
 }
 
 /** 判断单词今日是否到期（需要复习） */

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { validateNicknameAgainstIdentity } from "@/lib/nickname";
@@ -7,6 +7,7 @@ import { checkNicknameChangeRate } from "@/lib/nickname-limiter";
 import { getClientIp } from "@/lib/login-limiter";
 import { securityEventData } from "@/lib/security-events";
 import { isSameOriginMutation } from "@/lib/csrf";
+import { lockRosterIdentityKeys, lockRosterMutationState } from "@/lib/roster-server";
 
 const PROFILE_SELECT = {
   accountName: true,
@@ -119,12 +120,25 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ code: "PROFILE_REVISION_INVALID" }, { status: 422 });
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  let updated: Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }> | null;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+    await lockRosterMutationState(tx);
+    await lockRosterIdentityKeys(tx, [identity.accountName, nickname.normalized]);
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${auth.userId} FOR UPDATE`;
+    const freshIdentity = await tx.user.findUnique({ where: { id: auth.userId }, select: { accountName: true, contactEmail: true, studentProfile: { select: { legalName: true, profileRevision: true } } } });
+    if (!freshIdentity?.studentProfile) return null;
+    const freshNickname = validateNicknameAgainstIdentity(nickname.value, {
+      legalName: freshIdentity.studentProfile.legalName,
+      accountName: freshIdentity.accountName,
+      contactEmail: freshIdentity.contactEmail,
+    });
+    if (!freshNickname.ok) throw new Error("NICKNAME_INVALID");
     const result = await tx.studentProfile.updateMany({
       where: { userId: auth.userId, profileRevision: revision },
       data: {
-        nickname: nickname.value,
-        nicknameNormalized: nickname.normalized,
+        nickname: freshNickname.value,
+        nicknameNormalized: freshNickname.normalized,
         nicknameUpdatedAt: new Date(),
         profileRevision: { increment: 1 },
       },
@@ -145,7 +159,11 @@ export async function PATCH(req: Request) {
       }),
     });
     return user;
-  });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "NICKNAME_INVALID") return NextResponse.json({ code: "NICKNAME_INVALID" }, { status: 422 });
+    return NextResponse.json({ code: "PROFILE_WRITE_CONFLICT" }, { status: 409 });
+  }
   if (!updated) {
     return NextResponse.json(
       { code: "PROFILE_STALE" },

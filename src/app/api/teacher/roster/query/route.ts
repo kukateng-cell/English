@@ -9,7 +9,7 @@ import { isSameOriginMutation } from "@/lib/csrf";
 export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return rosterResponse("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
-  if (!auth.ok) return rosterResponse("AUTH_REQUIRED", auth.status);
+  if (!auth.ok) return rosterResponse(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED", auth.status);
   try {
     const query = await readTeacherWorkspaceQuery(req);
     const token = await getRequestToken(req);

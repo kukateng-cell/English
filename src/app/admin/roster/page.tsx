@@ -229,7 +229,7 @@ export default function AdminRosterPage() {
     setMessage("升级计划已保存至目标学年，须在启用学年前完成 activation。"); setPromotionPreview(null); await loadData();
   }
   async function setStatus(user: RosterUser, status: "ACTIVE" | "SUSPENDED") {
-    const response = await rosterFetch(`/api/admin/users/${user.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, revision: user.revision }) });
+    const response = await rosterFetch(`/api/admin/users/${user.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "CHANGE_STATUS", status, expectedUserRevision: user.revision }) });
     if (!response.ok) throw new Error(await responseMessage(response));
     const updated = await response.json().catch(() => null) as { status?: RosterUser["status"] } | null;
     setUsers((current) => current.map((item) => item.id === user.id ? { ...item, status: updated?.status ?? status, revision: item.revision + 1 } : item));

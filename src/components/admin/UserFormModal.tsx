@@ -110,10 +110,6 @@ export default function UserFormModal({
       setError("学生作用学年不能为空");
       return;
     }
-    if (isEdit && password && password.length < MIN_PASSWORD_LENGTH) {
-      setError(`新密码至少 ${MIN_PASSWORD_LENGTH} 位`);
-      return;
-    }
 
     setLoading(true);
     try {
@@ -126,7 +122,7 @@ export default function UserFormModal({
         classCode,
         role,
         status,
-        password,
+        password: isEdit ? "" : password,
         academicYearId,
       });
       onClose();
@@ -285,21 +281,19 @@ export default function UserFormModal({
           )}
         </div>
 
-        <div>
+        {!isEdit ? <div>
           <label htmlFor="user-form-password" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {isEdit ? tc("新密码（留空则不修改）") : tc("密码（留空自动产生）")}
+            {tc("密碼（留空自動產生）")}
           </label>
           <input
             id="user-form-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={
-              isEdit ? "••••••••" : tc("留空则产生一次性随机密码")
-            }
+            placeholder={tc("留空則產生一次性隨機密碼")}
             className={inputClass}
           />
-        </div>
+        </div> : null}
 
         {error && (
           <div id="user-form-error" role="alert" aria-live="assertive" className="rounded-2xl bg-[var(--danger-bg)] px-4 py-2.5 text-[13px] text-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]">

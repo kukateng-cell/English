@@ -9,7 +9,7 @@ import { lockRosterMutationState } from "@/lib/roster-server";
 import { STUDENT_GRADES } from "@/lib/roster-domain";
 import type { StudentGrade } from "@/generated/prisma";
 import { issuePasswordResetPrecondition, PASSWORD_RESET_AUDIENCES } from "@/lib/password-reset-precondition";
-import { hashSessionJti, readRecentAuthGrantForSession } from "@/lib/recent-auth";
+import { readRecentAuthGrantForSession } from "@/lib/recent-auth";
 
 const CURSOR_VERSION = 1;
 const MAX_SEARCH_GRAPHEMES = 80;

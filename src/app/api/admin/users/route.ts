@@ -16,6 +16,8 @@ import { validateNicknameAgainstIdentity } from "@/lib/nickname";
 import { parseClassCode, parseStudentGrade } from "@/lib/roster-domain";
 import { lockRosterIdentityKeys, lockRosterMutationState } from "@/lib/roster-server";
 
+const privateHeaders = { "Cache-Control": "private, no-store", "Vary": "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
+
 const USER_SELECT = {
   id: true,
   accountName: true,
@@ -88,7 +90,7 @@ function decodeCursor(value: string | null) {
 
 export async function GET(req: Request) {
   const auth = await requireRole(ROLES.ADMIN);
-  if (!auth.ok) return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: auth.status });
+  if (!auth.ok) return NextResponse.json({ code: auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED" }, { status: auth.status, headers: privateHeaders });
   const params = new URL(req.url).searchParams;
   const role = isRole(params.get("role")) ? (params.get("role") as Role) : undefined;
   const status: AccountStatus | undefined = params.get("status") === "ACTIVE" || params.get("status") === "SUSPENDED" ? params.get("status") as AccountStatus : undefined;
@@ -140,8 +142,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireRole(ROLES.ADMIN);
-  if (!auth.ok) return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: auth.status });
-  if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) return NextResponse.json({ code: "RECENT_AUTH_REQUIRED" }, { status: 401 });
+  if (!auth.ok) return NextResponse.json({ code: auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED" }, { status: auth.status, headers: privateHeaders });
+  if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) return NextResponse.json({ code: "RECENT_AUTH_REQUIRED" }, { status: 401, headers: privateHeaders });
   const body = await req.json().catch(() => null);
   if (!body || !isRole(body.role)) return NextResponse.json({ code: "ROLE_INVALID" }, { status: 422 });
   const role: Role = body.role;

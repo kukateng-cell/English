@@ -16,8 +16,8 @@ import { rosterFetch } from "@/lib/roster-client";
 interface UserItem {
   id: string;
   accountName?: string;
-  email: string;
-  name: string | null;
+  email?: string;
+  name?: string | null;
   contactEmail?: string | null;
   nickname?: string | null;
   grade?: string | null;
@@ -27,6 +27,11 @@ interface UserItem {
   academicYearId?: string | null;
   totalReviews: number;
   createdAt: string;
+  legalName?: string;
+  mustChangePassword?: boolean;
+  classId?: string | null;
+  revision?: number;
+  profileRevision?: number;
 }
 
 const roleLabels: Record<Role, string> = {
@@ -55,6 +60,14 @@ export default function AdminUsersPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [academicYears, setAcademicYears] = useState<Array<{ id: string; label: string; status: "PLANNED" | "CURRENT" | "CLOSED" }>>([]);
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<Role | "">("");
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "SUSPENDED" | "">("");
+  const [gradeFilter, setGradeFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
+  const [facets, setFacets] = useState<{ roles?: { all: number; students: number; teachers: number; admins: number }; status?: { active: number; suspended: number } } | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const { tc, locale } = useLocale();
   // 依语言选择日期 locale（繁体用 zh-TW，简体用 zh-CN）
   const dateLocale = locale === "zh-Hant" ? "zh-TW" : "zh-CN";
@@ -74,12 +87,13 @@ export default function AdminUsersPage() {
   } | null>(null);
 
   useEffect(() => {
-    (async () => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void (async () => {
       setLoading(true);
       setError(null);
       try {
         const [usersRes, sessionRes, yearsRes] = await Promise.all([
-          fetch(`/api/admin/users?limit=50${search ? `&search=${encodeURIComponent(search)}` : ""}`),
+          rosterFetch("/api/admin/users/query", { signal: controller.signal, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: roleFilter || undefined, status: statusFilter || undefined, academicYearId: yearFilter || undefined, grade: roleFilter === ROLES.STUDENT ? gradeFilter || undefined : undefined, classCode: roleFilter === ROLES.STUDENT ? classFilter || undefined : undefined, search: search || undefined, limit: 50 }) }),
           fetch("/api/auth/session"),
           fetch("/api/admin/academic-years"),
         ]);
@@ -87,9 +101,10 @@ export default function AdminUsersPage() {
           setError(await responseErrorMessage(usersRes));
           return;
         }
-        const payload = await usersRes.json() as { items?: UserItem[]; nextCursor?: string | null };
+        const payload = await usersRes.json() as { items?: UserItem[]; nextCursor?: string | null; facets?: typeof facets };
         setUsers(payload.items ?? []);
         setNextCursor(payload.nextCursor ?? null);
+        setFacets(payload.facets ?? null);
         // session 拉取失败不影响列表展示（仅丢失「你」徽标），静默跳过即可
         if (sessionRes.ok) {
           const me = await sessionRes.json();
@@ -100,18 +115,14 @@ export default function AdminUsersPage() {
           setAcademicYears(years);
         }
       } catch (e) {
+        if (controller.signal.aborted) return;
         setError(networkErrorMessage(e));
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
-    })();
-  }, [reloadKey, search]);
-
-  const filtered = users.filter(
-    (u) =>
-      u.email.toLowerCase().includes(search.toLowerCase()) ||
-      (u.name && u.name.toLowerCase().includes(search.toLowerCase()))
-  );
+    })(), 180);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [reloadKey, search, roleFilter, statusFilter, gradeFilter, classFilter, yearFilter]);
 
   const openCreate = () => {
     setEditing(null);
@@ -119,10 +130,39 @@ export default function AdminUsersPage() {
     setFormOpen(true);
   };
 
-  const openEdit = (user: UserItem) => {
-    setEditing(user);
-    setFormKey((k) => k + 1);
-    setFormOpen(true);
+  const openEdit = async (user: UserItem) => {
+    setDetailLoadingId(user.id);
+    setError(null);
+    try {
+      const response = await rosterFetch(`/api/admin/users/${user.id}/detail/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const payload = await response.json().catch(() => null) as { user?: { id: string; accountName: string; role: string; status: "ACTIVE" | "SUSPENDED"; contactEmail: string | null; userRevision: number; profile: { legalName: string; nickname?: string; profileRevision?: number | null } | null }; currentEnrollment?: { academicYearId: string; grade: string; classCode: string | null } | null; } | { code?: string } | null;
+      if (!response.ok || !payload || !("user" in payload) || !payload.user) throw new Error((payload && "code" in payload ? payload.code : null) ?? "讀取用戶資料失敗");
+      const detail = payload.user;
+      setEditing({ ...user, id: detail.id, accountName: detail.accountName, email: detail.accountName, role: detail.role, status: detail.status, contactEmail: detail.contactEmail, legalName: detail.profile?.legalName ?? "", nickname: detail.profile?.nickname ?? null, grade: payload.currentEnrollment?.grade ?? null, classCode: payload.currentEnrollment?.classCode ?? null, academicYearId: payload.currentEnrollment?.academicYearId ?? null, revision: detail.userRevision, profileRevision: detail.profile?.profileRevision ?? undefined });
+      setFormKey((k) => k + 1);
+      setFormOpen(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "讀取用戶資料失敗");
+    } finally { setDetailLoadingId(null); }
+  };
+
+  const resetPassword = async (user: UserItem) => {
+    if (!user.accountName || !user.id || (roleOf(user) !== ROLES.STUDENT && roleOf(user) !== ROLES.TEACHER)) return;
+    if (user.status === "SUSPENDED") return;
+    if (!window.confirm(tc(`確定要重設「${user.legalName || user.name || user.accountName}」的密碼嗎？舊會話會立即失效。`))) return;
+    setResettingId(user.id);
+    try {
+      const prepared = await rosterFetch(`/api/admin/users/${user.id}/password-reset/prepare`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const preparePayload = await prepared.json().catch(() => null) as { resetPrecondition?: string; code?: string } | null;
+      if (!prepared.ok || !preparePayload?.resetPrecondition) throw new Error(preparePayload?.code ?? tc("無法準備重設密碼"));
+      const committed = await rosterFetch(`/api/admin/users/${user.id}/password-reset`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resetPrecondition: preparePayload.resetPrecondition }) });
+      const commitPayload = await committed.json().catch(() => null) as { temporaryPassword?: string; code?: string } | null;
+      if (!committed.ok || !commitPayload?.temporaryPassword) throw new Error(commitPayload?.code ?? tc("重設密碼失敗"));
+      setTemporaryCredential({ accountName: user.accountName, password: commitPayload.temporaryPassword });
+      setReloadKey((key) => key + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : tc("重設密碼失敗"));
+    } finally { setResettingId(null); }
   };
 
   const handleSubmit = async (data: UserFormData) => {
@@ -133,12 +173,12 @@ export default function AdminUsersPage() {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            operation: "UPDATE_IDENTITY",
             legalName: data.name,
             contactEmail: data.contactEmail,
             ...(data.nickname ? { nickname: data.nickname } : {}),
-            role: data.role,
-            status: data.status,
-            ...(data.password ? { password: data.password } : {}),
+            expectedUserRevision: editing.revision,
+            expectedProfileRevision: editing.profileRevision,
           }),
         });
         if (!res.ok) {
@@ -151,6 +191,17 @@ export default function AdminUsersPage() {
         if (updated.sessionInvalidated) {
           await signOut({ callbackUrl: "/login" });
           return;
+        }
+        if (data.status !== editing.status) {
+          const statusResponse = await rosterFetch(`/api/admin/users/${editing.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ operation: "CHANGE_STATUS", status: data.status, expectedUserRevision: updated.revision ?? editing.revision }),
+          });
+          if (!statusResponse.ok) {
+            const statusError = await statusResponse.json().catch(() => null) as { code?: string } | null;
+            throw new Error(statusError?.code ?? "更新帳號狀態失敗");
+          }
         }
         setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       } else {
@@ -168,7 +219,7 @@ export default function AdminUsersPage() {
         };
         if (created.temporaryPassword) {
           setTemporaryCredential({
-            accountName: created.accountName ?? created.email,
+            accountName: created.accountName ?? created.email ?? "",
             password: created.temporaryPassword,
           });
         }
@@ -264,14 +315,30 @@ export default function AdminUsersPage() {
         />
       </div>
 
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label={tc("角色篩選")}>
+        {(["", ROLES.STUDENT, ROLES.TEACHER, ROLES.ADMIN] as const).map((value) => {
+          const label = value === "" ? tc("全部") : tc(roleLabels[value]);
+          const count = value === "" ? facets?.roles?.all : value === ROLES.STUDENT ? facets?.roles?.students : value === ROLES.TEACHER ? facets?.roles?.teachers : facets?.roles?.admins;
+          return <button key={value || "all"} type="button" role="tab" aria-selected={roleFilter === value} onClick={() => { setRoleFilter(value); if (value !== ROLES.STUDENT) { setGradeFilter(""); setClassFilter(""); setYearFilter(""); } }} className={`rounded-2xl border px-4 py-2 text-[13px] font-semibold ${roleFilter === value ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]"}`}>{label}{count === undefined ? "" : ` ${count}`}</button>;
+        })}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <select aria-label={tc("狀態篩選")} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部狀態")}</option><option value="ACTIVE">{tc("使用中")}</option><option value="SUSPENDED">{tc("已停權")}</option></select>
+        {roleFilter === ROLES.STUDENT ? <>
+          <select aria-label={tc("學年篩選")} value={yearFilter} onChange={(event) => setYearFilter(event.target.value)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("目前學年")}</option>{academicYears.map((year) => <option key={year.id} value={year.id}>{year.label}</option>)}</select>
+          <select aria-label={tc("年級篩選")} value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部年級")}</option><option value="JUNIOR_1">{tc("初一")}</option><option value="JUNIOR_2">{tc("初二")}</option><option value="JUNIOR_3">{tc("初三")}</option><option value="SENIOR_1">{tc("高一")}</option><option value="SENIOR_2">{tc("高二")}</option><option value="SENIOR_3">{tc("高三")}</option></select>
+          <select aria-label={tc("班別篩選")} value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部班別")}</option>{[["A","甲"],["B","乙"],["C","丙"],["D","丁"],["E","戊"],["F","己"],["G","庚"],["H","辛"]].map(([code, label]) => <option key={code} value={code}>{tc(label)}</option>)}</select>
+        </> : null}
+      </div>
+
       {/* 用户列表 */}
-      {filtered.length === 0 ? (
+      {users.length === 0 ? (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center text-[14px] text-[var(--muted)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]">
           {tc("暂无用户数据")}
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((user) => {
+          {users.map((user) => {
             const isSelf = user.id === currentUserId;
             return (
               <div
@@ -281,11 +348,11 @@ export default function AdminUsersPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[15px] font-bold text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]">
-                      {(user.name || user.email).charAt(0).toUpperCase()}
+                      {(user.legalName || user.name || user.accountName || user.email || "?").charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
                       <p className="flex items-center gap-1.5 truncate text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
-                        {user.name || tc("未设置姓名")}
+                        {user.legalName || user.name || tc("未設姓名")}
                         {isSelf && (
                           <span className="rounded-full bg-[var(--border-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)] dark:bg-[var(--border-soft)]">
                             {tc("你")}
@@ -293,7 +360,7 @@ export default function AdminUsersPage() {
                         )}
                       </p>
                       <p className="truncate text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
-                        {user.email}
+                        {user.accountName || user.email}
                       </p>
                     </div>
                   </div>
@@ -308,12 +375,14 @@ export default function AdminUsersPage() {
                     ) : null}
                     {/* 操作按钮 */}
                     <div className="flex items-center gap-1">
+                      {roleOf(user) !== ROLES.ADMIN ? <button type="button" disabled={resettingId === user.id || user.status === "SUSPENDED"} onClick={() => void resetPassword(user)} className="flex h-11 items-center justify-center gap-1 rounded-lg px-2 text-xs font-semibold text-[var(--primary)] transition hover:bg-[var(--border-soft)] disabled:cursor-not-allowed disabled:opacity-40" aria-label={tc("重設密碼")}>{resettingId === user.id ? tc("處理中") : tc("重設密碼")}</button> : null}
                       <button
-                        onClick={() => openEdit(user)}
+                        onClick={() => void openEdit(user)}
+                        disabled={detailLoadingId === user.id}
                         className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
                         aria-label={tc("编辑")}
                       >
-                        <Icon name="edit" size={16} />
+                        {detailLoadingId === user.id ? <span className="text-[11px]">{tc("讀取中")}</span> : <Icon name="edit" size={16} />}
                       </button>
                       <button
                         onClick={() => setDeleting(user)}
@@ -327,7 +396,7 @@ export default function AdminUsersPage() {
                   </div>
                 </div>
                 <div className="mt-3 flex items-center gap-4 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-                  <span className="admin-meta-item"><Icon name="refresh" size={14} /> {user.totalReviews} {tc("次复习")}</span>
+                  <span className="admin-meta-item"><Icon name="refresh" size={14} /> {user.totalReviews ?? 0} {tc("次練習")}</span>
                   <span className="admin-meta-item"><Icon name="clock" size={14} /> {new Date(user.createdAt).toLocaleDateString(dateLocale)} {tc("加入")}</span>
                 </div>
               </div>
@@ -341,7 +410,7 @@ export default function AdminUsersPage() {
           type="button"
           className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-[13px] font-semibold text-[var(--primary)]"
           onClick={async () => {
-            const response = await fetch(`/api/admin/users?limit=50&cursor=${encodeURIComponent(nextCursor)}`);
+            const response = await rosterFetch("/api/admin/users/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: roleFilter || undefined, status: statusFilter || undefined, academicYearId: yearFilter || undefined, grade: roleFilter === ROLES.STUDENT ? gradeFilter || undefined : undefined, classCode: roleFilter === ROLES.STUDENT ? classFilter || undefined : undefined, search: search || undefined, cursor: nextCursor, limit: 50 }) });
             if (!response.ok) return;
             const payload = await response.json() as { items?: UserItem[]; nextCursor?: string | null };
             setUsers((current) => [...current, ...(payload.items ?? [])]);
@@ -356,7 +425,7 @@ export default function AdminUsersPage() {
       <UserFormModal
         key={formKey}
         open={formOpen}
-        user={editing}
+        user={editing ? { ...editing, email: editing.accountName ?? editing.email ?? "", name: editing.legalName ?? editing.name ?? null } : null}
         currentUserId={currentUserId}
         onClose={() => setFormOpen(false)}
         onSubmit={handleSubmit}
@@ -368,7 +437,7 @@ export default function AdminUsersPage() {
         title={tc("删除用户")}
         message={
           deleting
-            ? tc(`确定删除「${deleting.name || deleting.email}」吗？该用户的所有学习记录将一并删除，且无法恢复。`)
+            ? tc(`確定刪除「${deleting.legalName || deleting.name || deleting.accountName || deleting.email}」嗎？該用戶的所有學習記錄將一併刪除，且無法恢復。`)
             : ""
         }
         confirmText={tc("删除")}
