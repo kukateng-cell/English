@@ -657,8 +657,9 @@ performance及完整原生 screen-reader／device matrix仍保留為明確 defer
 
 - Fresh local reset／reseed 只針對 exact allowlisted `english_dev/public`，47 個 normal migrations replay 成功；seed 建立 global reset
   on／off teacher fixtures。沒有觸碰 production，亦沒有執行 destructive contract migration。
-- `npm test`（173 passed）、`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`、`npx prisma generate`、migration checksum／fresh
+- `npm test`（176 passed）、`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`、`npx prisma generate`、migration checksum／fresh
   replay／contract regression、roster／auth／invariant／lifecycle／reset／PII／DB suites及`npm run build`均通過。
+- 修正 recent-auth UX：`RECENT_AUTH_REQUIRED` 不再誤顯示為登入 session 已過期；管理員保存教師權限時會以繁體本地化提示重新輸入密碼，成功後只重試一次原本未寫入的 mutation，並保留原登入 session。
 - `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run check:teacher-global-reset-cutover` dry-run通過：
   no legacy global drift、沒有原始PII輸出；`npm run check:production-config`按預期因缺production-only Upstash／CRON／HMAC／teacher-reset
   secrets fail closed，未冒充production pass。
