@@ -1,4 +1,5 @@
 import {
+  passwordResetPreconditionConfigurationErrors,
   productionConfigurationErrors,
   teacherResetPreconditionConfigurationErrors,
 } from "../src/lib/production-config";
@@ -6,6 +7,7 @@ import {
 const errors = [
   ...productionConfigurationErrors(process.env),
   ...teacherResetPreconditionConfigurationErrors(process.env),
+  ...passwordResetPreconditionConfigurationErrors(process.env),
 ];
 if (errors.length > 0) {
   for (const error of errors) console.error(`production configuration: ${error}`);

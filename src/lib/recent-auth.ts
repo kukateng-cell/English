@@ -149,3 +149,78 @@ export async function hasValidRecentAuthGrant(input: {
       grant.expiresAt > now,
   );
 }
+
+/**
+ * Return the exact session-bound grant snapshot used by sensitive prepare
+ * flows. Callers must bind every field returned here into their precondition
+ * and re-check it inside the final transaction.
+ */
+export async function readRecentAuthGrantSnapshot(input: {
+  req: Request;
+  userId: string;
+  now?: Date;
+}) {
+  const token = await getRequestToken(input.req);
+  if (!token?.id || token.id !== input.userId || !token.sessionJti) return null;
+  const now = input.now ?? new Date();
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: {
+      id: true,
+      role: true,
+      status: true,
+      tokenVersion: true,
+      credentialRevision: true,
+    },
+  });
+  if (!user || user.status !== "ACTIVE") return null;
+  if (
+    token.tokenVersion !== user.tokenVersion ||
+    token.credentialRevision !== user.credentialRevision
+  ) return null;
+  const grant = await prisma.recentAuthGrant.findUnique({
+    where: { id: hashSessionJti(token.sessionJti) },
+    select: {
+      userId: true,
+      tokenVersion: true,
+      credentialRevision: true,
+      reauthenticatedAt: true,
+      expiresAt: true,
+    },
+  });
+  if (
+    !grant ||
+    grant.userId !== user.id ||
+    grant.tokenVersion !== user.tokenVersion ||
+    grant.credentialRevision !== user.credentialRevision ||
+    grant.expiresAt <= now
+  ) return null;
+  return {
+    token,
+    user,
+    sessionJti: token.sessionJti,
+    grant: {
+      reauthenticatedAt: grant.reauthenticatedAt,
+      expiresAt: grant.expiresAt,
+    },
+  };
+}
+
+export async function readRecentAuthGrantForSession(input: {
+  userId: string;
+  sessionJti: string;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { id: true, role: true, status: true, tokenVersion: true, credentialRevision: true },
+  });
+  if (!user || user.status !== "ACTIVE") return null;
+  const grant = await prisma.recentAuthGrant.findUnique({
+    where: { id: hashSessionJti(input.sessionJti) },
+    select: { userId: true, tokenVersion: true, credentialRevision: true, reauthenticatedAt: true, expiresAt: true },
+  });
+  if (!grant || grant.userId !== user.id || grant.tokenVersion !== user.tokenVersion || grant.credentialRevision !== user.credentialRevision || grant.expiresAt <= now) return null;
+  return { user, grant };
+}

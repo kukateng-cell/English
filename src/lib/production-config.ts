@@ -131,3 +131,33 @@ export function teacherResetPreconditionConfigurationErrors(
   }
   return errors;
 }
+
+/** Validate the audience-neutral v2 reset keyring used by admin and teacher routes. */
+export function passwordResetPreconditionConfigurationErrors(
+  env: Environment = process.env,
+): string[] {
+  const errors: string[] = [];
+  const current = env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT;
+  const currentId = env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID;
+  const previous = env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS;
+  const previousId = env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID;
+  if (!current || Buffer.from(current, "base64url").length !== 32) {
+    errors.push("PASSWORD_RESET_PRECONDITION_KEY_CURRENT must be a 32-byte base64url secret");
+  }
+  if (!currentId || !RESET_KEY_ID.test(currentId)) {
+    errors.push("PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID must be a safe non-empty key id");
+  }
+  if (Boolean(previous) !== Boolean(previousId)) {
+    errors.push("PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS and _PREVIOUS_ID must be configured together");
+  }
+  if (previous && Buffer.from(previous, "base64url").length !== 32) {
+    errors.push("PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS must be a 32-byte base64url secret");
+  }
+  if (previousId && !RESET_KEY_ID.test(previousId)) {
+    errors.push("PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID must be a safe key id");
+  }
+  if (currentId && previousId && currentId === previousId) {
+    errors.push("password reset current and previous key ids must differ");
+  }
+  return errors;
+}

@@ -95,6 +95,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const body = await req.json().catch(() => null);
   if (!body) return response("REQUEST_INVALID", 422);
+  // Password changes for another account must go through the dedicated
+  // prepare → commit reset flow. Keeping this guard at the legacy boundary
+  // prevents callers that have not yet migrated from bypassing its
+  // target-bound precondition, limiter and one-time-secret contract.
+  if (Object.prototype.hasOwnProperty.call(body, "password")) return response("PASSWORD_FIELD_NOT_ALLOWED", 422);
   if (id === auth.userId && body.status === "SUSPENDED") return response("SELF_SUSPEND_FORBIDDEN", 409);
   const requestedPassword = typeof body.password === "string" && body.password.length > 0 ? body.password : null;
   const target = await prisma.user.findUnique({ where: { id }, select: { id: true, accountName: true, role: true, status: true, tokenVersion: true, credentialRevision: true, contactEmail: true, studentProfile: { select: { legalName: true, nickname: true } } } });

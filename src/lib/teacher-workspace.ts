@@ -8,7 +8,8 @@ import { offsetDay, todayKey } from "@/lib/streak";
 import { lockRosterMutationState } from "@/lib/roster-server";
 import { STUDENT_GRADES } from "@/lib/roster-domain";
 import type { StudentGrade } from "@/generated/prisma";
-import { issueTeacherResetPrecondition } from "@/lib/teacher-reset-precondition";
+import { issuePasswordResetPrecondition, PASSWORD_RESET_AUDIENCES } from "@/lib/password-reset-precondition";
+import { hashSessionJti, readRecentAuthGrantForSession } from "@/lib/recent-auth";
 
 const CURSOR_VERSION = 1;
 const MAX_SEARCH_GRAPHEMES = 80;
@@ -246,6 +247,7 @@ async function readMembers(input: { userId: string; role: Role; query: TeacherWo
       status: true,
       tokenVersion: true,
       credentialRevision: true,
+      revision: true,
       studentProfile: {
         select: {
           legalName: true,
@@ -268,8 +270,10 @@ async function readMembers(input: { userId: string; role: Role; query: TeacherWo
 export async function queryTeacherRoster(input: { userId: string; role: Role; query: TeacherWorkspaceQuery; sessionJti?: string }) {
   const result = await readMembers(input);
   const last = result.rows.at(-1);
-  const canReset = input.role === ROLES.ADMIN || await awaitTeacherGlobalReset(input.userId);
+  const canReset = input.role === ROLES.TEACHER && await awaitTeacherGlobalReset(input.userId);
   if (canReset && !input.sessionJti) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
+  const actorSnapshot = canReset && input.sessionJti ? await readRecentAuthGrantForSession({ userId: input.userId, sessionJti: input.sessionJti }) : null;
+  if (canReset && !actorSnapshot) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
   return {
     context: result.context,
     items: result.rows.map((user) => {
@@ -286,14 +290,23 @@ export async function queryTeacherRoster(input: { userId: string; role: Role; qu
         // The account-level switch is checked once per request; class scope
         // is already enforced by the membership query.
         canResetStudentPassword: canReset,
-        resetPrecondition: canReset && input.sessionJti
-          ? issueTeacherResetPrecondition({
+        resetPrecondition: canReset && input.sessionJti && actorSnapshot
+          ? issuePasswordResetPrecondition({
+              audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET,
               targetId: user.id,
               actorId: input.userId,
+              actorRole: "TEACHER",
+              targetRole: "STUDENT",
               sessionJti: input.sessionJti,
+              actorTokenVersion: actorSnapshot.user.tokenVersion,
+              actorCredentialRevision: actorSnapshot.user.credentialRevision,
               targetTokenVersion: user.tokenVersion,
               targetCredentialRevision: user.credentialRevision,
+              targetRevision: user.revision,
+              targetAccessRevision: null,
               actorAccessRevision: result.context.viewMode === "TEACHER" ? result.context.accessRevision : null,
+              grantReauthenticatedAt: actorSnapshot.grant.reauthenticatedAt.getTime(),
+              grantExpiresAt: actorSnapshot.grant.expiresAt.getTime(),
             })
           : null,
       };
@@ -480,9 +493,11 @@ export async function getTeacherStudentDetail(input: { userId: string; role: Rol
   if (!user?.studentProfile) throw new Error("STUDENT_NOT_FOUND");
   const snapshot = await metricSnapshot([user.id]);
   const enrollment = user.studentProfile.enrollments[0];
-  const canResetStudentPassword = input.role === ROLES.ADMIN || await awaitTeacherGlobalReset(input.userId);
+  const canResetStudentPassword = input.role === ROLES.TEACHER && await awaitTeacherGlobalReset(input.userId);
   if (canResetStudentPassword && !input.sessionJti) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
-  return { context, student: { id: user.id, accountName: user.accountName, legalName: user.studentProfile.legalName, nickname: user.studentProfile.nickname, grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, canResetStudentPassword, resetPrecondition: canResetStudentPassword && input.sessionJti ? issueTeacherResetPrecondition({ targetId: user.id, actorId: input.userId, sessionJti: input.sessionJti, targetTokenVersion: user.tokenVersion, targetCredentialRevision: user.credentialRevision, actorAccessRevision: input.role === ROLES.TEACHER ? context.accessRevision : null }) : null, userRevision: user.revision, profileRevision: user.studentProfile.profileRevision, enrollmentRevision: enrollment?.revision ?? null, ...itemMetrics(user.id, snapshot) } };
+  const actorSnapshot = canResetStudentPassword && input.sessionJti ? await readRecentAuthGrantForSession({ userId: input.userId, sessionJti: input.sessionJti }) : null;
+  if (canResetStudentPassword && !actorSnapshot) throw new Error("RESET_PRECONDITION_UNAVAILABLE");
+  return { context, student: { id: user.id, accountName: user.accountName, legalName: user.studentProfile.legalName, nickname: user.studentProfile.nickname, grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, canResetStudentPassword, resetPrecondition: canResetStudentPassword && input.sessionJti && actorSnapshot ? issuePasswordResetPrecondition({ audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, actorId: input.userId, actorRole: "TEACHER", targetId: user.id, targetRole: "STUDENT", sessionJti: input.sessionJti, actorTokenVersion: actorSnapshot.user.tokenVersion, actorCredentialRevision: actorSnapshot.user.credentialRevision, targetTokenVersion: user.tokenVersion, targetCredentialRevision: user.credentialRevision, targetRevision: user.revision, targetAccessRevision: null, actorAccessRevision: context.accessRevision, grantReauthenticatedAt: actorSnapshot.grant.reauthenticatedAt.getTime(), grantExpiresAt: actorSnapshot.grant.expiresAt.getTime() }) : null, userRevision: user.revision, profileRevision: user.studentProfile.profileRevision, enrollmentRevision: enrollment?.revision ?? null, ...itemMetrics(user.id, snapshot) } };
 }
 
 export async function touchRosterRevision(tx: Prisma.TransactionClient) {
