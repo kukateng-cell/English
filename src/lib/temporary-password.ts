@@ -2,8 +2,8 @@ import { randomInt } from "node:crypto";
 import { passwordPolicyError } from "@/lib/password-policy";
 
 const TEMPORARY_PASSWORD_CHARS =
-  "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const TEMPORARY_PASSWORD_LENGTH = 18;
+  "abcdefghjkmnpqrstuvwxyz23456789";
+const TEMPORARY_PASSWORD_LENGTH = 10;
 
 export function generateTemporaryPassword(): string {
   let password = "";

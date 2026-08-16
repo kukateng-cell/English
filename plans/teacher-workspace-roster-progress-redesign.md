@@ -596,7 +596,7 @@ production rollout仍另受 deployment gates 約束。
 - [x] 建立 `/teacher/students/[id]` 身份／學習摘要詳情及返回來源。
 - [x] 使用semantic link／button，reset action放在名冊row及詳情頁清楚位置；無權限完全不渲染。
 - [x] Reset確認dialog列明失效影響；client pending guard、expired precondition重新fetch／重新確認、recent-auth modal及一次重送。
-- [x] 一次性密碼modal保留focus trap、copy／select affordance、live announcement及關閉後不可重讀語義。
+- [x] 一次性密碼modal保留focus trap、明確「複製密碼」button／select affordance、live announcement及關閉後不可重讀語義；密碼採共用10位易讀小寫／數字 generator，首次登入仍強制改密碼。
 - [x] `/teacher/students` compatibility redirect及舊bookmark驗證。
 
 驗收：教師毋須進入進度卡折疊區即可找學生及使用獲授權reset；大量列表仍易搜尋。

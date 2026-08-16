@@ -35,7 +35,7 @@
 | TeacherClassAccess | 有 class row、view/reset booleans；缺 selected-year replacement、aggregate accessRevision、active-class／teacher-status invariant | **CHANGE** | GET/PUT selected-year DTO、full replacement CAS、coverage snapshot |
 | Identity helpers | `src/lib/identity.ts` 有 basic account/legal/email validation，但 public display 會 fallback legacy/account | **CHANGE** | nickname-only public projection、account/legal exact-match checks、identity CAS |
 | Nickname helpers | `src/lib/nickname.ts` 有 Unicode／profanity／reserved checks及相鄰 tests | **KEEP IF CONFORMING** | 補 legalName/account/contact cross-field、admin path、policy version、rate/CAS tests |
-| Temporary password | `src/lib/temporary-password.ts` 有 CSPRNG helper；現為16 chars | **CHANGE** | 18 chars／≥100-bit policy、共用 credential primitive、one-time report／rotation |
+| Temporary password | `src/lib/temporary-password.ts` 有 CSPRNG helper；現為10 chars易讀小寫／數字 | **CHANGE** | 共用 credential primitive、one-time report／rotation、teacher/admin copy action |
 | Roster file parser | CSV/XLSX parser及 tests存在；目前上限、header/template、numeric account、formula／external-link contract未完整 | **CHANGE** | versioned templates、500 import cap、strict XLSX string account、safe export |
 | `roster-import-contract.ts` | 有 basic staged row types；缺 selected-year、UPDATE/UNCHANGED diff、batch digest／CAS shape | **CHANGE** | 對齊 import field matrix、AdminMutationBatch／user links |
 | `roster-server.ts`／admin roster APIs | 有初版 academic year、class、preview/commit、bulk、promotion、export routes；部分 route auto-creates class/year、直接寫 `isCurrent`，缺 recent-auth／CSRF／receipt／serializable contract | **REPLACE ROUTE LOGIC** | 共用 server services、stable errors、batch lifecycle、lock/CAS |

@@ -6,6 +6,7 @@ import UserFormModal, { type UserFormData } from "@/components/admin/UserFormMod
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import CopyButton from "@/components/ui/CopyButton";
 import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { ROLES, isRole, type Role } from "@/lib/roles";
@@ -245,7 +246,10 @@ export default function AdminUsersPage() {
       {temporaryCredential ? (
         <div className="rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)] p-4 text-[13px] text-[var(--text)]">
           <p className="font-semibold">{tc("一次性临时密码（请立即安全交给用户）")}</p>
-          <p className="mt-2 font-mono">{temporaryCredential.accountName}　{temporaryCredential.password}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="font-mono select-all">{temporaryCredential.accountName}　{temporaryCredential.password}</span>
+            <CopyButton value={temporaryCredential.password} />
+          </div>
           <button className="mt-2 text-[var(--primary)]" onClick={() => setTemporaryCredential(null)}>{tc("已保存，关闭")}</button>
         </div>
       ) : null}

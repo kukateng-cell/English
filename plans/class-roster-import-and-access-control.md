@@ -731,8 +731,8 @@ Merge 不改密碼、不改角色、不刪除檔案中未列出的帳號。Previ
 - 教師：accountName、legalName 必填；contactEmail optional；可建立後即時設定多個班級權限。
 - 手動建立學生亦必須明選`CURRENT`或immediate-successor `PLANNED` year；前者建立`ACTIVE` enrollment，後者建立`PLANNED`；
   class optional但如有必須屬同一year／grade且active；`CLOSED`拒絕。
-- Server自動密碼固定用CSPRNG對無歧義alphabet作unbiased sampling，18 chars並達至少100 bits entropy；hash固定bcrypt
-  cost 12。Manual create如管理員自行輸入則走現有強密碼policy（12–128 chars）且不寫log／staging；教師reset及批次
+- Server自動密碼固定用CSPRNG對無歧義alphabet作unbiased sampling，10 chars（只用易讀小寫字母及數字，排除容易混淆字元）；hash固定bcrypt
+  cost 12。這是只在一次 response 返回、首次登入後必須改密碼的交付密碼，方便教師抄錄但仍避免可預測值。Manual create如管理員自行輸入則走現有強密碼policy（12–128 chars）且不寫log／staging；教師reset及批次
   credential rotation只接受server-generated password，避免管理員提交可預測bulk password。
 - 編輯時 accountName／role 鎖定；可改 legalName、contactEmail、nickname、user status及教師 class access。Manual update
   request必須帶 `expectedUserRevision`，profile／enrollment／teacher access另帶各自expected revision；同一Serializable
@@ -1065,7 +1065,7 @@ POST       /api/teacher/students/[id]/reset-password
 - [x] Student login／JWT revalidation另要求CURRENT-year ACTIVE enrollment；planned-only新生activation前fail closed。
 - [x] 建立唯一`replacePasswordCredential` primitive；self／forced change、admin／teacher reset、rotation每次
   `credentialRevision+1`及`tokenVersion+1`並撤銷grants／session；create／seed初始化revision=1，merge不改密碼。
-- [x] 抽出共用安全temporary-password generator（CSPRNG、18 chars、≥100 bits、unbiased alphabet、bcrypt cost 12）及tests。
+- [x] 抽出共用安全temporary-password generator（CSPRNG、10 chars、無歧義小寫／數字 alphabet、bcrypt cost 12）及tests；教師／管理員臨時密碼畫面提供明確一鍵複製，仍只在memory顯示及首次登入強制改密碼。
 - [x] 管理員manual create／edit使用profile-aware transaction、`User.revision`及各aggregate CAS；直接role conversion拒絕。
 - [x] 建立nickname NFKC、grapheme、invisible、contact、profanity、reserved-name及本人legalName／account/contact exact-token validator。
 - [x] 建立 nickname rate limit、profile revision CAS 及 audit。
@@ -1247,7 +1247,7 @@ POST       /api/teacher/students/[id]/reset-password
 | Teacher access | CURRENT auth scope、GET selected-year DTO、PLANNED replacement preserves CURRENT/other/CLOSED、current-vs-planned global revision 409、active-class raw/concurrent invariant、assigned、unassigned、多班、多教師、zero-row empty set、撤權 TOCTOU、ADMIN bypass、IDOR、reset capability |
 | Student import | selected year、CSV／XLSX、numeric account reject、leading zero、existing-enrollment grade-change＋blank error、missing CURRENT／PLANNED enrollment＋blank→unassigned及雙向transition推導、field matrix、diff、hash期間cancel／expire／second-commit race、atomicity、fingerprint、idempotency |
 | Teacher import | canonical class keys、reset subset、unknown class、pair matrix blank／clear／replacement、accessRevision CAS |
-| Password | 18-char／≥100-bit CSPRNG、bcrypt12、all-writer credentialRevision matrix、bounded hashing、hash only、one-time response、typed-XLSX adversarial legalName、response loss、rotation excludes changed revisions、ROTATE batch user links、hard-delete live/expired rotation preview→old GET/commit deny＋staged zero、session revoke、artifact scan |
+| Password | 10-char unambiguous lowercase/digit CSPRNG、bcrypt12、all-writer credentialRevision matrix、bounded hashing、hash only、one-time response、teacher/admin copy action、typed-XLSX adversarial legalName、response loss、rotation excludes changed revisions、ROTATE batch user links、hard-delete live/expired rotation preview→old GET/commit deny＋staged zero、session revoke、artifact scan |
 | Bulk class | CURRENT-only、canonical AdminMutationBatch、explicit／allMatching cross-page selection、filter hash、exclusions、unassign、PRE_ACTIVATION PLANNED HOLD普通assign拒絕、ACTIVATED HOLD轉成CURRENT後bulk assign容許且不改歷史snapshot、transition revision stale、retry、500／501 students |
 | Promotion／activation | J1→J2、J3→S1、S3 graduate/repeat/hold、promote/repeat/hold/leave、incoming、suspended student stays suspended、teacher coverage只計ACTIVE TEACHER＋profile＋target active-class capability、preview前suspended teacher不計、preview後ACTIVE→SUSPENDED或restore／access change令commit 409並須re-preview、class/access/coverage stale、planned-only、atomic activation、concurrency |
 | Suspension／delete | student restore with／without current enrollment、terminal activation→independent MANUAL restore、target/email-owner/coverage-teacher hard-delete during import/error-report/promotion/activation/rotation preview、old batch GET/commit deny＋staged zero、promotion/activation/import commit×actor/dependency delete total-lock concurrency、raw NOWAIT 40001 bounded retry、teacher、self guard、last admin、complete FK inventory/cascade、audit actor SetNull/HMAC、recreate same account |
@@ -1457,6 +1457,7 @@ production contract rollout、缺少 production-only secrets 的 production conf
 | 2026-08-16 | Student status action correction | 學生名冊的停權／恢復由純文字樣式改為明確可操作、可聚焦及有 busy guard 的按鈕；成功後即時更新列表並保留 server refresh。新增 mobile roster E2E 驗證停權、恢復及資料庫狀態；`npm test` 166 passed、lint、typecheck、build及focused admin-roster browser test通過 |
 | 2026-08-16 | Teacher workspace redesign plan | `teacher-workspace-roster-progress-redesign.md` Revision 3 經兩個獨立相同全範圍 review 及修訂後定稿；名冊／進度分家、學生詳情、server搜尋／篩選／分頁、班級洞察，以及 default-false 教師級 reset capability AND CURRENT class scope 已落實。 |
 | 2026-08-16 | Teacher workspace local verification | fresh local 47-migration replay／reseed後，`npm test` 173 passed、lint／typecheck／build及`npm run test:e2e:admin-roster` 4 passed；activation closed-year teacher access history及closed INSERT guard亦由新forward migrations驗證；production positive config、full-scale及native screen-reader／device matrix仍 deferred。 |
+| 2026-08-16 | Temporary password usability | 臨時密碼改為10位易讀小寫／數字 CSPRNG 字串（排除易混淆字元），一般自訂密碼政策不變；教師名冊／學生詳情及管理員單個建立帳號均加入一鍵複製，仍維持一次性 memory-only response、首次登入強制改密碼。 |
 
 ## 24. 實際執行紀錄與限制
 

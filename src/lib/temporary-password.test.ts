@@ -10,6 +10,7 @@ test("temporary passwords are policy compliant and non-repeating", () => {
   assert.equal(passwords.size, 100);
   for (const password of passwords) {
     assert.equal(passwordPolicyError(password), null);
-    assert.equal(password.length, 18);
+    assert.equal(password.length, 10);
+    assert.match(password, /^[a-hj-km-np-z2-9]+$/);
   }
 });
