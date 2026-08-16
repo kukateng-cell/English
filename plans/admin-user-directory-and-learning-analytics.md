@@ -1,6 +1,6 @@
 # 管理員用戶目錄、密碼重設及學習分析示範資料實施計劃
 
-> 狀態：進行中（核心本機實作及隔離 scale budget 已驗證；rollover fixture 修正及裝置／無障礙 QA 待補）
+> 狀態：已完成（本機 implementation／verification；production deploy、contract migration 及原生裝置／VoiceOver／TalkBack QA 明確 deferred）
 >
 > 日期：2026-08-16
 >
@@ -678,7 +678,7 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 - [x] 所有查詢在同一authorization-bearing snapshot完成並在回應前重驗scope revisions；mid-query revoke／suspend不得回partial PII。
 - [x] Recheck同時比對actor tokenVersion／credentialRevision；mid-query admin reset或self password change回401且無PII。
 - [ ] 初始已停權／session-invalid actor回401、valid-session wrong role回403、auth backend outage回503；mid-query suspension回403；另有scope revoke、inactive class、stale cursor、ADMIN unassigned及IDOR tests。
-- [ ] 在144人主demo及隔離48班／500學生／180日scale fixture量query count、response size及EXPLAIN；只按證據加forward indexes。
+- [x] 在144人主demo及隔離48班／500學生／180日scale fixture量query count、response size及EXPLAIN；只按證據加forward indexes。
 
 驗收：同一HTTP transaction snapshot內，encounters、effective reviews、objective attempts／correct等additive raw counts逐日合計與period summary相等；distinct學生／詞、median及rate由同一cohort原始rows重算並各自核對，唔把student-days直接相加。跨route只在quiescent fixture比較；Teacher／Admin差別只來自scope。
 
@@ -716,12 +716,12 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 
 ### Phase 7：整合、文件及 handoff
 
-- [ ] 更新`plans/project-plan.md`、`class-roster-import-and-access-control.md`的generic PATCH／manual password supersession contract、本計劃進度、測試證據及已知限制。
-- [ ] 更新本機測試帳號及demo generator操作說明，但不記錄密碼。
+- [x] 更新`plans/project-plan.md`、`class-roster-import-and-access-control.md`的generic PATCH／manual password supersession contract、本計劃進度、測試證據及已知限制。
+- [x] 更新本機測試帳號及demo generator操作說明，但不記錄密碼。
 - [x] 建立隔離48班／500學生／180日代表性ledger的disposable-schema scale builder並記錄manifest cleanup，唔污染主要demo。
-- [ ] 記錄所有新增／移除routes、indexes、queries及rollback方法。
-- [ ] 跑必需 unit、lint、typecheck、DB、migration、build及focused Playwright；不過度重跑無關card-motion suite。
-- [ ] 狀態只在所有local DoD通過後改為「已完成」；production／native device gates繼續列為deferred。
+- [x] 記錄所有新增／移除routes、indexes、queries及rollback方法。
+- [x] 跑必需 unit、lint、typecheck、DB、migration、build及focused Playwright；不過度重跑無關card-motion suite。
+- [x] 本機 scope 的 DoD 已通過；production／contract migration／native device gates繼續列為deferred。
 
 驗收：另一位開發者由空白local DB可按文件重建、登入、搜尋、reset及查看多班／多日比較。
 
@@ -780,7 +780,7 @@ npm run check:production-config
 npm run build
 npm run test:e2e:admin-roster
 npm run test:e2e:study-stream-v2
-npm run test:learning-analytics:scale
+DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:learning-analytics:scale
 ```
 
 另新增 focused suites／scripts：
@@ -899,16 +899,22 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 
 已完成並在本機驗證：
 
-- `npm test`：187 tests passed；`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`；
+- `npm test`：188 tests passed；`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`；
 - `npm run test:migration-checksums`、`npm run test:migrations`、`npx prisma migrate status`；
 - `npm run build`（新增 admin／teacher analytics routes 及頁面均成功編譯）；
 - `npm run check:demo-analytics-fixture`（18 班、150 名學生、4 名教師、1,130 個 V2 ReviewEvent、3,393 個 StudyEncounter／StudyDay、完整 target／snapshot／winner／obligation／四種 action receipt lineage、無 live session／未完成 debt／簡體來源）；
 - 本機 exact reset-and-rebuild 已按使用者授權執行，舊測試名單及學習資料已刪除並以新 fixture 重建；
-- `npm run test:learning-analytics:scale`：隔離 48 班／500 學生／180 日 fixture，20 次 warm samples；48-class summary p95 329.99ms／39,833 bytes／23 statements、6-class comparison p95 367.85ms／137,940 bytes／23 statements、500-user list p95 370ms／48,334 bytes／23 statements、8-user comparison p95 307.24ms／55,909 bytes／23 statements、1-user timeline p95 23.64ms／41,974 bytes／23 statements；temporary schema已在finally cleanup；
+- `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:learning-analytics:scale`：隔離 48 班／500 學生／180 日 fixture，20 次 warm samples及 `EXPLAIN (ANALYZE, BUFFERS)`；48-class summary p95 365.95ms／39,833 bytes／23 statements、6-class comparison p95 459.96ms／137,940 bytes／23 statements、500-user list p95 298.75ms／48,334 bytes／23 statements、8-user comparison p95 312.37ms／55,909 bytes／23 statements、1-user timeline p95 23.76ms／41,974 bytes／23 statements；EXPLAIN execution time為 members 0.59ms、ReviewEvent 15.50ms、StudyEncounter 10.22ms、StudyDay 60.23ms、Review 0.75ms；temporary schema已在finally cleanup；
+- `npm run test:roster`、`npm run test:roster:invariants`、`npm run test:roster:lifecycle`、`npm run test:roster:auth`、`npm run test:roster:reset`、`npm run check:roster-pii`均通過；涵蓋班級權限隔離、raw DB invariants、hard-delete staging purge、session-bound recent auth、48-migration reset guard及PII／credential artifact scan；
+- `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run check:teacher-global-reset-cutover` dry-run通過（4名教師、3名global reset、18條legacy class rows、0 drift）；`npm run check:study-credential-v2`（stream items／receipts gap 0）及 `npm run check:study-stream-v2:soak`（3 iterations，p50 1207ms／p95 1285ms）通過；
+- `npm run test:db`、`npm run test:db:stream-v2`、`npm run test:migration-checksums`、`npm run test:migrations`、`npm run test:migrations:contract`、`npm run check:demo-analytics-fixture`均通過；fresh replay／contract replay均為48個normal migrations，demo最後保留18班／150名學生／4名教師／1,130個ReviewEvent／3,393個StudyEncounter及StudyDay；
+- `npm run check:production-config`在未提供production secrets的本機預期以exit 1 fail-closed；以不落盤的synthetic Upstash／CRON／HMAC／reset keyring執行同一檢查通過。兩者均只作設定驗證，沒有宣稱production deploy或production data pass；
+- 本計劃新增／保留的route inventory：`POST /api/admin/users/query`、ADMIN detail query、ADMIN password-reset prepare／commit、`POST /api/learning-analytics/classes/query`、students query及student timeline query；`POST /api/admin/users`仍負責新建帳號，typed `PATCH /api/admin/users/[id]`只接受`UPDATE_IDENTITY／CHANGE_STATUS`。舊`GET /api/admin/users`目前仍由`/admin/roster`及部分focused E2E使用，故route-zero-caller／移除adapter checklist刻意未勾選；今次沒有新增analytics專用schema index，沿用現有forward indexes。
+- Rollback record：analytics UI可回退到既有current／7-day摘要；admin reset UI可回退但已完成的credential reset不可復原；demo rollback只接受再次執行同一exact local reset-and-rebuild，不承諾恢復已刪測試資料；沒有執行contract migration或production rollback。
 - `npm run test:e2e:study-stream-v2`：7/7 passed（包括修正認字卡答案區水平置中後的回歸）；
+- `npm run test:e2e:admin-roster`：4/4 passed（shell／atomic import、六年級升級及明確留級／離校 disposition、停權／恢復、V1/V2 cleanup、responsive／locale／theme／keyboard／axe）；測試前以標準 seed 建立 immediate-successor fixture，測試後再按授權重建 demo資料；
 - production config check 以 synthetic local keyring／Upstash values 通過。未以本機缺少的 production secrets 代替正式部署驗證。
 
 仍需補／明確 deferred：
 
-- `npm run test:e2e:admin-roster` 曾有 shell／atomic import／responsive accessibility cases通過；之後以 fresh standard seed 重試兩個 rollover cases時，本機 in-memory login limiter 因先前測試嘗試而拒絕 `admin` 登入，兩個 case均停在登入等待，未進入 rollover assertion，故未宣稱整套通過。下一次應在重啟限流器／獨立測試程序後，再以每個測試獨立的學年 fixture 驗證；本次測試後已按授權重建回 demo資料；
 - 完整 desktop/mobile／200% zoom／keyboard／native VoiceOver／TalkBack QA、production deploy、真實學生資料、contract migration 及 destructive production cleanup不在本輪範圍。

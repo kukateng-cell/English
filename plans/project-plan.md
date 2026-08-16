@@ -95,7 +95,7 @@
 | 10 | **安全与审计** | ✅ 已实现 | Upstash 分布式限流、session 撤销、审计哈希、ReviewEvent ledger 与生产配置门禁 |
 | 11 | **简繁与主题** | ✅ 已实现 | opencc-js 简繁切换及明暗主题 |
 | 12 | **PWA** | ⏳ 未实现 | 尚无 web app manifest、service worker 或安装流程 |
-| 13 | **班級與名冊管理** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲兩個相同全範圍 reviewer PASS；47 個 normal forward migrations、guarded reset／reseed、roster/auth/invariant suites、fresh 4-test disposable admin workflow（含 explicit rollover dispositions）、teacher canonical workspace／global reset、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy仍 deferred |
+| 13 | **班級與名冊管理** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲兩個相同全範圍 reviewer PASS；48 個 normal forward migrations、guarded reset／reseed、roster/auth/invariant suites、fresh 4-test disposable admin workflow（含 explicit rollover dispositions）、teacher canonical workspace／global reset、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy仍 deferred |
 
 管理員用戶頁的 `PATCH /api/admin/users/[id]` 現在只接受明確的
 `UPDATE_IDENTITY` 或 `CHANGE_STATUS` command：身份欄位使用 detail-query 的 User／Profile revision、近期重新驗證及
@@ -386,7 +386,7 @@ npm run seed
 | 阶段 | 状态 | 已有产出 | 下一验收点 |
 |---|---|---|---|
 | **P0 基础词表** | ✅ 已完成 | `word list.md`、A1–B2 分类及幂等 seed | 把内容完整度另列为 P7，不再假定 ECDICT 管线已存在 |
-| **P1 数据层** | ✅ 已完成 | PostgreSQL、Prisma schema、18 + 2 migrations 及新库 replay 检查 | 所有后续 schema 变更继续走 expand / contract 流程 |
+| **P1 数据层** | ✅ 已完成 | PostgreSQL、Prisma schema、48 个 normal migrations 及新库 replay 检查 | 所有后续 schema 变更继续走 expand / contract 流程 |
 | **P2 认证与角色** | ✅ 已完成 | Auth.js、学生／教师／管理员、首次改密、撤销与限流 | 完成 production secrets 和真实部署验收 |
 | **P3 学习核心** | ✅ 本地基线完成 | Retrieval-first continuous stream、3 秒 long-press Learning Card、Objective Probe、versioned SM-2 evidence policy、单元模式 | 实体 iPhone Safari／Android Chrome 与完整 screen-reader acceptance 属 external gate |
 | **P4 可靠续学** | ✅ 本地基线完成 | Checkpoint、离线 outbox、stream-item credential、session／lease recovery、幂等 ledger、V1 rollback | Production observation 及 threshold decision 未获授权 |
@@ -396,7 +396,7 @@ npm run seed
 | **P8 PWA** | ⏳ 待开始 | 尚无实现 | Manifest、icons、service worker、更新策略及安装／离线验收 |
 | **P9 真实用户研究** | ⏸ 暂缓／功能关闭 | Operational objective ledger 已有；没有 research telemetry／assignment | 伦理／学校审批、家长 permission、学生 assent、protocol 获批前不得开始 |
 | **P10 教师任务** | ⏳ 待开始 | 已有教师角色、班级统计与学生详情 | 周任务布置、截止时间、完成状态及班级汇总 |
-| **P11 班级与名册** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲 Hume 與 Bernoulli 對相同 contract 全文 PASS；local canonical schema、47 個 normal forward migrations、guarded reset／reseed、auth／班級權限／名冊流程、teacher workspace／global reset、fresh 4-test disposable admin workflow、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy deferred | 補足需另行授權的 production／native-device release gates；之後另行審批 production migration、backup、deploy 及 observation |
+| **P11 班级与名册** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲 Hume 與 Bernoulli 對相同 contract 全文 PASS；local canonical schema、48 個 normal forward migrations、guarded reset／reseed、auth／班級權限／名冊流程、teacher workspace／global reset、fresh 4-test disposable admin workflow、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy deferred | 補足需另行授權的 production／native-device release gates；之後另行審批 production migration、backup、deploy 及 observation |
 
 ### 7.1 Retrieval-first Learning Stream v2（2026-08-15 current baseline）
 

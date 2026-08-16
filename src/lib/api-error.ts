@@ -11,6 +11,7 @@
 
 const CODE_MESSAGES: Record<string, string> = {
   AUTH_REQUIRED: "尚未登录，请先登录",
+  AUTH_BACKEND_UNAVAILABLE: "登录服务暂时无法使用，请稍后重试",
   RECENT_AUTH_REQUIRED: "最近的安全验证已过期，请重新输入密码",
   RECENT_AUTH_SESSION_INVALID: "登录状态需要重新验证，请重新登录",
   REAUTH_RATE_LIMITED: "验证尝试过于频繁，请稍后再试",

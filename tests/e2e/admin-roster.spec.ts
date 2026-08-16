@@ -276,17 +276,9 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
 
   const yearsResponse = await page.request.get("/api/admin/academic-years");
   expect(yearsResponse.ok()).toBeTruthy();
-  const years = await yearsResponse.json() as Array<{ id: string; label: string; status: string; revision: number }>;
+  const years = await yearsResponse.json() as Array<{ id: string; label: string; startsOn: string; status: string; revision: number }>;
   const source = years.find((year) => year.status === "CURRENT");
   expect(source).toBeTruthy();
-  const sourceLabel = source!.label.match(/^(\d{4})-(\d{4})$/u);
-  expect(sourceLabel).toBeTruthy();
-  const usedLabels = new Set(years.map((year) => year.label));
-  let targetLabel = `${Number(sourceLabel![2])}-${Number(sourceLabel![2]) + 1}`;
-  while (usedLabels.has(targetLabel)) {
-    const nextStart = Number(targetLabel.slice(0, 4)) + 1;
-    targetLabel = `${nextStart}-${nextStart + 1}`;
-  }
 
   const createdUsers: Array<{ id: string; accountName: string }> = [];
   let teacherPassword = "";
@@ -294,17 +286,34 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
   let studentContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
   let forcedStudentContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
   try {
-    const targetYearResponse = await page.request.post("/api/admin/academic-years", { headers, data: { label: targetLabel } });
-    expect(targetYearResponse.status()).toBe(201);
-    const targetYear = await targetYearResponse.json() as { id: string; status: string };
+    // Reuse the canonical immediate successor when the standard seed already
+    // provides one. Creating a far-future year would correctly be rejected by
+    // the server's immediate-successor invariant.
+    let targetYear = years
+      .filter((year) => year.status === "PLANNED" && new Date(year.startsOn).getTime() > new Date(source!.startsOn).getTime())
+      .sort((left, right) => new Date(left.startsOn).getTime() - new Date(right.startsOn).getTime())[0] as { id: string; status: string } | undefined;
+    if (!targetYear) {
+      const sourceEndYear = Number(source!.label.slice(5, 9));
+      const targetYearResponse = await page.request.post("/api/admin/academic-years", { headers, data: { label: `${sourceEndYear}-${sourceEndYear + 1}` } });
+      expect(targetYearResponse.status()).toBe(201);
+      targetYear = await targetYearResponse.json() as { id: string; status: string };
+    }
     expect(targetYear.status).toBe("PLANNED");
 
     const targetGrades = ["JUNIOR_2", "JUNIOR_3", "SENIOR_1", "SENIOR_2", "SENIOR_3"] as const;
     const targetClasses: Array<{ id: string; grade: string; classCode: string }> = [];
     for (const grade of targetGrades) {
-      const response = await page.request.post("/api/admin/classes", { headers, data: { academicYearId: targetYear.id, grade, classCode: "A" } });
-      expect(response.status()).toBe(201);
-      targetClasses.push(await response.json() as { id: string; grade: string; classCode: string });
+      const existing = await page.request.get(`/api/admin/classes?academicYearId=${encodeURIComponent(targetYear.id)}`);
+      expect(existing.ok(), await existing.text()).toBeTruthy();
+      const existingClasses = await existing.json() as Array<{ id: string; grade: string; classCode: string }>;
+      const match = existingClasses.find((schoolClass) => schoolClass.grade === grade && schoolClass.classCode === "A");
+      if (match) {
+        targetClasses.push(match);
+      } else {
+        const response = await page.request.post("/api/admin/classes", { headers, data: { academicYearId: targetYear.id, grade, classCode: "A" } });
+        expect(response.status()).toBe(201);
+        targetClasses.push(await response.json() as { id: string; grade: string; classCode: string });
+      }
     }
     const currentClassesResponse = await page.request.get(`/api/admin/classes?academicYearId=${encodeURIComponent(source!.id)}`);
     expect(currentClassesResponse.ok()).toBeTruthy();
@@ -316,6 +325,26 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
       const response = await page.request.post("/api/admin/classes", { headers, data: { academicYearId: source!.id, grade: "JUNIOR_1", classCode: "B" } });
       expect(response.status()).toBe(201);
       currentJuniorOneB = await response.json() as { id: string; grade: string; classCode: string; active: boolean };
+    }
+
+    // The lightweight standard seed may not contain an active student in
+    // every grade. Fill only missing source grades so this workflow exercises
+    // the six-grade rollover contract without depending on incidental seed
+    // distribution. All created rows are tracked for the disposable cleanup.
+    const promotionGrades = ["JUNIOR_1", "JUNIOR_2", "JUNIOR_3", "SENIOR_1", "SENIOR_2", "SENIOR_3"] as const;
+    const missingSourceGrades: typeof promotionGrades[number][] = [];
+    for (const grade of promotionGrades) {
+      const response = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(source!.id)}&role=STUDENT&grade=${grade}&limit=1`);
+      expect(response.ok(), await response.text()).toBeTruthy();
+      const payload = await response.json() as { items?: Array<{ id: string }> };
+      if (!payload.items?.length) {
+        missingSourceGrades.push(grade);
+        if (!currentClasses.some((schoolClass) => schoolClass.grade === grade && schoolClass.classCode === "A" && schoolClass.active)) {
+          const classResponse = await page.request.post("/api/admin/classes", { headers, data: { academicYearId: source!.id, grade, classCode: "A" } });
+          expect(classResponse.status()).toBe(201);
+          currentClasses.push(await classResponse.json() as { id: string; grade: string; classCode: string; active: boolean });
+        }
+      }
     }
 
     const teacherAccount = `flowteacher${Date.now().toString(36)}`;
@@ -366,6 +395,32 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     const importedStudent = roster.items?.find((item) => item.accountName === accountName);
     expect(importedStudent).toBeTruthy();
     createdUsers.push({ id: importedStudent!.id, accountName });
+
+    if (missingSourceGrades.length) {
+      const suffix = Date.now().toString(36);
+      const missingRows = [
+        "accountName,legalName,nickname,grade,classCode,contactEmail",
+        ...missingSourceGrades.map((grade) => `flowseed${grade.toLowerCase()}${suffix},流程${grade}學生${suffix},流程${grade}暱稱${suffix},${grade},A,`),
+      ].join("\n");
+      const missingPreviewResponse = await page.request.post("/api/admin/roster/import/preview", {
+        headers: { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
+        multipart: { file: { name: "rollover-missing-grades.csv", mimeType: "text/csv", buffer: Buffer.from(missingRows) }, entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `flow-missing-grades-${suffix}` },
+      });
+      expect(missingPreviewResponse.ok(), await missingPreviewResponse.text()).toBeTruthy();
+      const missingPreview = await missingPreviewResponse.json() as { batchId: string; operationId?: string; errorCount: number };
+      expect(missingPreview.errorCount).toBe(0);
+      const missingCommitResponse = await page.request.post(`/api/admin/roster/import/${missingPreview.batchId}/commit`, { headers, data: { operationId: missingPreview.operationId } });
+      expect(missingCommitResponse.ok(), await missingCommitResponse.text()).toBeTruthy();
+      for (const grade of missingSourceGrades) {
+        const account = `flowseed${grade.toLowerCase()}${suffix}`;
+        const response = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(source!.id)}&role=STUDENT&search=${encodeURIComponent(account)}&limit=1`);
+        expect(response.ok(), await response.text()).toBeTruthy();
+        const payload = await response.json() as { items?: Array<{ id: string; accountName: string }> };
+        const created = payload.items?.find((item) => item.accountName === account);
+        expect(created).toBeTruthy();
+        createdUsers.push({ id: created!.id, accountName: account });
+      }
+    }
 
     // Student profile/nickname CAS, moderation and account suspension must be
     // enforced by the server, not only by the profile UI.
@@ -467,7 +522,6 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     expect(bulkCommitResponse.ok()).toBeTruthy();
 
     const classMapping = { A: "A", B: "A" };
-    const promotionGrades = ["JUNIOR_1", "JUNIOR_2", "JUNIOR_3", "SENIOR_1", "SENIOR_2", "SENIOR_3"] as const;
     for (const sourceGrade of promotionGrades) {
       const promotionPreviewResponse = await page.request.post("/api/admin/roster/students/promote/preview", { headers, data: { sourceAcademicYearId: source!.id, targetAcademicYearId: targetYear.id, sourceGrade, excludedStudentIds: [], classMapping, operationId: `flow-promotion-${sourceGrade}-${Date.now()}` } });
       expect(promotionPreviewResponse.ok(), `${sourceGrade}: ${await promotionPreviewResponse.text()}`).toBeTruthy();
@@ -621,20 +675,18 @@ test("admin roster persists explicit rollover dispositions and activates incomin
 
   const yearsResponse = await page.request.get("/api/admin/academic-years");
   expect(yearsResponse.ok()).toBeTruthy();
-  const years = await yearsResponse.json() as Array<{ id: string; label: string; status: string }>;
+  const years = await yearsResponse.json() as Array<{ id: string; label: string; startsOn: string; status: string }>;
   const source = years.find((year) => year.status === "CURRENT");
   expect(source).toBeTruthy();
-  const sourceLabel = source!.label.match(/^(\d{4})-(\d{4})$/u);
-  expect(sourceLabel).toBeTruthy();
-  const existingLabels = new Set(years.map((year) => year.label));
-  let targetLabel = `${Number(sourceLabel![2])}-${Number(sourceLabel![2]) + 1}`;
-  while (existingLabels.has(targetLabel)) {
-    const nextStart = Number(targetLabel.slice(0, 4)) + 1;
-    targetLabel = `${nextStart}-${nextStart + 1}`;
+  let target = years
+    .filter((year) => year.status === "PLANNED" && new Date(year.startsOn).getTime() > new Date(source!.startsOn).getTime())
+    .sort((left, right) => new Date(left.startsOn).getTime() - new Date(right.startsOn).getTime())[0] as { id: string; status: string } | undefined;
+  if (!target) {
+    const sourceEndYear = Number(source!.label.slice(5, 9));
+    const targetResponse = await page.request.post("/api/admin/academic-years", { headers, data: { label: `${sourceEndYear}-${sourceEndYear + 1}` } });
+    expect(targetResponse.status(), await targetResponse.text()).toBe(201);
+    target = await targetResponse.json() as { id: string; status: string };
   }
-  const targetResponse = await page.request.post("/api/admin/academic-years", { headers, data: { label: targetLabel } });
-  expect(targetResponse.status(), await targetResponse.text()).toBe(201);
-  const target = await targetResponse.json() as { id: string; status: string };
   expect(target.status).toBe("PLANNED");
 
   // The previous rollover smoke intentionally creates only J2–S3 classes.
@@ -649,9 +701,17 @@ test("admin roster persists explicit rollover dispositions and activates incomin
   }
   const targetClasses: Array<{ id: string; grade: string; classCode: string }> = [];
   for (const grade of ["JUNIOR_1", "JUNIOR_2", "JUNIOR_3", "SENIOR_1", "SENIOR_2", "SENIOR_3"] as const) {
-    const response = await page.request.post("/api/admin/classes", { headers, data: { academicYearId: target.id, grade, classCode: "A" } });
-    expect(response.status(), `${grade}: ${await response.text()}`).toBe(201);
-    targetClasses.push(await response.json() as { id: string; grade: string; classCode: string });
+    const existing = await page.request.get(`/api/admin/classes?academicYearId=${encodeURIComponent(target.id)}`);
+    expect(existing.ok(), await existing.text()).toBeTruthy();
+    const existingClasses = await existing.json() as Array<{ id: string; grade: string; classCode: string }>;
+    const match = existingClasses.find((schoolClass) => schoolClass.grade === grade && schoolClass.classCode === "A");
+    if (match) {
+      targetClasses.push(match);
+    } else {
+      const response = await page.request.post("/api/admin/classes", { headers, data: { academicYearId: target.id, grade, classCode: "A" } });
+      expect(response.status(), `${grade}: ${await response.text()}`).toBe(201);
+      targetClasses.push(await response.json() as { id: string; grade: string; classCode: string });
+    }
   }
 
   const suffix = Date.now().toString(36);
@@ -760,7 +820,7 @@ test("admin roster persists explicit rollover dispositions and activates incomin
   expect(result.activatedTargetCount).toBeGreaterThanOrEqual(1);
 
   async function readRoster(accountName: string) {
-    const response = await page.request.get(`/api/admin/users?${new URLSearchParams({ role: "STUDENT", academicYearId: target.id, search: accountName, limit: "10" }).toString()}`);
+    const response = await page.request.get(`/api/admin/users?${new URLSearchParams({ role: "STUDENT", academicYearId: target!.id, search: accountName, limit: "10" }).toString()}`);
     expect(response.ok(), await response.text()).toBeTruthy();
     const payload = await response.json() as { items?: Array<{ id: string; accountName: string; grade: string | null; classCode: string | null; status: string; enrollmentStatus: string | null }> };
     return payload.items?.find((item) => item.accountName === accountName) ?? null;

@@ -18,3 +18,10 @@ test("responseErrorMessage can localize a code fallback without exposing the cod
   const response = new Response(JSON.stringify({ code: "PASSWORD_INVALID" }), { status: 401 });
   assert.equal(await responseErrorMessage(response, (text) => `繁體:${text}`), "繁體:密码不正确，请再试一次");
 });
+
+test("auth backend outage keeps a retryable service message", async () => {
+  const response = new Response(JSON.stringify({ code: "AUTH_BACKEND_UNAVAILABLE" }), { status: 503 });
+  const details = await responseErrorDetails(response);
+  assert.equal(details.code, "AUTH_BACKEND_UNAVAILABLE");
+  assert.equal(details.message, "登录服务暂时无法使用，请稍后重试");
+});

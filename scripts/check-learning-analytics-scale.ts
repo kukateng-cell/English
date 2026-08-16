@@ -187,6 +187,85 @@ async function buildFixture(prisma: PrismaClient, fromDate: string, toDate: stri
 
 type Measurement = { name: string; p95Ms: number; maxBytes: number; roundTrips: number; samples: number[] };
 
+type ExplainPlan = {
+  "QUERY PLAN"?: Array<{
+    "Planning Time"?: number;
+    "Execution Time"?: number;
+    Plan?: { "Node Type"?: string };
+  }>;
+};
+
+async function explainAnalyticsQueries(input: { runtimeUrl: string; yearId: string; studentIds: string[]; fromDate: string; toDate: string }): Promise<Array<{ name: string; planningMs: number; executionMs: number; nodeType: string }>> {
+  const client = new pg.Client({ connectionString: input.runtimeUrl });
+  await client.connect();
+  try {
+    await client.query("SET statement_timeout = '30000ms'");
+    const from = dateAt(input.fromDate, 0);
+    const to = dateAt(offsetDay(input.toDate, 1), 0);
+    const queries: Array<{ name: string; sql: string; values: unknown[] }> = [
+      {
+        name: "members",
+        sql: `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+          SELECT u."id", e."grade", e."classId"
+          FROM "User" u
+          JOIN "StudentProfile" p ON p."userId" = u."id"
+          JOIN "StudentEnrollment" e ON e."studentId" = p."userId"
+          WHERE u."role" = 'STUDENT'::"Role"
+            AND u."status" = 'ACTIVE'::"AccountStatus"
+            AND e."academicYearId" = $1
+            AND e."status" = 'ACTIVE'::"EnrollmentStatus"`,
+        values: [input.yearId],
+      },
+      {
+        name: "review-events",
+        sql: `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+          SELECT "userId", "createdAt"
+          FROM "ReviewEvent"
+          WHERE "userId" = ANY($1::text[])
+            AND "eventKind" = 'REVIEW'::"ReviewEventKind"
+            AND "createdAt" >= $2 AND "createdAt" <= $3`,
+        values: [input.studentIds, from, to],
+      },
+      {
+        name: "encounters",
+        sql: `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+          SELECT "userId", "acknowledgedAt"
+          FROM "StudyEncounter"
+          WHERE "userId" = ANY($1::text[])
+            AND "acknowledgedAt" >= $2 AND "acknowledgedAt" < $3`,
+        values: [input.studentIds, from, to],
+      },
+      {
+        name: "study-days",
+        sql: `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+          SELECT "userId", "date"
+          FROM "StudyDay"
+          WHERE "userId" = ANY($1::text[])
+            AND "date" >= $2 AND "date" <= $3`,
+        values: [input.studentIds, input.fromDate, input.toDate],
+      },
+      {
+        name: "reviews",
+        sql: `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+          SELECT "userId", "interval", "nextReviewDate"
+          FROM "Review"
+          WHERE "userId" = ANY($1::text[])`,
+        values: [input.studentIds],
+      },
+    ];
+    const measurements: Array<{ name: string; planningMs: number; executionMs: number; nodeType: string }> = [];
+    for (const query of queries) {
+      const result = await client.query(query.sql, query.values) as unknown as { rows: ExplainPlan[] };
+      const plan = result.rows[0]?.["QUERY PLAN"]?.[0];
+      if (!plan || typeof plan["Execution Time"] !== "number" || typeof plan["Planning Time"] !== "number") throw new Error(`EXPLAIN ${query.name} 無有效時間資料。`);
+      measurements.push({ name: query.name, planningMs: Math.round(plan["Planning Time"] * 100) / 100, executionMs: Math.round(plan["Execution Time"] * 100) / 100, nodeType: plan.Plan?.["Node Type"] ?? "unknown" });
+    }
+    return measurements;
+  } finally {
+    await client.end();
+  }
+}
+
 async function measure(name: string, run: () => Promise<unknown>, getRoundTrips: () => number): Promise<Measurement> {
   await run();
   const samples: number[] = [];
@@ -225,6 +304,8 @@ async function main(): Promise<void> {
     const toDate = today;
     const fixture = await buildFixture(prisma, fromDate, toDate);
     console.error(`scale fixture READY：500 名學生、48 個班、${fixture.days} 日打卡、${fixture.encounters} 次 encounter、${fixture.reviewEvents} 條 ReviewEvent`);
+    const explain = await explainAnalyticsQueries({ runtimeUrl: runtimeSchemaUrl.toString(), yearId: "scale-year-2026", studentIds: fixture.studentIds, fromDate, toDate });
+    console.error(`EXPLAIN ANALYZE 完成：${explain.map((row) => `${row.name}=${row.executionMs}ms/${row.nodeType}`).join("、")}`);
 
     // Count actual SQL statements issued by the analytics connection. Prisma's
     // pg adapter uses pg Client.prototype.query, so this includes transaction
@@ -257,7 +338,7 @@ async function main(): Promise<void> {
       assertBudget(students, 1_500, 256 * 1024, 24);
       assertBudget(studentComparison, 1_500, 256 * 1024, 24);
       assertBudget(oneStudent, 1_000, 128 * 1024, 24);
-      console.log(JSON.stringify({ ready: true, schema: schemaName, fixture, range: { fromDate, toDate }, measurements: [summary, comparison, students, studentComparison, oneStudent] }, null, 2));
+      console.log(JSON.stringify({ ready: true, schema: schemaName, fixture, range: { fromDate, toDate }, explain, measurements: [summary, comparison, students, studentComparison, oneStudent] }, null, 2));
     } finally {
       pg.Client.prototype.query = originalQuery;
       await prisma.$disconnect();
