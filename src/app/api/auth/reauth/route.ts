@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   }
   const auth = await requireUser();
   if (!auth.ok) {
-    return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: auth.status });
+    return NextResponse.json({ code: auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : "AUTH_REQUIRED" }, { status: auth.status });
   }
   const token = await getRequestToken(req);
   if (!token?.sessionJti || token.id !== auth.userId) {
@@ -59,25 +59,33 @@ export async function POST(req: Request) {
   }
 
   const now = new Date();
-  await prisma.$transaction(async (tx) => {
-    await issueRecentAuthGrant(tx, {
-      sessionJti: token.sessionJti as string,
-      userId: user.id,
-      tokenVersion: user.tokenVersion,
-      credentialRevision: user.credentialRevision,
-      now,
+  try {
+    await prisma.$transaction(async (tx) => {
+      await issueRecentAuthGrant(tx, {
+        sessionJti: token.sessionJti as string,
+        userId: user.id,
+        tokenVersion: user.tokenVersion,
+        credentialRevision: user.credentialRevision,
+        now,
+      });
+      await tx.securityEvent.create({
+        data: securityEventData({
+          actorUserId: user.id,
+          subjectUserId: user.id,
+          subjectAccount: user.accountName,
+          eventType: "PROFILE_UPDATED",
+          ip,
+          metadata: { kind: "RECENT_AUTH_REAUTH" },
+        }),
+      });
     });
-    await tx.securityEvent.create({
-      data: securityEventData({
-        actorUserId: user.id,
-        subjectUserId: user.id,
-        subjectAccount: user.accountName,
-        eventType: "PROFILE_UPDATED",
-        ip,
-        metadata: { kind: "RECENT_AUTH_REAUTH" },
-      }),
-    });
-  });
+  } catch (error) {
+    if (error instanceof Error && error.message === "RECENT_AUTH_STALE") {
+      return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
+    }
+    console.error("[auth] recent-auth reauth transaction failed", error);
+    return NextResponse.json({ code: "AUTH_BACKEND_UNAVAILABLE" }, { status: 503 });
+  }
   return NextResponse.json({ ok: true, expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString() }, {
     headers: { "Cache-Control": "no-store" },
   });

@@ -61,22 +61,47 @@ export async function issueRecentAuthGrant(
   },
 ) {
   const now = input.now ?? new Date();
+  const grantId = hashSessionJti(input.sessionJti);
+
+  // All grant writers use the same lock order as sensitive roster/password
+  // mutations: User → exact RecentAuthGrant → audit.  Locking the actor first
+  // also serializes two same-session reauth requests, so a retry can never
+  // write the same generation timestamp.
+  // Prisma's findUnique does not expose FOR UPDATE; the raw lock below is
+  // deliberately kept immediately before the authoritative read.
+  await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${input.userId} FOR UPDATE`;
+  const fresh = await tx.user.findUnique({
+    where: { id: input.userId },
+    select: { status: true, tokenVersion: true, credentialRevision: true },
+  });
+  if (!fresh || fresh.status !== "ACTIVE" || fresh.tokenVersion !== input.tokenVersion || fresh.credentialRevision !== input.credentialRevision) {
+    throw new Error("RECENT_AUTH_STALE");
+  }
+
+  const existing = await tx.recentAuthGrant.findUnique({
+    where: { id: grantId },
+    select: { reauthenticatedAt: true },
+  });
+  const nextTimestamp = new Date(Math.max(
+    now.getTime(),
+    (existing?.reauthenticatedAt.getTime() ?? Number.NEGATIVE_INFINITY) + 1,
+  ));
   return tx.recentAuthGrant.upsert({
-    where: { id: hashSessionJti(input.sessionJti) },
+    where: { id: grantId },
     create: {
-      id: hashSessionJti(input.sessionJti),
+      id: grantId,
       userId: input.userId,
-      tokenVersion: input.tokenVersion,
-      credentialRevision: input.credentialRevision,
-      reauthenticatedAt: now,
-      expiresAt: new Date(now.getTime() + RECENT_AUTH_WINDOW_MS),
+      tokenVersion: fresh.tokenVersion,
+      credentialRevision: fresh.credentialRevision,
+      reauthenticatedAt: nextTimestamp,
+      expiresAt: new Date(nextTimestamp.getTime() + RECENT_AUTH_WINDOW_MS),
     },
     update: {
       userId: input.userId,
-      tokenVersion: input.tokenVersion,
-      credentialRevision: input.credentialRevision,
-      reauthenticatedAt: now,
-      expiresAt: new Date(now.getTime() + RECENT_AUTH_WINDOW_MS),
+      tokenVersion: fresh.tokenVersion,
+      credentialRevision: fresh.credentialRevision,
+      reauthenticatedAt: nextTimestamp,
+      expiresAt: new Date(nextTimestamp.getTime() + RECENT_AUTH_WINDOW_MS),
     },
   });
 }
