@@ -666,6 +666,7 @@ performance及完整原生 screen-reader／device matrix仍保留為明確 defer
   secrets fail closed，未冒充production pass。
 - Follow-up修正：教師的15分鐘近期驗證過期或尚未建立時，學生名冊／學生詳情仍可正常讀取；只有重設密碼操作暫時隱藏，頁面會提示
   教師重新驗證身份。驗證成功後會重新載入名冊並恢復獲授權學生的重設按鈕，避免把可讀資料誤報為伺服器錯誤。
+- Follow-up修正：本機只有舊版教師 reset key 時，非 production 的 v2 teacher reset 會沿用同一組本機 key 並保留 audience AAD 分隔；production 仍必須配置新版共用 keyring，並新增 fallback regression test，避免重新驗證後因 keyring 設定而誤報 503。
 - Follow-up修正：教師名冊、學生進度、學生詳情及班別篩選器的年級／班別顯示統一為「初一甲」格式，移除不必要的分隔點；帳號／姓名及統計數字的分隔符號維持原有語義。
 - `npm run test:e2e:admin-roster` fresh local wrapper 4 passed，覆蓋canonical teacher roster／progress／detail、global reset off/on、
   target-bound precondition／IDOR、selected-year access replacement、rollover activation、responsive locale/theme及keyboard／axe smoke。

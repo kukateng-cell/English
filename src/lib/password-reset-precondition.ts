@@ -65,10 +65,10 @@ function keyMaterial(audience: PasswordResetAudience, slot: "CURRENT" | "PREVIOU
 
   // Development keeps the existing local setup usable while production
   // requires the explicit audience-neutral keyring through config checks.
-  if (process.env.NODE_ENV !== "production" && audience === PASSWORD_RESET_AUDIENCES.ADMIN_USER_RESET) {
+  if (process.env.NODE_ENV !== "production") {
     return {
-      value: process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT,
-      id: process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID,
+      value: process.env[`TEACHER_RESET_PRECONDITION_KEY_${slot}`],
+      id: process.env[`TEACHER_RESET_PRECONDITION_KEY_${slot}_ID`],
     };
   }
   return { value: undefined, id: undefined };

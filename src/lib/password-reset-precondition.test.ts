@@ -79,6 +79,56 @@ test("password reset v2 precondition binds audience, session and grant generatio
   }
 });
 
+test("local legacy keyring keeps teacher reset usable when v2 key is not configured", () => {
+  const saved = {
+    key: process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT,
+    keyId: process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID,
+    previous: process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS,
+    previousId: process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID,
+    teacherKey: process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT,
+    teacherKeyId: process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID,
+  };
+  try {
+    delete process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT;
+    delete process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID;
+    delete process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS;
+    delete process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID;
+    process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT = Buffer.alloc(32, 9).toString("base64url");
+    process.env.TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID = "teacher-reset-local-v1";
+    const token = issuePasswordResetPrecondition({
+      audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET,
+      actorId: "teacher-1",
+      actorRole: "TEACHER",
+      targetId: "student-1",
+      targetRole: "STUDENT",
+      sessionJti: "session-1",
+      actorTokenVersion: 1,
+      actorCredentialRevision: 1,
+      targetTokenVersion: 1,
+      targetCredentialRevision: 1,
+      targetRevision: 1,
+      targetAccessRevision: 1,
+      actorAccessRevision: 1,
+      grantReauthenticatedAt: 1_000,
+      grantExpiresAt: 901_000,
+      now: 2_000,
+    });
+    assert.equal(readPasswordResetPrecondition(token, PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, 2_001).targetId, "student-1");
+  } finally {
+    for (const [key, value] of Object.entries({
+      PASSWORD_RESET_PRECONDITION_KEY_CURRENT: saved.key,
+      PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID: saved.keyId,
+      PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS: saved.previous,
+      PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID: saved.previousId,
+      TEACHER_RESET_PRECONDITION_KEY_CURRENT: saved.teacherKey,
+      TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID: saved.teacherKeyId,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("password reset v2 rejects expired tokens and malformed keyrings", () => {
   setup();
   try {
