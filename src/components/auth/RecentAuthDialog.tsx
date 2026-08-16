@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import Modal from "@/components/admin/Modal";
 import { useLocale } from "@/components/LocaleProvider";
 import { responseErrorMessage } from "@/lib/api-error";
 import { rosterFetch } from "@/lib/roster-client";
+import Icon from "@/components/ui/Icon";
 
 interface RecentAuthDialogProps {
   open: boolean;
@@ -20,15 +21,17 @@ interface RecentAuthDialogProps {
 export default function RecentAuthDialog({ open, onClose, onSuccess }: RecentAuthDialogProps) {
   const { tc } = useLocale();
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  function close() {
+  const close = useCallback(() => {
     if (busy) return;
     setPassword("");
+    setShowPassword(false);
     setError(null);
     onClose();
-  }
+  }, [busy, onClose]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,15 +65,28 @@ export default function RecentAuthDialog({ open, onClose, onSuccess }: RecentAut
         </p>
         <label className="block text-sm font-semibold text-[var(--text)]">
           {tc("密碼")}
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            disabled={busy}
-            autoFocus
-            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)]"
-          />
+          <div className="password-input-wrap mt-2">
+            <input
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              disabled={busy}
+              autoFocus
+              className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)]"
+            />
+            <button
+              type="button"
+              className="password-visibility-toggle"
+              aria-label={tc(showPassword ? "隱藏密碼" : "顯示密碼")}
+              aria-pressed={showPassword}
+              title={tc(showPassword ? "隱藏密碼" : "顯示密碼")}
+              onClick={() => setShowPassword((visible) => !visible)}
+              disabled={busy}
+            >
+              <Icon name={showPassword ? "eye-off" : "eye"} size={20} />
+            </button>
+          </div>
         </label>
         {error ? <p className="rounded-xl bg-[var(--danger-bg)] px-3 py-2 text-sm text-[var(--danger)]" role="alert">{error}</p> : null}
         <div className="flex gap-2">
