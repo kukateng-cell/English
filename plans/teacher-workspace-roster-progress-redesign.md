@@ -592,7 +592,7 @@ production rollout仍另受 deployment gates 約束。
 - [x] WorkspaceShell加入「學生名冊／學生進度」獨立導覽及精確active state。
 - [x] 建立 `/teacher/roster` desktop table及mobile cards。
 - [x] 建立search debounce／AbortController、grade／class filters、非PII URL state、memory-only search／cursor及pagination。
-- [x] 顯示真名、暱稱、學生證、年級、班別及最近學習。
+- [x] 顯示真名、暱稱、學生證、年級、班別及最近學習；年級／班別在名冊、進度、詳情及篩選器以「初一甲」連接顯示。
 - [x] 建立 `/teacher/students/[id]` 身份／學習摘要詳情及返回來源。
 - [x] 使用semantic link／button，reset action放在名冊row及詳情頁清楚位置；無權限完全不渲染。
 - [x] Reset確認dialog列明失效影響；client pending guard、expired precondition重新fetch／重新確認、recent-auth modal及一次重送。
@@ -665,6 +665,7 @@ performance及完整原生 screen-reader／device matrix仍保留為明確 defer
   secrets fail closed，未冒充production pass。
 - Follow-up修正：教師的15分鐘近期驗證過期或尚未建立時，學生名冊／學生詳情仍可正常讀取；只有重設密碼操作暫時隱藏，頁面會提示
   教師重新驗證身份。驗證成功後會重新載入名冊並恢復獲授權學生的重設按鈕，避免把可讀資料誤報為伺服器錯誤。
+- Follow-up修正：教師名冊、學生進度、學生詳情及班別篩選器的年級／班別顯示統一為「初一甲」格式，移除不必要的分隔點；帳號／姓名及統計數字的分隔符號維持原有語義。
 - `npm run test:e2e:admin-roster` fresh local wrapper 4 passed，覆蓋canonical teacher roster／progress／detail、global reset off/on、
   target-bound precondition／IDOR、selected-year access replacement、rollover activation、responsive locale/theme及keyboard／axe smoke。
 - 未執行：production positive secret gate、完整48班／500名教師workspace scale budget、原生 VoiceOver／TalkBack／device matrix、production

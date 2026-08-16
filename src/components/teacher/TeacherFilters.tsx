@@ -46,7 +46,7 @@ export default function TeacherFilters({
         {tc("班別")}
         <select value={classId} onChange={(event) => onClassChange(event.target.value)} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--primary)]">
           <option value="">{tc("全部班別")}</option>
-          {visibleClasses.map((item) => <option key={item.id} value={item.id}>{tc(GRADE_LABELS[item.grade])} · {tc(CLASS_LABELS[item.classCode as ClassCode] ?? item.classCode)}</option>)}
+          {visibleClasses.map((item) => <option key={item.id} value={item.id}>{tc(GRADE_LABELS[item.grade])}{tc(CLASS_LABELS[item.classCode as ClassCode] ?? item.classCode)}</option>)}
         </select>
       </label>
     </div>
