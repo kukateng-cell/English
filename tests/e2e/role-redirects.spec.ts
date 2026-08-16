@@ -91,6 +91,15 @@ test("admin workspace highlights only the current route and keeps role metrics r
     await assertActive(route);
     await expect(page.locator(".ui-icon").first()).toBeVisible();
   }
+
+  await page.goto("/admin/analytics");
+  await expect(page.getByRole("heading", { name: /學習分析|学习分析/ })).toBeVisible();
+  const viewStudents = page.getByRole("link", { name: /查看學生|查看学生/ }).first();
+  await expect(viewStudents).toHaveAttribute("href", /\/admin\/analytics\?classId=/);
+  await viewStudents.click();
+  await expect(page).toHaveURL(/\/admin\/analytics\?classId=/);
+  await expect(page.getByRole("heading", { name: /學生|学生/ }).last()).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /搜尋學生|搜索学生/ })).toBeVisible();
 });
 
 test("teacher and admin desktop sidebars keep account controls in the viewport on long pages", async ({ browser }) => {
