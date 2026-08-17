@@ -39,6 +39,8 @@ const WORD_LIST_PATH = fileURLToPath(
 // 帳號由教師統一發放給學生，不設自助註冊。
 // 格式：student01..studentNN，每個帳號獨立臨時密碼（首次登入強制修改）。
 const STUDENT_COUNT = 40;
+const TEST_STUDENT_NUMBER = 9001;
+const WEBKIT_TEST_STUDENT_NUMBER = 9002;
 type DatabaseEnvironment = "development" | "test" | "production";
 
 async function requireDatabaseEnvironment(): Promise<DatabaseEnvironment> {
@@ -238,9 +240,13 @@ async function seedTestStudent(
   username: string,
   password: string,
   databaseEnvironment: DatabaseEnvironment,
+  studentNumber: number,
 ) {
   if (databaseEnvironment === "production") {
     throw new Error("正式環境禁止建立本地測試學生帳號。");
+  }
+  if (!Number.isSafeInteger(studentNumber) || studentNumber <= 0) {
+    throw new Error(`測試學生學號無效：${studentNumber}`);
   }
   const policyError = passwordPolicyError(password);
   if (policyError) throw new Error(policyError);
@@ -277,7 +283,7 @@ async function seedTestStudent(
                 academicYearId: currentYear.id,
                 grade: "JUNIOR_1",
                 classId,
-                studentNumber: 9001,
+                studentNumber,
                 isCurrent: true,
               status: "ACTIVE",
               origin: "SEED",
@@ -572,15 +578,35 @@ async function main() {
     if (testPasswordError) {
       throw new Error(`TEST_STUDENT_PASSWORD：${testPasswordError}`);
     }
-    await seedTestStudent(testUsername, testPassword, databaseEnvironment);
-    await assertSeedStudentNumbers();
-    if (webkitTestUsername !== testUsername) {
+    const testStudentFixtures = [
+      {
+        username: testUsername,
+        studentNumber: TEST_STUDENT_NUMBER,
+      },
+      ...(webkitTestUsername !== testUsername
+        ? [
+            {
+              username: webkitTestUsername,
+              studentNumber: WEBKIT_TEST_STUDENT_NUMBER,
+            },
+          ]
+        : []),
+    ];
+    const studentNumbers = testStudentFixtures.map(
+      (fixture) => fixture.studentNumber,
+    );
+    if (new Set(studentNumbers).size !== studentNumbers.length) {
+      throw new Error("測試學生 fixture 使用了重複學號。");
+    }
+    for (const fixture of testStudentFixtures) {
       await seedTestStudent(
-        webkitTestUsername,
+        fixture.username,
         testPassword,
         databaseEnvironment,
+        fixture.studentNumber,
       );
     }
+    await assertSeedStudentNumbers();
   }
 
   await prisma.$disconnect();
