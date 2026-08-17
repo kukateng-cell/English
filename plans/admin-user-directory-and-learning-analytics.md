@@ -96,7 +96,7 @@
 - 不在用戶目錄重造匯入／匯出、升級、轉班、hard delete 或教師班級 access editor。
 - 不提供管理員重設另一名管理員密碼；管理員自己的密碼繼續由個人帳戶流程修改。
 - 不用 email 發送臨時密碼，不實作忘記密碼／email recovery。
-- 不建立教師績效排行榜、學生公開排名或「好班／差班」自動標籤。
+- 不建立教師績效排行榜或「好班／差班」自動標籤；學生端公開排行榜的範圍及概覽由 [student-leaderboard-scopes-and-overview.md](./student-leaderboard-scopes-and-overview.md) 另行處理。
 - 不聲稱可以還原歷史某一天的 canonical mastery；第一期只顯示當前 mastery 加期間活動／客觀答題趨勢。
 - 不聲稱目前班級成員過去的活動等於當日歷史班籍表現；現有schema沒有同學年轉班時間線，第一期只做CURRENT membership cohort分析。
 - 不建立 data warehouse、長期物化 aggregate 或 background ETL；先使用現有 canonical tables 和必要 indexes。

@@ -6,39 +6,83 @@ import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import Icon from "@/components/ui/Icon";
 import RewardIcon, { RankMedal } from "@/components/ui/RewardIcon";
+import { CLASS_LABELS, GRADE_LABELS } from "@/lib/roster-domain";
 import type {
   LeaderboardData,
   LeaderboardList,
+  LeaderboardScope,
+  LeaderboardScopeOverview,
   LeaderboardType,
 } from "@/lib/leaderboard";
+
+const SCOPE_ORDER: LeaderboardScope[] = ["class", "grade", "school"];
+
+const METRIC_META: Record<LeaderboardType, { label: string; unit: string }> = {
+  streak: { label: "客觀認讀連續天數", unit: "日" },
+  words: { label: "掌握詞數", unit: "詞" },
+  studyDays: { label: "累計打卡", unit: "日" },
+};
+
+function scopeLabel(
+  scope: LeaderboardScope,
+  overview: LeaderboardScopeOverview,
+  tc: (value: string) => string,
+): string {
+  if (scope === "class") {
+    const className = overview.grade && overview.classCode
+      ? `${tc(GRADE_LABELS[overview.grade])}${tc(CLASS_LABELS[overview.classCode])}${tc("班")}`
+      : tc("本班");
+    return className;
+  }
+  if (scope === "grade" && overview.grade) return `${tc(GRADE_LABELS[overview.grade])}${tc("年級")}`;
+  return tc(scope === "school" ? "全校" : "全年級");
+}
+
+function scopeShortLabel(scope: LeaderboardScope, tc: (value: string) => string): string {
+  if (scope === "class") return tc("本班");
+  if (scope === "grade") return tc("全年級");
+  return tc("全校");
+}
+
+function metricValue(
+  summary: LeaderboardScopeOverview["metrics"][LeaderboardType],
+  unit: string,
+  tc: (value: string) => string,
+): string {
+  return summary.value === null ? tc("暫無") : `${summary.value}${tc(unit)}`;
+}
 
 export default function LeaderboardPage() {
   const { tc } = useLocale();
   const [data, setData] = useState<LeaderboardData | null>(null);
-  const [active, setActive] = useState<LeaderboardType>("streak");
+  const [activeMetric, setActiveMetric] = useState<LeaderboardType>("streak");
+  const [requestedScope, setRequestedScope] = useState<LeaderboardScope | null>(null);
   const [error, setError] = useState(false);
   const [needLogin, setNeedLogin] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // 不再依赖 useSession() 的状态判断登录：它的 "unauthenticated" 在客户端
-  // 导航时可能读到过期缓存（见登录页 update() 说明），会把已登录用户误弹回
-  // 登录页。改为直接拉取受保护的 API——cookie 自动随请求带上，401（未登录 /
-  // 未绑定）才提示登录，已登录即可正常显示。
+  // 首次不帶 scope，由 server 按學生可用 context 選擇最窄範圍；之後切換
+  // scope 才把 enum 傳回 API。client 永遠不傳 classId／grade／academicYearId。
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // 重新加载时先清掉上次的错误态（IIFE 内调用，符合 set-state-in-effect 规则）。
       setError(false);
       setNeedLogin(false);
+      const query = requestedScope ? `?scope=${encodeURIComponent(requestedScope)}` : "";
       try {
-        const res = await fetch("/api/leaderboard");
+        const res = await fetch(`/api/leaderboard${query}`);
         if (res.status === 401) {
           if (!cancelled) setNeedLogin(true);
           return;
         }
-        const d = res.ok ? await res.json() : null;
+        if (!res.ok) {
+          if (!cancelled && (res.status === 400 || res.status === 422)) setRequestedScope(null);
+          if (!cancelled) setError(true);
+          return;
+        }
+        const payload = await res.json() as LeaderboardData;
         if (cancelled) return;
-        if (d) setData(d);
+        if (payload) setData(payload);
         else setError(true);
       } catch {
         if (!cancelled) setError(true);
@@ -47,9 +91,8 @@ export default function LeaderboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, requestedScope]);
 
-  // 未登录（未绑定）：显示登录提示，而非强制重定向到登录页造成来回跳转。
   if (needLogin) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-6 text-center">
@@ -69,13 +112,12 @@ export default function LeaderboardPage() {
     );
   }
 
-  // 加载失败：显示错误 + 重试，避免一直转圈。
   if (!data && error) {
     return (
       <div className="flex min-h-full items-center justify-center px-6">
         <ErrorBanner
           message="加载失败，请检查网络后重试"
-          onRetry={() => setReloadKey((k) => k + 1)}
+          onRetry={() => setReloadKey((key) => key + 1)}
         />
       </div>
     );
@@ -89,15 +131,17 @@ export default function LeaderboardPage() {
     );
   }
 
+  const activeScope = data.scope;
+  const activeOverview = data.overview[activeScope];
   const list: LeaderboardList =
-    data.lists.find((l) => l.type === active) ?? data.lists[0];
+    data.lists.find((item) => item.type === activeMetric) ?? data.lists[0];
+  const scopeLoading = requestedScope !== null && requestedScope !== data.scope;
   const medalTone = (rank: number) =>
     rank === 1 ? "text-[var(--warning)]" : rank === 2 ? "text-[var(--muted)]" : "text-[var(--primary)]";
 
   return (
     <div className="flex min-h-full flex-col px-5 py-8">
       <div className="mx-auto w-full max-w-md">
-        {/* 返回首页 */}
         <Link
           href="/"
           aria-label={tc("返回")}
@@ -105,6 +149,7 @@ export default function LeaderboardPage() {
         >
           <Icon name="chevron-left" size={26} />
         </Link>
+
         <div className="mb-5 text-center">
           <div className="student-reward-hero-icon mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[20px] border border-[var(--border)] bg-[var(--border-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
             <RewardIcon name="trophy" size={38} />
@@ -117,69 +162,218 @@ export default function LeaderboardPage() {
           </p>
         </div>
 
-        {/* Tab 切换 */}
-        <div className="mb-4 flex gap-1 rounded-full bg-[var(--border-soft)] p-1 dark:bg-[var(--border-soft)]/40">
-          {data.lists.map((l) => (
-            <button
-              key={l.type}
-              onClick={() => setActive(l.type)}
-              className={`flex-1 rounded-full px-3 py-2 text-[13px] font-medium transition ${
-                active === l.type
-                  ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
-                  : "text-[var(--muted)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:text-[var(--primary)]"
-              }`}
-            >
-              {tc(l.label)}
+        {error && (
+          <div role="alert" aria-live="assertive" className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--danger)]/20 bg-[var(--danger-bg)] px-4 py-3 text-[12px] text-[var(--danger)]">
+            <span>{tc("排行榜范围暂时无法加载，请重试")}</span>
+            <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="shrink-0 rounded-xl border border-[var(--danger)]/30 px-3 py-1.5 font-semibold">
+              {tc("重试")}
             </button>
-          ))}
-        </div>
+          </div>
+        )}
 
-        {/* 榜单 */}
-        <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] dark:border-[var(--border)] dark:bg-[var(--surface)]">
-          {list.entries.map((e, i) => (
-            <div
-              key={`${e.rank}:${e.name}:${i}`}
-              className={`flex items-center gap-3 px-4 py-3 ${
-                e.isMe
-                  ? "bg-[var(--border-soft)] dark:bg-[var(--border-soft)]"
-                  : i !== list.entries.length - 1
-                    ? "border-b border-[var(--border-soft)] dark:border-[var(--border)]"
-                    : ""
-              }`}
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center text-[15px] font-bold tabular-nums text-[var(--text)]">
-                {e.rank === 1 || e.rank === 2 || e.rank === 3 ? (
-                  <>
-                    <RankMedal rank={e.rank} size={30} className={medalTone(e.rank)} />
-                    <span className="sr-only">{tc(`第 ${e.rank} 名`)}</span>
-                  </>
-                ) : e.rank}
-              </div>
-              <div className="min-w-0 flex-1">
+        <section
+          aria-labelledby="leaderboard-overview-title"
+          className="mb-5 rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow-sm)] dark:border-[var(--border)] dark:bg-[var(--surface)]"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 id="leaderboard-overview-title" className="text-[16px] font-bold text-[var(--text)]">
+                {tc("我的排行榜概覽")}
+              </h2>
+              <p className="mt-1 text-[12px] leading-5 text-[var(--muted)]">
+                {data.context.academicYearLabel
+                  ? `${data.context.academicYearLabel} · ${tc("排名會按目前學年班籍計算")}`
+                  : tc("排名會按目前可用的學生資料計算")}
+              </p>
+            </div>
+            <RewardIcon name="medal" size={22} className="shrink-0 text-[var(--primary)]" />
+          </div>
+
+          <div className="space-y-3">
+            {SCOPE_ORDER.map((scope) => {
+              const overview = data.overview[scope];
+              return (
                 <div
-                  className={`truncate text-[14px] font-medium ${
-                    e.isMe
-                      ? "text-[var(--primary)] dark:text-[var(--primary)]"
-                      : "text-[var(--text)] dark:text-[var(--text)]"
+                  key={scope}
+                  className={`rounded-2xl border p-3 ${
+                    scope === activeScope
+                      ? "border-[var(--primary)]/40 bg-[var(--primary)]/5"
+                      : "border-[var(--border-soft)] bg-[var(--border-soft)]/35"
                   }`}
                 >
-                  {e.name}
-                  {e.isMe && (
-                    <span className="ml-1.5 rounded-full bg-[var(--primary)]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)] dark:text-[var(--primary)]">
-                      {tc("我")}
-                    </span>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[13px] font-bold text-[var(--text)]">
+                          {scopeShortLabel(scope, tc)}
+                        </span>
+                        {scope !== "school" && overview.available && (
+                          <span className="truncate text-[11px] text-[var(--muted)]">
+                            {scopeLabel(scope, overview, tc)}
+                          </span>
+                        )}
+                        {scope === activeScope && (
+                          <span className="rounded-full bg-[var(--primary)]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
+                            {tc("目前查看")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {overview.available ? (
+                      <span className="shrink-0 text-[11px] text-[var(--muted)]">
+                        {overview.participantCount}{tc("人")}
+                      </span>
+                    ) : (
+                      <span className="shrink-0 text-[11px] text-[var(--muted)]">{tc("未提供")}</span>
+                    )}
+                  </div>
+
+                  {overview.available ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {data.lists.map((item) => {
+                        const summary = overview.metrics[item.type];
+                        const meta = METRIC_META[item.type];
+                        return (
+                          <div key={item.type} className="min-w-0 rounded-xl bg-[var(--surface)] px-2 py-2 dark:bg-[var(--surface)]">
+                            <div className="mb-1 flex items-center gap-1 text-[var(--muted)]">
+                              <RewardIcon name={item.icon} size={15} />
+                              <span className="truncate text-[10px]">{tc(meta.label)}</span>
+                            </div>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-[16px] font-bold tabular-nums text-[var(--primary)]">
+                                {summary.rank === null ? "—" : tc(`第 ${summary.rank} 名`)}
+                              </span>
+                            </div>
+                            <span className="text-[10px] tabular-nums text-[var(--muted)]">
+                              {metricValue(summary, meta.unit, tc)} / {overview.participantCount}{tc("人")}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[12px] leading-5 text-[var(--muted)]">
+                      {overview.unavailableReason === "NO_CLASS"
+                        ? tc("你目前未分配班級，暫時無法查看本班排名")
+                        : tc("目前沒有可用的班籍資料")}
+                    </p>
                   )}
                 </div>
-              </div>
-              <div className="flex min-w-[72px] items-center justify-end gap-1.5 text-[14px] font-semibold tabular-nums text-[var(--primary)]">
-                <span className="student-reward-stat-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-[var(--border-soft)]">
-                  <RewardIcon name={list.icon} size={19} />
-                </span>
-                <span>{e.value}</span>
-              </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section aria-labelledby="leaderboard-detail-title" aria-busy={scopeLoading}>
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <h2 id="leaderboard-detail-title" className="text-[16px] font-bold text-[var(--text)]">
+                {tc("詳細排行榜")}
+              </h2>
+              <p className="mt-1 text-[12px] text-[var(--muted)]">
+                {scopeLabel(activeScope, activeOverview, tc)} · {activeOverview.participantCount}{tc("人")}
+              </p>
             </div>
-          ))}
-        </div>
+            {scopeLoading && <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />}
+          </div>
+
+          <div role="tablist" aria-label={tc("排行榜範圍")} className="mb-3 grid grid-cols-3 gap-1 rounded-full bg-[var(--border-soft)] p-1 dark:bg-[var(--border-soft)]/40">
+            {SCOPE_ORDER.map((scope) => {
+              const overview = data.overview[scope];
+              const isActive = scope === activeScope;
+              return (
+                <button
+                  key={scope}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  disabled={!overview.available || scopeLoading}
+                  onClick={() => {
+                    setError(false);
+                    setRequestedScope(scope);
+                  }}
+                  className={`min-w-0 rounded-full px-2 py-2 text-[12px] font-semibold transition ${
+                    isActive
+                      ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
+                      : "text-[var(--muted)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-45 dark:text-[var(--muted)] dark:hover:text-[var(--primary)]"
+                  }`}
+                >
+                  {scopeShortLabel(scope, tc)}
+                </button>
+              );
+            })}
+          </div>
+
+          <div role="tablist" aria-label={tc("排行榜項目")} className="mb-4 flex gap-1 rounded-full bg-[var(--border-soft)] p-1 dark:bg-[var(--border-soft)]/40">
+            {data.lists.map((item) => (
+              <button
+                key={item.type}
+                type="button"
+                role="tab"
+                aria-selected={activeMetric === item.type}
+                onClick={() => setActiveMetric(item.type)}
+                className={`flex min-w-0 flex-1 items-center justify-center gap-1 rounded-full px-2 py-2 text-[12px] font-medium transition ${
+                  activeMetric === item.type
+                    ? "bg-[var(--primary)] text-[var(--color-surface)] shadow-sm"
+                    : "text-[var(--muted)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:text-[var(--primary)]"
+                }`}
+              >
+                <RewardIcon name={item.icon} size={15} />
+                <span className="truncate">{tc(item.label)}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] dark:border-[var(--border)] dark:bg-[var(--surface)]">
+            {list.entries.length ? list.entries.map((entry, index) => (
+              <div
+                key={`${entry.rank}:${entry.name}:${index}`}
+                className={`flex items-center gap-3 px-4 py-3 ${
+                  entry.isMe
+                    ? "bg-[var(--border-soft)] dark:bg-[var(--border-soft)]"
+                    : index !== list.entries.length - 1
+                      ? "border-b border-[var(--border-soft)] dark:border-[var(--border)]"
+                      : ""
+                }`}
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center text-[15px] font-bold tabular-nums text-[var(--text)]">
+                  {entry.rank === 1 || entry.rank === 2 || entry.rank === 3 ? (
+                    <>
+                      <RankMedal rank={entry.rank} size={30} className={medalTone(entry.rank)} />
+                      <span className="sr-only">{tc(`第 ${entry.rank} 名`)}</span>
+                    </>
+                  ) : entry.rank}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={`truncate text-[14px] font-medium ${
+                      entry.isMe
+                        ? "text-[var(--primary)] dark:text-[var(--primary)]"
+                        : "text-[var(--text)] dark:text-[var(--text)]"
+                    }`}
+                  >
+                    {entry.name}
+                    {entry.isMe && (
+                      <span className="ml-1.5 rounded-full bg-[var(--primary)]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)] dark:text-[var(--primary)]">
+                        {tc("我")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex min-w-[72px] items-center justify-end gap-1.5 text-[14px] font-semibold tabular-nums text-[var(--primary)]">
+                  <span className="student-reward-stat-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-[var(--border-soft)]">
+                    <RewardIcon name={list.icon} size={19} />
+                  </span>
+                  <span>{entry.value}</span>
+                </div>
+              </div>
+            )) : (
+              <p className="px-4 py-10 text-center text-[13px] text-[var(--muted)]">
+                {tc("目前沒有可顯示的排行榜資料")}
+              </p>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

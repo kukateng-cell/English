@@ -181,6 +181,29 @@ test("leaderboard and achievement reward icons keep the shared visual treatment"
   }
 });
 
+test("leaderboard opens with the personal overview and switches cohort scope", async ({ page }) => {
+  await page.goto("/leaderboard", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /学习排行榜|學習排行榜/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /我的排行榜概览|我的排行榜概覽/ })).toBeVisible();
+
+  const scopeTabs = page.getByRole("tablist", { name: /排行榜范围|排行榜範圍/ });
+  await expect(scopeTabs.getByRole("tab")).toHaveCount(3);
+  const gradeTab = scopeTabs.getByRole("tab").nth(1);
+  await expect(gradeTab).toBeEnabled();
+
+  const response = page.waitForResponse((candidate) => {
+    const url = new URL(candidate.url());
+    return candidate.request().method() === "GET" &&
+      url.pathname === "/api/leaderboard" &&
+      url.searchParams.get("scope") === "grade" &&
+      candidate.ok();
+  });
+  await gradeTab.click();
+  await response;
+  await expect(gradeTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#leaderboard-detail-title")).toContainText(/初一|初二|初三|高一|高二|高三|全年级|全年級/);
+});
+
 test("student surfaces reflow without clipping under WCAG text-spacing overrides", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
 
