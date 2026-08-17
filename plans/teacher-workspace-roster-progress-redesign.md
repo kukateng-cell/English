@@ -675,7 +675,7 @@ performance及完整原生 screen-reader／device matrix仍保留為明確 defer
 
 ### Phase 6 實作證據（2026-08-16）
 
-- Fresh local reset／reseed 只針對 exact allowlisted `english_dev/public`，48 個 normal migrations replay 成功；seed 建立 global reset
+- Fresh local reset／reseed 只針對 exact allowlisted `english_dev/public`，49 個 normal migrations replay 成功；seed 建立 global reset
   on／off teacher fixtures。沒有觸碰 production，亦沒有執行 destructive contract migration。
 - `npm test`（176 passed）、`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`、`npx prisma generate`、migration checksum／fresh
   replay／contract regression、roster／auth／invariant／lifecycle／reset／PII／DB suites及`npm run build`均通過。

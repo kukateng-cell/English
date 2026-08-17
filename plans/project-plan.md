@@ -95,7 +95,7 @@
 | 10 | **安全与审计** | ✅ 已实现 | Upstash 分布式限流、session 撤销、审计哈希、ReviewEvent ledger 与生产配置门禁 |
 | 11 | **简繁与主题** | ✅ 已实现 | opencc-js 简繁切换及明暗主题 |
 | 12 | **PWA** | ⏳ 未实现 | 尚无 web app manifest、service worker 或安装流程 |
-| 13 | **班級與名冊管理** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲兩個相同全範圍 reviewer PASS；48 個 normal forward migrations、guarded reset／reseed、roster/auth/invariant suites、fresh 4-test disposable admin workflow（含 explicit rollover dispositions）、teacher canonical workspace／global reset、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy仍 deferred |
+| 13 | **班級與名冊管理** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲兩個相同全範圍 reviewer PASS；49 個 normal forward migrations、guarded reset／reseed、roster/auth/invariant suites、fresh 4-test disposable admin workflow（含 explicit rollover dispositions）、teacher canonical workspace／global reset、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy仍 deferred |
 
 管理員用戶頁的 `PATCH /api/admin/users/[id]` 現在只接受明確的
 `UPDATE_IDENTITY` 或 `CHANGE_STATUS` command：身份欄位使用 detail-query 的 User／Profile revision、近期重新驗證及
@@ -396,7 +396,7 @@ npm run seed
 | **P8 PWA** | ⏳ 待开始 | 尚无实现 | Manifest、icons、service worker、更新策略及安装／离线验收 |
 | **P9 真实用户研究** | ⏸ 暂缓／功能关闭 | Operational objective ledger 已有；没有 research telemetry／assignment | 伦理／学校审批、家长 permission、学生 assent、protocol 获批前不得开始 |
 | **P10 教师任务** | ⏳ 待开始 | 已有教师角色、班级统计与学生详情 | 周任务布置、截止时间、完成状态及班级汇总 |
-| **P11 班级与名册** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲 Hume 與 Bernoulli 對相同 contract 全文 PASS；local canonical schema、48 個 normal forward migrations、guarded reset／reseed、auth／班級權限／名冊流程、teacher workspace／global reset、fresh 4-test disposable admin workflow、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy deferred | 補足需另行授權的 production／native-device release gates；之後另行審批 production migration、backup、deploy 及 observation |
+| **P11 班级与名册** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲 Hume 與 Bernoulli 對相同 contract 全文 PASS；local canonical schema、49 個 normal forward migrations、guarded reset／reseed、auth／班級權限／名冊流程、teacher workspace／global reset、fresh 4-test disposable admin workflow、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy deferred | 補足需另行授權的 production／native-device release gates；之後另行審批 production migration、backup、deploy 及 observation |
 
 ### 7.1 Retrieval-first Learning Stream v2（2026-08-15 current baseline）
 

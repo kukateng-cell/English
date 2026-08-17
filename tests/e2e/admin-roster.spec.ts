@@ -160,8 +160,8 @@ test("admin roster shell and one-row import remain atomic and disposable", async
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the admin roster smoke.");
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill("admin");
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill("admin");
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -236,11 +236,11 @@ test("admin roster shell and one-row import remain atomic and disposable", async
   // The roster status control must be a real action, not just a status label.
   // Exercise the same mobile card that administrators use on a narrow screen,
   // then verify both the visible state and the persisted server state.
-  await page.getByPlaceholder(/搜寻账号|搜尋賬號/u).fill(accountName);
+  await page.getByPlaceholder(/搜寻账号|搜尋賬號|搜尋帳號/u).fill(accountName);
   const statusToggle = page.locator('[data-testid="roster-status-toggle"]:visible');
   await expect(statusToggle).toHaveText(/停权|停權/u);
   await statusToggle.click();
-  await expect(page.getByRole("status")).toContainText(/账号已停权|賬號已停權/u);
+  await expect(page.getByRole("status")).toContainText(/账号已停权|賬號已停權|帳號已停權/u);
   await expect(statusToggle).toHaveText(/恢复|恢復/u);
   const suspendedRosterResponse = await queryAdminDirectory(page, headers, { academicYearId: current!.id, search: accountName, limit: 50 });
   expect(suspendedRosterResponse.ok()).toBeTruthy();
@@ -248,7 +248,7 @@ test("admin roster shell and one-row import remain atomic and disposable", async
   expect(suspendedRoster.items?.find((item) => item.accountName === accountName)?.status).toBe("SUSPENDED");
 
   await statusToggle.click();
-  await expect(page.getByRole("status")).toContainText(/账号已恢复|賬號已恢復/u);
+  await expect(page.getByRole("status")).toContainText(/账号已恢复|賬號已恢復|帳號已恢復/u);
   await expect(statusToggle).toHaveText(/停权|停權/u);
   const restoredRosterResponse = await queryAdminDirectory(page, headers, { academicYearId: current!.id, search: accountName, limit: 50 });
   expect(restoredRosterResponse.ok()).toBeTruthy();
@@ -268,8 +268,8 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the admin roster workflow.");
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill("admin");
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill("admin");
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -434,8 +434,8 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     studentContext = await browser.newContext();
     const studentPage = await studentContext.newPage();
     await studentPage.goto("/login");
-    await studentPage.getByLabel(/账号|賬號/).fill(accountName);
-    await studentPage.getByLabel(/密码|密碼/).fill(rotatedCredential!.temporaryPassword);
+    await studentPage.getByLabel(/账号|賬號|帳號/).fill(accountName);
+    await studentPage.getByRole("textbox", { name: /密码|密碼/ }).fill(rotatedCredential!.temporaryPassword);
     await studentPage.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await studentPage.waitForURL((url) => !url.pathname.startsWith("/login"));
     const studentNewPassword = "FlowStudentNew!2026";
@@ -504,8 +504,8 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     expect(restoreStudentResponse.ok()).toBeTruthy();
     await studentContext.clearCookies();
     await studentPage.goto("/login");
-    await studentPage.getByLabel(/账号|賬號/).fill(accountName);
-    await studentPage.getByLabel(/密码|密碼/).fill(studentNewPassword);
+    await studentPage.getByLabel(/账号|賬號|帳號/).fill(accountName);
+    await studentPage.getByRole("textbox", { name: /密码|密碼/ }).fill(studentNewPassword);
     await studentPage.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await studentPage.waitForURL((url) => !url.pathname.startsWith("/login"));
     await studentPage.goto("/study");
@@ -571,8 +571,8 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     teacherContext = await browser.newContext();
     const teacherPage = await teacherContext.newPage();
     await teacherPage.goto("/login");
-    await teacherPage.getByLabel(/账号|賬號/).fill(teacherAccount);
-    await teacherPage.getByLabel(/密码|密碼/).fill(teacherPassword);
+    await teacherPage.getByLabel(/账号|賬號|帳號/).fill(teacherAccount);
+    await teacherPage.getByRole("textbox", { name: /密码|密碼/ }).fill(teacherPassword);
     await teacherPage.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await teacherPage.waitForURL((url) => !url.pathname.startsWith("/login"));
     const initialTeacherCsrfResponse = await teacherPage.request.get("/api/auth/csrf");
@@ -584,8 +584,8 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     expect(changeTeacherPasswordResponse.ok(), await changeTeacherPasswordResponse.text()).toBeTruthy();
     await teacherContext.clearCookies();
     await teacherPage.goto("/login");
-    await teacherPage.getByLabel(/账号|賬號/).fill(teacherAccount);
-    await teacherPage.getByLabel(/密码|密碼/).fill(teacherNewPassword);
+    await teacherPage.getByLabel(/账号|賬號|帳號/).fill(teacherAccount);
+    await teacherPage.getByRole("textbox", { name: /密码|密碼/ }).fill(teacherNewPassword);
     await teacherPage.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await teacherPage.waitForURL((url) => !url.pathname.startsWith("/login"));
     const teacherCsrfResponse = await teacherPage.request.get("/api/auth/csrf");
@@ -613,8 +613,8 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     forcedStudentContext = await browser.newContext();
     const forcedStudentPage = await forcedStudentContext.newPage();
     await forcedStudentPage.goto("/login");
-    await forcedStudentPage.getByLabel(/账号|賬號/).fill(authorizedStudentAccountName);
-    await forcedStudentPage.getByLabel(/密码|密碼/).fill(authorizedResetPayload.temporaryPassword!);
+    await forcedStudentPage.getByLabel(/账号|賬號|帳號/).fill(authorizedStudentAccountName);
+    await forcedStudentPage.getByRole("textbox", { name: /密码|密碼/ }).fill(authorizedResetPayload.temporaryPassword!);
     await forcedStudentPage.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await expect.poll(() => forcedStudentPage.url()).toMatch(/\/reset-password/u);
     const unauthorizedReset = await teacherPage.request.post(`/api/teacher/students/${unauthorizedStudentId}/reset-password`, { headers: teacherHeaders, data: { resetPrecondition: teacherStudents[0]!.resetPrecondition } });
@@ -635,7 +635,7 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     const noResetStudent = noResetStudents.find((student) => student.id === authorizedStudentId);
     expect(noResetStudent?.canResetStudentPassword).toBe(false);
     await teacherPage.goto("/teacher/students");
-    await expect(teacherPage.getByRole("heading", { name: /学生进度|學生進度/ })).toBeVisible();
+    await expect(teacherPage.getByRole("tab", { name: /学生名册|學生名冊/ })).toHaveAttribute("aria-selected", "true");
     const studentRow = teacherPage.locator("tr").filter({ hasText: authorizedStudentAccountName }).first();
     await expect(studentRow).toBeVisible();
     await studentRow.getByRole("link", { name: /查看/u }).click();
@@ -667,8 +667,8 @@ test("admin roster persists explicit rollover dispositions and activates incomin
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the rollover disposition smoke.");
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill("admin");
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill("admin");
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -850,8 +850,8 @@ test("admin roster promotion accepts 500 and rejects 501 before staging", async 
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the promotion scale smoke.");
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill("admin");
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill("admin");
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -950,8 +950,8 @@ test("admin roster is keyboard navigable across responsive locale and theme stat
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the admin accessibility matrix.");
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill("admin");
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill("admin");
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -1029,17 +1029,17 @@ test("admin roster is keyboard navigable across responsive locale and theme stat
   await createTrigger.click();
   const userDialog = page.getByRole("dialog");
   await expect(userDialog).toBeVisible();
-  await expect(userDialog.getByLabel(/账号|賬號/u)).toBeVisible();
+  await expect(userDialog.getByLabel(/账号|賬號|帳號/u)).toBeVisible();
   await expect(userDialog.getByLabel(/真实姓名|真實姓名/u)).toBeVisible();
   await expect(userDialog.getByRole("heading")).toBeVisible();
   const dialogAriaSnapshot = await userDialog.ariaSnapshot();
   expect(dialogAriaSnapshot).toMatch(/dialog/iu);
-  expect(dialogAriaSnapshot).toMatch(/账号|賬號/iu);
+  expect(dialogAriaSnapshot).toMatch(/账号|賬號|帳號/iu);
   await userDialog.getByRole("button", { name: /创建用户|建立用戶|建立用户/u }).click();
   await expect(userDialog.getByRole("alert")).toBeVisible();
   const errorAriaSnapshot = await userDialog.ariaSnapshot();
   expect(errorAriaSnapshot).toMatch(/alert/iu);
-  const firstDialogControl = userDialog.getByLabel(/账号|賬號/u);
+  const firstDialogControl = userDialog.getByLabel(/账号|賬號|帳號/u);
   await firstDialogControl.focus();
   await page.keyboard.press("Shift+Tab");
   await expect(userDialog.locator(":focus")).toHaveCount(1);
@@ -1056,8 +1056,8 @@ test("admin roster imports 500 rows and rejects the 501st before staging", async
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the roster scale smoke.");
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill("admin");
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill("admin");
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -1119,8 +1119,8 @@ test("admin roster activation completes 5,000 students atomically", async ({ pag
   const fixture = await seedActivationScaleFixture(5_000);
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill(fixture.adminAccountName);
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill(fixture.adminAccountName);
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -1189,8 +1189,8 @@ test("admin roster activation rejects 5,001 students before staging", async ({ p
   const fixture = await seedActivationScaleFixture(5_001);
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill(fixture.adminAccountName);
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill(fixture.adminAccountName);
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 

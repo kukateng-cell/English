@@ -34,14 +34,14 @@ test("teacher and admin fixtures retain role boundaries when seeded credentials 
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the real seeded role fixtures.");
   for (const fixture of [
-    { username: "teacher", home: "/teacher", links: ["/teacher", "/teacher/students"] },
+    { username: "teacher", home: "/teacher", links: ["/teacher", "/teacher/roster"] },
     { username: "admin", home: "/admin", links: ["/admin", "/admin/users", "/admin/words"] },
   ]) {
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.goto("/login");
-    await page.getByLabel(/账号|賬號/).fill(fixture.username);
-    await page.getByLabel(/密码|密碼/).fill(password!);
+    await page.getByLabel(/账号|賬號|帳號/).fill(fixture.username);
+    await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
     await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await page.waitForURL((url) => url.pathname === fixture.home);
     const workspaceNav = page.getByRole("navigation", { name: /工作區導航|工作区导航/ });
@@ -66,8 +66,8 @@ test("admin workspace highlights only the current route and keeps role metrics r
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the admin workspace smoke.");
 
   await page.goto("/login");
-  await page.getByLabel(/账号|賬號/).fill("admin");
-  await page.getByLabel(/密码|密碼/).fill(password!);
+  await page.getByLabel(/账号|賬號|帳號/).fill("admin");
+  await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
   await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
   await page.waitForURL((url) => url.pathname === "/admin");
 
@@ -107,14 +107,14 @@ test("teacher and admin desktop sidebars keep account controls in the viewport o
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the seeded workspace smoke.");
 
   for (const fixture of [
-    { username: "teacher", home: "/teacher", longRoute: "/teacher/students" },
+    { username: "teacher", home: "/teacher", longRoute: "/teacher/roster" },
     { username: "admin", home: "/admin", longRoute: "/admin/roster" },
   ]) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     await page.goto("/login");
-    await page.getByLabel(/账号|賬號/).fill(fixture.username);
-    await page.getByLabel(/密码|密碼/).fill(password!);
+    await page.getByLabel(/账号|賬號|帳號/).fill(fixture.username);
+    await page.getByRole("textbox", { name: /密码|密碼/ }).fill(password!);
     await page.getByRole("button", { name: /登录|登入|登錄/ }).click();
     await page.waitForURL((url) => url.pathname === fixture.home);
     await page.goto(fixture.longRoute, { waitUntil: "domcontentloaded" });

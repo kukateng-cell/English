@@ -1,6 +1,6 @@
 # 班級、名冊匯入及教師存取控制實施計劃
 
-> 狀態：進行中（Phase 8 local verification；contract migration regression 已於 disposable schema 通過；production-only config positive gate 及完整原生 screen-reader/device matrix deferred）
+> 狀態：已完成（local verification；dependency audit job remains independent and fail-closed；production-only config positive gate 及完整原生 screen-reader/device matrix deferred）
 >
 > 修訂：Revision 3（Hume及Bernoulli已對相同最終contract全文PASS）
 >
@@ -1258,6 +1258,35 @@ POST       /api/teacher/students/[id]/reset-password
 
 驗收：所有必要自動及 browser tests 通過；local runbook 可由另一位開發者重現。
 
+### Post-review follow-up：CI-01 dependency audit 與 functional gate
+
+背景：`codex/class-roster-import-and-access-control` 的最新 review 確認 seed 修正已關閉重複測試學號問題，
+但 `npm audit --omit=dev --audit-level=high` 會因 `prisma@7.9.1 → @prisma/config@7.9.1 → deepmerge-ts@7.1.5`
+的 high advisory 先行失敗，令 seed、migration、build 及 browser regression 未有最新 head 實證。Registry 提供的
+自動修復方案係退回 Prisma `6.12.0`，不符合目前 Prisma 7／adapter contract；`deepmerge-ts` 8.x 亦未有 Prisma
+兼容證據，故不作 downgrade 或 override。
+
+目標：保留 dependency audit 的 fail-closed 安全訊號，同時令功能驗證 job 不受該 audit advisory 的 job-level
+failure 阻擋；production deploy workflow 的 audit gate 不在本 follow-up 放寬。
+
+- [x] 將 study/card-motion quality workflow 的 dependency audit 拆成獨立 job，與 functional-quality job 並行。
+- [x] 保留 audit job 失敗語義；不使用 `|| true`、廣泛 advisory allowlist、Prisma major downgrade 或 transitive override。
+- [x] 在最新工作樹執行 functional-quality 對應的 unit、lint、typecheck、migration、seed、build／browser 驗證，並記錄任何未執行項目。
+
+實際結果：`npm audit --omit=dev --audit-level=high` 仍會因 Prisma 7.9.1 依賴鏈的
+`deepmerge-ts@7.1.5` advisory fail；registry 提供的 Prisma 6.12.0 自動修復不符合現行 Prisma 7／adapter
+contract，故沒有 downgrade、override 或 allowlist。`.github/workflows/card-motion.yml` 現在由獨立
+`dependency-audit` job 保留該 fail-closed 訊號，而 `study-quality` 不再被 job-level audit failure skip。
+本地 follow-up 已完成 `npm test`（211 passed）、lint、typecheck、49-migration checksum／fresh／contract
+replay、guarded local reset／seed、build、admin roster E2E（4 passed）及 clean role/workspace E2E（5 passed）。
+完整 cross-browser card-motion、student IA／QA suite 沒有因本次 admin/API／workflow follow-up 重跑；既有
+Phase 8 evidence 保留，production config positive gate、production deploy、真實學生資料及 destructive
+contract cleanup 仍 deferred。
+
+驗收：audit advisory 仍會令 audit job fail，但不會令 functional-quality job skipped；functional-quality 可獨立提供
+seed、migration、build 及 browser regression 結果。production-only config、production deploy、真實學生資料及
+destructive contract cleanup 仍屬本計劃外／deferred。
+
 ## 16. 測試矩陣
 
 | 範圍 | 必要案例 |
@@ -1475,21 +1504,22 @@ production contract rollout、缺少 production-only secrets 的 production conf
 | 2026-08-15 | Independent reviews | Review A（data/security）及 Review B（product/QA）均只讀完成；共3項P0全部採納並修訂 |
 | 2026-08-15 | Same-scope review round 1 | 兩位reviewer均完整審查同一範圍並要求修訂；所有P0／P1／mandatory P2已寫入Revision 3 |
 | 2026-08-15 | Revision 3 repeated same-scope review | Hume及Bernoulli對相同最終contract snapshot均PASS；P0／P1／mandatory P2全為0；未執行資料reset或產品實作 |
-| 2026-08-15 | Local implementation | Canonical schema、48 normal forward migrations（最後加入 teacher global reset capability、typed teacher-reset audit、closed-year access-history guard及closed-year INSERT guard）、guarded reset／seed、identity/auth/privacy、class/enrollment/transition invariants、teacher access、import／bulk／promotion／activation／export routes及admin roster UI完成；credential batch改用8個bounded worker threads維持bcrypt cost 12；沒有執行production、push、deploy，亦沒有在 development／production target 套用 contract migration |
-| 2026-08-15 | Local verification | `npm test` 173 passed；lint、typecheck、Prisma validate、48-migration fresh replay、checksum、reset guards、roster access/invariants/lifecycle/auth、既有 DB／stream checks、build、fresh default admin roster smoke 4 passed（scale fixture由wrapper明確隔離，新增 explicit rollover disposition fixture）；fresh isolated 500-row import／501 reject E2E、promotion 500／501 boundary E2E、activation 5,000 atomic＋export E2E及5,001 pre-staging cap均通過；最新 measured 500-row import cold/warm preview 155/113/102/98ms、commit 21,120/20,838/21,193/21,333ms、transaction median 815.25ms、RSS peak 1.13MiB；5,000 activation total 2,763ms、transaction 2,745ms、RSS 0MiB；export preview 249ms、四次 total 190/183/160/157ms、transaction 173/171/148/146ms、RSS peak 63.72MiB；promotion／activation workflow另通過 mutation payload PII-negative assertions；`check:roster-pii` terminal staging／credential surface scan通過；credential worker hash correctness unit 2 passed；workspace 2 passed、student IA 24 passed／2 skipped、V2 7 passed；roster parser edge tests 9 passed、bulk 501 cap、activation 5,000 cap unit及malicious workbook spike passed；rollover smoke 另驗證六年級 transition、停權後 V1/V2 local state cleanup、恢復後不重播及 teacher-reset student must-change redirect |
+| 2026-08-15 | Local implementation | Canonical schema、49 normal migrations（最後加入 teacher global reset capability、typed teacher-reset audit、closed-year access-history guard及closed-year INSERT guard）、guarded reset／seed、identity/auth/privacy、class/enrollment/transition invariants、teacher access、import／bulk／promotion／activation／export routes及admin roster UI完成；credential batch改用8個bounded worker threads維持bcrypt cost 12；沒有執行production、push、deploy，亦沒有在 development／production target 套用 contract migration |
+| 2026-08-15 | Local verification | `npm test` 173 passed；lint、typecheck、Prisma validate、49-migration fresh replay、checksum、reset guards、roster access/invariants/lifecycle/auth、既有 DB／stream checks、build、fresh default admin roster smoke 4 passed（scale fixture由wrapper明確隔離，新增 explicit rollover disposition fixture）；fresh isolated 500-row import／501 reject E2E、promotion 500／501 boundary E2E、activation 5,000 atomic＋export E2E及5,001 pre-staging cap均通過；最新 measured 500-row import cold/warm preview 155/113/102/98ms、commit 21,120/20,838/21,193/21,333ms、transaction median 815.25ms、RSS peak 1.13MiB；5,000 activation total 2,763ms、transaction 2,745ms、RSS 0MiB；export preview 249ms、四次 total 190/183/160/157ms、transaction 173/171/148/146ms、RSS peak 63.72MiB；promotion／activation workflow另通過 mutation payload PII-negative assertions；`check:roster-pii` terminal staging／credential surface scan通過；credential worker hash correctness unit 2 passed；workspace 2 passed、student IA 24 passed／2 skipped、V2 7 passed；roster parser edge tests 9 passed、bulk 501 cap、activation 5,000 cap unit及malicious workbook spike passed；rollover smoke 另驗證六年級 transition、停權後 V1/V2 local state cleanup、恢復後不重播及 teacher-reset student must-change redirect |
 | 2026-08-15 | V1 regression mode correction | `test:e2e:student-qa` 固定 `STUDY_V2_ASSIGNMENT_MODE=off` 後 21 passed／1 skipped；避免 `.env.local` 的 local-all 設定污染 V1 fidelity suite |
-| 2026-08-15 | Contract regression | `npm run test:migrations:contract` 於獨立 disposable schema 通過：48 normal migrations replay、checksum／ledger quiet-window audit、兩個 contract migrations apply及no-pending replay均通過；未改動 `english_dev/public`、production或部署狀態 |
+| 2026-08-15 | Contract regression | `npm run test:migrations:contract` 於獨立 disposable schema 通過：49 normal migrations replay、checksum／ledger quiet-window audit、兩個 contract migrations apply及no-pending replay均通過；未改動 `english_dev/public`、production或部署狀態 |
 | 2026-08-15 | Deferred gates | production-config positive secrets／Upstash（local check 明確 fail closed）及完整原生 screen-reader／device matrix仍未執行；500-row import、explicit rollover、5,000-row export／activation 已以 fresh local cold/warm＋100ms worker-RSS protocol通過 budget；surface-specific PII scan、parser／bulk／activation cap boundary及browser axe/keyboard/accessibility-tree matrix均有證據，仍不冒充 release gate完成 |
 | 2026-08-15 | Teacher reset UI permission correction | Teacher student roster response now includes per-class `canResetStudentPassword`; reset control is omitted when a teacher can view but cannot reset; admin-roster E2E adds the no-reset capability assertion; lint、typecheck及build通過 |
 | 2026-08-16 | Student status action correction | 學生名冊的停權／恢復由純文字樣式改為明確可操作、可聚焦及有 busy guard 的按鈕；成功後即時更新列表並保留 server refresh。新增 mobile roster E2E 驗證停權、恢復及資料庫狀態；`npm test` 166 passed、lint、typecheck、build及focused admin-roster browser test通過 |
 | 2026-08-16 | Teacher workspace redesign plan | `teacher-workspace-roster-progress-redesign.md` Revision 3 經兩個獨立相同全範圍 review 及修訂後定稿；名冊／進度分家、學生詳情、server搜尋／篩選／分頁、班級洞察，以及 default-false 教師級 reset capability AND CURRENT class scope 已落實。 |
-| 2026-08-16 | Teacher workspace local verification | fresh local 48-migration replay／reseed後，`npm test` 173 passed、lint／typecheck／build及`npm run test:e2e:admin-roster` 4 passed；activation closed-year teacher access history及closed INSERT guard亦由新forward migrations驗證；production positive config、full-scale及native screen-reader／device matrix仍 deferred。 |
+| 2026-08-16 | Teacher workspace local verification | fresh local 49-migration replay／reseed後，`npm test` 173 passed、lint／typecheck／build及`npm run test:e2e:admin-roster` 4 passed；activation closed-year teacher access history及closed INSERT guard亦由新forward migrations驗證；production positive config、full-scale及native screen-reader／device matrix仍 deferred。 |
 | 2026-08-16 | Temporary password usability | 臨時密碼改為10位易讀小寫／數字 CSPRNG 字串（排除易混淆字元），一般自訂密碼政策不變；教師名冊／學生詳情及管理員單個建立帳號均加入一鍵複製，仍維持一次性 memory-only response、首次登入強制改密碼。 |
+| 2026-08-17 | Review follow-up／CI-01 functional gate | 確認 `deepmerge-ts` advisory 係 Prisma 7.9.1 transitive dependency；保留 audit fail-closed，將 card-motion workflow audit 拆成獨立 job，沒有 downgrade／override。補上 canonical admin directory POST 的 `enrollmentStatus` projection、按現行 locale／teacher workspace contract 修正 admin／role E2E selectors，並將 reset guard migration count 改為按 checked-in migrations 動態計算；exact local `english_dev/public` reset＋49 migration replay＋seed 後，student-test／WebKit fixture 學號 9001／9002、admin roster 4 passed、role/workspace 5 passed。 |
 
 ## 24. 實際執行紀錄與限制
 
-- Local destructive reset 只針對 exact allowlisted `english_dev/public`，執行前後均通過 topology／marker／confirmation guard；reset script 的 quoted mixed-case relation probe 已修正，dry-run 現可正確顯示 `marker=development`、`migrationCount=48` 及 user aggregate。
-- 48 個 normal migrations 已在 fresh disposable schema replay；`npx prisma migrate status`、`npm run test:migration-checksums` 均通過。沒有修改既有 migration checksum，沒有執行 `npm run db:contract`。
+- Local destructive reset 只針對 exact allowlisted `english_dev/public`，執行前後均通過 topology／marker／confirmation guard；reset script 的 quoted mixed-case relation probe 已修正，dry-run 現可正確顯示 `marker=development`、`migrationCount=49` 及 user aggregate。
+- 49 個 normal migrations 已在 fresh disposable schema replay；`npx prisma migrate status`、`npm run test:migration-checksums` 均通過。reset guard 已由 hard-coded count 改為按 checked-in migration directories 動態計數，避免下一個 forward migration 令 guard stale。沒有修改既有 migration checksum，沒有執行 `npm run db:contract`。
 - `npm run check:production-config` 在本機預期以 exit 1 fail，原因是未配置 production-only Upstash、CRON_SECRET 及 audit HMAC；沒有把本地 fallback 當 production pass。
 - Admin roster smoke 使用 wrapper 產生 process-only ephemeral audit HMAC（不落盤），驗證 login／recent-auth、roster shell、selected-year student CSV preview／atomic commit、credential response 及 hard-delete cleanup；完整四測試另覆蓋 active V2 stream／停權 fail-closed、student profile CAS/privacy、teacher scope/reset、explicit rollover disposition／incoming／suspended activation、responsive locale/theme、keyboard/focus及axe。
 - 最近一次 session-cookie transport 修正後重新跑既有 browser regression：workspace `2 passed`、student IA `24 passed / 2 skipped`、V2 study stream `7 passed`；只出現本地未配置 Upstash 的既有 fallback warning。
@@ -1497,3 +1527,4 @@ production contract rollout、缺少 production-only secrets 的 production conf
 - Admin roster 的 exploratory axe scan 曾暴露名冊選取 checkbox／select 缺少可程式化 label（critical `label`／`select-name`）；已補 labels、shared admin form labels／live alert、responsive mobile cards、tab arrow/Home、menu Escape/focus return、modal focus trap／return、dark contrast及200% reflow equivalent，重建 optimized app後完整四測試 browser matrix及shared modal accessibility smoke 的 serious/critical axe 均為零；Chromium `ariaSnapshot()` smoke亦通過。完整原生 screen-reader／device matrix仍未執行，故只保留該 native matrix deferred，唔冒充已完成。
 - 完整 admin multi-step、student profile、teacher scope／TOCTOU／reset、active V2 suspension API及local-state cleanup flow已由 disposable Playwright 4-test default suite及unit tests驗證；rollover smoke 亦驗證恢復後不重播舊 V1/V2 state，並驗證 teacher reset student 後 must-change-password 導向；新增 explicit rollover fixture 逐項驗證六 grade、repeat／hold／graduate／leave、incoming、suspended、planned target link及activation後 roster；另以fresh disposable DB完成500-row import／501 reject、promotion 500／501 boundary、activation 5,000 atomic／5,001 pre-staging cap smokes；500-row import cold/warm preview 155/113/102/98ms、commit 21,120/20,838/21,193/21,333ms、transaction median 815.25ms、RSS peak 1.13MiB；5,000 activation total 2,763ms／transaction 2,745ms／RSS 0MiB，export preview 249ms、total 190/183/160/157ms、transaction 173/171/148/146ms、RSS peak 63.72MiB；promotion／activation batch payload PII-negative assertion及`check:roster-pii` surface scan亦通過。只未宣稱完整原生 screen-reader／device matrix及production config positive gate；後者仍需production secrets／另行release授權。
 - 2026-08-16 停權／恢復 UI 修正以 focused browser regression 驗證：mobile 學生名冊按鈕可點擊、會送出現有管理員 PATCH、顯示成功訊息、切換「停權／恢復」文字，並以 roster GET 確認 server 狀態為 `SUSPENDED`／`ACTIVE`；本次未重跑與此 UI 無關的完整 rollover／scale suite。
+- 2026-08-17 review follow-up：先以 `npm explain deepmerge-ts`／registry audit 確認 advisory path，沒有修改 Prisma dependency；workflow audit 與 functional job 已分離。曾在 rollover E2E 後遇到未來 current academic year 令 analytics 按 contract fail-closed，已重設 exact local test DB 再驗證，沒有修改 analytics contract。`npm audit` advisory、production config positive gate、production deploy 及完整原生 screen-reader／device matrix仍然保留為 deferred／release follow-up。

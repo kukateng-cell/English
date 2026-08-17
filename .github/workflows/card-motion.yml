@@ -51,6 +51,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency-audit:
+    name: Production dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Audit production dependencies
+        run: npm run audit:production
+
   study-quality:
     name: Unit, database, migration, and browser regression
     runs-on: ubuntu-latest
@@ -91,9 +110,6 @@ jobs:
 
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
-
-      - name: Audit production dependencies
-        run: npm run audit:production
 
       - name: Generate Prisma Client
         run: npx prisma generate

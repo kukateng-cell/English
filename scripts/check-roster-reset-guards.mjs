@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 import dotenv from "dotenv";
 
 dotenv.config({ path: ".env.local", quiet: true });
 
 const root = process.cwd();
+const expectedMigrationCount = readdirSync(
+  new URL("../prisma/migrations/", import.meta.url),
+  { withFileTypes: true },
+).filter((entry) => entry.isDirectory()).length;
 const baseEnv = {
   ...process.env,
   DATABASE_ENVIRONMENT: "development",
@@ -26,7 +31,10 @@ const dryRun = run(baseEnv);
 assert.equal(dryRun.status, 0, dryRun.stderr || dryRun.stdout);
 assert.match(dryRun.stdout, /"mode": "dry-run"/u);
 assert.match(dryRun.stdout, /"marker": "development"/u);
-assert.match(dryRun.stdout, /"migrationCount": 48/u);
+assert.match(
+  dryRun.stdout,
+  new RegExp(`"migrationCount": ${expectedMigrationCount}\\b`, "u"),
+);
 
 const wrongTarget = run({ ...baseEnv, CONFIRM_LOCAL_RESET_TARGET: "wrong/public" });
 assert.notEqual(wrongTarget.status, 0);

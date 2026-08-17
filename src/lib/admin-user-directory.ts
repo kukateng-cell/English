@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { AccountStatus, ClassCode, Role, StudentGrade } from "@/generated/prisma";
+import type { AccountStatus, ClassCode, EnrollmentStatus, Role, StudentGrade } from "@/generated/prisma";
 import { prisma, Prisma } from "@/lib/prisma";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { compareStudentNumberSortKey, parseClassCode, parseStudentGrade, STUDENT_GRADES } from "@/lib/roster-domain";
@@ -47,6 +47,7 @@ export type AdminDirectoryItem = {
   classId: string | null;
   classCode: ClassCode | null;
   studentNumber: number | null;
+  enrollmentStatus: EnrollmentStatus | null;
   createdAt: string;
   revision: number;
 };
@@ -224,6 +225,7 @@ function project(user: Prisma.UserGetPayload<{ select: typeof baseSelect }>, yea
     classId: enrollment?.classId ?? null,
     classCode: enrollment?.schoolClass?.classCode ?? null,
     studentNumber: enrollment?.studentNumber ?? null,
+    enrollmentStatus: enrollment?.status ?? null,
     createdAt: user.createdAt.toISOString(),
     revision: user.revision,
     sortAccountName: normalizeAccountName(user.accountNameCanonical ?? user.accountName),
