@@ -238,7 +238,7 @@ export default function UserFormModal({
                   {academicYears.map((year) => <option key={year.id} value={year.id} disabled={year.status === "CLOSED"}>{year.label} · {tc(academicYearStatusLabel(year.status))}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label htmlFor="user-form-grade" className="mb-1.5 block text-[13px] font-medium text-[var(--muted)]">{tc("年級")}</label>
                   <select id="user-form-grade" value={grade} onChange={(e) => setGrade(e.target.value)} className={inputClass}>

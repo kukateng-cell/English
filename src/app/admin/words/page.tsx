@@ -293,7 +293,7 @@ export default function AdminWordsPage() {
                     {tc(word.category)}
                   </span>
                 )}
-                <span className="admin-meta-item"><Icon name="refresh" size={14} /> {word.reviewCount} {tc("次被學習")}</span>
+                <span className="admin-meta-item"><Icon name="repeat" size={14} /> {word.reviewCount} {tc("次被學習")}</span>
               </div>
             </div>
           ))}

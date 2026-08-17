@@ -58,7 +58,7 @@ export default function CopyButton({ value }: { value: string }) {
       onClick={() => void handleCopy()}
       aria-label={label}
     >
-      <Icon name={state === "copied" ? "check" : "clipboard"} size={16} />
+      <Icon name={state === "copied" ? "check" : "copy"} size={16} />
       {label}
     </button>
   );

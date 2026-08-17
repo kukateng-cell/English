@@ -142,7 +142,7 @@ export default function AchievementsPage() {
         {/* 标题 + 总进度 */}
         <div className="mb-6 text-center">
           <div className="student-reward-hero-icon mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[20px] border border-[var(--border)] bg-[var(--border-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
-            <RewardIcon name="trophy" size={38} />
+            <RewardIcon name="star" size={38} />
           </div>
           <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)]">
             {tc("我的成就")}

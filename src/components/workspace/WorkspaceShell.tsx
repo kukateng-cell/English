@@ -15,12 +15,12 @@ const ITEMS: Record<"teacher" | "admin", WorkspaceItem[]> = {
   teacher: [
     { href: "/teacher", label: "概览", icon: "bar-chart" },
     { href: "/teacher/analytics", label: "學習分析", icon: "trending-up" },
-    { href: "/teacher/roster", label: "學生", icon: "users" },
+    { href: "/teacher/roster", label: "學生", icon: "clipboard" },
   ],
   admin: [
     { href: "/admin", label: "概览", icon: "bar-chart" },
     { href: "/admin/analytics", label: "學習分析", icon: "trending-up" },
-    { href: "/admin/roster", label: "班级与名单", icon: "book" },
+    { href: "/admin/roster", label: "班级与名单", icon: "clipboard" },
     { href: "/admin/users", label: "用户管理", icon: "users" },
     { href: "/admin/words", label: "单词库", icon: "book" },
   ],

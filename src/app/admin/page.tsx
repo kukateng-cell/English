@@ -95,7 +95,7 @@ export default function AdminDashboard() {
         <StatCard
           label={tc("總複習次數")}
           value={stats?.totalReviews ?? 0}
-          icon={<Icon name="refresh" size={20} />}
+          icon={<Icon name="repeat" size={20} />}
           color="green"
         />
         <StatCard

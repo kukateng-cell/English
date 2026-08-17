@@ -23,6 +23,7 @@ const PROFILE_SELECT = {
         select: {
           grade: true,
           schoolClass: { select: { classCode: true } },
+          studentNumber: true,
           academicYear: { select: { label: true } },
         },
       },
@@ -40,6 +41,7 @@ function serializeProfile(user: {
     enrollments: Array<{
       grade: string;
       schoolClass: { classCode: string } | null;
+      studentNumber: number | null;
       academicYear: { label: string };
     }>;
   } | null;
@@ -54,6 +56,7 @@ function serializeProfile(user: {
     academicYear: enrollment?.academicYear.label ?? null,
     grade: enrollment?.grade ?? null,
     classCode: enrollment?.schoolClass?.classCode ?? null,
+    studentNumber: enrollment?.studentNumber ?? null,
   };
 }
 

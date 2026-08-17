@@ -12,8 +12,10 @@ export type IconName =
   | "chevron-left"
   | "chevron-right"
   | "close"
+  | "copy"
   | "globe"
   | "home"
+  | "image"
   | "info"
   | "lock"
   | "logout"
@@ -23,11 +25,14 @@ export type IconName =
   | "eye"
   | "eye-off"
   | "plus"
+  | "repeat"
   | "refresh"
+  | "route"
   | "search"
   | "shield"
   | "spark"
   | "sun"
+  | "target"
   | "trash"
   | "trending-up"
   | "user"
@@ -47,8 +52,10 @@ const paths: Record<IconName, ReactNode> = {
   "chevron-left": <path d="m15 5-7 7 7 7" />,
   "chevron-right": <path d="m9 5 7 7-7 7" />,
   close: <path d="m6 6 12 12M18 6 6 18" />,
+  copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.4 2.5 3.5 5.5 3.5 9S14.4 18.5 12 21c-2.4-2.5-3.5-5.5-3.5-9S9.6 5.5 12 3Z" /></>,
   home: <><path d="m3 10 9-7 9 7" /><path d="M5 9.5V21h14V9.5M9 21v-6h6v6" /></>,
+  image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m4 17 4.5-4.5 3.5 3 2.5-2.5L20 18" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></>,
   lock: <><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
   logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5M21 12H9" /></>,
@@ -58,11 +65,14 @@ const paths: Record<IconName, ReactNode> = {
   eye: <><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.5" /></>,
   "eye-off": <><path d="m3 3 18 18" /><path d="M10.6 6.2A10.7 10.7 0 0 1 12 6c6 0 9.5 6 9.5 6a17.8 17.8 0 0 1-3.2 3.7M6.2 6.2C3.8 7.8 2.5 12 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 3.4-.6" /><path d="M9.9 9.9a2.5 2.5 0 0 0 3.5 3.5" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
+  repeat: <><path d="M17 3l4 4-4 4" /><path d="M3 7h18M7 21l-4-4 4-4" /><path d="M21 17H3" /></>,
   refresh: <><path d="M20 11a8 8 0 1 0 1 4" /><path d="M20 5v6h-6" /></>,
+  route: <><circle cx="5" cy="19" r="2" /><circle cx="19" cy="5" r="2" /><path d="M7 18c3.2-1 3.4-5.9 5.7-8.5C14.2 7.8 16 6.4 17 6" /></>,
   search: <><circle cx="11" cy="11" r="7.5" /><path d="m16.5 16.5 4.5 4.5" /></>,
   shield: <><path d="M12 3 20 6v5c0 5-3.4 8.7-8 10-4.6-1.3-8-5-8-10V6z" /><path d="m8.5 12 2.2 2.2 4.8-4.8" /></>,
   spark: <><path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6z" /><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7z" /></>,
   sun: <><circle cx="12" cy="12" r="3.5" /><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+  target: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>,
   trash: <><path d="M3 6h18M9 6V4h6v2M19 6l-1 15H6L5 6" /><path d="M10 11v6M14 11v6" /></>,
   "trending-up": <><path d="m3 17 6-6 4 4 8-8" /><path d="M15 7h6v6" /></>,
   user: <><circle cx="12" cy="7.5" r="3.5" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></>,

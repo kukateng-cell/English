@@ -412,7 +412,7 @@ export default function AdminUsersPage() {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-4 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
                   {roleOf(user) === ROLES.STUDENT ? <span>{tc("學號")}：{user.studentNumber ?? tc("未設定")}</span> : null}
-                  <span className="admin-meta-item"><Icon name="refresh" size={14} /> {user.totalReviews ?? 0} {tc("次練習")}</span>
+                  <span className="admin-meta-item"><Icon name="repeat" size={14} /> {user.totalReviews ?? 0} {tc("次練習")}</span>
                   <span className="admin-meta-item"><Icon name="clock" size={14} /> {new Date(user.createdAt).toLocaleDateString(dateLocale)} {tc("加入")}</span>
                 </div>
               </div>

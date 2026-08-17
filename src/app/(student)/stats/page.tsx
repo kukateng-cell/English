@@ -9,7 +9,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import ProgressBar from "@/components/ui/ProgressBar";
 import SegmentedControl from "@/components/ui/SegmentedControl";
 import StatusBanner from "@/components/ui/StatusBanner";
-import Icon from "@/components/ui/Icon";
+import RewardIcon from "@/components/ui/RewardIcon";
 import { EmptyState, RetryState, Skeleton } from "@/components/ui/Feedback";
 import { StudentPageStack, StudentSectionStack } from "@/components/student/StudentPageStack";
 import { buildActivityHeatmap } from "@/lib/activity-heatmap";
@@ -69,13 +69,13 @@ export default function StatsPage() {
   return (
     <div className="student-content-wide">
       <StudentPageStack>
-        <PageHeader eyebrow={tc("数据") } title={tc("学习统计") } action={<div className="stats-secondary-links"><Link href="/leaderboard"><Icon name="bar-chart" size={16}/>{tc("排行榜")}</Link><Link href="/achievements"><Icon name="spark" size={16}/>{tc("成就")}</Link></div>} />
+        <PageHeader eyebrow={tc("数据") } title={tc("学习统计") } action={<div className="stats-secondary-links"><Link href="/leaderboard"><RewardIcon name="trophy" size={16}/>{tc("排行榜")}</Link><Link href="/achievements"><RewardIcon name="star" size={16}/>{tc("成就")}</Link></div>} />
         <StudentSectionStack>
           <div className="stats-range-row"><SegmentedControl label={tc("统计范围")} items={[{ value: "7", label: tc("近 7 天") }, { value: "30", label: tc("近 30 天") }]} value={days} onChange={setDays} /></div>
 
           <div className="dashboard-stats-grid stats-top-grid">
         <StatCard label={tc("今日新学")} value={data.today.newWordCount} note={tc("首次复习")}/>
-        <StatCard label={tc("今日复习词数")} value={data.today.reviewedWordCount} note={`${data.today.reviewEventCount} ${tc("次记录")}`}/>
+        <StatCard label={tc("今日複習詞數")} value={data.today.reviewedWordCount} note={`${data.today.reviewEventCount} ${tc("次學習記錄")}`}/>
         <StatCard label={tc("连续学习")} value={data.streak.count} note={data.streak.studiedToday ? tc("今天已打卡") : tc("截至最近一天")}/>
           </div>
           <div className="stats-two-column">

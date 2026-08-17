@@ -99,6 +99,8 @@ type Metric = {
   studyDays: number;
   medianStudyDays: number | null;
   learningEncounterCount: number;
+  /** 認字卡自評在報告當日完成的次數；所選期間不含當日則為 null。 */
+  todayLearningEncounterCount: number | null;
   medianLearningEncounters: number | null;
   effectiveReviewCount: number;
   reviewsPerEligibleMember: number | null;
@@ -365,6 +367,10 @@ function indexByUser<T extends { userId: string }>(rows: T[]): Map<string, T[]> 
   return result;
 }
 
+export function countEncountersForLocalDate(rows: Array<{ acknowledgedAt: Date }>, date: string, asOf = new Date()) {
+  return rows.filter((row) => row.acknowledgedAt <= asOf && localDate(row.acknowledgedAt) === date).length;
+}
+
 async function loadActivity(db: Db, memberIds: string[], range: EffectiveRange, asOf: Date): Promise<LoadedActivity> {
   if (!memberIds.length) return { reviewEvents: [], encounters: [], studyDays: [], reviews: [], wordCount: await db.word.count(), reviewEventsByUser: new Map(), encountersByUser: new Map(), studyDaysByUser: new Map(), reviewsByUser: new Map() };
   const from = atShanghaiStart(range.from); const to = atShanghaiEnd(range.to);
@@ -430,14 +436,17 @@ function metricFor(members: Member[], activity: LoadedActivity, range: Effective
     if (days.size || memberEncounters.length || memberReviews.length) active.add(member.id);
     studies.push(days.size); encounterCounts.push(memberEncounters.length); encounters.push(...memberEncounters); reviews.push(...memberReviews);
     const memberStock = activity.reviewsByUser.get(member.id) ?? [];
-    stock.set(member.id, { mastered: memberStock.filter((row) => row.interval >= MASTERED_MIN_INTERVAL).length, due: memberStock.filter((row) => row.nextReviewDate <= asOf).length });
+    const masteredRows = memberStock.filter((row) => row.interval >= MASTERED_MIN_INTERVAL);
+    stock.set(member.id, { mastered: masteredRows.length, due: memberStock.filter((row) => row.nextReviewDate <= asOf).length });
   }
   const eligibleIds = new Set(eligible.map((member) => member.id));
   const objective = objectiveFor([...eligibleIds], reviews, from, to).metric;
   const mastery = members.map((member) => (activity.wordCount ? (stock.get(member.id)?.mastered ?? 0) / activity.wordCount * 100 : 0));
   const dueStudentCount = members.filter((member) => (stock.get(member.id)?.due ?? 0) > 0).length;
   const dueReviewCount = [...stock.values()].reduce((sum, value) => sum + value.due, 0);
-  return { currentMemberCount: members.length, eligibleMemberCount: eligible.length, activeStudentCount: active.size, activeRate: eligible.length ? round(active.size / eligible.length * 100) : null, studyDays: studies.reduce((sum, value) => sum + value, 0), medianStudyDays: median(studies), learningEncounterCount: encounters.length, medianLearningEncounters: median(encounterCounts), effectiveReviewCount: reviews.length, reviewsPerEligibleMember: eligible.length ? round(reviews.length / eligible.length) : null, objective, mastery: { meanPercent: round(mean(mastery)), medianPercent: round(median(mastery)) }, due: { studentCount: dueStudentCount, reviewCount: dueReviewCount, rate: members.length ? round(dueStudentCount / members.length * 100) : null } };
+  const reportToday = todayKey(asOf);
+  const todayLearningEncounterCount = reportToday >= from && reportToday <= to ? countEncountersForLocalDate(encounters, reportToday, asOf) : null;
+  return { currentMemberCount: members.length, eligibleMemberCount: eligible.length, activeStudentCount: active.size, activeRate: eligible.length ? round(active.size / eligible.length * 100) : null, studyDays: studies.reduce((sum, value) => sum + value, 0), medianStudyDays: median(studies), learningEncounterCount: encounters.length, todayLearningEncounterCount, medianLearningEncounters: median(encounterCounts), effectiveReviewCount: reviews.length, reviewsPerEligibleMember: eligible.length ? round(reviews.length / eligible.length) : null, objective, mastery: { meanPercent: round(mean(mastery)), medianPercent: round(median(mastery)) }, due: { studentCount: dueStudentCount, reviewCount: dueReviewCount, rate: members.length ? round(dueStudentCount / members.length * 100) : null } };
 }
 
 function memberMetric(members: Member[], activity: LoadedActivity, range: EffectiveRange, member: Member, asOf = new Date()) {
@@ -455,7 +464,7 @@ function memberMetric(members: Member[], activity: LoadedActivity, range: Effect
   const start = member.startedAt ? localDate(member.startedAt) : range.from; const exposureFrom = start > range.from ? start : range.from; const eligibleDayCount = exposureFrom <= range.to ? dateDistance(exposureFrom, range.to) + 1 : 0;
   const activeDayCount = new Set((activity.studyDaysByUser.get(member.id) ?? []).filter((row) => row.date >= range.from && row.date <= range.to && row.date >= exposureStart && row.createdAt <= asOf).map((row) => row.date)).size;
   const unknownEncounterWordCount = userEncounters.filter((row) => inRangeEncounter(row) && !row.wordId).length;
-  return { id: member.id, accountName: member.accountName, studentNumber: member.studentNumber, legalName: member.legalName, nickname: member.nickname, grade: member.grade, classId: member.classId, classCode: member.classCode, exposureStart: exposureFrom, eligibleDayCount, activeDayCount, learningEncounterCount: metric.learningEncounterCount, effectiveReviewCount: metric.effectiveReviewCount, evaluatedDistinctWordCount: reviewWords.size, encounteredDistinctWordCount: encounterWords.size, unknownEncounterWordCount, objective: metric.objective, currentMastery: { masteredWordCount: mastered, wordCount: activity.wordCount, percent: activity.wordCount ? round(mastered / activity.wordCount * 100) : null }, dueReviewCount: due, lastStudyAt: [...lastReview, ...lastEncounter].length ? new Date(Math.max(...lastReview, ...lastEncounter)).toISOString() : null };
+  return { id: member.id, accountName: member.accountName, studentNumber: member.studentNumber, legalName: member.legalName, nickname: member.nickname, grade: member.grade, classId: member.classId, classCode: member.classCode, exposureStart: exposureFrom, eligibleDayCount, activeDayCount, learningEncounterCount: metric.learningEncounterCount, todayLearningEncounterCount: metric.todayLearningEncounterCount, effectiveReviewCount: metric.effectiveReviewCount, evaluatedDistinctWordCount: reviewWords.size, encounteredDistinctWordCount: encounterWords.size, unknownEncounterWordCount, objective: metric.objective, currentMastery: { masteredWordCount: mastered, wordCount: activity.wordCount, percent: activity.wordCount ? round(mastered / activity.wordCount * 100) : null }, dueReviewCount: due, lastStudyAt: [...lastReview, ...lastEncounter].length ? new Date(Math.max(...lastReview, ...lastEncounter)).toISOString() : null };
 }
 
 function baseEnvelope(viewMode: "TEACHER" | "ADMIN", year: Awaited<ReturnType<typeof readYear>>, range: EffectiveRange, asOf: Date, scopeRevision: number) { return { viewMode, cohortBasis: "CURRENT_MEMBERSHIP" as const, academicYear: { id: year.id, label: year.label, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn.toISOString() }, requestedRange: { fromDate: range.requestedFrom, toDate: range.requestedTo }, effectiveRange: range, asOf: asOf.toISOString(), dataCoverageWarning: null, scopeRevision }; }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyticsStudentCursorFingerprint, comparisonPeriods, readAnalyticsQuery, readLearningAnalyticsExportRequest, shouldIncludeUnassignedClassReport, shouldRejectUnfilteredClassExport } from "@/lib/learning-analytics";
+import { analyticsStudentCursorFingerprint, comparisonPeriods, countEncountersForLocalDate, readAnalyticsQuery, readLearningAnalyticsExportRequest, shouldIncludeUnassignedClassReport, shouldRejectUnfilteredClassExport } from "@/lib/learning-analytics";
 import { MAX_ANALYTICS_CLASS_SELECTION, MAX_ANALYTICS_EXPORT_BODY_BYTES } from "@/lib/learning-analytics-contract";
 
 async function parse(body: unknown, headers?: HeadersInit) {
@@ -178,4 +178,14 @@ test("comparison periods cover the selected range without overlap", () => {
     { periodStart: "2026-02-02", periodEnd: "2026-02-02" },
     { periodStart: "2026-02-03", periodEnd: "2026-02-03" },
   ]);
+});
+
+test("today recognition count uses the Shanghai calendar date and as-of boundary", () => {
+  const rows = [
+    { acknowledgedAt: new Date("2026-08-17T15:30:00.000Z") }, // 2026-08-17 23:30 in Shanghai
+    { acknowledgedAt: new Date("2026-08-17T16:30:00.000Z") }, // 2026-08-18 00:30 in Shanghai
+    { acknowledgedAt: new Date("2026-08-17T14:00:00.000Z") },
+  ];
+  assert.equal(countEncountersForLocalDate(rows, "2026-08-17", new Date("2026-08-17T15:45:00.000Z")), 2);
+  assert.equal(countEncountersForLocalDate(rows, "2026-08-18", new Date("2026-08-17T15:45:00.000Z")), 0);
 });

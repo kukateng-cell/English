@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Role } from "@/generated/prisma";
+import type { Level, Role } from "@/generated/prisma";
 import { prisma, Prisma } from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
@@ -16,6 +16,7 @@ const MAX_SEARCH_GRAPHEMES = 80;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const MAX_STUDENT_NUMBER_SORT_ROWS = 5_000;
+const MASTERY_LEVELS = ["A1", "A2", "B1", "B2"] as const satisfies readonly Level[];
 
 export type TeacherWorkspaceViewMode = "TEACHER" | "ADMIN";
 
@@ -409,7 +410,7 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
   const wordsByLevel = await prisma.word.groupBy({ by: ["level"], _count: { _all: true } });
   const todayDate = todayKey(now);
   const sevenDayStart = offsetDay(todayDate, -6);
-  const [reviews, reviewEvents, studyDays, encounters] = await Promise.all([
+  const [reviews, reviewEvents, studyDays, encounters, todayEncounters] = await Promise.all([
     prisma.review.findMany({ where: { userId: { in: userIds } }, select: { userId: true, interval: true, nextReviewDate: true, word: { select: { level: true } } } }),
     prisma.reviewEvent.findMany({
       where: { userId: { in: userIds }, eventKind: "REVIEW", isHistorical: false },
@@ -429,6 +430,7 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
     }),
     prisma.studyDay.findMany({ where: { userId: { in: userIds }, date: { gte: sevenDayStart, lte: todayDate } }, select: { userId: true, date: true } }),
     prisma.studyEncounter.groupBy({ by: ["userId"], where: { userId: { in: userIds } }, _max: { acknowledgedAt: true } }),
+    prisma.studyEncounter.groupBy({ by: ["userId"], where: { userId: { in: userIds }, acknowledgedAt: { gte: new Date(`${todayDate}T00:00:00+08:00`), lt: new Date(`${offsetDay(todayDate, 1)}T00:00:00+08:00`) } }, _count: { _all: true } }),
   ]);
   const levels = new Map<string, number>(wordsByLevel.map((row) => [row.level, row._count._all]));
   const perUser = new Map<string, { mastered: number; due: number; byLevel: Map<string, number> }>();
@@ -462,9 +464,10 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
   const daySets = new Map<string, Set<string>>();
   for (const row of studyDays) { const set = daySets.get(row.userId) ?? new Set<string>(); set.add(row.date); daySets.set(row.userId, set); }
   const latest = new Map<string, Date>();
+  const todayLearningEncounterCount = new Map<string, number>(todayEncounters.map((row) => [row.userId, row._count._all]));
   for (const row of encounters) if (row._max?.acknowledgedAt) latest.set(row.userId, row._max.acknowledgedAt);
   for (const row of validEvents) if (!latest.has(row.userId) || latest.get(row.userId)! < row.createdAt) latest.set(row.userId, row.createdAt);
-  return { totalWords, levels, perUser, objectiveCount, reviewCount, daySets, latest, todayDate, sevenDayStart, asOf: now };
+  return { totalWords, levels, perUser, objectiveCount, reviewCount, daySets, latest, todayLearningEncounterCount, todayDate, sevenDayStart, asOf: now };
 }
 
 function shanghaiDateStart(dateKey: string) {
@@ -485,6 +488,7 @@ function itemMetrics(id: string, snapshot: Awaited<ReturnType<typeof metricSnaps
     dueReviewCount: item.due,
     effectiveObjectiveProbeCount: snapshot.objectiveCount.get(id) ?? 0,
     effectiveReviewEventCount: snapshot.reviewCount.get(id) ?? 0,
+    todayLearningEncounterCount: snapshot.todayLearningEncounterCount.get(id) ?? 0,
     activeToday: days.has(snapshot.todayDate),
     activeSevenDay: days.size > 0,
     lastActivityAt: snapshot.latest.get(id)?.toISOString() ?? null,
@@ -519,7 +523,11 @@ export async function queryTeacherClassSummary(input: { userId: string; role: Ro
     const ids = rows.get(schoolClass.id) ?? [];
     const metrics = ids.map((id) => itemMetrics(id, snapshot));
     const averages = metrics.map((metric) => metric.masteryPercent).filter((value): value is number => value !== null);
-    return { classId: schoolClass.id, grade: schoolClass.grade, classCode: schoolClass.classCode, studentCount: ids.length, activeTodayCount: metrics.filter((metric) => metric.activeToday).length, activeSevenDayCount: metrics.filter((metric) => metric.activeSevenDay).length, masteredWordCount: metrics.reduce((sum, metric) => sum + metric.masteredWords, 0), masteryAveragePercent: averages.length ? Math.round(averages.reduce((sum, value) => sum + value, 0) / averages.length) : null, dueStudentCount: metrics.filter((metric) => metric.dueReviewCount > 0).length, inactiveSevenDayCount: metrics.filter((metric) => !metric.activeSevenDay).length, totalWords: snapshot.totalWords };
+    const masteryByLevel = MASTERY_LEVELS.map((level) => {
+      const levelAverages = metrics.map((metric) => metric.byLevel.find((item) => item.level === level)?.progress).filter((value): value is number => value !== undefined);
+      return { level, averagePercent: levelAverages.length ? Math.round(levelAverages.reduce((sum, value) => sum + value, 0) / levelAverages.length) : null };
+    });
+    return { classId: schoolClass.id, grade: schoolClass.grade, classCode: schoolClass.classCode, studentCount: ids.length, activeTodayCount: metrics.filter((metric) => metric.activeToday).length, activeSevenDayCount: metrics.filter((metric) => metric.activeSevenDay).length, masteredWordCount: metrics.reduce((sum, metric) => sum + metric.masteredWords, 0), masteryAveragePercent: averages.length ? Math.round(averages.reduce((sum, value) => sum + value, 0) / averages.length) : null, masteryByLevel, dueStudentCount: metrics.filter((metric) => metric.dueReviewCount > 0).length, inactiveSevenDayCount: metrics.filter((metric) => !metric.activeSevenDay).length, totalWords: snapshot.totalWords };
   });
   const unassigned = input.role === ROLES.ADMIN ? await prisma.user.count({ where: { ...context.studentWhere, studentProfile: { is: { enrollments: { some: { academicYearId: context.academicYear.id, status: "ACTIVE", classId: null } } } } } }) : 0;
   await recheckTeacherWorkspaceSnapshot({ userId: input.userId, role: input.role, context, auth: input.auth });

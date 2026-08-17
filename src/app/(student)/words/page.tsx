@@ -135,7 +135,7 @@ export default function WordsPage() {
   return (
     <div className="student-content-wide">
       <StudentPageStack>
-        <PageHeader eyebrow={tc("词库") } title={tc("词表") } description={tc("只显示已经解锁的词，浏览和查看详情不会改变学习记录。") } action={<div className="words-ia-switch"><Link className="is-active" href="/words">{tc("词表")}</Link><Link href="/units">{tc("单元闯关")}</Link></div>} />
+        <PageHeader eyebrow={tc("詞庫") } title={tc("詞表") } description={tc("只顯示已解鎖的詞；查看內容不會改變學習記錄。") } action={<div className="words-ia-switch"><Link className="is-active" href="/words">{tc("詞表")}</Link><Link href="/units">{tc("單元闖關")}</Link></div>} />
         <StudentSectionStack>
           <Card className="words-filter-card" padded>
         <div className="words-filter-row">
@@ -161,7 +161,7 @@ export default function WordsPage() {
           {loading ? <Card className="word-list-card" padded><div className="word-list-skeletons"><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div></Card> : null}
           {!loading && !error && items.length === 0 ? <EmptyState title={tc("没有符合条件的已解锁词") } description={tc("可以先去单元闯关查看下一项可解锁内容。") } action={<Link className="ui-button ui-button-secondary ui-button-small" href="/units">{tc("查看单元")}</Link>} /> : null}
           {!loading && items.length > 0 ? <Card className="word-list-card" padded={false}>
-        <div className="word-list-heading"><strong>{tc("已解锁词")}</strong><span>{data?.total ?? items.length} {tc("个词")}</span></div>
+        <div className="word-list-heading"><div><strong>{tc("已解鎖詞")}</strong><p className="word-list-heading-hint">{tc("點擊詞語查看中文意思及學習狀態。")}</p></div><span>{data?.total ?? items.length} {tc("個詞")}</span></div>
         <div className="word-list" aria-label={tc("已解锁词列表") as string}>{items.map((item) => <button key={item.id} ref={selected?.id === item.id ? triggerRef : undefined} type="button" className="word-list-row" onClick={() => setSelected(item)}><span className="word-list-term"><strong>{item.term}</strong><small>{item.phonetic || item.pos || item.level}</small></span><span className="word-list-definition">{tc(item.definition)}</span><span className={`word-status word-status-${item.status}`}>{statusText(item.status)}</span><Icon name="chevron-right" size={18} /></button>)}</div>
         <div className="word-list-footer">{error && items.length > 0 ? <StatusInline message={tc(error)} /> : null}{cursor ? <Button variant="secondary" loading={loadingMore} onClick={loadMore}>{tc("加载更多")}</Button> : <span className="ui-field-helper">{tc("已经显示全部符合条件的词")}</span>}</div>
           </Card> : null}
@@ -169,7 +169,7 @@ export default function WordsPage() {
       </StudentPageStack>
 
       <BottomSheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.term ?? ""} description={selected ? [selected.level, selected.category ? (selected.category === "未分类" ? tc("未分类") : selected.category) : null, selected.pos].filter(Boolean).join(" · ") : undefined} returnFocusRef={triggerRef}>
-        {selected ? <div className="word-detail"><div className="word-detail-phonetic">{selected.phonetic || tc("暂无音标")}</div><p>{tc(selected.definition)}</p><div className="word-detail-state"><span>{tc("状态")}</span><strong>{statusText(selected.status)}</strong></div>{selected.nextReviewAt ? <div className="word-detail-state"><span>{tc("下一次复习")}</span><strong>{nextReviewText(selected.nextReviewAt)}</strong></div> : null}<p className="ui-field-helper">{tc("词表浏览是只读的，不会建立复习记录、解锁单元或签发学习 session。")} </p></div> : null}
+        {selected ? <div className="word-detail"><div className="word-detail-phonetic">{selected.phonetic || tc("暫無音標")}</div><p>{tc(selected.definition)}</p><div className="word-detail-state"><span>{tc("狀態")}</span><strong>{statusText(selected.status)}</strong></div>{selected.nextReviewAt ? <div className="word-detail-state"><span>{tc("下一次複習")}</span><strong>{nextReviewText(selected.nextReviewAt)}</strong></div> : null}<p className="ui-field-helper">{tc("詞表只供查閱，不會直接計入學習進度；認字卡完成小測後，進度才會更新。")} </p></div> : null}
       </BottomSheet>
     </div>
   );

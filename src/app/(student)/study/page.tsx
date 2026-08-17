@@ -374,7 +374,7 @@ function AchievementToast({
           exit={{ opacity: 0, y: -16 }}
           className="study-toast fixed left-1/2 top-16 z-50 flex -translate-x-1/2 flex-col items-center gap-1 rounded-2xl px-5 py-3 text-center shadow-lg backdrop-blur"
         >
-          <div className="flex items-center gap-2 text-[13px] font-bold"><Icon name="spark" size={16} /> {tc("解锁新成就")}</div>
+          <div className="flex items-center gap-2 text-[13px] font-bold"><RewardIcon name="star" size={16} /> {tc("解锁新成就")}</div>
           {items.map((a) => (
             <div key={a.key} className="flex items-center gap-2 text-[13px]">
               <RewardIcon name={a.icon} size={17} /> {tc(a.title)}
@@ -1612,7 +1612,7 @@ function LegacyStudyPage() {
       if (!canApply()) return;
       const nextSession = payload.studySession;
       if (!nextSession) {
-        retryLater("学习 session 续期失败，请稍后重试");
+        retryLater("學習狀態續期失敗，請稍後再試");
         return;
       }
       rebindStudySessionCredentials(
@@ -2240,7 +2240,7 @@ function LegacyStudyPage() {
                     },
                   },
                 )
-              : (setError("学习 session 已失效，请重新载入题目后再试"), false);
+              : (setError("學習狀態已失效，請重新載入題目後再試"), false);
         if (!persisted) return;
         if (correct === true) setQuizStats(nextQuizStats);
       }
@@ -2673,7 +2673,7 @@ function LegacyStudyPage() {
             <Icon name="chevron-left" size={26} />
           </Link>
           <span className="study-muted flex items-center gap-1.5 text-[14px] font-medium">
-            <Icon name="book" size={16} /> {tc("测试中")}
+            <Icon name="target" size={16} /> {tc("测试中")}
           </span>
           <div className="flex items-center gap-2">
             {streak && <StreakBadge streak={streak} />}
@@ -2832,7 +2832,7 @@ function LegacyStudyPage() {
             onClick={guardStudyNavigation}
             className="study-link-primary flex items-center gap-1.5 text-[13px] font-medium transition"
           >
-            <RewardIcon name="medal" size={18} /> {tc("查看我的成就")}
+            <RewardIcon name="star" size={18} /> {tc("查看我的成就")}
           </Link>
         </div>
       </div>

@@ -124,7 +124,7 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
         </div>
       ) : (
         <div className="coach-sheet-image-fallback" role="img" aria-label={tc("暂无可用图片") as string}>
-          <Icon name="book" size={28} />
+          <Icon name="image" size={28} />
           <span>{tc("暂无可用图片")}</span>
         </div>
       )}
