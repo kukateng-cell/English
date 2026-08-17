@@ -4,6 +4,7 @@ import {
   assertRosterSelectionCap,
   assertYearActivationSelectionCap,
   CLASS_CODES,
+  compareStudentNumberSortKey,
   deriveRolloverDisposition,
   MAX_ROSTER_SELECTION,
   MAX_YEAR_ACTIVATION_SELECTION,
@@ -11,6 +12,7 @@ import {
   parseClassCode,
   parseClassReference,
   parseStudentGrade,
+  parseStudentNumber,
 } from "./roster-domain";
 
 test("six grades accept canonical and Chinese labels", () => {
@@ -29,6 +31,27 @@ test("class codes are bounded to 甲至辛", () => {
     grade: "JUNIOR_2",
     classCode: "B",
   });
+});
+
+test("student numbers normalize optional positive roster numbers", () => {
+  assert.equal(parseStudentNumber(" ０１２ "), 12);
+  assert.equal(parseStudentNumber(5), 5);
+  assert.equal(parseStudentNumber(""), null);
+  assert.equal(parseStudentNumber("007"), 7);
+  assert.equal(parseStudentNumber("0"), null);
+  assert.equal(parseStudentNumber("1000000"), null);
+  assert.equal(parseStudentNumber("1.5"), null);
+});
+
+test("student-number ordering is numeric, null-last and account-stable", () => {
+  const rows = [
+    { studentNumber: 10, accountName: "z", id: "10" },
+    { studentNumber: 2, accountName: "a", id: "2" },
+    { studentNumber: 1, accountName: "m", id: "1" },
+    { studentNumber: null, accountName: "b", id: "n" },
+  ].sort(compareStudentNumberSortKey);
+  assert.deepEqual(rows.map((row) => row.studentNumber), [1, 2, 10, null]);
+  assert.ok(compareStudentNumberSortKey({ studentNumber: 1, accountName: "z", id: "1" }, { studentNumber: 2, accountName: "a", id: "2" }) < 0);
 });
 
 test("promotion crosses junior to senior and stops after senior three", () => {

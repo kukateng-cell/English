@@ -17,7 +17,7 @@ export interface WordFormData {
 
 interface WordFormModalProps {
   open: boolean;
-  /** 传入则编辑模式；否则新建模式。 */
+  /** 傳入则編輯模式；否则新增模式。 */
   word?: {
     id: string;
     term: string;
@@ -92,11 +92,11 @@ export default function WordFormModal({
     setError("");
 
     if (!form.term.trim()) {
-      setError("单词不能为空");
+      setError("單詞不能為空");
       return;
     }
     if (!form.definition.trim()) {
-      setError("释义不能为空");
+      setError("釋義不能為空");
       return;
     }
 
@@ -105,7 +105,7 @@ export default function WordFormModal({
       await onSubmit({ ...form, term: form.term.trim(), definition: form.definition.trim() });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失败");
+      setError(err instanceof Error ? err.message : "操作失敗");
     } finally {
       setLoading(false);
     }
@@ -115,12 +115,12 @@ export default function WordFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? tc("编辑单词") : tc("添加单词")}
+      title={isEdit ? tc("編輯單詞") : tc("新增單詞")}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("单词")} *
+            {tc("單詞")} *
           </label>
           <input
             type="text"
@@ -134,7 +134,7 @@ export default function WordFormModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-              {tc("音标")}
+              {tc("音標")}
             </label>
             <input
               type="text"
@@ -146,7 +146,7 @@ export default function WordFormModal({
           </div>
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-              {tc("词性")}
+              {tc("詞性")}
             </label>
             <input
               type="text"
@@ -160,12 +160,12 @@ export default function WordFormModal({
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("释义")} *
+              {tc("釋義")} *
           </label>
           <textarea
             value={form.definition}
             onChange={(e) => set("definition", e.target.value)}
-            placeholder={tc("中文释义")}
+              placeholder={tc("中文釋義")}
             rows={2}
             className={textareaClass}
           />
@@ -173,7 +173,7 @@ export default function WordFormModal({
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("级别")}
+            {tc("級別")}
           </label>
           <div className="flex gap-2">
             {LEVEL_OPTIONS.map((opt) => (
@@ -195,7 +195,7 @@ export default function WordFormModal({
 
         <div>
           <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("分类（主题）")}
+              {tc("分類（主題）")}
           </label>
           <input
             type="text"
@@ -209,25 +209,25 @@ export default function WordFormModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-              {tc("近义词")}
+              {tc("近義詞")}
             </label>
             <input
               type="text"
               value={form.synonyms}
               onChange={(e) => set("synonyms", e.target.value)}
-              placeholder={tc("逗号分隔")}
+              placeholder={tc("逗號分隔")}
               className={inputClass}
             />
           </div>
           <div>
             <label className="mb-1.5 block text-[13px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">
-              {tc("反义词")}
+              {tc("反義詞")}
             </label>
             <input
               type="text"
               value={form.antonyms}
               onChange={(e) => set("antonyms", e.target.value)}
-              placeholder={tc("逗号分隔")}
+              placeholder={tc("逗號分隔")}
               className={inputClass}
             />
           </div>
@@ -244,7 +244,7 @@ export default function WordFormModal({
           disabled={loading}
           className="w-full rounded-2xl bg-[var(--primary)] px-4 py-3 text-[15px] font-semibold text-[var(--color-surface)] shadow-sm transition disabled:opacity-50"
         >
-          {loading ? tc("保存中...") : isEdit ? tc("保存修改") : tc("添加单词")}
+          {loading ? tc("儲存中…") : isEdit ? tc("儲存修改") : tc("新增單詞")}
         </button>
       </form>
     </Modal>

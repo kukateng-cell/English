@@ -6,6 +6,13 @@ import { Client } from "pg";
 type ActivationScaleFixture = { sourceAcademicYearId: string; targetAcademicYearId: string; sourceCount: number; adminAccountName: string };
 type RosterPerfMeasurement = { elapsedMs: number; peakRssDeltaMiB: number };
 
+async function queryAdminDirectory(page: Page, headers: Record<string, string>, query: Record<string, unknown>) {
+  return page.request.post("/api/admin/users/query", {
+    headers: { ...headers, "Content-Type": "application/json" },
+    data: query,
+  });
+}
+
 async function measureRosterPerformance<T>(operation: () => Promise<T>): Promise<{ value: T } & RosterPerfMeasurement> {
   const baselineRss = process.memoryUsage().rss;
   let peakRss = baselineRss;
@@ -220,7 +227,7 @@ test("admin roster shell and one-row import remain atomic and disposable", async
   const committed = await commitResponse.json() as { credentials?: Array<{ accountName: string; temporaryPassword: string }> };
   expect(committed.credentials?.some((item) => item.accountName === accountName)).toBeTruthy();
 
-  const rosterResponse = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(current!.id)}&search=${encodeURIComponent(accountName)}`);
+  const rosterResponse = await queryAdminDirectory(page, headers, { academicYearId: current!.id, search: accountName, limit: 50 });
   expect(rosterResponse.ok()).toBeTruthy();
   const roster = await rosterResponse.json() as { items?: Array<{ id: string; accountName: string }> };
   const created = roster.items?.find((item) => item.accountName === accountName);
@@ -235,7 +242,7 @@ test("admin roster shell and one-row import remain atomic and disposable", async
   await statusToggle.click();
   await expect(page.getByRole("status")).toContainText(/账号已停权|賬號已停權/u);
   await expect(statusToggle).toHaveText(/恢复|恢復/u);
-  const suspendedRosterResponse = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(current!.id)}&search=${encodeURIComponent(accountName)}`);
+  const suspendedRosterResponse = await queryAdminDirectory(page, headers, { academicYearId: current!.id, search: accountName, limit: 50 });
   expect(suspendedRosterResponse.ok()).toBeTruthy();
   const suspendedRoster = await suspendedRosterResponse.json() as { items?: Array<{ accountName: string; status: string }> };
   expect(suspendedRoster.items?.find((item) => item.accountName === accountName)?.status).toBe("SUSPENDED");
@@ -243,7 +250,7 @@ test("admin roster shell and one-row import remain atomic and disposable", async
   await statusToggle.click();
   await expect(page.getByRole("status")).toContainText(/账号已恢复|賬號已恢復/u);
   await expect(statusToggle).toHaveText(/停权|停權/u);
-  const restoredRosterResponse = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(current!.id)}&search=${encodeURIComponent(accountName)}`);
+  const restoredRosterResponse = await queryAdminDirectory(page, headers, { academicYearId: current!.id, search: accountName, limit: 50 });
   expect(restoredRosterResponse.ok()).toBeTruthy();
   const restoredRoster = await restoredRosterResponse.json() as { items?: Array<{ accountName: string; status: string }> };
   expect(restoredRoster.items?.find((item) => item.accountName === accountName)?.status).toBe("ACTIVE");
@@ -389,7 +396,7 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     const rotatedCredential = rotationCommit.credentials?.find((credential) => credential.accountName === accountName);
     expect(rotatedCredential).toBeTruthy();
 
-    const rosterResponse = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(source!.id)}&role=STUDENT&search=${encodeURIComponent(accountName)}`);
+    const rosterResponse = await queryAdminDirectory(page, headers, { academicYearId: source!.id, role: "STUDENT", search: accountName });
     expect(rosterResponse.ok()).toBeTruthy();
     const roster = await rosterResponse.json() as { items?: Array<{ id: string; accountName: string; revision: number }> };
     const importedStudent = roster.items?.find((item) => item.accountName === accountName);
@@ -413,7 +420,7 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
       expect(missingCommitResponse.ok(), await missingCommitResponse.text()).toBeTruthy();
       for (const grade of missingSourceGrades) {
         const account = `flowseed${grade.toLowerCase()}${suffix}`;
-        const response = await page.request.get(`/api/admin/users?academicYearId=${encodeURIComponent(source!.id)}&role=STUDENT&search=${encodeURIComponent(account)}&limit=1`);
+        const response = await queryAdminDirectory(page, headers, { academicYearId: source!.id, role: "STUDENT", search: account, limit: 1 });
         expect(response.ok(), await response.text()).toBeTruthy();
         const payload = await response.json() as { items?: Array<{ id: string; accountName: string }> };
         const created = payload.items?.find((item) => item.accountName === account);
@@ -756,9 +763,7 @@ test("admin roster persists explicit rollover dispositions and activates incomin
   expect(incomingCommitResponse.ok(), await incomingCommitResponse.text()).toBeTruthy();
 
   async function findStudentId(accountName: string, academicYearId?: string) {
-    const query = new URLSearchParams({ role: "STUDENT", search: accountName, limit: "10" });
-    if (academicYearId) query.set("academicYearId", academicYearId);
-    const response = await page.request.get(`/api/admin/users?${query.toString()}`);
+    const response = await queryAdminDirectory(page, headers, { role: "STUDENT", search: accountName, limit: 10, ...(academicYearId ? { academicYearId } : {}) });
     expect(response.ok(), await response.text()).toBeTruthy();
     const payload = await response.json() as { items?: Array<{ id: string; accountName: string; revision: number }> };
     const student = payload.items?.find((item) => item.accountName === accountName);
@@ -820,7 +825,7 @@ test("admin roster persists explicit rollover dispositions and activates incomin
   expect(result.activatedTargetCount).toBeGreaterThanOrEqual(1);
 
   async function readRoster(accountName: string) {
-    const response = await page.request.get(`/api/admin/users?${new URLSearchParams({ role: "STUDENT", academicYearId: target!.id, search: accountName, limit: "10" }).toString()}`);
+    const response = await queryAdminDirectory(page, headers, { role: "STUDENT", academicYearId: target!.id, search: accountName, limit: 10 });
     expect(response.ok(), await response.text()).toBeTruthy();
     const payload = await response.json() as { items?: Array<{ id: string; accountName: string; grade: string | null; classCode: string | null; status: string; enrollmentStatus: string | null }> };
     return payload.items?.find((item) => item.accountName === accountName) ?? null;

@@ -1,6 +1,6 @@
 # 管理員用戶目錄、密碼重設及學習分析示範資料實施計劃
 
-> 狀態：已完成（本機 implementation／verification；production deploy、contract migration 及原生裝置／VoiceOver／TalkBack QA 明確 deferred）
+> 狀態：進行中（新增學生學號、學號排序及學生／班級學習分析報告匯出；production deploy、contract migration 及原生裝置／VoiceOver／TalkBack QA 明確 deferred）
 >
 > 日期：2026-08-16
 >
@@ -163,13 +163,34 @@ UX 流程固定為：
 ### 4.4 日期範圍及比較上限
 
 - 預設最近 30 個 Asia/Shanghai 本地日；presets 為 7／30／90 日；custom 最多 180 日。
-- 班級比較一次最多 6 班；學生比較一次最多 8 人。
+- 班級比較一次最多 200 班；學生比較一次最多 8 人。省略班級選擇時只回最多 200 班 summary；明確比較表仍受同一 200 班上限及 response budget 約束。
 - 超出上限時 UI 阻擋，server 同樣 422；不能只靠 client。
 - 日期end inclusive；request先驗`requestedFrom <= requestedTo <= today`。Effective window固定為`effectiveFrom=max(requestedFrom, CURRENT year.startsOn)`、`effectiveTo=min(requestedTo, CURRENT year.endsOn, today)`，任何一端改變即`rangeClamped=true`；不可把上一／下一學年活動歸入目前班。
 - `today < startsOn`代表CURRENT year尚未開始，固定503 `CURRENT_YEAR_UNAVAILABLE`；`today > endsOn`時日期邊界仍authoritative，唔因status仍CURRENT而延長至學年外，重疊response加`calendarWarning=CURRENT_YEAR_ENDED_NOT_ACTIVATED`。Request同`[startsOn,min(endsOn,today)]`完全零交集時固定422 `RANGE_OUTSIDE_CURRENT_YEAR`，唔產生倒轉／empty effectiveRange。
 - Server回傳requested range、`effectiveRange`、`asOf`、timezone、`rangeClamped`及nullable calendarWarning；UI對422／503提供選擇有效日期／啟用正確學年的繁體提示。
 - 班級口徑固定為`cohortBasis=CURRENT_MEMBERSHIP`，UI常駐顯示「按目前班級成員計算」；同學年轉班前活動無法可靠歸回舊班，明確列為非目標。
 - 期間內完全沒有活動的 rate 顯示 `—`，count 顯示 `0`；不以 0% 冒充有樣本的失敗率。
+- 班級比較表另提供「日／週／月」時間粒度，預設為「日」以保持現有行為。週以星期一開始、月以公曆月開始；邊界不完整的首尾週／月只計目前選定日期範圍內的日子，不把範圍外活動帶入。
+- 選定的日期範圍決定比較表的所有時段；不再只顯示最後 14 日。表格可橫向及縱向捲動，並在每列回傳 `periodStart`／`periodEnd`，讓老師清楚知道每個數值涵蓋的日期。
+- 比較表預設使用儲存格內的比例資料條：圖例只在表格上方說明「活躍率／正確率」，每格以兩條有標籤的資料條表示兩項百分比，不重複堆疊技術名稱。教師可切換至「數值」模式，查看清楚標示的兩個百分比及正確／評測分子分母；兩種模式共用同一 API 數值及無障礙文字。
+
+### 4.5 學號資料合約
+
+- 學號是 `StudentEnrollment.studentNumber`，而不是 User `accountName`；它代表某學生在某一學年名冊中的校內編號，容許學生升級／轉班後按新學年重新編排。每個學年／班別內，非空學號必須唯一；未分班學生可暫時留空，顯示「未設定」。
+- 學號只接受正整數（1–999999）；輸入可含全形數字或前置零，但 parser 會先正規化成數值，不接受小數、負數或混合文字。DB CHECK、API parser 及 UI input 三層都要拒絕非法值。排序按數值升序，未設定排最後，再以 `accountNameCanonical`、User id 作穩定 tie-breaker。
+- 學生名單匯入支援 `studentNumber`／「學號」／「学生证号码」欄位；`accountName`／「學生證」仍然只代表登入帳號，兩者不可共用欄位或互相覆蓋。欄位可留空；MERGE 留空時保留既有 selected-year 學號，明確 `__CLEAR__` 才清除。重複學號在同一學年／班別預覽即報錯，跨班可使用同一數字。
+- 管理員 roster、管理員 users／analytics、教師名冊、教師進度、學生詳情及所有班級學生明細均顯示學號；公開學生頁面及排行榜不顯示學號。學號不是 nickname，亦不可作為 public display name。
+- 教師及管理員學生列表提供「按學號排序／按帳號排序」切換；預設按學號升序（未設定最後），篩選、cursor、分頁及匯出都綁定同一 sort fingerprint。切換排序會清除 cursor；排序不能只在 client page 內做。
+- 所有支援學生身份／年級／班別的 writer（匯入、admin edit、批量轉班／升級、restore）均須在同一 transaction 驗證學號唯一性及 roster revision；CLOSED 學年不可修改。學號改動要寫既有 roster audit，不寫 plaintext password／token。
+
+### 4.6 學生及班級學習分析報告匯出
+
+- Teacher 與 Admin 共用 `POST /api/learning-analytics/export`，沿用同一 CURRENT-membership authorization、日期 clamp、`asOf`、指標定義及 response 前 actor／scope／roster／year／credential recheck；未授權 class／student 統一 404，撤權／scope race 409，credential revoke 401，服務不可用 503，任何錯誤都不回 partial PII。
+- request 必須指定 `scope: "STUDENTS" | "CLASSES"` 及 `format: "CSV" | "XLSX"`；`comparisonGranularity: "DAY" | "WEEK" | "MONTH"` 可省略，API 兼容預設為 `DAY`。`classIds` 可省略代表目前 filter 下全部獲授權班（最多200）；`studentIds` 可省略代表目前 filter 下全部獲授權學生（最多500），亦可明確選取受授權 IDs。日期最多180日；analytics query 仍用16 KiB body cap，export request 另用96 KiB cap，確保500個最長合法student IDs可達；兩者均 strict unknown-field rejection、stable 413／422 code。
+- STUDENTS 報告每行代表一名學生在一個日／週／月時段；欄位固定包括學號、學生證、真名、暱稱、年級、班別、期間開始／結束、eligible day、活躍日、學習次數、有效評測、客觀答對／有效嘗試／正確率、當前掌握及待複習詞數；不填入只適用於班級的目前學生數、符合計算學生數、活躍學生率或待複習學生率。CLASSES 報告每行代表一班在一個時段；欄位明確包括 `currentMemberCount`（目前學生數）、`eligibleStudentCount`（符合計算學生數）、eligible／活躍人數／率、學習日、學習次數、有效評測、客觀答對／有效嘗試／正確率、平均掌握、待複習詞數及待複習學生。ADMIN 只有在未指定 `classIds` 的全範圍班級報告才附加一行「未分班」摘要；指定班級的報告只包含所選班級。
+- 匯出可選的學生／班級 IDs 必須先通過同一授權 snapshot；無 IDs 時只匯出目前 filter scope，不可任意輸入全校學生。報告明確標示 `CURRENT_MEMBERSHIP` 及 effective range，避免把歷史轉班誤稱為當時班級表現。
+- CSV 使用 UTF-8 BOM、RFC4180 quoting 及公式注入中和；XLSX 使用 typed text cells、凍結標題列、auto-filter、固定安全檔名及繁體欄名。單次輸出最多 100,000 行，超出時以穩定的 `EXPORT_TOO_LARGE`／413 拒絕，不產生部分檔案。回應設 `private, no-store`、`Vary: Cookie`、`nosniff`、`no-referrer`，不把報告內容放 log、URL、localStorage 或 sessionStorage；成功匯出寫既有 non-PII audit event及row／scope metadata。
+- UI 在教師分析／進度及管理員分析提供「匯出學生報告」及「匯出班級報告」；按鈕清楚顯示目前 filter、日期、粒度及格式，無選擇時提供「匯出目前範圍」而非靜默匯出全校；下載失敗顯示繁體錯誤及可重試，不建立長期下載連結。
 
 ## 5. Canonical 學習分析定義
 
@@ -270,6 +291,15 @@ Response同時回`objectiveCandidateCount`及`excludedDistinctTotal`；前者必
  objectiveAccuracy, accuracyDisplayStatus}
 ```
 
+班級比較表的時間粒度版本回傳：
+
+```text
+{comparisonGranularity: "DAY" | "WEEK" | "MONTH",
+ timeline:[{periodStart, periodEnd, classes:[...periodMetrics]}]}
+```
+
+`DAY` 時 `periodStart === periodEnd`；`WEEK`／`MONTH` 的 period metrics 使用同一個 CURRENT-membership cohort、同一個 snapshot，並按該時段重新計算 active／objective／mastery 指標。Student detail 的逐日 timeline 不受此選項影響。
+
 沒有 event 的eligible日期由server補零；exposureStart前固定`eligible=false`，不可當0活動。圖表必須有同內容的accessible summary/table，不以顏色作唯一區分。
 
 `StudyDay`與活動ledger必須雙向一致：每個fixture StudyDay至少有一個同日本地日的eligible ReviewEvent或acknowledged StudyEncounter；每個eligible ReviewEvent／acknowledged encounter亦必須有對應StudyDay。Runtime歷史若有已知缺口，response要回`dataCoverageWarning`，唔自行製造StudyDay。
@@ -302,7 +332,7 @@ POST /api/learning-analytics/students/query
 POST /api/learning-analytics/students/[id]/timeline/query
 ```
 
-`/api/learning-analytics/*` 只接受 `TEACHER | ADMIN`，server 按 session role 建立視角；成功 response 帶 `viewMode: TEACHER | ADMIN`。現有 `/api/teacher/class-summary/query`、`progress/query` 及 detail aggregate 先改為 thin adapter 或轉移 caller；新 UI／tests 全部轉移並完成 route inventory 後才移除重複 handler。
+`/api/learning-analytics/*` 只接受 `TEACHER | ADMIN`，server 按 session role 建立視角；成功 response 帶 `viewMode: TEACHER | ADMIN`。`/teacher/analytics`、學生名冊／進度及學生詳情一律使用以下 canonical analytics／workspace routes。`/api/teacher/class-summary/query` 是概覽頁專用的 bounded quick-KPI adapter：它保留「今日／近7日」及快速跟進欄位（呢啲欄位不在班級比較 DTO），沿用同一個 actor／access／roster／學年結果重驗，不作詳細分析或匯出來源；因此本輪刻意不把它硬套成另一種粒度的 comparison response。其餘舊 progress／detail aggregate caller 必須完成 thin adapter／轉移及 route inventory 後才移除重複 handler。
 
 ### 6.2 Admin user query
 
@@ -432,18 +462,19 @@ requestedRange={fromDate,toDate}
 effectiveRange={fromDate,toDate,rangeClamped,timezone,calendarWarning?}
 ```
 
-Parser共同上限：body max 16 KiB並在JSON parse前回413 `PAYLOAD_TOO_LARGE`；所有opaque IDs為1–128 UTF-8 bytes；cursor最多2048 UTF-8 bytes；limit default 50、只接受1–100 integer；nonblank search trim後1–80 graphemes，空白canonicalize成omitted。`classIds`存在時必須為1–6個unique non-empty IDs；`compareStudentIds`存在時必須為1–8個unique non-empty IDs；duplicate、unknown field、oversized值或矛盾filter固定422 `QUERY_INVALID`。
+Parser共同上限：analytics query body max 16 KiB、export body max 96 KiB，均在JSON parse前回413 `PAYLOAD_TOO_LARGE`；所有opaque IDs為1–128 UTF-8 bytes；cursor最多2048 UTF-8 bytes；limit default 50、只接受1–100 integer；nonblank search trim後1–80 graphemes，空白canonicalize成omitted。`classIds`存在時必須為1–200個unique non-empty IDs；`compareStudentIds`存在時必須為1–8個unique non-empty IDs；duplicate、unknown field、oversized值或矛盾filter固定422 `QUERY_INVALID`。
 
 班級 query request：
 
 ```text
-{range, grade?, classIds?: string[<=6]}
+{range, grade?, classIds?: string[<=200], comparisonGranularity?: "DAY" | "WEEK" | "MONTH"}
 ```
 
 班級 response：
 
 ```text
 {viewMode,cohortBasis,academicYear,requestedRange,effectiveRange,asOf,dataCoverageWarning,
+ comparisonGranularity,
  scopeRevision,
  items:[{classId,grade,classCode,currentMemberCount,eligibleMemberCount,
          activeStudentCount,activeRate,medianStudyDays,
@@ -456,24 +487,24 @@ Parser共同上限：body max 16 KiB並在JSON parse前回413 `PAYLOAD_TOO_LARGE
          mastery:{meanPercent,medianPercent},
          due:{studentCount,rate}}],
  unassignedSummary:null|{...sameMetricsWithoutClassIdentity},
- timeline:[{date,classes:[...dailyMetrics]}]}
+ timeline:[{periodStart,periodEnd,classes:[...periodMetrics]}]}
 ```
 
-`classIds`省略時係directory summary mode：只回authorized actual classes的summary（server hard cap 48，超出時要求grade/filter收窄），`timeline=[]`；ADMIN另可有一個不計入48班的`unassignedSummary`，TEACHER固定為null。只有明確提供1–6個actual classIds先回comparison timeline；未分班group第一期不參與班級timeline比較。0個可見班回空items；7個或以上固定422，唔可以靠省略selection繞過comparison cap或response budget。
+`classIds`省略時係directory summary mode：只回authorized actual classes的summary（server hard cap 200，超出時要求grade/filter收窄），`timeline=[]`；ADMIN另可有一個不計入200班的`unassignedSummary`，TEACHER固定為null。只有明確提供1–200個actual classIds先回comparison timeline；未分班group第一期不參與班級timeline比較。0個可見班回空items；201個或以上固定422，唔可以靠省略selection繞過comparison cap或response budget。班級分析及班級匯出在載入活動前先以同一授權snapshot計算成員數，總成員（包括ADMIN未分班組）上限為10,000；超出固定413 `ANALYTICS_SCOPE_TOO_LARGE`，避免大班把全校活動一次載入記憶體。每個活動集合另有200,000 rows硬上限，同樣回413。
 
 學生 query request：
 
 ```text
 {range, grade?, classFilter?:{kind:"CLASS",classId}|{kind:"UNASSIGNED"},
  search?, cursor?, limit?,
- sort:"ACCOUNT_ASC", compareStudentIds?: string[<=8]}
+ sort:"STUDENT_NUMBER_ASC" | "ACCOUNT_ASC", compareStudentIds?: string[<=8]}
 ```
 
 學生 response：
 
 ```text
 {viewMode,cohortBasis,academicYear,requestedRange,effectiveRange,asOf,dataCoverageWarning,
- scopeRevision,items:[{id,accountName,legalName,nickname,grade,classId,classCode,
+ scopeRevision,items:[{id,accountName,legalName,nickname,grade,classId,classCode,classLabel,
    exposureStart,eligibleDayCount,activeDayCount,learningEncounterCount,
    effectiveReviewCount,evaluatedDistinctWordCount,encounteredDistinctWordCount,
    unknownEncounterWordCount,objective:{objectiveCandidateCount,correctCount,
@@ -485,7 +516,7 @@ Parser共同上限：body max 16 KiB並在JSON parse前回413 `PAYLOAD_TOO_LARGE
 
 學生 timeline request為`{range}`；response除學生身份、`viewMode`、`cohortBasis`、`asOf`、`requestedRange`及`effectiveRange`外，按§5.4回每日rows及period summary。所有 nullable rate採`null`，唔以0代替無分母。
 
-- Analytics學生分頁第一期只接受`ACCOUNT_ASC`，exact key為`COALESCE(accountNameCanonical, accountName) ASC, id ASC`；唔按會在學習期間改變的activity、accuracy或current Review stock分頁排序。
+- Analytics學生分頁預設`STUDENT_NUMBER_ASC`，並可切換`ACCOUNT_ASC`；學號排序 key 為 number（null last）→`COALESCE(accountNameCanonical, accountName)`→id，帳號排序 key 為`COALESCE(accountNameCanonical, accountName) ASC, id ASC`；唔按會在學習期間改變的activity、accuracy或current Review stock分頁排序。
 - `classFilter.kind=UNASSIGNED`只供ADMIN；TEACHER收到即422。`compareStudentIds`必須全部屬於actor authorized CURRENT membership，並同時符合request的grade／classFilter；search只縮窄列表，唔排除已明確選取而仍符合grade／classFilter的學生。Filter切換令已選學生不再合資格時client移除，server收到矛盾selection亦422。
 - Signed cursor綁actor view、scope／roster／year revisions、requestedRange、effectiveRange、filters、sort、search fingerprint、第一頁`asOf`及最後sort key。Cutoff逐entity固定為：`ReviewEvent.createdAt <= asOf`；`StudyEncounter.acknowledgedAt <= asOf`並以acknowledgedAt決定本地日及最近學習；`StudyDay.date`要在effective range內且row `createdAt <= asOf`。Summary、timeline、comparison及所有cursor pages共用同一asOf及規則；唔以encounter `createdAt`代替acknowledgement。
 - `Review`係mutable current stock，唔可由`asOf`還原。Current mastery只保證單一response transaction內一致；不同route／page只在quiescent fixture才要求數值相等。
@@ -493,7 +524,7 @@ Parser共同上限：body max 16 KiB並在JSON parse前回413 `PAYLOAD_TOO_LARGE
 
 ### 6.6 Analytics PII、snapshot及撤權處理
 
-- 所有 analytics route 只接受POST、body max 16 KiB、same-origin／CSRF fail closed，response固定`Cache-Control: private, no-store`、`Vary: Cookie`、`X-Content-Type-Options: nosniff`及`Referrer-Policy: no-referrer`。
+- 所有 analytics query route 只接受POST、body max 16 KiB；export route 的 request body max 96 KiB；兩者均 same-origin／CSRF fail closed，response固定`Cache-Control: private, no-store`、`Vary: Cookie`、`X-Content-Type-Options: nosniff`及`Referrer-Policy: no-referrer`。
 - 搜尋只在body，沿用admin directory PII redaction；request／error／slow-query log不得保存raw search、真名、學生證、student IDs清單或response body。
 - Membership、身份PII、events、Review stock及aggregate在同一個authorization-bearing `REPEATABLE READ`（需要CAS writer時用`SERIALIZABLE`）transaction snapshot內取得；不得先在transaction外攞member IDs再查PII。
 - Transaction snapshot記錄actor role／status／`tokenVersion`／`credentialRevision`、TeacherProfile `accessRevision`（TEACHER）、`RosterMutationState.revision`及CURRENT year revision；response serialization前按固定precedence fresh recheck：actor role失效或status變SUSPENDED先回403 `ROLE_FORBIDDEN`（即使同時bump tokenVersion）；否則session tokenVersion／credentialRevision與DB不符回401 `AUTH_REQUIRED`；否則access／roster／year revision在snapshot後改變回409 `ANALYTICS_SCOPE_STALE`。全部丟棄結果且不可回partial PII。呢個gate處理查詢期間、recheck前已完成的撤權；唔聲稱可以消除recheck後至socket傳送之間不可避免的極短race。
@@ -670,8 +701,9 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 - [x] 建立 role-aware authorized context及三個 analytics routes。
 - [x] 按§6.5實作完整request／response DTO、immutable account cursor、`asOf` event cutoff、excluded counts及sample status。
 - [x] 所有analytics success DTO／timeline及cursor fingerprint同時帶requestedRange及effectiveRange，clamp後load-more不得漂移。
-- [x] Class query支援最多48 actual班的summary-only directory、ADMIN unassigned summary，以及明確選取最多6班的timeline comparison；range clamp至CURRENT year並常駐`CURRENT_MEMBERSHIP` cohort標記。
-- [x] Student query支援search、grade／class、date range、ACCOUNT_ASC cursor及最多8人comparison。
+- [x] Class query支援最多200 actual班的summary-only directory、ADMIN unassigned summary，以及明確選取最多200班的timeline comparison；range clamp至CURRENT year並常駐`CURRENT_MEMBERSHIP` cohort標記。
+- [x] 班級比較支援`DAY`／`WEEK`／`MONTH`粒度；週一及公曆月邊界、首尾不完整時段、全範圍顯示及粒度切換均使用同一 snapshot／權限 contract。
+- [x] Student query支援search、grade／class、date range、STUDENT_NUMBER_ASC／ACCOUNT_ASC cursor及最多8人comparison。
 - [x] Student timeline按日回傳encounters／reviews／objective attempts／correct／distinct words，按exposure補齊eligible零值日期。
 - [x] Current mastery與period activity在 DTO明確分區，避免把current stock畫成歷史trend。
 - [x] 所有aggregate使用批量查詢及set-based資料讀取；禁止 per-student API N+1。
@@ -690,6 +722,7 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 - [x] `/teacher/progress` 加期間欄位、穩定`ACCOUNT_ASC`分頁及最多8人的compare tray。
 - [x] Student detail加入每日timeline、期間summary及accessible data table。
 - [x] 建立 `/admin/analytics`，在admin shell顯示全校視角banner、年級／班級／學生切換及未分班group。
+- [x] 班級比較表以「活躍率／正確率」圖例及儲存格資料條呈現兩項百分比，提供「百分比圖／數值」切換；數值模式保留分子／分母及鍵盤／螢幕閱讀器標籤。
 - [x] 補上管理員「查看學生」流程：由班級卡片帶入 `classId`，呼叫學生分析查詢，顯示班內學生、搜尋及 signed-cursor 載入更多；清除／切換年級會離開班級學生視角。
 - [x] 修正班級卡片「查看學生」後的導向：直接捲動至所選班級學生名單；固定指標列高度、關鍵數值不換行及卡片按鈕底部對齊。
 - [x] 全面檢視管理員介面文案：移除 mutation、scope、CURRENT／PLANNED、source／target、內部動作代碼等技術字眼，改用清楚的繁體中文；CSV、XLSX 等必要格式名稱保留。
@@ -723,8 +756,8 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 - [x] 更新本機測試帳號及demo generator操作說明，但不記錄密碼。
 - [x] 建立隔離48班／500學生／180日代表性ledger的disposable-schema scale builder並記錄manifest cleanup，唔污染主要demo。
 - [x] 記錄所有新增／移除routes、indexes、queries及rollback方法。
-- [x] 跑必需 unit、lint、typecheck、DB、migration、build及focused Playwright；不過度重跑無關card-motion suite。
-- [x] 本機 scope 的 DoD 已通過；production／contract migration／native device gates繼續列為deferred。
+- [ ] 跑必需 unit、lint、typecheck、DB、migration、build及focused Playwright；不過度重跑無關card-motion suite（本輪 unit／lint／typecheck 已重跑；DB、build、route-level及登入瀏覽器證據仍待補）。
+- [ ] 本機 scope 的 DoD 已通過；production／contract migration／native device gates繼續列為deferred（reviewer PASS 前不可勾選）。
 
 驗收：另一位開發者由空白local DB可按文件重建、登入、搜尋、reset及查看多班／多日比較。
 
@@ -749,15 +782,15 @@ npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset
 | Membership／range | teacher 0／1／多班、shared class、revoked access、inactive class、suspended teacher/student、ADMIN unassigned、new join exposure、same-year transfer cohort提示；success DTO原樣回傳`requestedRange`並另回clamp後`effectiveRange`；startsOn／endsOn inclusive、完全早於／晚於year 422、future-start CURRENT 503、ended-but-not-activated warning且不延長日期 |
 | Metrics | 0 students／words／attempts、7／30／90／180日、Asia/Shanghai日界、mean／median、due／review denominator、acknowledged encounters、zero-activity members、1–4 attempt／student small-sample、per-student accuracy median及studentsWithAttempts分母 |
 | Objective | correct／wrong、unknown policy、純V1唔入candidate、V2 winning；多重失敗candidate按互斥precedence入一個bucket，candidate=eligible+excluded且buckets總和守恆；negative fixtures即時清理 |
-| Comparison | classIds省略的0／48 actual班summary無timeline、ADMIN optional unassigned summary／TEACHER null、明確1／6班有timeline、7班422；1／8學生成功、9人422；UNASSIGNED只限ADMIN；selected IDs的scope／grade／classFilter語義；不同班人數及raw total同時有denominator |
-| Timeline | 中間缺日補零、exposure前ineligible、跨月／跨年、today inclusive、future拒絕；ReviewEvent.createdAt／Encounter.acknowledgedAt／StudyDay date+createdAt跨asOf；StudyDay雙向一致；只將additive raw counts逐日相加，distinct／median／rate另由cohort重算 |
+| Comparison | classIds省略的0／200 actual班summary無timeline、ADMIN optional unassigned summary／TEACHER null、明確1／200班有timeline、201班422；1／8學生成功、9人422；UNASSIGNED只限ADMIN；selected IDs的scope／grade／classFilter語義；不同班人數及raw total同時有denominator；日／週／月粒度、星期一／公曆月邊界、首尾部分時段及範圍全量 rows |
+| Timeline | 中間缺日補零、exposure前ineligible、跨月／跨年、today inclusive、future拒絕；ReviewEvent.createdAt／Encounter.acknowledgedAt／StudyDay date+createdAt跨asOf；StudyDay雙向一致；只將additive raw counts逐日相加，distinct／median／rate另由cohort重算；週／月 period 以 range 內邊界裁切，不重複、不遺漏任何日期 |
 | Analytics parser／PII | body>16 KiB回413；oversized search／cursor／ID、duplicate selections、limit邊界；CSRF／no-store／Vary／nosniff／no-referrer及search log redaction；初始無session或已停權／session-invalid cookie回401、valid-session role不符回403、初始target不存在／inactive／不可存取回404、auth backend outage回503並保留retryable session UX；mid-query actor停權／role失效優先回403、只有token／credential revision撤銷回401、access／roster／year revision競爭回409；全部情境均不回partial PII |
 | Demo ledger | 18×8、六特殊學生、effective horizon≤90日且year-clamp正確；session／stream／digest lineage、四action receipts、EvidenceObligation／wrong remediation、target／snapshot／winner完整；time-aware SM-2逐欄／due-date重播相等；chronology／scheduler合法且無live session／lease／debt／unacked feedback／OPEN target／outbox |
 | Demo reset/isolation | production／marker mismatch拒絕；fresh、40 base students、手動學生起點均exact reset成18×8；標準seed regression不變；transaction fault只留base＋BUILDING且無demo PII；並發run stable conflict；主demo無research／diagnostic／non-winning |
 | Demo繁體 | base seed及demo source literals、captured CLI、manifest DB fields通過strict s2t identity；converter unavailable fail closed；簡體negative為零；NFC／NFD／全形／合法繁體異體 |
 | Demo determinism | reserved account／class keys、archetype、dates、distribution及metric rerun相同；DB IDs、CSPRNG password、bcrypt hash、runtime timestamp明確排除 |
 | Scale fixture | disposable synthetic year≥180日、48 active classes、500 active students、代表性180日events／encounters／StudyDays、teacher 48-class＋admin scope；budget測完manifest cleanup為零 |
-| UI／a11y | desktop／mobile、200% zoom、keyboard、table semantics、chart alternative、focus return、live errors、雙locale／theme |
+| UI／a11y | desktop／mobile、200% zoom、keyboard、table semantics、chart alternative、focus return、live errors、雙locale／theme；比較表兩項指標圖例、資料條與數值切換均有可讀標籤 |
 | Regression | admin roster lifecycle、teacher class scope、teacher reset、forced-password continuation、V1/V2 learning semantics |
 
 ## 11. 驗證命令
@@ -800,8 +833,8 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 ## 12. 效能預算
 
 - Admin user query：144-user fixture warm p95 ≤ 500 ms；500-user fixture warm p95 ≤ 1 s；最多 8 DB round trips；response ≤ 128 KiB。
-- Class summary directory：48 actual班＋optional unassigned summary、180日、無timeline，warm p95 ≤ 1.5 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
-- Class comparison：6班／180日連timeline，warm p95 ≤ 2 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
+- Class summary directory：最多200 actual班＋optional unassigned summary、180日、無timeline，warm p95 ≤ 1.5 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。若實際 scope 超過200，回明確錯誤並要求收窄篩選。
+- Class comparison：最多200班／180日連timeline時使用可橫向滾動的比較表；scale fixture仍以48班作代表性效能基準，另外保留0／1／200班及201班拒絕路徑測試；未量測前不得宣稱通過。
 - Student analytics list：500-user authorized scope、首50 rows／180日，warm p95 ≤ 1.5 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
 - Student comparison：8人／180日，warm p95 ≤ 1.5 s；driver-level SQL statements ≤ 24；response ≤ 256 KiB。
 - Student timeline：1人／180日 warm p95 ≤ 1 s；driver-level SQL statements ≤ 24；response ≤ 128 KiB。
@@ -852,7 +885,8 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 - [ ] 所有本計劃新route／adapter把暫時auth backend故障固定回503 `AUTH_BACKEND_UNAVAILABLE`；cookie不被誤清除，繁體UI顯示可重試服務錯誤而非「登入已過期」，response不含PII。
 - [ ] Teacher及Admin analytics使用同一canonical service及scope-aware DTO。
 - [ ] Analytics PII在同一authorization-bearing snapshot取得並fresh recheck：初始無session或已停權／session-invalid cookie回401、valid-session role不符回403、初始target未授權／已撤權／不存在回404、auth backend outage回503；mid-query actor停權／role失效優先回403、只有credential/session撤銷回401、scope／roster／year revision race回409；全部唔回partial PII。
-- [ ] 教師可按7／30／90／custom期間比較最多6班及8名學生。
+- [x] 教師可按7／30／90／custom期間及日／週／月粒度比較最多200班及8名學生；班級卡片可多選、全選目前篩選，未選取時仍顯示空的比較表，表格可橫向／縱向滾動並顯示完整選定範圍。
+- [x] 班級比較表預設以「活躍率／正確率」資料條顯示，圖例清晰且每格有可讀標籤；教師可切換「數值」模式，兩項數值均帶名稱及分子／分母。
 - [ ] Student detail有ReviewEvent及acknowledged StudyEncounter期間summary／逐日timeline；current mastery與period activity清楚分開。
 - [ ] 班級分析固定CURRENT-membership cohort、CURRENT-year clamp及per-student exposure，並常駐顯示口徑。
 - [ ] 所有analytics success DTO及cursor原樣保留`requestedRange`並另帶clamp後`effectiveRange`；後者同`[startsOn,min(endsOn,today)]`取交集，零交集／future-start、ended warning及學年邊界測試按§4.4通過，永不回倒轉range。
@@ -879,11 +913,13 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 | Bulk reset | 不新增；匯入批次沿用rotation workflow |
 | 臨時密碼 | 沿用10位易讀小寫字母／數字及一次性copy |
 | Analytics default | 最近30日；7／30／90 preset；custom最多180日 |
-| Compare caps | 最多6班／8名學生 |
-| Class directory | 省略classIds只回最多48 actual班summary＋ADMIN optional unassigned summary；唔回timeline |
+| 班級比較粒度 | 預設按日；可切換按週（星期一至星期日）或按月（公曆月），首尾時段按選定日期範圍裁切 |
+| 班級比較顯示 | 預設用「活躍率／正確率」兩條儲存格資料條；可切換至帶標籤的數值模式，正確率不再以單獨無標籤百分比顯示 |
+| Compare caps | 最多200班／8名學生；全選只作用於目前年級篩選後可見的班級，超過上限要求收窄篩選 |
+| Class directory | 省略classIds只回最多200 actual班summary＋ADMIN optional unassigned summary；唔回timeline |
 | Mastery歷史 | 第一期不新增snapshot table；顯示current mastery＋period activity |
 | 班級歷史口徑 | CURRENT membership cohort；range clamp至CURRENT year；新加入學生按enrollment.startedAt計exposure |
-| Analytics排序 | 分頁只用immutable accountName＋id；current Review唔扮成asOf歷史snapshot |
+| Analytics排序 | 學號優先（null last），再用canonical accountName＋id；current Review唔扮成asOf歷史snapshot |
 | Demo規模 | 6級 × 3班 × 8人＝144名班內學生，另6名特殊fixture |
 | Demo期間 | anchor end=`min(today, endsOn)`，最多90日；future-start／零日fail closed，manifest／UI明示effective days及clamp |
 | Demo ownership | 依使用者授權exact reset本機schema；完整分析資料沿用標準 `admin`／`teacher`／`teacher-reset`／`student-test` 測試帳號及 `.env.local` 密碼 contract，不另建 `demo-*` 登入帳號；全部班級／學生／教師／ledger由同一fixture version擁有 |
@@ -901,7 +937,11 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 
 ## 17. 本輪實際執行記錄
 
+本節前半的較早紀錄保留作歷史背景，不代表本輪學號／匯出 Gate 已通過；凡寫明 48 班、舊測試數量或舊 PATCH contract 的句子，均由本輪 canonical contract（200 班、`comparisonGranularity`、`UPDATE_ENROLLMENT`及export route）取代。最終驗收只採用本節末尾的最新命令輸出及兩個 reviewer 的 PASS。
+
 已完成並在本機驗證：
+
+> 以下列出的早期 188／189／191 個測試及 48 班量測均屬歷史紀錄，只作背景，不是本輪 Gate 證據。本輪目前以後面的「最新執行紀錄」為準。
 
 - `npm test`：188 tests passed；`npm run lint`、`npx tsc --noEmit`、`npx prisma validate`；
 - `npm run test:migration-checksums`、`npm run test:migrations`、`npx prisma migrate status`；
@@ -910,19 +950,126 @@ Migration fresh replay只在最後整合跑一次，不需在每個UI commit重�
 - Demo rebuild 已改為沿用標準本機測試帳號（`admin`、`teacher`、`teacher-reset`、`student-test`、`student-test_webkit`）；管理員／教師密碼由 `INITIAL_ADMIN_PASSWORD`、學生密碼由 `TEST_STUDENT_PASSWORD` 提供，資料庫 hash 核對全部通過，沒有另建 `demo-*` 登入帳號；
 - 本機 exact reset-and-rebuild 已按使用者授權執行，舊測試名單及學習資料已刪除並以新 fixture 重建；
 - `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:learning-analytics:scale`：隔離 48 班／500 學生／180 日 fixture，20 次 warm samples及 `EXPLAIN (ANALYZE, BUFFERS)`；48-class summary p95 365.95ms／39,833 bytes／23 statements、6-class comparison p95 459.96ms／137,940 bytes／23 statements、500-user list p95 298.75ms／48,334 bytes／23 statements、8-user comparison p95 312.37ms／55,909 bytes／23 statements、1-user timeline p95 23.76ms／41,974 bytes／23 statements；EXPLAIN execution time為 members 0.59ms、ReviewEvent 15.50ms、StudyEncounter 10.22ms、StudyDay 60.23ms、Review 0.75ms；temporary schema已在finally cleanup；
+- 本次時間粒度擴充：`node --import tsx --test src/lib/learning-analytics.test.ts`（parser及日／週／月 period boundary）；`npm test`、`npx eslint`、`npx tsc --noEmit`及`git diff --check`通過；未執行已登入瀏覽器視覺 smoke。
+- 本次比較表顯示方式跟進（2026-08-17）：比較表預設改用「活躍率／正確率」雙資料條，圖例集中於表格上方；新增「百分比圖／數值」切換，數值模式明確列出兩項名稱及答對／評測分母，兩種模式均補上表格儲存格無障礙標籤。`npm test`（191 tests）、`npx eslint src/components/analytics/AnalyticsDashboard.tsx`、`npx tsc --noEmit`、`git diff --check`及授權模式`npm run build`通過；未執行已登入瀏覽器視覺 smoke。
 - `npm run test:roster`、`npm run test:roster:invariants`、`npm run test:roster:lifecycle`、`npm run test:roster:auth`、`npm run test:roster:reset`、`npm run check:roster-pii`均通過；涵蓋班級權限隔離、raw DB invariants、hard-delete staging purge、session-bound recent auth、48-migration reset guard及PII／credential artifact scan；
 - `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run check:teacher-global-reset-cutover` dry-run通過（4名教師、3名global reset、18條legacy class rows、0 drift）；`npm run check:study-credential-v2`（stream items／receipts gap 0）及 `npm run check:study-stream-v2:soak`（3 iterations，p50 1207ms／p95 1285ms）通過；
 - `npm run test:db`、`npm run test:db:stream-v2`、`npm run test:migration-checksums`、`npm run test:migrations`、`npm run test:migrations:contract`、`npm run check:demo-analytics-fixture`均通過；fresh replay／contract replay均為48個normal migrations，demo最後保留18班／150名學生／4名教師／1,130個ReviewEvent／3,393個StudyEncounter及StudyDay；
 - `npm run check:production-config`在未提供production secrets的本機預期以exit 1 fail-closed；以不落盤的synthetic Upstash／CRON／HMAC／reset keyring執行同一檢查通過。兩者均只作設定驗證，沒有宣稱production deploy或production data pass；
-- 本計劃新增／保留的route inventory：`POST /api/admin/users/query`、ADMIN detail query、ADMIN password-reset prepare／commit、`POST /api/learning-analytics/classes/query`、students query及student timeline query；`POST /api/admin/users`仍負責新建帳號，typed `PATCH /api/admin/users/[id]`只接受`UPDATE_IDENTITY／CHANGE_STATUS`。舊`GET /api/admin/users`目前仍由`/admin/roster`及部分focused E2E使用，故route-zero-caller／移除adapter checklist刻意未勾選；今次沒有新增analytics專用schema index，沿用現有forward indexes。
+- 本計劃新增／保留的route inventory：`POST /api/admin/users/query`、ADMIN detail query、ADMIN password-reset prepare／commit、`POST /api/learning-analytics/classes/query`、students query、student timeline query及`POST /api/learning-analytics/export`；`POST /api/admin/users`仍負責新建帳號，typed `PATCH /api/admin/users/[id]`按 operation 分流：`UPDATE_IDENTITY`只改身份欄位、`UPDATE_ENROLLMENT`以 user／enrollment／roster revision CAS 改當前學號、`CHANGE_STATUS`委派canonical lifecycle。`/admin/roster`已使用 signed POST users query；舊`GET /api/admin/users`保留為相容 adapter，並同步 student-number comparator，未作 canonical caller。今次新增 `StudentEnrollment.studentNumber` migration及analytics export DTO／route，並非「未改資料庫或 API contract」。
 - Rollback record：analytics UI可回退到既有current／7-day摘要；admin reset UI可回退但已完成的credential reset不可復原；demo rollback只接受再次執行同一exact local reset-and-rebuild，不承諾恢復已刪測試資料；沒有執行contract migration或production rollback。
 - `npm run test:e2e:study-stream-v2`：7/7 passed（包括修正認字卡答案區水平置中後的回歸）；
 - `npm run test:e2e:admin-roster`：4/4 passed（shell／atomic import、六年級升級及明確留級／離校 disposition、停權／恢復、V1/V2 cleanup、responsive／locale／theme／keyboard／axe）；測試前以標準 seed 建立 immediate-successor fixture，測試後再按授權重建 demo資料；
 - 本次修正補上管理員班級「查看學生」UI，新增 class-filtered student query、搜尋及 cursor pagination；`npx tsc --noEmit`、`npm run lint`、`npm test`（188 tests）及 `npm run build` 通過；對應 admin browser assertion 已加入 `tests/e2e/role-redirects.spec.ts`，尚未在本輪以登入瀏覽器執行；
 - 本次後續 UI 修正讓班級卡片的「查看學生」連結帶入 anchor 並自動捲動至已載入的班內名單；指標網格固定兩行高度、客觀正確率保持單行、操作按鈕底部對齊。`git diff --check`、`npx tsc --noEmit`、`npm run lint`、`npm test`（188 tests）及授權模式 `npm run build` 通過；未重跑需登入資料的瀏覽器 smoke。
-- 本次管理員文案整理涵蓋概覽、用戶管理、班級與名單、教師權限、單詞庫及學習分析；錯誤代碼改由友善提示顯示，匯入預覽的動作／錯誤、學年狀態、匯出欄位及臨時密碼報告均改用一般管理員易明白的名稱；`CSV`／`XLSX` 保留作檔案格式標示。未改資料庫或 API contract。
+- 本次管理員文案整理涵蓋概覽、用戶管理、班級與名單、教師權限、單詞庫及學習分析；錯誤代碼改由友善提示顯示，匯入預覽的動作／錯誤、學年狀態、匯出欄位及臨時密碼報告均改用一般管理員易明白的名稱；`CSV`／`XLSX` 保留作檔案格式標示。其後本輪另新增學號 migration、`UPDATE_ENROLLMENT`及analytics export contract，故不能再以此歷史文案作現況描述。
 - production config check 以 synthetic local keyring／Upstash values 通過。未以本機缺少的 production secrets 代替正式部署驗證。
+- 本次比較功能跟進（2026-08-17）：班級選取上限與共享 contract 凍結為200班；年級篩選後可全選目前可見班級，超過上限會要求收窄篩選，班級卡片補上選取提示及鍵盤／視覺狀態，未選取時常駐空比較表，選取多班時以固定欄寬及`overflow-x-auto`支援橫向查看；banner文案同步改為繁體「計算口徑／按目前班級成員計算」。`node --import tsx --test src/lib/learning-analytics.test.ts`、`npm test`、`npx eslint`、`npx tsc --noEmit`、`git diff --check`及授權模式`npm run build`均需以本輪最終版本重跑；未執行已登入瀏覽器視覺／200班真實資料 smoke。
+- 本次學習分析 500 修正（2026-08-17）：快照交易內的 ReviewEvent、StudyEncounter、StudyDay、Review 及詞庫數量查詢改為在同一 PostgreSQL 交易連線順序執行，避免並發 `client.query` 令本機小連線池逾時；`requireRole` 亦會把失效登入狀態及暫時認證服務故障轉成穩定的401／503，而不再讓 route 變成未處理500。`npm test`（189 tests）、analytics/session targeted `npx eslint`、`npx tsc --noEmit`及`git diff --check`通過；本機各 active 教師／管理員的 30 日 query 及 1／4／9 班比較均成功，未執行已登入瀏覽器 smoke。
+
+### 最新執行紀錄（2026-08-17，最新本地驗證快照；等待本輪兩位 reviewer 終審）
+
+- `npm test`：210/210 通過（包含 export parser 500-ID body boundary、class-cap scope regression、未分班班級報告 scope、目前學生數欄位、export route policy／audit tests、cursor、roster、export-format 及 export-http tests）。
+- `npx tsc --noEmit`：通過（本輪 export body-cap、timeline return、locale 及 analytics 修改後）。
+- `npm run lint`：通過（同一最新工作樹）。
+- `git diff --check`：通過。
+- `npm run db:deploy`：本機 `20260817000000_add_student_number` expand migration 已按既定 `MIGRATE_URL` 套用；未執行 contract migration。
+- `npm run test:roster:invariants`：通過；raw DB 驗證 0、負數、小數／文字、同學年同班重複、跨班同號及未分班同號限制。此項已驗證，但 Gate B 仍待 fresh replay、import concurrency 及其餘 writer integration evidence。
+- 兩位獨立 full-scope reviewer 已按最新工作樹重審：Reviewer A **PASS（無 P0／P1／mandatory P2 code blocker）**；Reviewer B **CHANGES_REQUIRED 只因 Gate D／E／F live evidence 未執行，無 P0／P1 code blocker**。A 的前輪 parser／未分班 scope findings 已修正後再獲 PASS。
+- `npm run test:roster:invariants`：按提升權限重跑通過（raw DB 0、負數、小數／文字、同學年同班重複、跨班同號及未分班同號）。沙箱第一次 EPERM 屬本機 PostgreSQL 存取限制，非測試失敗。
+- `npm run build`：通過（首次沙箱受 Turbopack process/port 限制，按本機規則以提升權限重跑成功；route refactor 後再次通過）。
+- reviewer 後最終修訂（指定班級不附加 ADMIN 未分班、strict JSON number `limit`、export invalid-grade 負向測試）後再跑：`npm test` 210/210、`npx tsc --noEmit`、`npm run lint`、`git diff --check`及提升權限 `npm run build` 全部通過。
+- 本輪補充修正並通過上述驗證：嚴格拒絕 analytics／teacher parser 的 null、非字串及不相容欄位；學生及班級 query／timeline／STUDENTS export 均回傳完整 `classLabel`；`STUDENT_NUMBER_ASC` 及 `ACCOUNT_ASC` cursor 使用同一 canonical account tie-break；教師查詢完成 actor token／credential、access、roster 及學年 revision 的結果重驗；legacy admin GET 的 URL search 已停用並把測試 caller 遷至 signed POST query；教師匯出預設粒度統一為 DAY。
+- 班級比較的 ADMIN 未分班摘要只在未指定 `classIds` 的全範圍摘要出現；指定班級時只計算及回傳所選班級。另確認 `limit` parser 只接受 JSON number integer，並加入字串／boolean／null 負向測試；概覽頁的 class-summary route 保留作今日／近7日 quick-KPI adapter，詳細比較仍走 canonical analytics route（見 §6.1 決策）。
+- route-level policy／audit tests：通過（same-origin、auth／recent-auth、limiter backend、serialization-before-audit、no-unaudited-report）；完整 DB-backed CSV/XLSX golden／IDOR／mid-query revoke／scale 及已登入瀏覽器視覺 smoke：本快照尚未重跑，Gate 保持未勾選；純 format/parser 及 dependency-injected route tests 不取代 live authorization/browser evidence。
+- 本快照已完成兩個獨立 reviewer 的最新 full-scope review；A 已 PASS，B 只指出尚未執行的 live Gate D／E／F 證據。故仍不把 Phase D／E／F 或 DoD 標記完成，直到另行執行該等 live DB／瀏覽器驗收。
 
 仍需補／明確 deferred：
 
 - 完整 desktop/mobile／200% zoom／keyboard／native VoiceOver／TalkBack QA、production deploy、真實學生資料、contract migration 及 destructive production cleanup不在本輪範圍。
+
+## 18. 新增功能實施分期及驗收清單（學號／分析匯出）
+
+本節是本輪新增工作的執行順序；任何一個 phase 未通過其 gate，不進入下一 phase。
+
+### Phase A — 盤點及資料合約凍結
+
+- [ ] 確認所有學生匯入 parser、admin roster/users、teacher roster/progress/detail、learning-analytics classes/students 及既有 roster export 的資料流。
+- [ ] 凍結 `StudentEnrollment.studentNumber Int?`、正整數 1–999999、同學年／同班非空唯一、未分班可空、`__CLEAR__` 語義及 accountName／studentNumber 欄位分離。
+- [ ] 凍結 `ACCOUNT_HEADERS` 不再包含學號；新增獨立 `STUDENT_NUMBER_HEADERS` 及繁／簡 alias，並把所有錯誤碼及 UI 文案寫成繁體。
+- [ ] 凍結排序 contract：`STUDENT_NUMBER_ASC`（null last、accountNameCanonical、id tie-break）及 `ACCOUNT_ASC`；cursor version／fingerprint 綁 sort、year、filter、scope revision。
+- [x] 凍結分析匯出 DTO、學生／班級 row 欄位、日／週／月粒度、最多180日、200班／500學生 scope、CSV／XLSX 安全格式、權限及錯誤矩陣。
+- [ ] 更新 `plans/README.md` 索引及本計劃決策紀錄；確認沒有需要 contract migration 或 production data cleanup。
+
+**Gate A：** 計劃與 schema／API／UI 欄位名稱一致；未開始寫入程式碼前完成 review-ready diff。
+
+### Phase B — Schema、migration 及匯入寫入
+
+- [ ] 新增 Prisma 欄位、forward migration 及正整數 CHECK；建立 `(academicYearId, classId, studentNumber)` 唯一索引（空值／未分班符合 §4.5）。
+- [ ] Prisma generate／fresh migration replay／checksum 驗證。
+- [x] 補 raw DB negative／unique tests（0、負數、小數、文字、同學年同班重複、跨班相同、未分班同號）；fresh replay／checksum 及其餘 integration evidence 仍屬 Gate B 未完成項目。
+- [ ] 修正 student import preview：獨立解析學號、空值／`__CLEAR__`／MERGE preserve、duplicate preview error、digest／staged row／commit recheck。
+- [ ] 修正 import commit、admin identity edit、bulk class／promotion／restore 等 writer，將學號帶入 selected-year enrollment 並做同 transaction uniqueness／revision CAS。
+- [ ] 更新學生名單 CSV／XLSX template、欄位標籤、preview table、error mapping 及既有 roster export，確保學號可匯入亦可匯出。
+
+**Gate B：** fresh DB、existing DB expand、create／merge／clear／duplicate／concurrency import tests 全部通過；沒有把學號誤寫入 accountName。
+
+### Phase C — 名單、進度、詳情及排序 UI/API
+
+- [ ] Teacher workspace query、learning-analytics students query、admin roster/users query 的 DTO 均回傳 `studentNumber`。
+- [ ] Admin roster/users、Teacher roster/progress、TeacherStudentDetail、admin／teacher analytics student list／class detail 顯示「學號」，空值顯示「未設定」。
+- [ ] 新增 server-side sort parser、SQL／stable in-memory ordering、signed cursor payload；排序切換清 cursor，跨頁不重複／不漏項。
+- [ ] UI 提供清楚的「按學號排序／按帳號排序」控制；與搜尋、年級、班別、角色、狀態、比較選取互不破壞；mobile 卡片仍顯示學號。
+- [ ] 以 1、2、10、未設定及跨班同號 fixture 驗證數值排序，不可出現 1、10、2 的字串排序。
+
+**Gate C：** teacher／admin list API 及 UI targeted tests、cursor stale／scope tests、desktop／mobile rendered review 通過。
+
+### Phase D — 分析匯出服務及報告格式
+
+- [ ] 建立共用 analytics export service，從同一 authorization snapshot 讀 members／activity，按日／週／月產生 STUDENTS／CLASSES rows；不得逐學生 N+1 查詢。
+- [x] POST parser 嚴格驗證 scope、IDs、range、comparisonGranularity、format、body cap、unknown fields、duplicate／oversized IDs及JSON null；未選 ID 只取目前 authorized filter scope，CLASSES拒絕學生search以保留完整班級分母。
+- [ ] 學生報告加入學號及所有凍結欄位；班級報告加入班級完整名稱（年級＋班別）、分子／分母、eligible／excluded counts 及 `CURRENT_MEMBERSHIP`／effective range metadata。
+- [ ] CSV 使用 BOM、quote、formula neutralization；XLSX 使用 typed text、frozen header、auto-filter、safe filename；禁止把 password、token、raw session、internal cursor 放入檔案。
+- [ ] 加入 private no-store／Vary Cookie／nosniff／no-referrer、rate limit、existing audit event、response size／row cap；serialization 前 fresh actor tokenVersion／credentialRevision／scope recheck。
+- [ ] 以教師及管理員共用 route，但以 role scope 驗證；初始／中途 401、403、404、409、503 contract 逐一固定。
+
+**Gate D：** CSV／XLSX golden tests、formula injection／PII scan、authorization IDOR、mid-query revoke／password reset race、rate-limit／body-cap tests 通過。
+
+### Phase E — 教師及管理員匯出入口
+
+- [ ] Teacher analytics／progress 及 Admin analytics 加「匯出學生報告／匯出班級報告」入口；顯示目前篩選、日期、粒度及格式。
+- [ ] 班級比較選取可匯出已選班；未選取時明確提示「匯出目前範圍」，不可悄悄匯出全校；學生報告可匯出目前 filter 或明確勾選學生。
+- [ ] 匯出中 disabled、成功顯示檔案格式／row count、失敗可重試；不把 Blob／報告資料留在 state、URL 或 storage。
+- [ ] 繁／簡 locale、dark／light、keyboard focus、button label、aria-live success／error 及 responsive layout 檢查。
+
+**Gate E：** teacher/admin end-to-end happy path（班級、學生、CSV、XLSX、空結果、scope error）通過；沒有改變既有 roster export 行為。
+
+### Phase F — 整合驗證、兩輪獨立 review 及收尾
+
+- [ ] 執行 targeted unit／route／DB tests、lint、typecheck、build、`git diff --check`；需要資料庫時先確認 local environment，未執行 production／contract migration。
+- [ ] 開兩個互相獨立、同樣審查全範圍的 subagents；兩者都要檢查 schema、migration、import、display、numeric sort、cursor、export API、CSV／XLSX safety、authorization／PII、UI、tests、plan consistency，不可一個只看 backend、一個只看 frontend。
+- [ ] 收集兩份 review；任何 P0／P1／mandatory P2 或互相矛盾都要先修正，再讓兩個 subagents 對最新完整 diff 重新 review，直至兩者均回覆 no blocking findings／PASS。
+- [ ] 把實際測試、未執行項目、review 結果及修正寫回本計劃；只將本輪完成的 checklist 勾選 `[x]`，deferred 項目保持 `[ ]`。
+
+## 19. 新增功能測試矩陣
+
+| 層次 | 必測案例 | 驗收重點 |
+|---|---|---|
+| Schema／migration | fresh replay、expand、CHECK、同班重複、跨班同號、null | migration 可重播；DB 不接受非法／同班重複 |
+| Import | `學號`／`studentNumber`、空值、MERGE preserve、`__CLEAR__`、字串排序陷阱、duplicate preview／commit race | staged digest、CAS、error code、實際 enrollment 正確 |
+| Directory／roster | admin／teacher display、mobile、search／grade／class、student-number sort、null last、cursor page 1→N | 1／2／10 數值順序、無漏項／重複 |
+| Analytics | student／class DTO 包含學號及完整班名；日／週／月 row；CURRENT membership clamp | 同一 snapshot 的 count／rate／denominator 一致 |
+| Export parser／route | unknown field、duplicate IDs、500-ID／96 KiB body boundary、未授權 ID、oversized range、empty result；指定 `classIds` 不附加 ADMIN 未分班 row、全範圍 ADMIN 才附加未分班摘要、班級 row 同時有 `currentMemberCount`／`eligibleStudentCount`；same-origin／auth／recent-auth／limiter／audit ordering | stable 400/404/409/413/422/503 contract，無 partial response；serialization 未成功或 audit 未完成時不交付 PII |
+| Export format | CSV quote／BOM／formula injection；XLSX typed cells／header／filter／filename | 開啟後欄位正確；無可執行公式、password、token、raw cursor |
+| Security／PII | teacher 只匯出授權班；admin scope；initial／mid-query revoke、password reset、suspend、backend outage | 401／403／404／409／503 矩陣正確；body、log、cache 無額外 PII |
+| Concurrency | import／admin edit／bulk class 同時改 studentNumber；export 同時改 roster／access／credential | winner／409 穩定，無 deadlock／500，audit 不留 half-result |
+| UI／accessibility | format selector、scope summary、disabled/loading/error、繁／簡、dark／light、keyboard／aria | 匯出入口可理解、焦點及錯誤提示完整 |
+
+## 20. 新增功能 Definition of Done
+
+- [ ] 學號 schema／CHECK／唯一性／匯入／MERGE／清除／匯出完整，且不再與 accountName 欄位混用。
+- [ ] 管理員及教師所有指定名單、進度、詳情及分析學生明細顯示學號；公開學生 surface 不顯示。
+- [ ] 教師及管理員可按學號數值排序，null last、cursor 穩定、跨頁無漏項；UI 有切換及清除 cursor 行為。
+- [ ] Teacher／Admin 可按目前授權範圍匯出 STUDENTS／CLASSES 的 CSV／XLSX 學習分析，支持日／週／月及最多180日；報告含分子／分母、範圍及 CURRENT-membership 提示。
+- [ ] 匯出安全 contract、PII／formula injection、權限、rate limit、audit、credential／scope recheck 及錯誤矩陣通過。
+- [ ] 兩個獨立 subagents 已完成全範圍 review；所有 mandatory findings 已修正；兩者對最新版本均 PASS。

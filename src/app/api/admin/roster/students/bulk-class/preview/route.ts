@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const result = await createBulkClassPreview({ req, actorUserId: auth.userId, academicYearId, targetClassCode: body?.classCode === null || body?.classCode === "" ? null : String(body?.classCode ?? ""), studentIds: [...new Set(studentIds)], excludedIds: [...new Set(excludedIds)], filterHash, operationId });
     return NextResponse.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const code = stableRosterCode(error, ["CLASS_INVALID", "SELECTION_CAP", "CURRENT_YEAR_REQUIRED", "STUDENT_SCOPE_INVALID", "CLASS_NOT_FOUND"], "BULK_CLASS_PREVIEW_FAILED");
+    const code = stableRosterCode(error, ["CLASS_INVALID", "SELECTION_CAP", "CURRENT_YEAR_REQUIRED", "STUDENT_SCOPE_INVALID", "CLASS_NOT_FOUND", "STUDENT_NUMBER_CONFLICT"], "BULK_CLASS_PREVIEW_FAILED");
     return NextResponse.json({ code }, { status: code === "SELECTION_CAP" ? 413 : 409 });
   }
 }

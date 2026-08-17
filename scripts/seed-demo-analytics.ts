@@ -55,11 +55,11 @@ async function clearLocalDemo(tx: Prisma.TransactionClient) {
   await tx.databaseMetadata.create({ data: { key: "demoAnalytics", value: "BUILDING" } });
 }
 
-async function createUser(tx: Prisma.TransactionClient, input: { accountName: string; legalName: string; nickname?: string; role: "STUDENT" | "TEACHER" | "ADMIN"; password: string; grade?: StudentGrade; classId?: string | null; startedAt?: Date | null; canResetStudentPassword?: boolean }) {
+async function createUser(tx: Prisma.TransactionClient, input: { accountName: string; legalName: string; nickname?: string; role: "STUDENT" | "TEACHER" | "ADMIN"; password: string; grade?: StudentGrade; classId?: string | null; studentNumber?: number | null; startedAt?: Date | null; canResetStudentPassword?: boolean }) {
   const passwordHash = await bcrypt.hash(input.password, 10);
   if (input.role === "STUDENT") {
     if (!input.grade || input.classId === undefined) fail("student fixture requires grade/class");
-    return tx.user.create({ data: { accountName: input.accountName, accountNameCanonical: input.accountName, passwordHash, credentialRevision: 1, legacyName: input.legalName, role: "STUDENT", mustChangePassword: false, studentProfile: { create: { legalName: input.legalName, nickname: input.nickname ?? input.legalName, nicknameNormalized: (input.nickname ?? input.legalName).normalize("NFKC").toLowerCase(), enrollments: { create: { academicYearId: (await tx.academicYear.findFirstOrThrow({ where: { status: "CURRENT" }, select: { id: true } })).id, grade: input.grade, classId: input.classId, isCurrent: true, status: "ACTIVE", origin: "SEED", startedAt: input.startedAt ?? new Date() } } } } } });
+    return tx.user.create({ data: { accountName: input.accountName, accountNameCanonical: input.accountName, passwordHash, credentialRevision: 1, legacyName: input.legalName, role: "STUDENT", mustChangePassword: false, studentProfile: { create: { legalName: input.legalName, nickname: input.nickname ?? input.legalName, nicknameNormalized: (input.nickname ?? input.legalName).normalize("NFKC").toLowerCase(), enrollments: { create: { academicYearId: (await tx.academicYear.findFirstOrThrow({ where: { status: "CURRENT" }, select: { id: true } })).id, grade: input.grade, classId: input.classId, studentNumber: input.studentNumber ?? null, isCurrent: true, status: "ACTIVE", origin: "SEED", startedAt: input.startedAt ?? new Date() } } } } } });
   }
   if (input.role === "TEACHER") return tx.user.create({ data: { accountName: input.accountName, accountNameCanonical: input.accountName, passwordHash, credentialRevision: 1, legacyName: input.legalName, role: "TEACHER", mustChangePassword: false, teacherProfile: { create: { legalName: input.legalName, canResetStudentPassword: input.canResetStudentPassword ?? false } } } });
   return tx.user.create({ data: { accountName: input.accountName, accountNameCanonical: input.accountName, passwordHash, credentialRevision: 1, legacyName: input.legalName, role: "ADMIN", mustChangePassword: false } });
@@ -114,24 +114,26 @@ async function buildDemo() {
       for (let studentIndex = 0; studentIndex < 8; studentIndex += 1) {
         const index = classIndex * 8 + studentIndex;
         const accountName = index === 0 ? "student-test" : index === 1 ? "student-test_webkit" : `student-${String(index + 1).padStart(3, "0")}`;
-        const user = await createUser(tx, { accountName, legalName: `測試學生${String(index + 1).padStart(3, "0")}`, nickname: `學習者${String(index + 1).padStart(3, "0")}`, role: "STUDENT", password: studentPassword, grade, classId, startedAt: dateAt(effectiveStart) });
+        const user = await createUser(tx, { accountName, legalName: `測試學生${String(index + 1).padStart(3, "0")}`, nickname: `學習者${String(index + 1).padStart(3, "0")}`, role: "STUDENT", password: studentPassword, grade, classId, studentNumber: studentIndex + 1, startedAt: dateAt(effectiveStart) });
         students.push({ id: user.id, grade, classId, index });
       }
     }
-    const specialSpecs: Array<{ accountName: string; legalName: string; grade: StudentGrade; status?: "SUSPENDED"; classId?: string | null; startedAt?: Date }> = [
-      { accountName: "student-unassigned", legalName: "未分班測試學生", grade: "JUNIOR_1", classId: null },
-      { accountName: "student-new", legalName: "新加入測試學生", grade: "JUNIOR_1", classId: null, startedAt: dateAt(offsetDay(effectiveEnd, -2)) },
-      { accountName: "student-quiet", legalName: "低活動測試學生", grade: "JUNIOR_2", classId: null },
-      { accountName: "student-suspended", legalName: "停權測試學生", grade: "JUNIOR_3", classId: null, status: "SUSPENDED" },
-      { accountName: "student-transfer", legalName: "轉班測試學生", grade: "SENIOR_1", classId: null },
-      { accountName: "student-followup", legalName: "跟進測試學生", grade: "SENIOR_2", classId: null },
+    const specialSpecs: Array<{ accountName: string; legalName: string; grade: StudentGrade; studentNumber: number; status?: "SUSPENDED"; classId?: string | null; startedAt?: Date }> = [
+      { accountName: "student-unassigned", legalName: "未分班測試學生", grade: "JUNIOR_1", studentNumber: 1001, classId: null },
+      { accountName: "student-new", legalName: "新加入測試學生", grade: "JUNIOR_1", studentNumber: 1002, classId: null, startedAt: dateAt(offsetDay(effectiveEnd, -2)) },
+      { accountName: "student-quiet", legalName: "低活動測試學生", grade: "JUNIOR_2", studentNumber: 1003, classId: null },
+      { accountName: "student-suspended", legalName: "停權測試學生", grade: "JUNIOR_3", studentNumber: 1004, classId: null, status: "SUSPENDED" },
+      { accountName: "student-transfer", legalName: "轉班測試學生", grade: "SENIOR_1", studentNumber: 1005, classId: null },
+      { accountName: "student-followup", legalName: "跟進測試學生", grade: "SENIOR_2", studentNumber: 1006, classId: null },
     ];
     const special = [] as string[];
     for (const spec of specialSpecs) {
-      const user = await createUser(tx, { accountName: spec.accountName, legalName: spec.legalName, nickname: `測試${spec.legalName}`, role: "STUDENT", password: studentPassword, grade: spec.grade, classId: spec.classId ?? null, startedAt: spec.startedAt ?? dateAt(effectiveStart) });
+      const user = await createUser(tx, { accountName: spec.accountName, legalName: spec.legalName, nickname: `測試${spec.legalName}`, role: "STUDENT", password: studentPassword, grade: spec.grade, classId: spec.classId ?? null, studentNumber: spec.studentNumber, startedAt: spec.startedAt ?? dateAt(effectiveStart) });
       if (spec.status) await tx.user.update({ where: { id: user.id }, data: { status: spec.status, suspendedAt: new Date(), tokenVersion: { increment: 1 }, revision: { increment: 1 } } });
       special.push(user.id);
     }
+    const missingStudentNumbers = await tx.studentEnrollment.count({ where: { academicYearId: year.id, student: { user: { role: "STUDENT" } }, studentNumber: null } });
+    if (missingStudentNumbers !== 0) fail(`示範資料有 ${missingStudentNumbers} 名學生未設定學號。`);
     for (const student of students) {
       const kind = archetype(student.index);
       const session = await tx.studySession.create({ data: { userId: student.id, queueFingerprint: hash(`${VERSION}:${student.id}`), expiresAt: dateAt(offsetDay(effectiveEnd, -1)), retiredAt: dateAt(effectiveEnd), flowVersion: "v2", learningPolicyVersion: "retrieval-v1", mode: "global", revision: 0 } });

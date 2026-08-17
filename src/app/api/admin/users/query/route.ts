@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json(result, { headers });
   } catch (error) {
     const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
-    const status = code === "PAYLOAD_TOO_LARGE" ? 413 : code === "CURRENT_YEAR_UNAVAILABLE" ? 503 : ["CURSOR_INVALID", "QUERY_INVALID"].includes(code) ? 422 : code === "ADMIN_USER_QUERY_STALE" ? 409 : 500;
+    const status = code === "PAYLOAD_TOO_LARGE" ? 413 : code === "CURRENT_YEAR_UNAVAILABLE" ? 503 : code === "ACADEMIC_YEAR_NOT_FOUND" ? 404 : ["CURSOR_INVALID", "QUERY_INVALID", "DIRECTORY_TOO_LARGE"].includes(code) ? 422 : code === "ADMIN_USER_QUERY_STALE" ? 409 : 500;
     return NextResponse.json({ code: status === 500 ? "INTERNAL_ERROR" : code }, { status, headers });
   }
 }

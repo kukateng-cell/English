@@ -39,7 +39,7 @@ export default function AdminWordsPage() {
   const [levelFilter, setLevelFilter] = useState<string>("ALL");
   const [visibleCount, setVisibleCount] = useState(100);
 
-  // 弹窗状态
+  // 彈窗狀態
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<WordItem | null>(null);
   const [deleting, setDeleting] = useState<WordItem | null>(null);
@@ -153,7 +153,7 @@ export default function AdminWordsPage() {
       setWords((prev) => prev.filter((w) => w.id !== deleting.id));
       setDeleting(null);
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "删除失败，请重试");
+      setDeleteError(e instanceof Error ? e.message : "刪除失敗，請重試");
     } finally {
       setSubmitting(false);
     }
@@ -186,10 +186,10 @@ export default function AdminWordsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
-            {tc("单词库")}
+            {tc("單詞庫")}
           </h1>
           <p className="mt-1 text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc(`共 ${words.length} 个单词`)}
+            {tc(`共 ${words.length} 個單詞`)}
           </p>
         </div>
         <button
@@ -197,17 +197,17 @@ export default function AdminWordsPage() {
           className="flex h-10 items-center gap-1.5 rounded-2xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-[var(--color-surface)] shadow-sm transition active:scale-[0.97]"
         >
           <Icon name="plus" size={16} />
-          {tc("添加")}
+          {tc("新增")}
         </button>
       </div>
 
-      {/* 搜索 + 筛选 */}
+      {/* 搜尋＋篩選 */}
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Icon name="search" size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
           <input
             type="text"
-            placeholder={tc("搜索单词...")}
+            placeholder={tc("搜尋單詞…")}
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -218,7 +218,7 @@ export default function AdminWordsPage() {
         </div>
       </div>
 
-      {/* 等级筛选 */}
+      {/* 等級篩選 */}
       <div className="flex gap-2">
         {levels.map((lvl) => (
           <button
@@ -241,7 +241,7 @@ export default function AdminWordsPage() {
       {/* 单词列表 */}
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center text-[14px] text-[var(--muted)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]">
-          {tc("暂无匹配的单词")}
+          {tc("暫無符合的單詞")}
         </div>
       ) : (
         <div className="space-y-2">
@@ -274,14 +274,14 @@ export default function AdminWordsPage() {
                   <button
                     onClick={() => openEdit(word)}
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
-                    aria-label={tc("编辑")}
+                    aria-label={tc("編輯")}
                   >
                     <Icon name="edit" size={16} />
                   </button>
                   <button
                     onClick={() => setDeleting(word)}
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)]"
-                    aria-label={tc("删除")}
+                    aria-label={tc("刪除")}
                   >
                     <Icon name="trash" size={16} />
                   </button>
@@ -293,7 +293,7 @@ export default function AdminWordsPage() {
                     {tc(word.category)}
                   </span>
                 )}
-                <span className="admin-meta-item"><Icon name="refresh" size={14} /> {word.reviewCount} {tc("次被学习")}</span>
+                <span className="admin-meta-item"><Icon name="refresh" size={14} /> {word.reviewCount} {tc("次被學習")}</span>
               </div>
             </div>
           ))}
@@ -303,7 +303,7 @@ export default function AdminWordsPage() {
               onClick={() => setVisibleCount((count) => Math.min(count + 100, filtered.length))}
               className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[13px] font-semibold text-[var(--primary)] transition hover:bg-[var(--border-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
             >
-              {tc("加载更多")}
+              {tc("載入更多")}
             </button>
           ) : null}
         </div>
@@ -320,13 +320,13 @@ export default function AdminWordsPage() {
       {/* 删除确认 */}
       <ConfirmDialog
         open={!!deleting}
-        title={tc("删除单词")}
+        title={tc("刪除單詞")}
         message={
           deleting
-            ? tc(`确定删除「${deleting.term}」吗？关联的学习记录将一并删除，且无法恢复。`)
+            ? tc(`確定刪除「${deleting.term}」嗎？關聯的學習記錄將一併刪除，且無法恢復。`)
             : ""
         }
-        confirmText={tc("删除")}
+        confirmText={tc("刪除")}
         destructive
         loading={submitting}
         error={deleteError}

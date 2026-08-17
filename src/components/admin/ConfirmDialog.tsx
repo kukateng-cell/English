@@ -33,7 +33,7 @@ export default function ConfirmDialog({
   onClose,
 }: ConfirmDialogProps) {
   const { tc } = useLocale();
-  const confirm = confirmText ?? tc("确认");
+  const confirm = confirmText ?? tc("確認");
   const cancel = cancelText ?? tc("取消");
   return (
     <Modal open={open} onClose={onClose} title={title}>
@@ -62,7 +62,7 @@ export default function ConfirmDialog({
               : "bg-[var(--primary)]"
           }`}
         >
-          {loading ? tc("处理中...") : confirm}
+          {loading ? tc("處理中…") : confirm}
         </button>
       </div>
     </Modal>

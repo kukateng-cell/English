@@ -12,6 +12,8 @@
 >
 > 範圍：只限本機開發及測試；不包括 production、push、deploy 或真實學生資料
 
+> **學號欄位相容性提示（2026-08-17）：** 本文件較早版本把 `accountName`／`studentNumber` 當作同一個登入字串，並要求保留前導零；該歷史描述已由本分支的學號／分析計劃取代。現行 canonical contract 是 `accountName`（文字，學生登入帳號）與 `StudentEnrollment.studentNumber`（可為空的正整數 1–999999）分開儲存、匯入、顯示及排序。後續實作請以 [`admin-user-directory-and-learning-analytics.md`](./admin-user-directory-and-learning-analytics.md) 為準，不要按舊段落重新合併兩個欄位。
+
 > **2026-08-16 後續計劃提示：** 本文件準確記錄目前已實作的per-class view／reset baseline及其歷史驗證，
 > 但未來教師reset target model已由
 > [`teacher-workspace-roster-progress-redesign.md`](./teacher-workspace-roster-progress-redesign.md) Revision 3取代：
@@ -108,7 +110,7 @@ Git及DB檢查證明完全local／disposable後才可重寫，否則遵守immuta
 
 - 教師 A 無論修改 URL、studentId 或 classId，都不能取得未授權班別學生的資料。
 - 學生公開畫面及排行榜 payload 沒有真名或學生證 fallback。
-- 學生證 `001234` 匯入、儲存、登入及匯出後仍保留前置零。
+- 學生登入帳號（學生證）`001234` 匯入、儲存、登入及匯出後仍保留前置零；這項前置零規則不適用於獨立的數字學號。
 - 同一批匯入重送不會建立重複帳號或重複 enrollment。
 - 匯入任何一行 commit 失敗時，整批資料不會部分寫入。
 - 停權學生或教師後，新登入失敗，舊 session 在下一次 server validation 失效；已開 V2 頁停止 retry並清除該帳號 local state。
@@ -634,9 +636,15 @@ immediate-successor `PLANNED`，拒絕更遠future／`CLOSED`；教師匯入可�
 
 ### 9.2 學生匯入欄位
 
+> **歷史欄位說明（已棄用）：** 本節早期版本曾把 `accountName` 與
+> `studentNumber` 合併成一個「學生證號碼」欄位。該合併 contract 已由
+> `plans/admin-user-directory-and-learning-analytics.md` 取代；以下欄位表只保留作
+> 歷史參考，新的 parser、模板及 UI 不得照此合併欄位實作。
+
 | 欄位 | 必填 | 說明 |
 |---|---:|---|
-| accountName／studentNumber | ✅ | 學生證號碼；字串；保留前置零 |
+| accountName（學生證登入帳號） | ✅ | 文字；首尾及前置零按登入帳號規則保留 |
+| studentNumber（學號） | ❌ | 獨立的正整數 1–999999；可留空；不承擔登入或前置零語義 |
 | legalName | ✅ | 真實姓名 |
 | nickname | ✅ | 通過同一 server nickname validator |
 | grade | ✅ | 初一至高三 |
@@ -884,6 +892,11 @@ Merge 不改密碼、不改角色、不刪除檔案中未列出的帳號。Previ
 
 ### 12.3 CSV／XLSX 安全
 
+> **歷史 contract compatibility note：** 本節任何把 `accountName／studentNumber`
+> 視為同一字串、或要求學號保留前置零的描述，均屬已棄用的舊版 roster export
+> contract。現行匯入／匯出必須分開輸出 `accountName`（文字登入帳號）及
+> `studentNumber`（可空正整數）；下列安全規則只在不違反此欄位分拆的前提下保留。
+
 - Export 永遠作用於全部 server-resolved filtered result，不受目前 page 影響；academic year 必填，學生
   grade／class 取該 year enrollment，teacher access 亦只 serialize 該 year；
 - Student export以selected-year enrollment作INNER JOIN，零enrollment帳號不出現且絕不fallback其他year：CURRENT只取ACTIVE、
@@ -896,8 +909,9 @@ Merge 不改密碼、不改角色、不刪除檔案中未列出的帳號。Previ
   `contactEmail` 預設不選；
 - teacher class access 使用與 import 相同、stable sorted `JUNIOR_1:A|...` serialization；
 - CSV 使用 UTF-8 BOM、RFC 4180 escaping；
-- XLSX所有export value使用typed string cell（日期亦輸出ISO 8601 UTC string），不設定formula；accountName／studentNumber
-  原值保留，避免前置零消失；teacher即使zero access亦輸出空字串而非漏row；
+- XLSX所有export value使用typed string cell（日期亦輸出ISO 8601 UTC string），不設定formula；
+  `accountName` 以文字輸出以保留登入帳號前置零，`studentNumber` 以正整數或空值輸出；
+  teacher即使zero access亦輸出空字串而非漏row；
 - CSV任何以`= + - @`或tab／CR開始的自由文字以leading apostrophe neutralize並在template／UI明確記錄。此CSV安全
   representation不聲稱對危險自由文字exact round-trip；需要無修改值的校務保存使用typed-string XLSX。Account/email本身
   validator已拒絕危險prefix；

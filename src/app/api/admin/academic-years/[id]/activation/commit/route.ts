@@ -7,6 +7,7 @@ import { isSameOriginMutation } from "@/lib/csrf";
 import { getClientIp } from "@/lib/login-limiter";
 import { securityEventData } from "@/lib/security-events";
 import { lockRosterMutationState } from "@/lib/roster-server";
+import { touchRosterRevision } from "@/lib/teacher-workspace";
 import { createHash } from "node:crypto";
 import { actorAuditFields, operationFingerprint, readReceiptForCommit, writeAdminReceipt } from "@/lib/admin-receipts";
 import { stableRosterCode } from "@/lib/roster-api";
@@ -240,6 +241,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
       await tx.academicYear.update({ where: { id: source.id, status: "CURRENT", revision: source.revision }, data: { status: "CLOSED", isCurrent: false, revision: { increment: 1 } } });
       await tx.academicYear.update({ where: { id: target.id, status: "PLANNED", revision: target.revision }, data: { status: "CURRENT", isCurrent: true, revision: { increment: 1 } } });
+      // Academic-year activation changes the CURRENT membership universe even
+      // when no individual class row changed. Bump the shared roster scope so
+      // an in-flight analytics/export snapshot fails closed instead of
+      // returning the previous year's roster.
+      await touchRosterRevision(tx);
       const result = { sourceAcademicYearId: source.id, targetAcademicYearId: target.id, endedSourceCount: payload.sourceEnrollments.length, activatedTargetCount: payload.transitions.filter((item) => !["GRADUATE", "LEAVE"].includes(item.disposition)).length + incoming.length, terminalCount: payload.transitions.filter((item) => ["GRADUATE", "LEAVE"].includes(item.disposition)).length };
       await tx.adminMutationBatch.update({ where: { id: batch.id }, data: { status: "COMMITTED", committedAt: now, counts: result, payload: Prisma.JsonNull, errorReport: Prisma.JsonNull } });
       await writeAdminReceipt(tx, { actorUserId: auth.userId, operationKind: "YEAR_ACTIVATION", operationId, requestFingerprint, outcomeStatus: "COMMITTED", summary: result });

@@ -39,6 +39,16 @@ async function main() {
     });
     immediateYearCreated = !existingImmediate;
     if (immediateYearCreated) yearIds.push(immediate.id);
+
+    const currentClasses: Record<"A" | "B", { id: string }> = {} as Record<"A" | "B", { id: string }>;
+    for (const classCode of ["A", "B"] as const) {
+      const existingClass = await prisma.schoolClass.findFirst({ where: { academicYearId: current.id, grade: "JUNIOR_1", classCode } });
+      currentClasses[classCode] = existingClass ?? await prisma.schoolClass.create({
+        data: { academicYearId: current.id, grade: "JUNIOR_1", classCode, active: true },
+        select: { id: true },
+      });
+      if (!existingClass) classIds.push(currentClasses[classCode].id);
+    }
     const user = await prisma.user.create({
       data: {
         accountName: `invariant-${suffix}`,
@@ -85,17 +95,121 @@ async function main() {
       "raw ENDED enrollment in CURRENT year must fail",
     );
 
+    let assignedNumber = 900000;
+    while (await prisma.studentEnrollment.findFirst({ where: { academicYearId: current.id, studentNumber: assignedNumber } })) assignedNumber += 1;
     const activeEnrollment = await prisma.studentEnrollment.create({
       data: {
         studentId: user.id,
         academicYearId: current.id,
         grade: "JUNIOR_1",
+        classId: currentClasses.A.id,
+        studentNumber: assignedNumber,
         isCurrent: true,
         status: "ACTIVE",
         origin: "MANUAL",
         startedAt: new Date(Date.now() - 1_000),
       },
     });
+
+    // The application parser also validates this field, but these checks
+    // deliberately bypass Prisma so the database constraint itself is
+    // exercised for zero, negative, decimal, and text values.
+    await assert.rejects(
+      prisma.$executeRaw`UPDATE "StudentEnrollment" SET "studentNumber" = 0 WHERE "id" = ${activeEnrollment.id}`,
+      "database must reject student number 0",
+    );
+    await assert.rejects(
+      prisma.$executeRaw`UPDATE "StudentEnrollment" SET "studentNumber" = -1 WHERE "id" = ${activeEnrollment.id}`,
+      "database must reject negative student numbers",
+    );
+    await assert.rejects(
+      prisma.$executeRaw`UPDATE "StudentEnrollment" SET "studentNumber" = '1.5' WHERE "id" = ${activeEnrollment.id}`,
+      "database must reject decimal student numbers",
+    );
+    await assert.rejects(
+      prisma.$executeRaw`UPDATE "StudentEnrollment" SET "studentNumber" = 'not-a-number' WHERE "id" = ${activeEnrollment.id}`,
+      "database must reject text student numbers",
+    );
+
+    const makeStudent = async (label: string) => {
+      const created = await prisma.user.create({
+        data: {
+          accountName: `invariant-${label}-${suffix}`,
+          accountNameCanonical: `invariant-${label}-${suffix}`,
+          passwordHash: "not-a-login-account",
+          credentialRevision: 1,
+          mustChangePassword: false,
+          studentProfile: { create: { legalName: `Invariant ${label}`, nickname: `測試${label}`, nicknameNormalized: `測試${label}` } },
+        },
+        select: { id: true },
+      });
+      userIds.push(created.id);
+      return created.id;
+    };
+    const crossClassStudent = await makeStudent("CrossClass");
+    await prisma.studentEnrollment.create({
+      data: {
+        studentId: crossClassStudent,
+        academicYearId: current.id,
+        grade: "JUNIOR_1",
+        classId: currentClasses.B.id,
+        studentNumber: assignedNumber,
+        isCurrent: true,
+        status: "ACTIVE",
+        origin: "MANUAL",
+        startedAt: new Date(),
+      },
+    });
+
+    const sameClassDuplicate = await makeStudent("SameClassDuplicate");
+    await assert.rejects(
+      prisma.studentEnrollment.create({
+        data: {
+          studentId: sameClassDuplicate,
+          academicYearId: current.id,
+          grade: "JUNIOR_1",
+          classId: currentClasses.A.id,
+          studentNumber: assignedNumber,
+          isCurrent: true,
+          status: "ACTIVE",
+          origin: "MANUAL",
+          startedAt: new Date(),
+        },
+      }),
+      "same academic year and class must reject duplicate student numbers",
+    );
+
+    let unassignedNumber = assignedNumber + 1;
+    while (await prisma.studentEnrollment.findFirst({ where: { academicYearId: current.id, classId: null, studentNumber: unassignedNumber } })) unassignedNumber += 1;
+    const firstUnassigned = await makeStudent("UnassignedOne");
+    await prisma.studentEnrollment.create({
+      data: {
+        studentId: firstUnassigned,
+        academicYearId: current.id,
+        grade: "JUNIOR_1",
+        studentNumber: unassignedNumber,
+        isCurrent: true,
+        status: "ACTIVE",
+        origin: "MANUAL",
+        startedAt: new Date(),
+      },
+    });
+    const secondUnassigned = await makeStudent("UnassignedTwo");
+    await assert.rejects(
+      prisma.studentEnrollment.create({
+        data: {
+          studentId: secondUnassigned,
+          academicYearId: current.id,
+          grade: "JUNIOR_2",
+          studentNumber: unassignedNumber,
+          isCurrent: true,
+          status: "ACTIVE",
+          origin: "MANUAL",
+          startedAt: new Date(),
+        },
+      }),
+      "unassigned students in one academic year must reject duplicate student numbers",
+    );
     await assert.rejects(
       prisma.studentEnrollment.update({ where: { id: activeEnrollment.id }, data: { status: "ENDED", endedAt: new Date() } }),
       "ordinary writer cannot end an active current enrollment",

@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
@@ -13,8 +14,9 @@ import { isSameOriginMutation } from "@/lib/csrf";
 import { securityEventData } from "@/lib/security-events";
 import { accountNameError, contactEmailError, legalNameError, normalizeAccountName, normalizeContactEmail, normalizeLegalName } from "@/lib/identity";
 import { validateNicknameAgainstIdentity } from "@/lib/nickname";
-import { parseClassCode, parseStudentGrade } from "@/lib/roster-domain";
+import { compareStudentNumberSortKey, parseClassCode, parseStudentGrade, parseStudentNumber } from "@/lib/roster-domain";
 import { lockRosterIdentityKeys, lockRosterMutationState } from "@/lib/roster-server";
+import { touchRosterRevision } from "@/lib/teacher-workspace";
 
 const privateHeaders = { "Cache-Control": "private, no-store", "Vary": "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 
@@ -37,7 +39,7 @@ const USER_SELECT = {
         where: { status: { in: ["ACTIVE", "PLANNED"] } },
         orderBy: { academicYear: { startsOn: "desc" } },
         take: 1,
-        select: { grade: true, status: true, schoolClass: { select: { classCode: true } }, academicYear: { select: { id: true, label: true, status: true } } },
+        select: { grade: true, status: true, studentNumber: true, schoolClass: { select: { classCode: true } }, academicYear: { select: { id: true, label: true, status: true } } },
       },
     },
   },
@@ -59,6 +61,7 @@ function serializeUser(user: Prisma.UserGetPayload<{ select: typeof USER_SELECT 
     nickname: user.studentProfile?.nickname ?? null,
     grade: enrollment?.grade ?? null,
     classCode: enrollment?.schoolClass?.classCode ?? null,
+    studentNumber: enrollment?.studentNumber ?? null,
     academicYearId: enrollment?.academicYear.id ?? null,
     academicYear: enrollment?.academicYear.label ?? null,
     enrollmentStatus: enrollment?.status ?? null,
@@ -73,16 +76,37 @@ function serializeUser(user: Prisma.UserGetPayload<{ select: typeof USER_SELECT 
   };
 }
 
-function encodeCursor(value: { accountName: string; id: string }) {
-  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+type RosterSort = "ACCOUNT_ASC" | "STUDENT_NUMBER_ASC";
+type RosterCursor = { accountName: string; studentNumber: number | null; id: string; sort: RosterSort; fingerprint: string; rosterRevision: number };
+
+function cursorSecret() {
+  const secret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") throw new Error("NEXTAUTH_SECRET is required for admin roster cursors");
+  return "development-only-admin-roster-cursor-secret";
 }
 
-function decodeCursor(value: string | null) {
-  if (!value) return null;
+function cursorSignature(body: string) {
+  return createHmac("sha256", cursorSecret()).update("admin-roster-legacy-v2:").update(body).digest("base64url");
+}
+
+function encodeCursor(value: RosterCursor) {
+  const body = Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+  return `${body}.${cursorSignature(body)}`;
+}
+
+function decodeCursor(value: string | null): RosterCursor | null {
+  if (!value || value.length > 2048) return null;
   try {
-    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { accountName?: unknown; id?: unknown };
-    if (typeof decoded.accountName !== "string" || typeof decoded.id !== "string") return null;
-    return { accountName: decoded.accountName, id: decoded.id };
+    const [body, supplied] = value.split(".");
+    if (!body || !supplied) return null;
+    const expected = cursorSignature(body);
+    const left = Buffer.from(supplied, "utf8");
+    const right = Buffer.from(expected, "utf8");
+    if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
+    const decoded = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Partial<RosterCursor>;
+    if (typeof decoded.accountName !== "string" || typeof decoded.id !== "string" || typeof decoded.fingerprint !== "string" || !Number.isInteger(decoded.rosterRevision) || (decoded.studentNumber !== null && !Number.isInteger(decoded.studentNumber)) || (decoded.sort !== "ACCOUNT_ASC" && decoded.sort !== "STUDENT_NUMBER_ASC")) return null;
+    return decoded as RosterCursor;
   } catch {
     return null;
   }
@@ -92,6 +116,10 @@ export async function GET(req: Request) {
   const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ code: auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED" }, { status: auth.status, headers: privateHeaders });
   const params = new URL(req.url).searchParams;
+  // Search terms are PII and must never travel in a GET URL (browser history,
+  // proxy logs and referrers).  The signed POST directory endpoint is the
+  // compatibility path for filtered queries.
+  if (params.has("search")) return NextResponse.json({ code: "LEGACY_SEARCH_DISABLED" }, { status: 410, headers: privateHeaders });
   const role = isRole(params.get("role")) ? (params.get("role") as Role) : undefined;
   const status: AccountStatus | undefined = params.get("status") === "ACTIVE" || params.get("status") === "SUSPENDED" ? params.get("status") as AccountStatus : undefined;
   const academicYearId = params.get("academicYearId");
@@ -100,10 +128,15 @@ export async function GET(req: Request) {
   if (params.has("grade") && params.get("grade") && !grade) return NextResponse.json({ code: "GRADE_INVALID" }, { status: 422 });
   if (params.has("classCode") && params.get("classCode") && !classCode) return NextResponse.json({ code: "CLASS_INVALID" }, { status: 422 });
   const search = (params.get("search") ?? "").trim();
+  const sort: RosterSort = params.get("sort") === "STUDENT_NUMBER_ASC" ? "STUDENT_NUMBER_ASC" : "ACCOUNT_ASC";
   const parsedLimit = Number(params.get("limit") ?? 50);
   const limit = Number.isInteger(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;
+  const rosterState = await prisma.rosterMutationState.findUnique({ where: { id: 1 }, select: { revision: true } });
+  const rosterRevision = rosterState?.revision ?? 0;
+  const fingerprint = createHmac("sha256", cursorSecret()).update(JSON.stringify({ role: role ?? null, status: status ?? null, academicYearId: academicYearId ?? null, grade: grade ?? null, classCode: classCode ?? null, search: search || null, sort })).digest("hex");
   const cursor = decodeCursor(params.get("cursor"));
   if (params.has("cursor") && !cursor) return NextResponse.json({ code: "CURSOR_INVALID" }, { status: 422 });
+  if (cursor && (cursor.sort !== sort || cursor.fingerprint !== fingerprint || cursor.rosterRevision !== rosterRevision)) return NextResponse.json({ code: "CURSOR_INVALID" }, { status: 422 });
   const filters: Prisma.UserWhereInput[] = [];
   if (role) filters.push({ role });
   if (status) filters.push({ status });
@@ -125,18 +158,32 @@ export async function GET(req: Request) {
     // visible so the same page can manage teacher access for that year.
     filters.push(role === "STUDENT" ? studentScope : role ? {} : { OR: [{ role: { not: "STUDENT" } }, studentScope] });
   }
-  if (cursor) filters.push({ OR: [{ accountName: { gt: cursor.accountName } }, { accountName: cursor.accountName, id: { gt: cursor.id } }] });
   const baseWhere: Prisma.UserWhereInput = filters.length ? { AND: filters } : {};
   const query = await prisma.user.findMany({
     where: baseWhere,
     select: USER_SELECT,
     orderBy: [{ accountName: "asc" }, { id: "asc" }],
-    take: limit + 1,
+    take: 5_001,
   });
-  const hasNext = query.length > limit;
-  const items = (hasNext ? query.slice(0, limit) : query).map(serializeUser);
+  if (query.length > 5_000) return NextResponse.json({ code: "DIRECTORY_TOO_LARGE" }, { status: 422, headers: privateHeaders });
+  const projected = query.map(serializeUser);
+  const sorted = sort === "STUDENT_NUMBER_ASC"
+    ? projected.sort((a, b) => {
+      return compareStudentNumberSortKey({ studentNumber: a.studentNumber, accountName: normalizeAccountName(a.accountName), id: a.id }, { studentNumber: b.studentNumber, accountName: normalizeAccountName(b.accountName), id: b.id });
+    }).filter((item) => {
+      if (!cursor) return true;
+      return compareStudentNumberSortKey({ studentNumber: item.studentNumber, accountName: normalizeAccountName(item.accountName), id: item.id }, { studentNumber: cursor.studentNumber, accountName: normalizeAccountName(cursor.accountName), id: cursor.id }) > 0;
+    })
+    : projected.sort((a, b) => normalizeAccountName(a.accountName).localeCompare(normalizeAccountName(b.accountName), "en", { sensitivity: "base" }) || a.id.localeCompare(b.id)).filter((item) => {
+      if (!cursor) return true;
+      const account = normalizeAccountName(item.accountName);
+      const cursorAccount = normalizeAccountName(cursor.accountName);
+      return account > cursorAccount || (account === cursorAccount && item.id > cursor.id);
+    });
+  const hasNext = sorted.length > limit;
+  const items = sorted.slice(0, limit);
   const last = items.at(-1);
-  return NextResponse.json({ items, nextCursor: hasNext && last ? encodeCursor({ accountName: last.accountName, id: last.id }) : null }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ items, nextCursor: hasNext && last ? encodeCursor({ accountName: last.accountName, studentNumber: last.studentNumber, id: last.id, sort, fingerprint, rosterRevision }) : null }, { headers: privateHeaders });
 }
 
 export async function POST(req: Request) {
@@ -160,12 +207,15 @@ export async function POST(req: Request) {
   let grade: ReturnType<typeof parseStudentGrade> = null;
   let classCode: ReturnType<typeof parseClassCode> = null;
   let academicYearId = "";
+  let studentNumber: number | null = null;
   if (role === ROLES.STUDENT) {
     grade = parseStudentGrade(body.grade);
     academicYearId = typeof body.academicYearId === "string" ? body.academicYearId : "";
     if (!grade || !academicYearId) return NextResponse.json({ code: "STUDENT_YEAR_GRADE_REQUIRED" }, { status: 422 });
     classCode = parseClassCode(body.classCode);
     if (body.classCode && !classCode) return NextResponse.json({ code: "CLASS_INVALID" }, { status: 422 });
+    studentNumber = parseStudentNumber(body.studentNumber);
+    if (body.studentNumber !== undefined && body.studentNumber !== null && String(body.studentNumber).trim() !== "" && studentNumber === null) return NextResponse.json({ code: "STUDENT_NUMBER_INVALID" }, { status: 422 });
   }
   const nickname = role === ROLES.STUDENT ? validateNicknameAgainstIdentity(String(body.nickname ?? ""), { legalName, accountName, contactEmail }) : null;
   if (nickname && !nickname.ok) return NextResponse.json({ code: "NICKNAME_INVALID", detail: nickname.error }, { status: 422 });
@@ -192,16 +242,17 @@ export async function POST(req: Request) {
       const created = await tx.user.create({ data: {
         accountName, accountNameCanonical: accountName, contactEmail, contactEmailCanonical: contactEmail, legacyName: legalName || null, role,
         ...passwordCredentialCreateData({ passwordHash, mustChangePassword: role !== ROLES.ADMIN }),
-        ...(role === ROLES.STUDENT && year && grade && nickname?.ok ? { studentProfile: { create: { legalName, nickname: nickname.value, nicknameNormalized: nickname.normalized, moderationPolicyVersion: "nickname-v1", enrollments: { create: { academicYearId: year.id, grade, classId: schoolClass?.id ?? null, isCurrent: year.status === "CURRENT", status: year.status === "CURRENT" ? "ACTIVE" : "PLANNED", origin: "MANUAL", startedAt: year.status === "CURRENT" ? new Date() : null } } } } } : {}),
+        ...(role === ROLES.STUDENT && year && grade && nickname?.ok ? { studentProfile: { create: { legalName, nickname: nickname.value, nicknameNormalized: nickname.normalized, moderationPolicyVersion: "nickname-v1", enrollments: { create: { academicYearId: year.id, grade, classId: schoolClass?.id ?? null, studentNumber, isCurrent: year.status === "CURRENT", status: year.status === "CURRENT" ? "ACTIVE" : "PLANNED", origin: "MANUAL", startedAt: year.status === "CURRENT" ? new Date() : null } } } } } : {}),
         ...(role === ROLES.TEACHER ? { teacherProfile: { create: { legalName } } } : {}),
       }, select: USER_SELECT });
       await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: created.id, subjectAccount: created.accountName, eventType: "USER_CREATED", ip: getClientIp(req.headers), metadata: { role: created.role } }) });
+      await touchRosterRevision(tx);
       return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json({ ...serializeUser(user), ...(generatedPassword ? { temporaryPassword: password } : {}) }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof Error && ["ACADEMIC_YEAR_READ_ONLY", "CLASS_NOT_FOUND", "ACADEMIC_YEAR_NOT_IMMEDIATE_SUCCESSOR"].includes(error.message)) return NextResponse.json({ code: error.message }, { status: 409 });
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return NextResponse.json({ code: "ACCOUNT_OR_EMAIL_EXISTS" }, { status: 409 });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return NextResponse.json({ code: String(error.meta?.target ?? "").includes("student_number") ? "STUDENT_NUMBER_CONFLICT" : "ACCOUNT_OR_EMAIL_EXISTS" }, { status: 409 });
     return NextResponse.json({ code: "USER_CREATE_FAILED" }, { status: 409 });
   }
 }

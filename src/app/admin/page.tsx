@@ -71,35 +71,35 @@ export default function AdminDashboard() {
       {/* 页面标题 */}
       <div>
         <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
-          {tc("系统概览")}
+          {tc("系統概覽")}
         </h1>
         <p className="mt-1 text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">
-          {tc("全局数据一览")}
+          {tc("全域資料總覽")}
         </p>
       </div>
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 gap-3">
         <StatCard
-          label={tc("总用户数")}
+          label={tc("總用戶數")}
           value={stats?.totalUsers ?? 0}
           icon={<Icon name="users" size={20} />}
           color="blue"
         />
         <StatCard
-          label={tc("总单词数")}
+          label={tc("總單詞數")}
           value={stats?.totalWords ?? 0}
           icon={<Icon name="book" size={20} />}
           color="indigo"
         />
         <StatCard
-          label={tc("总复习次数")}
+          label={tc("總複習次數")}
           value={stats?.totalReviews ?? 0}
           icon={<Icon name="refresh" size={20} />}
           color="green"
         />
         <StatCard
-          label={tc("今日学习")}
+          label={tc("今日學習")}
           value={stats?.reviewsToday ?? 0}
           subtitle={tc("次")}
           icon={<Icon name="clock" size={20} />}
@@ -110,20 +110,20 @@ export default function AdminDashboard() {
       {/* 用户角色分布 */}
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
         <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
-          {tc("用户角色分布")}
+          {tc("用戶角色分佈")}
         </h3>
         <div className="admin-role-metrics">
-          <RoleMetric label={tc("学生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 0} icon="users" tone="primary" />
-          <RoleMetric label={tc("老师")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 0} icon="user" tone="secondary" />
-          <RoleMetric label={tc("管理员")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 0} icon="shield" tone="warning" />
+          <RoleMetric label={tc("學生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 0} icon="users" tone="primary" />
+          <RoleMetric label={tc("教師")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 0} icon="user" tone="secondary" />
+          <RoleMetric label={tc("管理員")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 0} icon="shield" tone="warning" />
         </div>
       </div>
 
-      {/* 单词等级分布 */}
+      {/* 單詞等級分布 */}
       {stats?.wordsByLevel && stats.wordsByLevel.length > 0 && (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
           <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
-            {tc("单词等级分布")}
+            {tc("單詞等級分佈")}
           </h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {stats.wordsByLevel.map((l) => (
@@ -142,13 +142,13 @@ export default function AdminDashboard() {
           href="/admin/users"
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
-          <Icon name="users" size={18} /> {tc("管理用户")}
+          <Icon name="users" size={18} /> {tc("管理用戶")}
         </Link>
         <Link
           href="/admin/words"
           className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
-          <Icon name="book" size={18} /> {tc("单词库")}
+          <Icon name="book" size={18} /> {tc("單詞庫")}
         </Link>
       </div>
     </motion.div>

@@ -23,7 +23,7 @@ function response(code: string, status: number) {
 
 async function upsertStudentEnrollment(
   tx: Prisma.TransactionClient,
-  input: { userId: string; academicYearId: string; yearStatus: "CURRENT" | "PLANNED"; grade: NonNullable<import("@/generated/prisma").StudentGrade>; classId: string | null; actorUserId: string },
+  input: { userId: string; academicYearId: string; yearStatus: "CURRENT" | "PLANNED"; grade: NonNullable<import("@/generated/prisma").StudentGrade>; classId: string | null; studentNumber: number | null; actorUserId: string },
 ) {
   const existing = await tx.studentEnrollment.findUnique({ where: { studentId_academicYearId: { studentId: input.userId, academicYearId: input.academicYearId } } });
   let classId = input.classId;
@@ -35,11 +35,11 @@ async function upsertStudentEnrollment(
     if (pending) throw new Error("PENDING_TRANSITION_REQUIRES_REPLAN");
   }
   const data = input.yearStatus === "CURRENT"
-    ? { grade: input.grade, classId, isCurrent: true, status: "ACTIVE" as const, origin: "IMPORT" as const, startedAt: existing?.startedAt ?? new Date(), endedAt: null, revision: { increment: 1 } }
-    : { grade: input.grade, classId, isCurrent: false, status: "PLANNED" as const, origin: "IMPORT" as const, startedAt: null, endedAt: null, revision: { increment: 1 } };
+    ? { grade: input.grade, classId, studentNumber: input.studentNumber, isCurrent: true, status: "ACTIVE" as const, origin: "IMPORT" as const, startedAt: existing?.startedAt ?? new Date(), endedAt: null, revision: { increment: 1 } }
+    : { grade: input.grade, classId, studentNumber: input.studentNumber, isCurrent: false, status: "PLANNED" as const, origin: "IMPORT" as const, startedAt: null, endedAt: null, revision: { increment: 1 } };
   const enrollment = existing
     ? await tx.studentEnrollment.update({ where: { id: existing.id }, data })
-    : await tx.studentEnrollment.create({ data: { studentId: input.userId, academicYearId: input.academicYearId, grade: input.grade, classId, isCurrent: input.yearStatus === "CURRENT", status, origin: "IMPORT", startedAt: input.yearStatus === "CURRENT" ? new Date() : null } });
+    : await tx.studentEnrollment.create({ data: { studentId: input.userId, academicYearId: input.academicYearId, grade: input.grade, classId, studentNumber: input.studentNumber, isCurrent: input.yearStatus === "CURRENT", status, origin: "IMPORT", startedAt: input.yearStatus === "CURRENT" ? new Date() : null } });
 
   if (input.yearStatus === "PLANNED") {
     const source = await tx.studentEnrollment.findFirst({ where: { studentId: input.userId, status: "ACTIVE", academicYear: { status: "CURRENT" } }, include: { academicYear: true } });
@@ -82,7 +82,7 @@ async function upsertStudentEnrollment(
 export async function POST(req: Request, { params }: { params: Promise<{ batchId: string }> }) {
   if (!isSameOriginMutation(req)) return response("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.ADMIN);
-  if (!auth.ok) return response("AUTH_REQUIRED", auth.status);
+  if (!auth.ok) return response(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED", auth.status);
   if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) return response("RECENT_AUTH_REQUIRED", 401);
   const { batchId } = await params;
   if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) return response("ROSTER_INPUT_INVALID", 422);
@@ -116,6 +116,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
       await tx.$queryRaw`SELECT "id" FROM "RosterImportBatch" WHERE "id" = ${batch.id} FOR UPDATE`;
       const actor = await tx.user.findUnique({ where: { id: auth.userId }, select: { role: true, status: true, accountName: true } });
       if (!actor || actor.role !== ROLE_VALUES.ADMIN || actor.status !== "ACTIVE") throw new Error("ACTOR_INVALID");
+      const state = await tx.rosterMutationState.findUnique({ where: { id: 1 }, select: { revision: true, calendarRevision: true } });
+      if (!state || state.revision !== batch.rosterRevision || state.calendarRevision !== batch.calendarRevision) throw new Error("STALE_PREVIEW");
       const lockedBatch = await tx.rosterImportBatch.findUnique({ where: { id: batch.id } });
       if (!lockedBatch || lockedBatch.status !== "PREVIEWED" || lockedBatch.expiresAt <= new Date() || lockedBatch.canonicalDigest !== batch.canonicalDigest || lockedBatch.fingerprint !== batch.fingerprint || lockedBatch.academicYearId !== batch.academicYearId || lockedBatch.operationId !== batch.operationId) throw new Error("STALE_PREVIEW");
       const batchSummary = lockedBatch.summary && typeof lockedBatch.summary === "object" && !Array.isArray(lockedBatch.summary) ? lockedBatch.summary as { immediateGlobalCapabilityChange?: unknown; acknowledgeImmediateGlobalCapabilityChange?: unknown } : {};
@@ -145,7 +147,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
             if (!row.grade) throw new Error("GRADE_MISSING");
             const classId = row.classCode ? classMap.get(`${row.grade}:${row.classCode}`) ?? null : null;
             if (row.classCode && !classId) throw new Error("CLASS_NOT_FOUND");
-            const created = await tx.user.create({ data: { accountName: row.accountName, accountNameCanonical: row.accountName, contactEmail: row.contactEmail, contactEmailCanonical: row.contactEmail, legacyName: row.legalName, role: ROLE_VALUES.STUDENT, ...passwordCredentialCreateData({ passwordHash: credential.passwordHash, mustChangePassword: true }), studentProfile: { create: { legalName: row.legalName, nickname: row.nickname, nicknameNormalized: row.nicknameNormalized, moderationPolicyVersion: "nickname-v1", enrollments: { create: { academicYearId: year.id, grade: row.grade, classId, isCurrent: year.status === "CURRENT", status: year.status === "CURRENT" ? "ACTIVE" : "PLANNED", origin: "IMPORT", startedAt: year.status === "CURRENT" ? new Date() : null } } } } }, select: { id: true } });
+            const created = await tx.user.create({ data: { accountName: row.accountName, accountNameCanonical: row.accountName, contactEmail: row.contactEmail, contactEmailCanonical: row.contactEmail, legacyName: row.legalName, role: ROLE_VALUES.STUDENT, ...passwordCredentialCreateData({ passwordHash: credential.passwordHash, mustChangePassword: true }), studentProfile: { create: { legalName: row.legalName, nickname: row.nickname, nicknameNormalized: row.nicknameNormalized, moderationPolicyVersion: "nickname-v1", enrollments: { create: { academicYearId: year.id, grade: row.grade, classId, studentNumber: row.studentNumber, isCurrent: year.status === "CURRENT", status: year.status === "CURRENT" ? "ACTIVE" : "PLANNED", origin: "IMPORT", startedAt: year.status === "CURRENT" ? new Date() : null } } } } }, select: { id: true } });
             userId = created.id;
           } else {
             const created = await tx.user.create({ data: { accountName: row.accountName, accountNameCanonical: row.accountName, contactEmail: row.contactEmail, contactEmailCanonical: row.contactEmail, legacyName: row.legalName, role: ROLE_VALUES.TEACHER, ...passwordCredentialCreateData({ passwordHash: credential.passwordHash, mustChangePassword: true }), teacherProfile: { create: { legalName: row.legalName, canResetStudentPassword: row.canResetStudentPassword ?? false } } }, select: { id: true } });
@@ -165,7 +167,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
             await tx.studentProfile.update({ where: { userId }, data: { legalName: row.legalName, nickname: row.nickname, nicknameNormalized: row.nicknameNormalized, moderationPolicyVersion: "nickname-v1", profileRevision: { increment: 1 } } });
             const classId = row.classCode ? classMap.get(`${row.grade}:${row.classCode}`) ?? null : null;
             if (row.classCode && !classId) throw new Error("CLASS_NOT_FOUND");
-            await upsertStudentEnrollment(tx, { userId, academicYearId: year.id, yearStatus: year.status, grade: row.grade, classId, actorUserId: auth.userId });
+            await upsertStudentEnrollment(tx, { userId, academicYearId: year.id, yearStatus: year.status, grade: row.grade, classId, studentNumber: row.studentNumber, actorUserId: auth.userId });
           } else {
             const profile = await tx.teacherProfile.findUnique({ where: { userId }, select: { canResetStudentPassword: true } });
             if (!profile) throw new Error("PROFILE_MISSING");
@@ -211,7 +213,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
   } catch (error) {
     if (error instanceof Error && error.message === "STALE_PREVIEW") return response("ROSTER_BATCH_STALE", 409);
     if (error instanceof Error && error.message === "ROSTER_BATCH_EXPIRED") return response(error.message, 410);
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response("ROSTER_ACCOUNT_CONFLICT", 409);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response(String(error.meta?.target ?? "").includes("student_number") ? "STUDENT_NUMBER_CONFLICT" : "ROSTER_ACCOUNT_CONFLICT", 409);
     const code = stableRosterCode(error, ["ROSTER_INPUT_INVALID", "IMMEDIATE_EFFECT_ACK_REQUIRED", "ACTOR_INVALID", "ACADEMIC_YEAR_READ_ONLY", "ACADEMIC_YEAR_NOT_IMMEDIATE_SUCCESSOR", "ROLE_COLLISION", "ACCOUNT_COLLISION", "ACCOUNT_CHANGED", "CREDENTIAL_MISSING", "GRADE_MISSING", "CLASS_NOT_FOUND", "PROFILE_MISSING", "GRADE_CLASS_REQUIRED", "PENDING_TRANSITION_REQUIRES_REPLAN", "TRANSITION_DISPOSITION_REQUIRED", "YEAR_TRANSITION_INVALID", "ROSTER_MUTATION_STATE_MISSING"], "ROSTER_COMMIT_FAILED");
     return response(code, code === "ROSTER_INPUT_INVALID" ? 422 : code === "IMMEDIATE_EFFECT_ACK_REQUIRED" ? 422 : 409);
   }

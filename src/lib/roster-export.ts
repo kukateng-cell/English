@@ -2,7 +2,7 @@ import type { Prisma, AcademicYearStatus } from "@/generated/prisma";
 import { parseClassCode, parseStudentGrade } from "@/lib/roster-domain";
 
 export const EXPORT_ROW_CAP = 5_000;
-export const STUDENT_EXPORT_FIELDS = ["accountName", "legalName", "nickname", "grade", "classCode", "contactEmail", "status", "mustChangePassword", "createdAt"] as const;
+export const STUDENT_EXPORT_FIELDS = ["accountName", "studentNumber", "legalName", "nickname", "grade", "classCode", "contactEmail", "status", "mustChangePassword", "createdAt"] as const;
 export const TEACHER_EXPORT_FIELDS = ["templateVersion", "accountName", "legalName", "contactEmail", "classAccess", "resetPasswordCapability", "status", "createdAt"] as const;
 
 export type ExportEntity = "STUDENT" | "TEACHER";
@@ -60,12 +60,12 @@ export async function resolveExportRows(tx: Prisma.TransactionClient, request: E
         studentProfile: { is: { enrollments: { some: { academicYearId: year.id, status: selectedStatus, ...(grade ? { grade } : {}), ...(classCode ? { schoolClass: { is: { classCode } } } : request.filters?.classCode !== undefined ? { classId: null } : {}) } } } },
       },
       orderBy: [{ accountName: "asc" }, { id: "asc" }], take: EXPORT_ROW_CAP + 1,
-      select: { accountName: true, contactEmail: true, status: true, mustChangePassword: true, createdAt: true, studentProfile: { select: { legalName: true, nickname: true, enrollments: { where: { academicYearId: year.id, status: selectedStatus }, select: { grade: true, schoolClass: { select: { classCode: true } } } } } } },
+      select: { accountName: true, contactEmail: true, status: true, mustChangePassword: true, createdAt: true, studentProfile: { select: { legalName: true, nickname: true, enrollments: { where: { academicYearId: year.id, status: selectedStatus }, select: { grade: true, studentNumber: true, schoolClass: { select: { classCode: true } } } } } } },
     });
     if (users.length > EXPORT_ROW_CAP) throw new Error("EXPORT_TOO_LARGE");
     return users.map((user) => {
       const enrollment = user.studentProfile?.enrollments[0];
-      return { accountName: user.accountName, legalName: user.studentProfile?.legalName ?? "", nickname: user.studentProfile?.nickname ?? "", grade: enrollment?.grade ?? "", classCode: enrollment?.schoolClass?.classCode ?? "", contactEmail: user.contactEmail ?? "", status: user.status, mustChangePassword: String(user.mustChangePassword), createdAt: user.createdAt.toISOString() };
+      return { accountName: user.accountName, studentNumber: enrollment?.studentNumber === null || enrollment?.studentNumber === undefined ? "" : String(enrollment.studentNumber), legalName: user.studentProfile?.legalName ?? "", nickname: user.studentProfile?.nickname ?? "", grade: enrollment?.grade ?? "", classCode: enrollment?.schoolClass?.classCode ?? "", contactEmail: user.contactEmail ?? "", status: user.status, mustChangePassword: String(user.mustChangePassword), createdAt: user.createdAt.toISOString() };
     });
   }
   const users = await tx.user.findMany({

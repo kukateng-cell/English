@@ -1,12 +1,12 @@
 # 教師工作台：學生名冊、進度及班級洞察重設計計劃
 
-> 狀態：已完成（local implementation／verification；production、full-scale及native device gates deferred）
+> 狀態：已完成（Revision 5 local implementation／verification；production、full-scale及native device gates deferred）
 >
 > 建立日期：2026-08-16
 >
-> 定稿日期：2026-08-16
+> 定稿日期：2026-08-17（Revision 5 implementation／focused verification）
 >
-> 版本：Revision 3
+> 版本：Revision 5
 >
 > 目標分支：`codex/class-roster-import-and-access-control`
 >
@@ -20,11 +20,14 @@
 篩選或分頁的學生清單。畫面雖取得部分學生資料，但沒有顯示真名以外的暱稱、年級及班別；重設密碼入口則藏在
 每個學生卡片的展開區。教師首頁的「班級概覽」亦只有全部獲授權學生的總數，不能按班比較。
 
-本計劃會把教師工作台分成三項清楚工作：
+本計劃原本把教師工作台分成三項清楚工作；Revision 4 將「學生名冊」及「學生進度」整合成同一個學生工作區，Revision 5 再把首頁概覽與詳細分析的責任邊界固定，避免兩頁重複：
 
-1. **班級概覽**：按年級／班別比較學生人數、活躍度及學習進度；
-2. **學生名冊**：搜尋及篩選學生，查看校務身份、年級、班別及可用操作；
-3. **學生進度**：集中查看學習指標，並可進入同一個學生詳情頁。
+1. **班級概覽**：只提供快速 KPI、需要跟進的班級摘要及前往分析／名冊的快捷入口，不重複完整分析卡片；
+2. **學生工作區／學生名冊分頁**：搜尋及篩選學生，查看校務身份、年級、班別及可用操作；
+3. **學習分析**：`/teacher/analytics` 作為唯一詳細班級／學生分析頁，集中日期、年級、班級、趨勢及比較；
+4. **學生詳情**：兩個分頁共用同一個學生詳情頁。
+
+學生工作區的第二個分頁對使用者顯示為「學生進度」，保留與頂層「學習分析」的名稱區分；`/teacher/progress` 仍是相容入口，會開啟學生工作區的學生進度分頁。
 
 重設密碼權限確定由「每班一個 reset 開關」改為「每位教師一個總開關」。有效權限仍然必須同時符合：
 
@@ -69,10 +72,10 @@
 
 ### 3.1 目標
 
-- 教師可從導覽直接進入獨立學生名冊，不再要由「學生進度」尋找學生。
+- 教師可從導覽直接進入學生工作區（預設名冊分頁），並可在同一工作區切換學習分析，不再需要由進度頁尋找名冊。
 - 教師可按獲授權的年級、班別搜尋學生，並處理數百名學生而不一次載入全部資料。
 - 教師可進入學生詳情，清楚查看真名、暱稱、學生證帳號、年級、班別及學習摘要。
-- 教師進度頁集中呈現進度，不與名冊管理資訊混成同一張卡。
+- 學習分析分頁集中呈現進度，不與名冊管理操作混在同一個結果區。
 - 班級概覽提供定義一致、可比較、可點入預篩選名冊／進度的逐班指標。
 - 管理員用一個教師級別的 reset 開關，配合班級 access 決定最終可重設範圍。
 - 管理員可以按年級／班別搜尋及批量選取教師可查看的班級。
@@ -104,16 +107,17 @@
 | 導覽項目 | Canonical route | 用途 |
 |---|---|---|
 | 班級概覽 | `/teacher` | 逐班比較及快捷入口 |
-| 學生名冊 | `/teacher/roster` | 身份、班級、搜尋、篩選及可用操作 |
-| 學生進度 | `/teacher/progress` | 學習指標列表及進度篩選 |
+| 學生工作區（預設名冊分頁） | `/teacher/roster` | 共用搜尋／篩選、身份、班級及可用操作；內含「學生名冊／學生進度」分頁 |
+| 詳細學習分析 | `/teacher/analytics` | 唯一的班級／學生分析頁，提供日期、年級、班級、趨勢及比較 |
+| 學生進度分頁 | `/teacher/progress` | 學生工作區內的學習指標、日期範圍及學生比較入口；保留為可直接開啟的相容路徑 |
 | 學生詳情 | `/teacher/students/[id]` | 名冊資料與學習摘要的共用詳情頁，不放主導覽 |
 
-現有 `/teacher/students` 保留為頁面 redirect，導向 `/teacher/progress`；舊 bookmark 仍可使用，但舊全量 API handler 已移除。
+現有 `/teacher/students` 保留為頁面 redirect，導向 `/teacher/roster`；舊 bookmark 仍可使用，但舊全量 API handler 已移除。
 導覽 active-state 必須只高亮最精確匹配項，學生詳情可根據來源保留「返回名冊／返回進度」context。
 
-### 5.2 學生名冊
+### 5.2 學生工作區及學生名冊分頁
 
-名冊預設顯示教師所有 CURRENT 授權班級的 ACTIVE 學生，提供：
+學生工作區預設開啟名冊分頁，顯示教師所有 CURRENT 授權班級的 ACTIVE 學生；名冊分頁提供：
 
 - 搜尋：學生證帳號、真名、暱稱；輸入 debounce 後由 server 查詢；
 - filters：年級、班別；班別選項只來自教師獲授權範圍；
@@ -123,6 +127,7 @@
 - 欄位：學生證、真名、暱稱、年級、班別、最近學習時間、可用操作；
 - row 點擊進入學生詳情；reset action 只在有效 capability 下顯示，並有明確文字，不藏在折疊區；
 - 無班級、無學生、無搜尋結果、權限剛被撤回及載入失敗各有不同 empty／error state。
+- 頂部固定顯示「學生名冊／學生進度」兩個分頁；切換分頁不清除已選 grade／class／search filter，亦不重複建立另一套搜尋列。
 
 穩定排序固定為不可修改的 `accountNameCanonical → id` keyset；grade／class／legalName只用作顯示或filter，不作cursor排序。
 Opaque signed cursor包含filter fingerprint、`TeacherProfile.accessRevision`、`RosterMutationState.revision`、CURRENT year revision及
@@ -141,9 +146,9 @@ class active、teacher class access及academic-year activation。學生nickname 
 Raw out-of-band profile SQL不屬支援writer；任何擁有DB權限的trusted operator直接改profile／access row都可以改變authorization，故不能聲稱SQL層「不能擴權」。DB access control、操作審計及受保護環境管理另行負責；conformance inventory只能偵測application writer／projection drift並令server或rollout gate fail closed，不能阻止有權限的直接SQL。支援的application route仍必須繞過canonical service即拒絕。
 測試要覆蓋nickname、admin legalName及import更新後舊cursor 409，唔可以只測轉班／撤權。
 
-### 5.3 學生進度
+### 5.3 學習分析分頁
 
-進度頁與名冊共用年級／班別／學生搜尋 filters，但表格集中顯示：
+學習分析分頁與名冊共用同一個學生工作區搜尋／年級／班別 filters，但只把下列學習內容換入同一個結果區：
 
 - 掌握詞數／總詞數及百分比；
 - 各 level 摘要；
@@ -152,7 +157,7 @@ Raw out-of-band profile SQL不屬支援writer；任何擁有DB權限的trusted o
 - 到期複習摘要；
 - 點入學生詳情。
 
-進度頁不重複顯示管理性操作列；reset 主要放在名冊及學生詳情。所有指標使用第5.5節同一個server aggregation service，
+學習分析分頁不顯示重設密碼等管理性操作；reset 只在名冊分頁及學生詳情頁出現。日期範圍、比較選取及比較結果只在學習分析分頁出現。所有指標使用第5.5節同一個server aggregation service，
 不能另造client計算或把self-rating當成mastery。
 
 ### 5.4 學生詳情
@@ -368,7 +373,7 @@ body cap及`no-store`，而且不得有副作用。`POST /api/admin/roster/teach
 - ADMIN reset沿用admin authority，不受TeacherProfile global switch限制；UI／DTO不得無提示由數班變成全校。
 
 舊`GET /api/teacher/students`及`GET /api/teacher/stats`已在新UI／tests轉移、route inventory確認零caller後移除，避免保留無分頁全量endpoint。
-頁面`/teacher/students`仍保留server redirect至`/teacher/progress`，照顧使用者bookmark。
+頁面`/teacher/students`仍保留server redirect至`/teacher/roster`，照顧使用者bookmark。
 
 ### 7.2 Query input、cursor及固定錯誤
 
@@ -589,7 +594,7 @@ production rollout仍另受 deployment gates 約束。
 
 ### Phase 3：教師導覽、名冊及學生詳情 UI
 
-- [x] WorkspaceShell加入「學生名冊／學生進度」獨立導覽及精確active state。
+- [x] WorkspaceShell加入「學生」工作區導覽及精確active state。
 - [x] 建立 `/teacher/roster` desktop table及mobile cards。
 - [x] 建立search debounce／AbortController、grade／class filters、非PII URL state、memory-only search／cursor及pagination。
 - [x] 顯示真名、暱稱、學生證、年級、班別及最近學習；年級／班別在名冊、進度、詳情及篩選器以「初一甲」連接顯示。
@@ -599,6 +604,9 @@ production rollout仍另受 deployment gates 約束。
 - [x] Recent-auth對話框的密碼輸入在連續編輯時保持焦點，並提供可存取的顯示／隱藏密碼按鈕。
 - [x] 一次性密碼modal保留focus trap、明確「複製密碼」button／select affordance、live announcement及關閉後不可重讀語義；密碼採共用10位易讀小寫／數字 generator，首次登入仍強制改密碼。
 - [x] `/teacher/students` compatibility redirect及舊bookmark驗證。
+- [x] Revision 4：以共用學生工作區承載名冊／學習分析兩個分頁；共用一套搜尋、年級／班別篩選及學生詳情入口。
+- [x] Revision 4：名冊分頁保留reset／近期驗證／管理操作，學習分析分頁保留日期範圍、比較及學習指標，切換時保留篩選狀態。
+- [x] Revision 4：WorkspaceShell、教師首頁、班級分析快捷入口及legacy `/teacher/students` redirect 全部指向新工作區而不產生重複導覽。
 
 驗收：教師毋須進入進度卡折疊區即可找學生及使用獲授權reset；大量列表仍易搜尋。
 
@@ -611,6 +619,15 @@ production rollout仍另受 deployment gates 約束。
 - [x] 驗證StudyDay／StudyEncounter／eligible ReviewEvent writer與5.5口徑一致；不完整歷史只標資料缺口。
 - [x] 不用會壓扁小數值的單一比例裝飾圖；顯示實數及一致percent scale。
 - [x] 檢查文字在繁簡、窄desktop、200% zoom及mobile不截斷／錯位。
+- [x] Revision 4：驗證兩個分頁的 active state、direct route、browser back／forward、desktop／mobile及 filter continuity（focused rendered smoke；完整browser matrix deferred）。
+- [x] Revision 4：驗證名冊與學習分析不會重複載入另一套列表；每個分頁只顯示其責任範圍的欄位／操作。
+
+- [x] Revision 5：教師首頁改為快速概覽：顯示總學生、今日／近7日活躍、待複習等 KPI，以及精簡「需要跟進」班級摘要；不再重複詳細分析卡片。
+- [x] Revision 5：概覽班級摘要的「查看分析」連到 `/teacher/analytics` 並帶入班級／年級篩選；「查看學生」連到學生名冊工作區。
+- [x] Revision 5：`/teacher/analytics` 接受教師概覽傳入的 class filter，保留完整日期／年級／班級／比較功能；無班級參數時維持全班摘要模式。
+- [x] Revision 5：學生工作區分頁文案改為「學生名冊／學生進度」，避免與頂層「學習分析」混淆；舊 `/teacher/progress` bookmark 行為保持不變。
+- [x] Revision 5 follow-up：班級比較表格欄名顯示完整年級／班別；已選班級以邊框、底色及「已選取」標記清楚區分，並保留鍵盤選取語義。
+- [x] Revision 5 follow-up：班級比較支援目前可見的全部班級（最多48班）；年級篩選後可一鍵全選，未選取時仍顯示空的比較表，班級數量較多時表格可橫向滾動，並提供清楚的選取提示。
 
 驗收：多班教師可直接比較班級活動與進度，並由班級落到學生層級。
 
@@ -631,7 +648,7 @@ production rollout仍另受 deployment gates 約束。
 ### Phase 6：整合驗證、文件及handoff
 
 - [x] 更新原 roster 計劃的已凍結決定、API table、測試矩陣及進度紀錄。
-- [x] 更新 `plans/project-plan.md` 教師能力描述，避免再把名冊與進度寫成同一功能。
+- [x] 更新 `plans/project-plan.md` 教師能力描述，明確記錄學生工作區內的名冊／學習分析分頁。
 - [x] 更新本地測試帳號／seed說明，列出global reset on及off教師。
 - [x] 執行必跑 unit／lint／typecheck／schema／roster suites：`npm test`、`npm run lint`、`npx tsc --noEmit`、
   `npx prisma validate`、`npx prisma generate`、`npm run test:migrations`、`npm run test:migrations:contract`、
@@ -650,6 +667,8 @@ production rollout仍另受 deployment gates 約束。
 - [x] 對desktop／mobile、雙locale、雙theme、keyboard、dynamic live regions及axe做targeted rendered QA。
 - [ ] 執行48班／500名授權學生固定scale fixture及query count／response size gate。
 - [x] 記錄未執行的production／native screen-reader gates，不把local smoke冒充release驗收。
+- [x] Revision 4：完成學生工作區整合的 focused lint／typecheck／build rendered smoke，並記錄未執行的完整browser／scale gates。
+- [x] Revision 5：完成概覽／詳細分析分工的 focused lint／typecheck／build 及 diff review；檢查班級連結、direct route、desktop／mobile responsive markup及繁簡文案；完整authenticated browser／scale gates仍 deferred。
 
 驗收：local implementation、fresh replay、focused API／browser verification及限制均已寫回文件；production positive config、full-scale
 performance及完整原生 screen-reader／device matrix仍保留為明確 deferred gates。
@@ -668,6 +687,11 @@ performance及完整原生 screen-reader／device matrix仍保留為明確 defer
   教師重新驗證身份。驗證成功後會重新載入名冊並恢復獲授權學生的重設按鈕，避免把可讀資料誤報為伺服器錯誤。
 - Follow-up修正：本機只有舊版教師 reset key 時，非 production 的 v2 teacher reset 會沿用同一組本機 key 並保留 audience AAD 分隔；production 仍必須配置新版共用 keyring，並新增 fallback regression test，避免重新驗證後因 keyring 設定而誤報 503。
 - Follow-up修正：教師名冊、學生進度、學生詳情及班別篩選器的年級／班別顯示統一為「初一甲」格式，移除不必要的分隔點；帳號／姓名及統計數字的分隔符號維持原有語義。
+- Revision 4 implementation：新增共用 `TeacherStudentsWorkspace`，由「學生」導覽承載名冊／學習分析兩個分頁；兩個分頁共用搜尋、年級／班別篩選及學生詳情入口，名冊保留reset／近期驗證，分析保留日期範圍／比較；`/teacher/progress` 及 `/teacher/students` bookmark redirect 均可直接開啟相應工作區狀態。
+- Revision 4 focused verification：`npm run lint`、`npx tsc --noEmit`、`git diff --check`及（以允許 Turbopack 開子程序的本機權限）`npm run build`通過；完整browser／scale／native device gates仍按本計劃 deferred。
+- Revision 5 implementation／focused verification（2026-08-17）：概覽只保留快速 KPI／跟進班級摘要；詳細班級／學生比較集中於 `/teacher/analytics`；概覽班級連結會套用班級／年級篩選；學生工作區分頁顯示「學生進度」。
+- Revision 5 verification：`npm run lint`、`npx tsc --noEmit`、`git diff --check`及（以允許 Turbopack 開子程序的本機權限）`npm run build`通過；未執行需要已登入瀏覽器的完整互動／scale／native device gates。
+- Revision 5 follow-up verification（2026-08-17）：`npx eslint src/components/analytics/AnalyticsDashboard.tsx`、`npx tsc --noEmit`及`git diff --check`通過；完整authenticated browser visual gate仍 deferred。
 - `npm run test:e2e:admin-roster` fresh local wrapper 4 passed，覆蓋canonical teacher roster／progress／detail、global reset off/on、
   target-bound precondition／IDOR、selected-year access replacement、rollover activation、responsive locale/theme及keyboard／axe smoke。
 - 未執行：production positive secret gate、完整48班／500名教師workspace scale budget、原生 VoiceOver／TalkBack／device matrix、production
@@ -740,7 +764,9 @@ roster 8、progress 12、summary 12、detail 10；page response上限分別128�
 
 ## 13. Definition of Done
 
-- [x] 教師工作台有獨立「學生名冊」及「學生進度」入口。
+- [x] 學生名冊及學習進度整合為同一個學生工作區；以「學生名冊／學生進度」分頁區分身份操作與學習指標。
+- [x] 工作區只有一套搜尋／年級／班別篩選，切換分頁時保留篩選及學生詳情返回來源。
+- [x] 名冊分頁保留reset及近期驗證操作；學習分析分頁只顯示進度、日期範圍及比較功能。
 - [x] 名冊有server search、grade／class filters、cursor pagination及完整必要身份欄位。
 - [x] 學生詳情顯示真名、暱稱、學生證、CURRENT年級／班別及學習摘要。
 - [x] 班級概覽可按班比較一致定義的學生數、活躍及進度指標。
@@ -767,12 +793,15 @@ roster 8、progress 12、summary 12、detail 10；page response上限分別128�
 - [x] desktop／mobile、雙locale、雙theme、keyboard及targeted axe／rendered QA通過；完整原生 screen-reader／device matrix deferred。
 - [x] 不改V1／V2學習、mastery、排行榜或單元解鎖語義。
 - [x] 實際測試、未執行項目、限制及rollback寫回計劃；索引及相關計劃同步。
+- [x] Revision 5：概覽只作快速摘要，詳細分析只由 `/teacher/analytics` 承載；班級快捷入口及分頁文案均符合上述責任邊界。
 
 ## 14. 已凍結決策紀錄
 
 | 項目 | 定稿決定 | 狀態 |
 |---|---|---|
-| 名冊／進度 | 分成兩個主頁，共用學生詳情 | 已凍結 |
+| 名冊／進度 | Revision 4起整合為同一「學生」工作區；Revision 5改用「學生名冊／學生進度」分頁，避免與頂層詳細「學習分析」混淆 | 已凍結 |
+| 概覽／學習分析（Revision 5） | `/teacher`只作快速KPI及跟進摘要；`/teacher/analytics`作唯一詳細班級／學生分析；概覽連結帶入班級篩選 | 已凍結 |
+| 學生工作區（Revision 5） | 同一工作區內用「學生名冊／學生進度」分頁；保留 `/teacher/progress` 直接開啟學生進度的相容路徑，搜尋／grade／class filter共用 | 已凍結 |
 | Reset capability | 每位教師一個global總開關；target仍限獲授權班級 | 已凍結 |
 | 舊權限轉換 | Global default false；舊per-class true不自動提升 | 已凍結 |
 | Class access | 一個班級選擇代表可看該班學生身份及進度 | 已凍結 |

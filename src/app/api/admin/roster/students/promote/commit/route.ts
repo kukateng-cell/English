@@ -9,6 +9,8 @@ import { securityEventData } from "@/lib/security-events";
 import { lockRosterMutationState } from "@/lib/roster-server";
 import { actorAuditFields, operationFingerprint, readReceiptForCommit, writeAdminReceipt } from "@/lib/admin-receipts";
 import { stableRosterCode } from "@/lib/roster-api";
+import { touchRosterRevision } from "@/lib/teacher-workspace";
+import { studentNumberConflictKey } from "@/lib/roster-domain";
 
 type PromotionItem = { studentId: string; sourceEnrollmentId: string; sourceRevision: number; disposition: "PROMOTE" | "REPEAT" | "HOLD_UNASSIGNED" | "GRADUATE" | "LEAVE"; targetGrade: "JUNIOR_1" | "JUNIOR_2" | "JUNIOR_3" | "SENIOR_1" | "SENIOR_2" | "SENIOR_3"; targetClassId: string | null; targetClassCode: string | null; targetClassRevision?: number | null };
 type PromotionPayload = { sourceAcademicYearId: string; targetAcademicYearId: string; sourceGrade: string; targetGrade: string | null; items: PromotionItem[] };
@@ -18,7 +20,7 @@ function response(code: string, status: number) { return NextResponse.json({ cod
 export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return response("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.ADMIN);
-  if (!auth.ok) return response("AUTH_REQUIRED", auth.status);
+  if (!auth.ok) return response(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED", auth.status);
   if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) return response("RECENT_AUTH_REQUIRED", 401);
   const body = await req.json().catch(() => null);
   const batchId = typeof body?.batchId === "string" ? body.batchId : typeof body?.promotionBatchId === "string" ? body.promotionBatchId : "";
@@ -48,13 +50,26 @@ export async function POST(req: Request) {
       if (!source || source.status !== "CURRENT" || !target || target.status !== "PLANNED" || source.revision !== batch.sourceYearRevision || target.revision !== batch.targetYearRevision || state.revision !== batch.rosterRevision) throw new Error("STALE_PREVIEW");
       const successor = await tx.academicYear.findFirst({ where: { status: "PLANNED", startsOn: { gt: source.endsOn } }, orderBy: [{ startsOn: "asc" }, { id: "asc" }], select: { id: true } });
       if (successor?.id !== target.id) throw new Error("YEAR_NOT_SUCCESSOR");
-      const sourceEnrollments = await tx.studentEnrollment.findMany({ where: { id: { in: payload.items.map((item) => item.sourceEnrollmentId) }, status: "ACTIVE", academicYearId: source.id }, select: { id: true, studentId: true, grade: true, revision: true } });
+      const sourceEnrollments = await tx.studentEnrollment.findMany({ where: { id: { in: payload.items.map((item) => item.sourceEnrollmentId) }, status: "ACTIVE", academicYearId: source.id }, select: { id: true, studentId: true, grade: true, studentNumber: true, revision: true } });
       const sourceById = new Map(sourceEnrollments.map((item) => [item.id, item]));
       if (sourceEnrollments.length !== payload.items.length || payload.items.some((item) => sourceById.get(item.sourceEnrollmentId)?.revision !== item.sourceRevision)) throw new Error("STALE_PREVIEW");
       const targetClassIds = [...new Set(payload.items.map((item) => item.targetClassId).filter((id): id is string => Boolean(id)))];
       const targetClasses = await tx.schoolClass.findMany({ where: { id: { in: targetClassIds }, academicYearId: target.id, active: true }, select: { id: true, revision: true } });
       const targetClassById = new Map(targetClasses.map((item) => [item.id, item]));
       if (payload.items.some((item) => item.targetClassId && (!targetClassById.has(item.targetClassId) || (item.targetClassRevision !== undefined && targetClassById.get(item.targetClassId)?.revision !== item.targetClassRevision)))) throw new Error("STALE_PREVIEW");
+      const targetScopes: Prisma.StudentEnrollmentWhereInput[] = [];
+      const targetScopeClassIds = [...new Set(payload.items.map((item) => item.targetClassId).filter((id): id is string => Boolean(id)))];
+      if (targetScopeClassIds.length) targetScopes.push({ classId: { in: targetScopeClassIds } });
+      if (payload.items.some((item) => item.targetClassId === null)) targetScopes.push({ classId: null });
+      const occupied = new Set((targetScopes.length ? await tx.studentEnrollment.findMany({ where: { academicYearId: target.id, studentNumber: { not: null }, studentId: { notIn: payload.items.map((item) => item.studentId) }, OR: targetScopes }, select: { classId: true, studentNumber: true } }) : []).map((item) => studentNumberConflictKey(item.classId, item.studentNumber!)));
+      const moving = new Set<string>();
+      for (const item of payload.items) {
+        const sourceEnrollment = sourceById.get(item.sourceEnrollmentId);
+        if (item.disposition === "GRADUATE" || item.disposition === "LEAVE" || sourceEnrollment?.studentNumber === null || sourceEnrollment?.studentNumber === undefined) continue;
+        const key = studentNumberConflictKey(item.targetClassId, sourceEnrollment.studentNumber);
+        if (occupied.has(key) || moving.has(key)) throw new Error("STUDENT_NUMBER_CONFLICT");
+        moving.add(key);
+      }
       let createdTargetCount = 0; let transitionCount = 0;
       for (const item of payload.items) {
         const sourceEnrollment = sourceById.get(item.sourceEnrollmentId)!;
@@ -66,10 +81,11 @@ export async function POST(req: Request) {
           transitionCount += 1;
           continue;
         }
-        const targetEnrollment = await tx.studentEnrollment.upsert({ where: { studentId_academicYearId: { studentId: item.studentId, academicYearId: target.id } }, create: { studentId: item.studentId, academicYearId: target.id, grade: item.targetGrade, classId: item.targetClassId, isCurrent: false, status: "PLANNED", origin: "PROMOTION", startedAt: null }, update: { grade: item.targetGrade, classId: item.targetClassId, isCurrent: false, status: "PLANNED", origin: "PROMOTION", startedAt: null, endedAt: null, revision: { increment: 1 } } });
+        const targetEnrollment = await tx.studentEnrollment.upsert({ where: { studentId_academicYearId: { studentId: item.studentId, academicYearId: target.id } }, create: { studentId: item.studentId, academicYearId: target.id, grade: item.targetGrade, classId: item.targetClassId, studentNumber: sourceEnrollment.studentNumber, isCurrent: false, status: "PLANNED", origin: "PROMOTION", startedAt: null }, update: { grade: item.targetGrade, classId: item.targetClassId, studentNumber: sourceEnrollment.studentNumber, isCurrent: false, status: "PLANNED", origin: "PROMOTION", startedAt: null, endedAt: null, revision: { increment: 1 } } });
         await tx.studentYearTransition.upsert({ where: { studentId_sourceAcademicYearId_targetAcademicYearId: { studentId: item.studentId, sourceAcademicYearId: source.id, targetAcademicYearId: target.id } }, create: { studentId: item.studentId, sourceEnrollmentId: sourceEnrollment.id, sourceAcademicYearId: source.id, targetAcademicYearId: target.id, disposition: item.disposition, targetEnrollmentId: targetEnrollment.id, ...actorAuditFields(auth.userId) }, update: { disposition: item.disposition, targetEnrollmentId: targetEnrollment.id, revision: { increment: 1 }, ...actorAuditFields(auth.userId) } });
         createdTargetCount += 1; transitionCount += 1;
       }
+      if (transitionCount > 0) await touchRosterRevision(tx);
       const result = { promotedCount: payload.items.filter((item) => item.disposition === "PROMOTE").length, transitionCount, createdTargetCount, sourceAcademicYearId: source.id, targetAcademicYearId: target.id };
       await tx.adminMutationBatch.update({ where: { id: batch.id }, data: { status: "COMMITTED", committedAt: new Date(), counts: result, payload: Prisma.JsonNull, errorReport: Prisma.JsonNull } });
       await writeAdminReceipt(tx, { actorUserId: auth.userId, operationKind: "PROMOTION", operationId, requestFingerprint, outcomeStatus: "COMMITTED", summary: result });
@@ -78,6 +94,7 @@ export async function POST(req: Request) {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 60_000 });
     return NextResponse.json({ ok: true, ...summary });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && String(error.meta?.target ?? "").includes("student_number")) return response("STUDENT_NUMBER_CONFLICT", 409);
     const code = stableRosterCode(error, ["BATCH_NOT_FOUND", "IDEMPOTENCY_CONFLICT", "BATCH_EXPIRED", "BATCH_INVALID", "STALE_PREVIEW", "YEAR_NOT_SUCCESSOR", "TERMINAL_TARGET_EXISTS"], "PROMOTION_COMMIT_FAILED");
     return response(code, code === "BATCH_EXPIRED" ? 410 : code === "BATCH_NOT_FOUND" ? 404 : 409);
   }

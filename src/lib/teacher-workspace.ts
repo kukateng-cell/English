@@ -6,15 +6,16 @@ import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 import { offsetDay, todayKey } from "@/lib/streak";
 import { lockRosterMutationState } from "@/lib/roster-server";
-import { STUDENT_GRADES } from "@/lib/roster-domain";
+import { compareStudentNumberSortKey, STUDENT_GRADES } from "@/lib/roster-domain";
 import type { StudentGrade } from "@/generated/prisma";
 import { issuePasswordResetPrecondition, PASSWORD_RESET_AUDIENCES } from "@/lib/password-reset-precondition";
 import { readRecentAuthGrantForSession } from "@/lib/recent-auth";
 
-const CURSOR_VERSION = 1;
+const CURSOR_VERSION = 2;
 const MAX_SEARCH_GRAPHEMES = 80;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
+const MAX_STUDENT_NUMBER_SORT_ROWS = 5_000;
 
 export type TeacherWorkspaceViewMode = "TEACHER" | "ADMIN";
 
@@ -22,6 +23,7 @@ export type TeacherWorkspaceQuery = {
   grade?: StudentGrade;
   classId?: string;
   search?: string;
+  sort: "STUDENT_NUMBER_ASC" | "ACCOUNT_ASC";
   cursor?: string;
   limit: number;
 };
@@ -38,6 +40,8 @@ export type TeacherWorkspaceContext = {
 type CursorPayload = {
   v: number;
   accountName: string;
+  studentNumber: number | null;
+  sort: TeacherWorkspaceQuery["sort"];
   id: string;
   fingerprint: string;
   accessRevision: number | null;
@@ -53,7 +57,7 @@ function cursorSecret() {
 }
 
 function signCursor(payload: string) {
-  return createHmac("sha256", cursorSecret()).update("teacher-cursor-v1:").update(payload).digest("base64url");
+  return createHmac("sha256", cursorSecret()).update("teacher-cursor-v2:").update(payload).digest("base64url");
 }
 
 export function encodeTeacherCursor(payload: CursorPayload) {
@@ -75,7 +79,9 @@ export function decodeTeacherCursor(value: string): CursorPayload | null {
       parsed.v !== CURSOR_VERSION || typeof parsed.accountName !== "string" ||
       typeof parsed.id !== "string" || typeof parsed.fingerprint !== "string" ||
       typeof parsed.rosterRevision !== "number" || typeof parsed.yearRevision !== "number" ||
-      (parsed.accessRevision !== null && typeof parsed.accessRevision !== "number")
+      (parsed.accessRevision !== null && typeof parsed.accessRevision !== "number") ||
+      (parsed.studentNumber !== null && !Number.isInteger(parsed.studentNumber)) ||
+      (parsed.sort !== "STUDENT_NUMBER_ASC" && parsed.sort !== "ACCOUNT_ASC")
     ) return null;
     return parsed as CursorPayload;
   } catch {
@@ -84,18 +90,28 @@ export function decodeTeacherCursor(value: string): CursorPayload | null {
 }
 
 export function normalizeTeacherWorkspaceQuery(input: unknown): TeacherWorkspaceQuery {
-  const body = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("QUERY_INVALID");
+  const body = input as Record<string, unknown>;
+  const allowedKeys = new Set(["grade", "classId", "search", "sort", "cursor", "limit"]);
+  if (Object.keys(body).some((key) => !allowedKeys.has(key))) throw new Error("QUERY_INVALID");
+  if (body.grade !== undefined && typeof body.grade !== "string") throw new Error("QUERY_INVALID");
   const grade = typeof body.grade === "string" && body.grade ? body.grade as StudentGrade : undefined;
   if (grade && !STUDENT_GRADES.includes(grade)) throw new Error("QUERY_INVALID");
+  if (body.classId !== undefined && typeof body.classId !== "string") throw new Error("QUERY_INVALID");
   const classId = typeof body.classId === "string" && body.classId.trim() ? body.classId.trim() : undefined;
   if (classId && classId.length > 128) throw new Error("QUERY_INVALID");
+  if (body.search !== undefined && typeof body.search !== "string") throw new Error("QUERY_INVALID");
   const searchRaw = typeof body.search === "string" ? body.search.normalize("NFKC").trim() : "";
   const searchLength = [...new Intl.Segmenter("zh", { granularity: "grapheme" }).segment(searchRaw)].length;
   if (searchLength > MAX_SEARCH_GRAPHEMES) throw new Error("QUERY_INVALID");
-  const limit = body.limit === undefined ? DEFAULT_LIMIT : Number(body.limit);
+  const limitValue = body.limit;
+  const limit = limitValue === undefined ? DEFAULT_LIMIT : typeof limitValue === "number" ? limitValue : Number.NaN;
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw new Error("QUERY_INVALID");
+  if (body.cursor !== undefined && typeof body.cursor !== "string") throw new Error("QUERY_INVALID");
   const cursor = typeof body.cursor === "string" && body.cursor ? body.cursor : undefined;
-  return { grade, classId, search: searchRaw || undefined, cursor, limit };
+  const sort = body.sort === undefined ? "STUDENT_NUMBER_ASC" : body.sort;
+  if (sort !== "STUDENT_NUMBER_ASC" && sort !== "ACCOUNT_ASC") throw new Error("QUERY_INVALID");
+  return { grade, classId, search: searchRaw || undefined, cursor, sort, limit };
 }
 
 export async function readTeacherWorkspaceQuery(req: Request) {
@@ -103,7 +119,7 @@ export async function readTeacherWorkspaceQuery(req: Request) {
   if (contentLength > 16 * 1024) throw new Error("QUERY_INVALID");
   const raw = await req.text().catch(() => "");
   if (Buffer.byteLength(raw, "utf8") > 16 * 1024) throw new Error("QUERY_INVALID");
-  const body = (() => { try { return JSON.parse(raw); } catch { return null; } })();
+  const body = (() => { try { return JSON.parse(raw || "{}"); } catch { return null; } })();
   return normalizeTeacherWorkspaceQuery(body);
 }
 
@@ -133,7 +149,7 @@ async function readCurrentYear(tx: Prisma.TransactionClient | typeof prisma) {
   const year = await tx.academicYear.findFirst({
     where: { status: "CURRENT" },
     orderBy: [{ startsOn: "desc" }, { id: "asc" }],
-    select: { id: true, label: true, revision: true },
+    select: { id: true, label: true, revision: true, status: true },
   });
   if (!year) throw new Error("CURRENT_YEAR_UNAVAILABLE");
   return year;
@@ -184,11 +200,40 @@ export async function getTeacherWorkspaceContext(input: { userId: string; role: 
   } satisfies TeacherWorkspaceContext;
 }
 
+type TeacherWorkspaceAuthSnapshot = {
+  tokenVersion?: number;
+  credentialRevision?: number;
+};
+
+/**
+ * Read-only teacher views still carry student PII.  Re-check the actor and
+ * scope after the expensive read/aggregation so a suspension, credential
+ * revocation, access change, roster mutation, or year switch cannot return a
+ * result built from an obsolete authorization snapshot.
+ */
+async function recheckTeacherWorkspaceSnapshot(input: {
+  userId: string;
+  role: Role;
+  context: TeacherWorkspaceContext;
+  auth?: TeacherWorkspaceAuthSnapshot;
+}) {
+  const [actor, year, rosterRevision] = await Promise.all([
+    prisma.user.findUnique({ where: { id: input.userId }, select: { role: true, status: true, tokenVersion: true, credentialRevision: true, teacherProfile: { select: { accessRevision: true } } } }),
+    readCurrentYear(prisma),
+    readRosterRevision(prisma),
+  ]);
+  if (!actor || actor.role !== input.role || actor.status !== "ACTIVE") throw new Error("ROLE_FORBIDDEN");
+  if ((input.auth?.tokenVersion !== undefined && actor.tokenVersion !== input.auth.tokenVersion) || (input.auth?.credentialRevision !== undefined && actor.credentialRevision !== input.auth.credentialRevision)) throw new Error("AUTH_REQUIRED");
+  if (input.role === ROLES.TEACHER && actor.teacherProfile?.accessRevision !== input.context.accessRevision) throw new Error("TEACHER_QUERY_STALE");
+  if (year.id !== input.context.academicYear.id || year.revision !== input.context.academicYear.revision || year.status !== "CURRENT" || rosterRevision !== input.context.rosterRevision) throw new Error("TEACHER_QUERY_STALE");
+}
+
 function filterFingerprint(query: TeacherWorkspaceQuery, context: TeacherWorkspaceContext) {
   return createHmac("sha256", cursorSecret()).update(JSON.stringify({
     grade: query.grade ?? null,
     classId: query.classId ?? null,
     search: query.search ?? null,
+    sort: query.sort,
     yearId: context.academicYear.id,
     viewMode: context.viewMode,
   })).digest("hex");
@@ -230,16 +275,13 @@ async function readMembers(input: { userId: string; role: Role; query: TeacherWo
     throw new Error(cursor ? "TEACHER_QUERY_STALE" : "CURSOR_INVALID");
   }
   const where = addQueryFilters(context.studentWhere, input.query, context, input.userId);
-  if (cursor) {
-    where.AND = [
-      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-      { OR: [{ accountName: { gt: cursor.accountName } }, { accountName: cursor.accountName, id: { gt: cursor.id } }] },
-    ];
-  }
+  const count = await prisma.user.count({ where });
+  if (count > MAX_STUDENT_NUMBER_SORT_ROWS) throw new Error("TEACHER_DIRECTORY_TOO_LARGE");
   const users = await prisma.user.findMany({
     where,
     orderBy: [{ accountName: "asc" }, { id: "asc" }],
-    take: input.query.limit + 1,
+    // Numeric student-number ordering is applied to the complete authorized
+    // scope before keyset slicing; never truncate the scope and then sort it.
     select: {
       id: true,
       accountName: true,
@@ -256,18 +298,40 @@ async function readMembers(input: { userId: string; role: Role; query: TeacherWo
             where: currentStudentEnrollmentWhere({ viewMode: context.viewMode, teacherId: input.userId, academicYearId: context.academicYear.id }),
             take: 1,
             orderBy: { id: "asc" },
-            select: { grade: true, classId: true, schoolClass: { select: { classCode: true } } },
+            select: { grade: true, classId: true, studentNumber: true, schoolClass: { select: { classCode: true } } },
           },
         },
       },
     },
   });
-  const hasNext = users.length > input.query.limit;
-  const rows = hasNext ? users.slice(0, input.query.limit) : users;
+  const compare = (a: (typeof users)[number], b: (typeof users)[number]) => {
+    const ae = a.studentProfile?.enrollments[0];
+    const be = b.studentProfile?.enrollments[0];
+    if (input.query.sort === "STUDENT_NUMBER_ASC") {
+      const an = ae?.studentNumber ?? null;
+      const bn = be?.studentNumber ?? null;
+      return compareStudentNumberSortKey({ studentNumber: an, accountName: normalizeAccountName(a.accountNameCanonical ?? a.accountName), id: a.id }, { studentNumber: bn, accountName: normalizeAccountName(b.accountNameCanonical ?? b.accountName), id: b.id });
+    }
+    const accountA = normalizeAccountName(a.accountNameCanonical ?? a.accountName);
+    const accountB = normalizeAccountName(b.accountNameCanonical ?? b.accountName);
+    return accountA.localeCompare(accountB, "en", { sensitivity: "base" }) || a.id.localeCompare(b.id);
+  };
+  const sorted = users.sort(compare);
+  const afterCursor = cursor ? sorted.filter((user) => {
+    const enrollment = user.studentProfile?.enrollments[0];
+    const number = enrollment?.studentNumber ?? null;
+    if (input.query.sort === "STUDENT_NUMBER_ASC") {
+      return compareStudentNumberSortKey({ studentNumber: number, accountName: normalizeAccountName(user.accountNameCanonical ?? user.accountName), id: user.id }, { studentNumber: cursor.studentNumber, accountName: cursor.accountName, id: cursor.id }) > 0;
+    }
+    const account = normalizeAccountName(user.accountNameCanonical ?? user.accountName);
+    return account > cursor.accountName || (account === cursor.accountName && user.id > cursor.id);
+  }) : sorted;
+  const hasNext = afterCursor.length > input.query.limit;
+  const rows = afterCursor.slice(0, input.query.limit);
   return { context, fingerprint, rows, hasNext };
 }
 
-export async function queryTeacherRoster(input: { userId: string; role: Role; query: TeacherWorkspaceQuery; sessionJti?: string }) {
+export async function queryTeacherRoster(input: { userId: string; role: Role; query: TeacherWorkspaceQuery; sessionJti?: string; auth?: TeacherWorkspaceAuthSnapshot }) {
   const result = await readMembers(input);
   const last = result.rows.at(-1);
   const canReset = input.role === ROLES.TEACHER && await awaitTeacherGlobalReset(input.userId);
@@ -278,6 +342,7 @@ export async function queryTeacherRoster(input: { userId: string; role: Role; qu
   // the roster normally and can ask the teacher to re-authenticate before
   // showing reset actions.
   const effectiveCanReset = canReset && Boolean(actorSnapshot);
+  await recheckTeacherWorkspaceSnapshot({ userId: input.userId, role: input.role, context: result.context, auth: input.auth });
   return {
     context: result.context,
     resetRequiresRecentAuth: canReset && !effectiveCanReset,
@@ -286,6 +351,7 @@ export async function queryTeacherRoster(input: { userId: string; role: Role; qu
       return {
         id: user.id,
         accountName: user.accountName,
+        studentNumber: enrollment?.studentNumber ?? null,
         legalName: user.studentProfile?.legalName ?? "",
         nickname: user.studentProfile?.nickname ?? "",
         grade: enrollment?.grade ?? null,
@@ -318,7 +384,9 @@ export async function queryTeacherRoster(input: { userId: string; role: Role; qu
     }),
     nextCursor: result.hasNext && last ? encodeTeacherCursor({
       v: CURSOR_VERSION,
-      accountName: normalizeAccountName(last.accountName),
+      accountName: normalizeAccountName(last.accountNameCanonical ?? last.accountName),
+      studentNumber: last.studentProfile?.enrollments[0]?.studentNumber ?? null,
+      sort: input.query.sort,
       id: last.id,
       fingerprint: result.fingerprint,
       accessRevision: result.context.accessRevision,
@@ -423,20 +491,21 @@ function itemMetrics(id: string, snapshot: Awaited<ReturnType<typeof metricSnaps
   };
 }
 
-export async function queryTeacherProgress(input: { userId: string; role: Role; query: TeacherWorkspaceQuery }) {
+export async function queryTeacherProgress(input: { userId: string; role: Role; query: TeacherWorkspaceQuery; auth?: TeacherWorkspaceAuthSnapshot }) {
   const result = await readMembers(input);
   const snapshot = await metricSnapshot(result.rows.map((row) => row.id));
+  await recheckTeacherWorkspaceSnapshot({ userId: input.userId, role: input.role, context: result.context, auth: input.auth });
   return {
     context: result.context,
     items: result.rows.map((user) => {
       const enrollment = user.studentProfile?.enrollments[0];
-      return { id: user.id, accountName: user.accountName, legalName: user.studentProfile?.legalName ?? "", nickname: user.studentProfile?.nickname ?? "", grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, ...itemMetrics(user.id, snapshot) };
+      return { id: user.id, accountName: user.accountName, studentNumber: enrollment?.studentNumber ?? null, legalName: user.studentProfile?.legalName ?? "", nickname: user.studentProfile?.nickname ?? "", grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, ...itemMetrics(user.id, snapshot) };
     }),
-    nextCursor: result.hasNext && result.rows.at(-1) ? encodeTeacherCursor({ v: CURSOR_VERSION, accountName: normalizeAccountName(result.rows.at(-1)!.accountName), id: result.rows.at(-1)!.id, fingerprint: result.fingerprint, accessRevision: result.context.accessRevision, rosterRevision: result.context.rosterRevision, yearRevision: result.context.academicYear.revision }) : null,
+    nextCursor: result.hasNext && result.rows.at(-1) ? encodeTeacherCursor({ v: CURSOR_VERSION, accountName: normalizeAccountName(result.rows.at(-1)!.accountNameCanonical ?? result.rows.at(-1)!.accountName), studentNumber: result.rows.at(-1)!.studentProfile?.enrollments[0]?.studentNumber ?? null, sort: input.query.sort, id: result.rows.at(-1)!.id, fingerprint: result.fingerprint, accessRevision: result.context.accessRevision, rosterRevision: result.context.rosterRevision, yearRevision: result.context.academicYear.revision }) : null,
   };
 }
 
-export async function queryTeacherClassSummary(input: { userId: string; role: Role; grade?: StudentGrade }) {
+export async function queryTeacherClassSummary(input: { userId: string; role: Role; grade?: StudentGrade; auth?: TeacherWorkspaceAuthSnapshot }) {
   const context = await getTeacherWorkspaceContext({ userId: input.userId, role: input.role });
   const classIds = context.classes.filter((item) => !input.grade || item.grade === input.grade).map((item) => item.id);
   const users = await prisma.user.findMany({
@@ -453,6 +522,7 @@ export async function queryTeacherClassSummary(input: { userId: string; role: Ro
     return { classId: schoolClass.id, grade: schoolClass.grade, classCode: schoolClass.classCode, studentCount: ids.length, activeTodayCount: metrics.filter((metric) => metric.activeToday).length, activeSevenDayCount: metrics.filter((metric) => metric.activeSevenDay).length, masteredWordCount: metrics.reduce((sum, metric) => sum + metric.masteredWords, 0), masteryAveragePercent: averages.length ? Math.round(averages.reduce((sum, value) => sum + value, 0) / averages.length) : null, dueStudentCount: metrics.filter((metric) => metric.dueReviewCount > 0).length, inactiveSevenDayCount: metrics.filter((metric) => !metric.activeSevenDay).length, totalWords: snapshot.totalWords };
   });
   const unassigned = input.role === ROLES.ADMIN ? await prisma.user.count({ where: { ...context.studentWhere, studentProfile: { is: { enrollments: { some: { academicYearId: context.academicYear.id, status: "ACTIVE", classId: null } } } } } }) : 0;
+  await recheckTeacherWorkspaceSnapshot({ userId: input.userId, role: input.role, context, auth: input.auth });
   return {
     context,
     window: {
@@ -465,7 +535,7 @@ export async function queryTeacherClassSummary(input: { userId: string; role: Ro
   };
 }
 
-export async function getTeacherStudentDetail(input: { userId: string; role: Role; studentId: string; sessionJti?: string }) {
+export async function getTeacherStudentDetail(input: { userId: string; role: Role; studentId: string; sessionJti?: string; auth?: TeacherWorkspaceAuthSnapshot }) {
   const context = await getTeacherWorkspaceContext({ userId: input.userId, role: input.role });
   const user = await prisma.user.findFirst({
     where: { id: input.studentId, ...context.studentWhere },
@@ -487,6 +557,7 @@ export async function getTeacherStudentDetail(input: { userId: string; role: Rol
               id: true,
               grade: true,
               classId: true,
+              studentNumber: true,
               revision: true,
               schoolClass: { select: { classCode: true } },
             },
@@ -501,7 +572,8 @@ export async function getTeacherStudentDetail(input: { userId: string; role: Rol
   const canResetStudentPassword = input.role === ROLES.TEACHER && await awaitTeacherGlobalReset(input.userId);
   const actorSnapshot = canResetStudentPassword && input.sessionJti ? await readRecentAuthGrantForSession({ userId: input.userId, sessionJti: input.sessionJti }) : null;
   const effectiveCanReset = canResetStudentPassword && Boolean(actorSnapshot);
-  return { context, student: { id: user.id, accountName: user.accountName, legalName: user.studentProfile.legalName, nickname: user.studentProfile.nickname, grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, canResetStudentPassword: effectiveCanReset, resetRequiresRecentAuth: canResetStudentPassword && !effectiveCanReset, resetPrecondition: effectiveCanReset && input.sessionJti && actorSnapshot ? issuePasswordResetPrecondition({ audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, actorId: input.userId, actorRole: "TEACHER", targetId: user.id, targetRole: "STUDENT", sessionJti: input.sessionJti, actorTokenVersion: actorSnapshot.user.tokenVersion, actorCredentialRevision: actorSnapshot.user.credentialRevision, targetTokenVersion: user.tokenVersion, targetCredentialRevision: user.credentialRevision, targetRevision: user.revision, targetAccessRevision: null, actorAccessRevision: context.accessRevision, grantReauthenticatedAt: actorSnapshot.grant.reauthenticatedAt.getTime(), grantExpiresAt: actorSnapshot.grant.expiresAt.getTime() }) : null, userRevision: user.revision, profileRevision: user.studentProfile.profileRevision, enrollmentRevision: enrollment?.revision ?? null, ...itemMetrics(user.id, snapshot) } };
+  await recheckTeacherWorkspaceSnapshot({ userId: input.userId, role: input.role, context, auth: input.auth });
+  return { context, student: { id: user.id, accountName: user.accountName, studentNumber: enrollment?.studentNumber ?? null, legalName: user.studentProfile.legalName, nickname: user.studentProfile.nickname, grade: enrollment?.grade ?? null, classId: enrollment?.classId ?? null, classCode: enrollment?.schoolClass?.classCode ?? null, canResetStudentPassword: effectiveCanReset, resetRequiresRecentAuth: canResetStudentPassword && !effectiveCanReset, resetPrecondition: effectiveCanReset && input.sessionJti && actorSnapshot ? issuePasswordResetPrecondition({ audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, actorId: input.userId, actorRole: "TEACHER", targetId: user.id, targetRole: "STUDENT", sessionJti: input.sessionJti, actorTokenVersion: actorSnapshot.user.tokenVersion, actorCredentialRevision: actorSnapshot.user.credentialRevision, targetTokenVersion: user.tokenVersion, targetCredentialRevision: user.credentialRevision, targetRevision: user.revision, targetAccessRevision: null, actorAccessRevision: context.accessRevision, grantReauthenticatedAt: actorSnapshot.grant.reauthenticatedAt.getTime(), grantExpiresAt: actorSnapshot.grant.expiresAt.getTime() }) : null, userRevision: user.revision, profileRevision: user.studentProfile.profileRevision, enrollmentRevision: enrollment?.revision ?? null, ...itemMetrics(user.id, snapshot) } };
 }
 
 export async function touchRosterRevision(tx: Prisma.TransactionClient) {

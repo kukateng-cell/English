@@ -101,7 +101,7 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
               <button
                 onClick={onClose}
             className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--muted)] transition hover:bg-[var(--border-soft)] dark:text-[var(--muted)] dark:hover:bg-[var(--border)]"
-                aria-label={tc("关闭")}
+                aria-label={tc("關閉")}
               >
                 <Icon name="close" size={18} />
               </button>

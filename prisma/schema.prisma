@@ -546,6 +546,8 @@ model StudentEnrollment {
   academicYearId   String
   grade            StudentGrade
   classId          String?
+  // 校內學號：按學年／班別編排；未分班學生可暫時留空。
+  studentNumber    Int?
   // Legacy physical column retained for old binaries; new writers use status.
   isCurrent        Boolean                @default(true) @map("isCurrent")
   status           EnrollmentStatus       @default(PLANNED)
@@ -565,6 +567,7 @@ model StudentEnrollment {
   @@index([academicYearId, grade, status])
   @@index([classId, status])
   @@index([studentId, status])
+  @@index([academicYearId, studentNumber], map: "StudentEnrollment_academicYear_studentNumber_idx")
 }
 
 model TeacherClassAccess {

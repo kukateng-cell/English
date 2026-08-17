@@ -139,9 +139,11 @@ async function buildFixture(prisma: PrismaClient, fromDate: string, toDate: stri
   await createInChunks((data) => prisma.studentProfile.createMany({ data }), profiles);
   const enrollments: Prisma.StudentEnrollmentCreateManyInput[] = studentIds.map((studentId, index) => {
     const gradeIndex = Math.min(GRADES.length - 1, Math.floor(index / 84));
-    return { studentId, academicYearId: yearId, grade: GRADES[gradeIndex]!, classId: classIds[gradeIndex * CLASS_CODES.length + (index % CLASS_CODES.length)]!, isCurrent: true, status: "ACTIVE", origin: "SEED", startedAt: new Date("2026-01-01T00:00:00+08:00") };
+    return { studentId, academicYearId: yearId, grade: GRADES[gradeIndex]!, classId: classIds[gradeIndex * CLASS_CODES.length + (index % CLASS_CODES.length)]!, studentNumber: (index % 84) + 1, isCurrent: true, status: "ACTIVE", origin: "SEED", startedAt: new Date("2026-01-01T00:00:00+08:00") };
   });
   await createInChunks((data) => prisma.studentEnrollment.createMany({ data }), enrollments);
+  const missingStudentNumbers = await prisma.studentEnrollment.count({ where: { academicYearId: yearId, studentNumber: null } });
+  if (missingStudentNumbers !== 0) throw new Error(`scale fixture 有 ${missingStudentNumbers} 名學生未設定學號。`);
   await prisma.teacherClassAccess.createMany({ data: classIds.map((classId) => ({ teacherId, classId, canViewProgress: true, canResetStudentPassword: true, grantedById: adminId })) });
 
   const sessions: Prisma.StudySessionCreateManyInput[] = studentIds.map((userId) => ({ id: `scale-session-${userId.slice(-3)}`, userId, queueFingerprint: hash(`queue:${userId}`), expiresAt: dateAt(offsetDay(toDate, 1), 12), retiredAt: dateAt(offsetDay(toDate, 1), 12), flowVersion: "v2", learningPolicyVersion: "retrieval-v1", mode: "global", revision: 0 }));

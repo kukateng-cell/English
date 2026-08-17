@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const currentEnrollment = user.role === ROLES.STUDENT ? await prisma.studentEnrollment.findFirst({
     where: { studentId: id, academicYear: { status: "CURRENT" } },
     orderBy: { academicYear: { startsOn: "desc" } },
-    select: { academicYearId: true, grade: true, classId: true, revision: true, schoolClass: { select: { classCode: true } } },
+    select: { academicYearId: true, grade: true, classId: true, studentNumber: true, revision: true, schoolClass: { select: { classCode: true } } },
   }) : null;
   const state = await prisma.rosterMutationState.findUnique({ where: { id: 1 }, select: { revision: true } });
   return NextResponse.json({

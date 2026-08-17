@@ -12,6 +12,8 @@ export type StagedStudentRow = {
   contactEmailAction?: "SET" | "PRESERVE" | "CLEAR";
   grade: StudentGrade | null;
   classCode: ClassCode | null;
+  studentNumber: number | null;
+  studentNumberAction?: "SET" | "PRESERVE" | "CLEAR";
   errors: string[];
   diff?: Record<string, { before: string | null; after: string | null }>;
 };

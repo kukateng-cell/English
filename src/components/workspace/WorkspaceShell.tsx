@@ -15,8 +15,7 @@ const ITEMS: Record<"teacher" | "admin", WorkspaceItem[]> = {
   teacher: [
     { href: "/teacher", label: "概览", icon: "bar-chart" },
     { href: "/teacher/analytics", label: "學習分析", icon: "trending-up" },
-    { href: "/teacher/roster", label: "学生名册", icon: "users" },
-    { href: "/teacher/progress", label: "学生进度", icon: "book" },
+    { href: "/teacher/roster", label: "學生", icon: "users" },
   ],
   admin: [
     { href: "/admin", label: "概览", icon: "bar-chart" },
@@ -41,7 +40,10 @@ export default function WorkspaceShell({
   const items = ITEMS[role];
   const homeHref = role === "admin" ? "/admin" : "/teacher";
   const roleTitle = role === "admin" ? "管理工作台" : "教师工作台";
-  const isActivePath = (href: string) => href === homeHref ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+  const isActivePath = (href: string) => {
+    if (role === "teacher" && href === "/teacher/roster" && (pathname === "/teacher/roster" || pathname.startsWith("/teacher/roster/") || pathname === "/teacher/progress" || pathname.startsWith("/teacher/progress/"))) return true;
+    return href === homeHref ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+  };
   return (
     <div className="workspace-shell">
       <a className="skip-link" href="#workspace-main">{tc("跳到主要内容")}</a>

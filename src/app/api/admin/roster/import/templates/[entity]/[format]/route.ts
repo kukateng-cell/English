@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 
 const templates = {
-  STUDENT: ["accountName", "legalName", "nickname", "grade", "classCode", "contactEmail"],
+  STUDENT: ["accountName", "studentNumber", "legalName", "nickname", "grade", "classCode", "contactEmail"],
   TEACHER: ["templateVersion", "accountName", "legalName", "contactEmail", "classAccess", "resetPasswordCapability"],
 } as const;
 

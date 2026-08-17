@@ -196,6 +196,7 @@ async function seedStudents() {
                     academicYearId: currentYear.id,
                     grade,
                     classId,
+                    studentNumber: i,
                     isCurrent: true,
                     status: "ACTIVE",
                     origin: "SEED",
@@ -223,6 +224,11 @@ async function seedStudents() {
     `Students: ${created} created, ${rotated} unclaimed rotated, ${existed} unchanged | ` +
       `account: student01..${last}`,
   );
+}
+
+async function assertSeedStudentNumbers() {
+  const missing = await prisma.studentEnrollment.count({ where: { origin: "SEED", studentNumber: null, student: { user: { role: ROLES.STUDENT } } } });
+  if (missing > 0) throw new Error(`示範學生資料有 ${missing} 筆缺少學號，請修正 seed 後再繼續。`);
 }
 
 // ── 本地測試學生 ──
@@ -266,12 +272,13 @@ async function seedTestStudent(
           legalName: "本地測試學生",
           nickname: "本地測試生",
           nicknameNormalized: "本地測試生",
-          enrollments: {
-            create: {
-              academicYearId: currentYear.id,
-              grade: "JUNIOR_1",
-              classId,
-              isCurrent: true,
+            enrollments: {
+              create: {
+                academicYearId: currentYear.id,
+                grade: "JUNIOR_1",
+                classId,
+                studentNumber: 9001,
+                isCurrent: true,
               status: "ACTIVE",
               origin: "SEED",
               startedAt: new Date(),
@@ -527,6 +534,7 @@ async function main() {
   // 學生帳號預設不建立；需要時在 .env 設 SEED_STUDENTS=1 重新跑 seed 即可。
   if (process.env.SEED_STUDENTS === "1") {
     await seedStudents();
+    await assertSeedStudentNumbers();
   }
   // 建議新變數；保留舊 SEED_TEST_ACCOUNT / TEST_ACCOUNT_PASSWORD 一個發布週期，
   // 讓已有本地環境升級後不會突然失效。
@@ -565,6 +573,7 @@ async function main() {
       throw new Error(`TEST_STUDENT_PASSWORD：${testPasswordError}`);
     }
     await seedTestStudent(testUsername, testPassword, databaseEnvironment);
+    await assertSeedStudentNumbers();
     if (webkitTestUsername !== testUsername) {
       await seedTestStudent(
         webkitTestUsername,

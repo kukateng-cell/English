@@ -25,7 +25,7 @@ test("CSV parser handles quotes and rejects duplicate headers", async () => {
       new TextEncoder().encode("accountName,accountName\n001,002"),
       "CSV",
     ),
-    /标题不可重复/u,
+    /標題不可重複/u,
   );
 });
 
@@ -49,7 +49,7 @@ test("XLSX roster requires the canonical data worksheet", async () => {
   const buffer = await workbook.xlsx.writeBuffer();
   await assert.rejects(
     parseRosterFile(new Uint8Array(buffer), "XLSX"),
-    /可见的资料工作表/u,
+    /可見的資料工作表/u,
   );
 });
 
@@ -75,22 +75,27 @@ test("roster parser rejects the 501st data row", async () => {
   );
 });
 
-test("XLSX roster rejects numeric student identifiers", async () => {
+test("XLSX roster accepts numeric student numbers but keeps account identifiers as text", async () => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("data");
-  sheet.addRow(["accountName", "legalName"]);
-  sheet.addRow([1234, "陳同學"]);
+  sheet.addRow(["accountName", "studentNumber", "legalName"]);
+  sheet.addRow(["student-1234", 1234, "陳同學"]);
   const buffer = await workbook.xlsx.writeBuffer();
-  await assert.rejects(
-    parseRosterFile(new Uint8Array(buffer), "XLSX"),
-    /学生证号／账号储存格必须设为文字格式/u,
-  );
+  const rows = await parseRosterFile(new Uint8Array(buffer), "XLSX");
+  assert.equal(rows[0].studentNumber, "1234");
+
+  const badWorkbook = new ExcelJS.Workbook();
+  const badSheet = badWorkbook.addWorksheet("data");
+  badSheet.addRow(["accountName", "studentNumber", "legalName"]);
+  badSheet.addRow([1234, 1234, "陳同學"]);
+  const badBuffer = await badWorkbook.xlsx.writeBuffer();
+  await assert.rejects(parseRosterFile(new Uint8Array(badBuffer), "XLSX"), /學生證號／帳號儲存格必須設為文字格式/u);
 });
 
 test("roster parser rejects files over the 5 MiB upload limit", async () => {
   await assert.rejects(
     parseRosterFile(new Uint8Array(5 * 1024 * 1024 + 1), "CSV"),
-    /档案不可超过 5 MiB/u,
+    /檔案不可超過 5 MiB/u,
   );
 });
 

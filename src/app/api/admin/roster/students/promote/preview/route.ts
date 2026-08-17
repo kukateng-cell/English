@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { assertRosterSelectionCap, nextGrade, parseClassCode, parseStudentGrade } from "@/lib/roster-domain";
+import { assertRosterSelectionCap, nextGrade, parseClassCode, parseStudentGrade, studentNumberConflictKey } from "@/lib/roster-domain";
 import { hasValidRecentAuthGrant } from "@/lib/recent-auth";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { lockRosterMutationState } from "@/lib/roster-server";
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       if (!source || source.status !== "CURRENT" || !target || target.status !== "PLANNED") throw new Error("YEAR_STATE_INVALID");
       const successor = await tx.academicYear.findFirst({ where: { status: "PLANNED", startsOn: { gt: source.endsOn } }, orderBy: [{ startsOn: "asc" }, { id: "asc" }], select: { id: true } });
       if (successor?.id !== target.id) throw new Error("YEAR_NOT_SUCCESSOR");
-      const enrollments = await tx.studentEnrollment.findMany({ where: { academicYearId: source.id, grade: sourceGrade, status: "ACTIVE", student: { user: { role: ROLES.STUDENT } } }, orderBy: [{ student: { user: { accountName: "asc" } } }, { studentId: "asc" }], select: { id: true, studentId: true, grade: true, revision: true, classId: true, schoolClass: { select: { classCode: true } }, student: { select: { legalName: true, nickname: true, user: { select: { accountName: true, status: true } } } } } });
+      const enrollments = await tx.studentEnrollment.findMany({ where: { academicYearId: source.id, grade: sourceGrade, status: "ACTIVE", student: { user: { role: ROLES.STUDENT } } }, orderBy: [{ student: { user: { accountName: "asc" } } }, { studentId: "asc" }], select: { id: true, studentId: true, grade: true, revision: true, classId: true, studentNumber: true, schoolClass: { select: { classCode: true } }, student: { select: { legalName: true, nickname: true, user: { select: { accountName: true, status: true } } } } } });
       assertRosterSelectionCap(enrollments.length);
       const targetClasses = await tx.schoolClass.findMany({ where: { academicYearId: target.id, active: true }, select: { id: true, grade: true, classCode: true, revision: true } });
       const classMap = new Map(targetClasses.map((item) => [`${item.grade}:${item.classCode}`, item.id]));
@@ -73,6 +73,19 @@ export async function POST(req: Request) {
         return { studentId: enrollment.studentId, sourceEnrollmentId: enrollment.id, sourceRevision: enrollment.revision, accountName: enrollment.student.user.accountName, legalName: enrollment.student.legalName, nickname: enrollment.student.nickname, sourceClassCode: sourceClass, disposition, targetGrade: effectiveGrade, targetClassCode, targetClassId, targetClassRevision };
       });
       if (items.some((item) => ["PROMOTE", "REPEAT"].includes(item.disposition) && item.targetClassCode && !item.targetClassId)) throw new Error("TARGET_CLASS_NOT_FOUND");
+      const targetIds = [...new Set(items.map((item) => item.targetClassId).filter((id): id is string => Boolean(id)))];
+      const targetScopes: Prisma.StudentEnrollmentWhereInput[] = [];
+      if (targetIds.length) targetScopes.push({ classId: { in: targetIds } });
+      if (items.some((item) => item.targetClassId === null)) targetScopes.push({ classId: null });
+      const occupied = new Set((targetScopes.length ? await tx.studentEnrollment.findMany({ where: { academicYearId: target.id, studentNumber: { not: null }, studentId: { notIn: items.map((item) => item.studentId) }, OR: targetScopes }, select: { classId: true, studentNumber: true } }) : []).map((item) => studentNumberConflictKey(item.classId, item.studentNumber!)));
+      const moving = new Set<string>();
+      for (const item of items) {
+        const sourceEnrollment = enrollments.find((enrollment) => enrollment.studentId === item.studentId);
+        if (sourceEnrollment?.studentNumber === null || sourceEnrollment?.studentNumber === undefined) continue;
+        const key = studentNumberConflictKey(item.targetClassId, sourceEnrollment.studentNumber);
+        if (occupied.has(key) || moving.has(key)) throw new Error("STUDENT_NUMBER_CONFLICT");
+        moving.add(key);
+      }
       if ([...excluded].some((studentId) => !items.some((item) => item.studentId === studentId))) throw new Error("PROMOTION_STUDENT_NOT_FOUND");
       const state = await tx.rosterMutationState.findUniqueOrThrow({ where: { id: 1 } });
       // The preview response may show the admin the account/legal/nickname
@@ -96,7 +109,7 @@ export async function POST(req: Request) {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const code = stableRosterCode(error, ["YEAR_STATE_INVALID", "YEAR_NOT_SUCCESSOR", "SELECTION_CAP", "TARGET_CLASS_NOT_FOUND", "TARGET_CLASS_REQUIRED", "PROMOTION_DISPOSITION_REQUIRED", "PROMOTION_DISPOSITION_INVALID", "PROMOTION_STUDENT_NOT_FOUND"], "PROMOTION_PREVIEW_FAILED");
+    const code = stableRosterCode(error, ["YEAR_STATE_INVALID", "YEAR_NOT_SUCCESSOR", "SELECTION_CAP", "TARGET_CLASS_NOT_FOUND", "TARGET_CLASS_REQUIRED", "PROMOTION_DISPOSITION_REQUIRED", "PROMOTION_DISPOSITION_INVALID", "PROMOTION_STUDENT_NOT_FOUND", "STUDENT_NUMBER_CONFLICT"], "PROMOTION_PREVIEW_FAILED");
     return response(code, ["TARGET_CLASS_NOT_FOUND", "TARGET_CLASS_REQUIRED", "PROMOTION_DISPOSITION_REQUIRED", "PROMOTION_DISPOSITION_INVALID", "PROMOTION_STUDENT_NOT_FOUND", "SELECTION_CAP"].includes(code) ? 422 : 409);
   }
 }

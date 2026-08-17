@@ -1,15 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Prisma, AccountStatus, ClassCode, Role, StudentGrade } from "@/generated/prisma";
-import { prisma } from "@/lib/prisma";
+import type { AccountStatus, ClassCode, Role, StudentGrade } from "@/generated/prisma";
+import { prisma, Prisma } from "@/lib/prisma";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
-import { parseClassCode, parseStudentGrade, STUDENT_GRADES } from "@/lib/roster-domain";
+import { compareStudentNumberSortKey, parseClassCode, parseStudentGrade, STUDENT_GRADES } from "@/lib/roster-domain";
 
 export const ADMIN_DIRECTORY_LIMIT_DEFAULT = 50;
 export const ADMIN_DIRECTORY_LIMIT_MAX = 100;
 const BODY_LIMIT = 16 * 1024;
 const MAX_SEARCH_GRAPHEMES = 80;
 const MAX_ID_BYTES = 128;
-const CURSOR_VERSION = 1;
+const CURSOR_VERSION = 2;
+const MAX_STUDENT_NUMBER_SORT_ROWS = 5_000;
 
 export type AdminDirectoryQuery = {
   role?: Role;
@@ -18,6 +19,7 @@ export type AdminDirectoryQuery = {
   grade?: StudentGrade;
   classCode?: ClassCode;
   search?: string;
+  sort: "ACCOUNT_ASC" | "STUDENT_NUMBER_ASC";
   cursor?: string;
   limit: number;
 };
@@ -25,6 +27,8 @@ export type AdminDirectoryQuery = {
 type CursorPayload = {
   v: number;
   accountName: string;
+  studentNumber: number | null;
+  sort: AdminDirectoryQuery["sort"];
   id: string;
   fingerprint: string;
   rosterRevision: number;
@@ -42,9 +46,12 @@ export type AdminDirectoryItem = {
   grade: StudentGrade | null;
   classId: string | null;
   classCode: ClassCode | null;
+  studentNumber: number | null;
   createdAt: string;
   revision: number;
 };
+
+type ProjectedAdminDirectoryItem = AdminDirectoryItem & { sortAccountName: string };
 
 function cursorSecret() {
   const secret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
@@ -54,7 +61,7 @@ function cursorSecret() {
 }
 
 function signature(body: string) {
-  return createHmac("sha256", cursorSecret()).update("admin-user-directory-v1:").update(body).digest("base64url");
+  return createHmac("sha256", cursorSecret()).update("admin-user-directory-v2:").update(body).digest("base64url");
 }
 
 function filterFingerprint(query: AdminDirectoryQuery) {
@@ -65,6 +72,7 @@ function filterFingerprint(query: AdminDirectoryQuery) {
     grade: query.grade ?? null,
     classCode: query.classCode ?? null,
     search: query.search ?? null,
+    sort: query.sort,
   })).digest("hex");
 }
 
@@ -88,7 +96,9 @@ export function decodeAdminDirectoryCursor(value: string): CursorPayload | null 
     if (
       parsed.v !== CURSOR_VERSION || typeof parsed.accountName !== "string" ||
       typeof parsed.id !== "string" || typeof parsed.fingerprint !== "string" ||
-      !Number.isInteger(parsed.rosterRevision)
+      !Number.isInteger(parsed.rosterRevision) ||
+      (parsed.studentNumber !== null && !Number.isInteger(parsed.studentNumber)) ||
+      (parsed.sort !== "ACCOUNT_ASC" && parsed.sort !== "STUDENT_NUMBER_ASC")
     ) return null;
     return parsed as CursorPayload;
   } catch {
@@ -107,23 +117,32 @@ function parseId(value: unknown) {
 }
 
 export function parseAdminDirectoryQuery(input: unknown): AdminDirectoryQuery {
-  const body = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("QUERY_INVALID");
+  const body = input as Record<string, unknown>;
+  const allowedKeys = new Set(["role", "status", "academicYearId", "grade", "classCode", "search", "sort", "cursor", "limit"]);
+  if (Object.keys(body).some((key) => !allowedKeys.has(key))) throw new Error("QUERY_INVALID");
   const role = body.role === undefined || body.role === null || body.role === "" ? undefined : body.role as Role;
   if (role !== undefined && !["STUDENT", "TEACHER", "ADMIN"].includes(role)) throw new Error("QUERY_INVALID");
   const status = body.status === undefined || body.status === null || body.status === "" ? undefined : body.status as AccountStatus;
   if (status !== undefined && !["ACTIVE", "SUSPENDED"].includes(status)) throw new Error("QUERY_INVALID");
   const academicYearId = parseId(body.academicYearId);
   const cursor = parseId(body.cursor);
+  if (body.search !== undefined && typeof body.search !== "string") throw new Error("QUERY_INVALID");
   const searchRaw = typeof body.search === "string" ? body.search.normalize("NFKC").trim().replace(/\s+/gu, " ") : "";
   if (graphemeLength(searchRaw) > MAX_SEARCH_GRAPHEMES) throw new Error("QUERY_INVALID");
-  const grade = body.grade === undefined || body.grade === null || body.grade === "" ? undefined : parseStudentGrade(body.grade);
-  if (body.grade !== undefined && body.grade !== null && body.grade !== "" && !grade) throw new Error("QUERY_INVALID");
-  const classCode = body.classCode === undefined || body.classCode === null || body.classCode === "" ? undefined : parseClassCode(body.classCode);
-  if (body.classCode !== undefined && body.classCode !== null && body.classCode !== "" && !classCode) throw new Error("QUERY_INVALID");
+  if (body.grade !== undefined && typeof body.grade !== "string") throw new Error("QUERY_INVALID");
+  const grade = body.grade === undefined || body.grade === "" ? undefined : parseStudentGrade(body.grade);
+  if (body.grade !== undefined && body.grade !== "" && !grade) throw new Error("QUERY_INVALID");
+  if (body.classCode !== undefined && typeof body.classCode !== "string") throw new Error("QUERY_INVALID");
+  const classCode = body.classCode === undefined || body.classCode === "" ? undefined : parseClassCode(body.classCode);
+  if (body.classCode !== undefined && body.classCode !== "" && !classCode) throw new Error("QUERY_INVALID");
   if (role !== undefined && role !== "STUDENT" && (grade || classCode || academicYearId)) throw new Error("QUERY_INVALID");
-  const parsedLimit = body.limit === undefined ? ADMIN_DIRECTORY_LIMIT_DEFAULT : Number(body.limit);
+  const limitValue = body.limit;
+  const parsedLimit = limitValue === undefined ? ADMIN_DIRECTORY_LIMIT_DEFAULT : typeof limitValue === "number" ? limitValue : Number.NaN;
   if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > ADMIN_DIRECTORY_LIMIT_MAX) throw new Error("QUERY_INVALID");
-  return { role, status, academicYearId, grade: grade ?? undefined, classCode: classCode ?? undefined, search: searchRaw || undefined, cursor, limit: parsedLimit };
+  const sort = body.sort === undefined ? "STUDENT_NUMBER_ASC" : body.sort;
+  if (sort !== "ACCOUNT_ASC" && sort !== "STUDENT_NUMBER_ASC") throw new Error("QUERY_INVALID");
+  return { role, status, academicYearId, grade: grade ?? undefined, classCode: classCode ?? undefined, search: searchRaw || undefined, sort, cursor, limit: parsedLimit };
 }
 
 export async function readAdminDirectoryQuery(req: Request) {
@@ -185,11 +204,11 @@ const baseSelect = {
   id: true, accountName: true, accountNameCanonical: true, role: true, status: true,
   mustChangePassword: true, revision: true, createdAt: true,
   legacyName: true,
-  studentProfile: { select: { legalName: true, nickname: true, enrollments: { select: { id: true, academicYearId: true, grade: true, classId: true, status: true, schoolClass: { select: { classCode: true } }, academicYear: { select: { id: true, status: true, startsOn: true } } } } } },
+  studentProfile: { select: { legalName: true, nickname: true, enrollments: { select: { id: true, academicYearId: true, grade: true, classId: true, studentNumber: true, status: true, schoolClass: { select: { classCode: true } }, academicYear: { select: { id: true, status: true, startsOn: true } } } } } },
   teacherProfile: { select: { legalName: true } },
 } satisfies Prisma.UserSelect;
 
-function project(user: Prisma.UserGetPayload<{ select: typeof baseSelect }>, yearId?: string): AdminDirectoryItem {
+function project(user: Prisma.UserGetPayload<{ select: typeof baseSelect }>, yearId?: string): ProjectedAdminDirectoryItem {
   const enrollments = user.studentProfile?.enrollments.filter((enrollment) => !yearId || enrollment.academicYearId === yearId) ?? [];
   const enrollment = enrollments.sort((a, b) => Number(b.academicYear.startsOn) - Number(a.academicYear.startsOn))[0];
   return {
@@ -204,75 +223,98 @@ function project(user: Prisma.UserGetPayload<{ select: typeof baseSelect }>, yea
     grade: enrollment?.grade ?? null,
     classId: enrollment?.classId ?? null,
     classCode: enrollment?.schoolClass?.classCode ?? null,
+    studentNumber: enrollment?.studentNumber ?? null,
     createdAt: user.createdAt.toISOString(),
     revision: user.revision,
+    sortAccountName: normalizeAccountName(user.accountNameCanonical ?? user.accountName),
   };
 }
 
-async function currentYearId() {
-  const year = await prisma.academicYear.findFirst({ where: { status: "CURRENT" }, orderBy: [{ startsOn: "desc" }, { id: "asc" }], select: { id: true } });
+function compareItems(a: ProjectedAdminDirectoryItem, b: ProjectedAdminDirectoryItem, sort: AdminDirectoryQuery["sort"]) {
+  if (sort === "STUDENT_NUMBER_ASC") {
+    return compareStudentNumberSortKey({ studentNumber: a.studentNumber, accountName: a.sortAccountName, id: a.id }, { studentNumber: b.studentNumber, accountName: b.sortAccountName, id: b.id });
+  }
+  return a.sortAccountName.localeCompare(b.sortAccountName, "en", { sensitivity: "base" }) || a.id.localeCompare(b.id);
+}
+
+function isAfterCursor(item: ProjectedAdminDirectoryItem, cursor: CursorPayload, sort: AdminDirectoryQuery["sort"]) {
+  if (sort === "STUDENT_NUMBER_ASC") {
+    return compareStudentNumberSortKey({ studentNumber: item.studentNumber, accountName: item.sortAccountName, id: item.id }, { studentNumber: cursor.studentNumber, accountName: cursor.accountName, id: cursor.id }) > 0;
+  }
+  return item.sortAccountName.localeCompare(cursor.accountName, "en", { sensitivity: "base" }) > 0 || (item.sortAccountName === cursor.accountName && item.id > cursor.id);
+}
+
+async function currentYearId(db: typeof prisma | Prisma.TransactionClient = prisma) {
+  const year = await db.academicYear.findFirst({ where: { status: "CURRENT" }, orderBy: [{ startsOn: "desc" }, { id: "asc" }], select: { id: true } });
   return year?.id;
 }
 
-async function readRosterRevision() {
-  const state = await prisma.rosterMutationState.findUnique({ where: { id: 1 }, select: { revision: true } });
+async function readRosterRevision(db: typeof prisma | Prisma.TransactionClient = prisma) {
+  const state = await db.rosterMutationState.findUnique({ where: { id: 1 }, select: { revision: true } });
   return state?.revision ?? 0;
 }
 
-function countFacet(items: AdminDirectoryItem[]) {
-  const roles = { all: items.length, students: 0, teachers: 0, admins: 0 };
-  const status = { active: 0, suspended: 0 };
-  const grades = Object.fromEntries(STUDENT_GRADES.map((grade) => [grade, 0])) as Record<StudentGrade, number>;
-  const classCodes = Object.fromEntries(["A", "B", "C", "D", "E", "F", "G", "H"].map((code) => [code, 0])) as Record<ClassCode, number>;
-  for (const item of items) {
-    if (item.role === "STUDENT") roles.students += 1;
-    if (item.role === "TEACHER") roles.teachers += 1;
-    if (item.role === "ADMIN") roles.admins += 1;
-    if (item.status === "ACTIVE") status.active += 1;
-    else status.suspended += 1;
-    if (item.role === "STUDENT" && item.grade) grades[item.grade] += 1;
-    if (item.role === "STUDENT" && item.classCode) classCodes[item.classCode] += 1;
-  }
-  return { roles, status, grades, classCodes };
-}
-
 export async function queryAdminUserDirectory(query: AdminDirectoryQuery) {
-  const yearId = query.academicYearId ?? (query.role === "STUDENT" || query.grade || query.classCode ? await currentYearId() : undefined);
-  if ((query.role === "STUDENT" || query.grade || query.classCode) && !yearId) throw new Error("CURRENT_YEAR_UNAVAILABLE");
-  const rosterRevision = await readRosterRevision();
+  return prisma.$transaction(async (tx) => {
+  // Always project student fields against the current year, including the
+  // all-roles tab, so an unfiltered directory never shows a historical number.
+  const yearId = query.academicYearId ?? await currentYearId(tx);
+  if (!yearId) throw new Error("CURRENT_YEAR_UNAVAILABLE");
+  if (query.academicYearId) {
+    const year = await tx.academicYear.findUnique({ where: { id: query.academicYearId }, select: { id: true } });
+    if (!year) throw new Error("ACADEMIC_YEAR_NOT_FOUND");
+  }
+  const rosterRevision = await readRosterRevision(tx);
   const fingerprint = filterFingerprint(query);
   const decoded = query.cursor ? decodeAdminDirectoryCursor(query.cursor) : null;
   if (query.cursor && (!decoded || decoded.fingerprint !== fingerprint)) throw new Error(decoded ? "ADMIN_USER_QUERY_STALE" : "CURSOR_INVALID");
   if (decoded && decoded.rosterRevision !== rosterRevision) throw new Error("ADMIN_USER_QUERY_STALE");
   const where = buildWhere(query, yearId);
-  if (decoded) {
-    where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), { OR: [
-      { accountName: { gt: decoded.accountName } },
-      { accountName: decoded.accountName, id: { gt: decoded.id } },
-    ] }];
-  }
-  const users = await prisma.user.findMany({ where, select: baseSelect, orderBy: [{ accountName: "asc" }, { id: "asc" }], take: query.limit + 1 });
-  const hasNext = users.length > query.limit;
-  const pageUsers = hasNext ? users.slice(0, query.limit) : users;
-  const items = pageUsers.map((user) => project(user, yearId));
+  // Both supported orders are applied after projecting the enrollment fields.
+  // Load the complete bounded scope before cursor slicing; taking only the
+  // first page and then filtering a cursor would make ACCOUNT_ASC page 2
+  // appear empty (and would silently drop students for numeric ordering).
+  const count = await tx.user.count({ where });
+  if (count > MAX_STUDENT_NUMBER_SORT_ROWS) throw new Error("DIRECTORY_TOO_LARGE");
+  const users = await tx.user.findMany({ where, select: baseSelect, take: MAX_STUDENT_NUMBER_SORT_ROWS + 1 });
+  const allItems = users.map((user) => project(user, yearId)).sort((a, b) => compareItems(a, b, query.sort));
+  const filteredItems = decoded ? allItems.filter((item) => isAfterCursor(item, decoded, query.sort)) : allItems;
+  const hasNext = filteredItems.length > query.limit;
+  const items = filteredItems.slice(0, query.limit);
 
-  const facetQueries = await Promise.all([
-    prisma.user.findMany({ where: buildWhere({ ...query, role: undefined, cursor: undefined }, yearId, "role"), select: baseSelect, take: 5_001 }),
-    prisma.user.findMany({ where: buildWhere({ ...query, status: undefined, cursor: undefined }, yearId, "status"), select: baseSelect, take: 5_001 }),
-    query.role === "STUDENT" ? prisma.user.findMany({ where: buildWhere({ ...query, grade: undefined, cursor: undefined }, yearId, "grade"), select: baseSelect, take: 5_001 }) : Promise.resolve([]),
-    query.role === "STUDENT" ? prisma.user.findMany({ where: buildWhere({ ...query, classCode: undefined, cursor: undefined }, yearId, "classCode"), select: baseSelect, take: 5_001 }) : Promise.resolve([]),
+  const roleFacetBase = { ...query, role: undefined, cursor: undefined };
+  const statusFacetBase = { ...query, status: undefined, cursor: undefined };
+  const [allRoleCount, studentRoleCount, teacherRoleCount, adminRoleCount, activeCount, suspendedCount] = await Promise.all([
+    tx.user.count({ where: buildWhere(roleFacetBase, yearId, "role") }),
+    tx.user.count({ where: buildWhere({ ...roleFacetBase, role: "STUDENT" }, yearId) }),
+    tx.user.count({ where: buildWhere({ ...roleFacetBase, role: "TEACHER" }, yearId) }),
+    tx.user.count({ where: buildWhere({ ...roleFacetBase, role: "ADMIN" }, yearId) }),
+    tx.user.count({ where: buildWhere(statusFacetBase, yearId, "status") }),
+    tx.user.count({ where: buildWhere({ ...statusFacetBase, status: "SUSPENDED" }, yearId) }),
   ]);
-  const roleFacet = countFacet(facetQueries[0].map((user) => project(user, yearId)));
-  const statusFacet = countFacet(facetQueries[1].map((user) => project(user, yearId)));
-  const gradeFacet = countFacet(facetQueries[2].map((user) => project(user, yearId)));
-  const classFacet = countFacet(facetQueries[3].map((user) => project(user, yearId)));
-  const facets = { roles: roleFacet.roles, status: statusFacet.status, grades: gradeFacet.grades, classCodes: classFacet.classCodes };
-  const last = pageUsers.at(-1);
+  const exactRoles = { all: allRoleCount, students: studentRoleCount, teachers: teacherRoleCount, admins: adminRoleCount };
+  const exactStatus = { active: activeCount, suspended: suspendedCount };
+  const exactGrades = Object.fromEntries(STUDENT_GRADES.map((grade) => [grade, 0])) as Record<StudentGrade, number>;
+  const exactClassCodes = Object.fromEntries(["A", "B", "C", "D", "E", "F", "G", "H"].map((code) => [code, 0])) as Record<ClassCode, number>;
+  if (query.role === "STUDENT") {
+    const gradeCounts = await Promise.all(STUDENT_GRADES.map((grade) => tx.user.count({ where: buildWhere({ ...query, role: "STUDENT", grade, cursor: undefined }, yearId) })));
+    const classCounts = await Promise.all((["A", "B", "C", "D", "E", "F", "G", "H"] as ClassCode[]).map((classCode) => tx.user.count({ where: buildWhere({ ...query, role: "STUDENT", classCode, cursor: undefined }, yearId) })));
+    STUDENT_GRADES.forEach((grade, index) => { exactGrades[grade] = gradeCounts[index] ?? 0; });
+    (Object.keys(exactClassCodes) as ClassCode[]).forEach((classCode, index) => { exactClassCodes[classCode] = classCounts[index] ?? 0; });
+  }
+  const facets = { roles: exactRoles, status: exactStatus, grades: exactGrades, classCodes: exactClassCodes };
+  const last = items.at(-1);
+  const publicItems = items.map((item) => {
+    const { sortAccountName, ...publicItem } = item;
+    void sortAccountName;
+    return publicItem;
+  });
   return {
-    items,
+    items: publicItems,
     facets,
     rosterRevision,
     generatedAt: new Date().toISOString(),
-    nextCursor: hasNext && last ? encodeAdminDirectoryCursor({ accountName: last.accountName, id: last.id, fingerprint, rosterRevision }) : null,
+    nextCursor: hasNext && last ? encodeAdminDirectoryCursor({ accountName: last.sortAccountName, studentNumber: last.studentNumber, sort: query.sort, id: last.id, fingerprint, rosterRevision }) : null,
   };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }

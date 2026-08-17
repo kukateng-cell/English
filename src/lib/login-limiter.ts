@@ -68,6 +68,8 @@ interface LimitResult {
   retryAfterSec?: number;
   /** 命中限流的维度，便于排查。 */
   dimension?: Dimension;
+  /** Production Redis/configuration failure, distinct from a consumed quota. */
+  backendUnavailable?: boolean;
 }
 
 /**
@@ -313,7 +315,7 @@ export async function checkLimit(
   ip: string,
 ): Promise<LimitResult> {
   if (productionRateLimitRequired && !useUpstash) {
-    return { ok: false, retryAfterSec: 60 };
+    return { ok: false, retryAfterSec: 60, backendUnavailable: true };
   }
   try {
     const ipResult = await ipBackend.limit(ip);
@@ -341,7 +343,7 @@ export async function checkLimit(
       { errorType: describeBackendFailure(err) },
     );
     return productionRateLimitRequired
-      ? { ok: false, retryAfterSec: 60 }
+      ? { ok: false, retryAfterSec: 60, backendUnavailable: true }
       : { ok: true };
   }
 }

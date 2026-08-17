@@ -58,6 +58,22 @@ export const CLASS_LABELS: Record<ClassCode, string> = {
   H: "辛",
 };
 
+/** Stable, numeric roster ordering shared by every student directory. */
+export type StudentNumberSortKey = {
+  studentNumber: number | null;
+  accountName: string;
+  id: string;
+};
+
+export function compareStudentNumberSortKey(a: StudentNumberSortKey, b: StudentNumberSortKey) {
+  if (a.studentNumber === null && b.studentNumber !== null) return 1;
+  if (a.studentNumber !== null && b.studentNumber === null) return -1;
+  if (a.studentNumber !== null && b.studentNumber !== null && a.studentNumber !== b.studentNumber) {
+    return a.studentNumber - b.studentNumber;
+  }
+  return a.accountName.localeCompare(b.accountName, "en", { sensitivity: "base" }) || a.id.localeCompare(b.id);
+}
+
 const GRADE_ALIASES = new Map<string, StudentGrade>([
   ...STUDENT_GRADES.map((grade) => [grade, grade] as const),
   ["初一", "JUNIOR_1"],
@@ -88,6 +104,24 @@ export function parseClassCode(value: unknown): ClassCode | null {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value !== "string") return null;
   return CLASS_ALIASES.get(value.normalize("NFKC").trim().toUpperCase()) ?? null;
+}
+
+/** Parse the optional numeric school number used by a year/class roster. */
+export function parseStudentNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = typeof value === "number" && Number.isInteger(value)
+    ? String(value)
+    : typeof value === "string"
+      ? value.normalize("NFKC").trim()
+      : "";
+  if (!/^\d{1,6}$/u.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 999999 ? parsed : null;
+}
+
+/** Database uniqueness scope for an enrollment student number. */
+export function studentNumberConflictKey(classId: string | null, studentNumber: number): string {
+  return classId ? `CLASS:${classId}:${studentNumber}` : `UNASSIGNED:${studentNumber}`;
 }
 
 export function parseClassReference(value: string): {

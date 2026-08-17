@@ -9,9 +9,10 @@ import { securityEventData } from "@/lib/security-events";
 import { contactEmailError, legalNameError, normalizeContactEmail, normalizeLegalName } from "@/lib/identity";
 import { validateNicknameAgainstIdentity } from "@/lib/nickname";
 import { lockRosterIdentityKeys, lockRosterMutationState } from "@/lib/roster-server";
-import { deriveRolloverDisposition, parseClassCode, parseStudentGrade } from "@/lib/roster-domain";
+import { deriveRolloverDisposition, parseClassCode, parseStudentGrade, parseStudentNumber } from "@/lib/roster-domain";
 import { actorAuditFields } from "@/lib/admin-receipts";
 import { isRetryableTransactionConflict, waitForTransactionRetry } from "@/lib/transaction-retry";
+import { touchRosterRevision } from "@/lib/teacher-workspace";
 
 function response(code: string, status: number) {
   return NextResponse.json({ code }, { status, headers: { "Cache-Control": "private, no-store", "Vary": "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
@@ -55,7 +56,7 @@ async function lockUserBatchRows(tx: Prisma.TransactionClient, userId: string) {
 
 async function ensureManualCurrentEnrollment(
   tx: Prisma.TransactionClient,
-  input: { userId: string; grade: ReturnType<typeof parseStudentGrade>; classCode: ReturnType<typeof parseClassCode>; restoreMode?: string; actorUserId: string },
+  input: { userId: string; grade: ReturnType<typeof parseStudentGrade>; classCode: ReturnType<typeof parseClassCode>; studentNumber?: number | null; restoreMode?: string; actorUserId: string },
 ) {
   const currentYear = await tx.academicYear.findFirst({ where: { status: "CURRENT" }, orderBy: { startsOn: "desc" } });
   if (!currentYear) throw new Error("CURRENT_YEAR_MISSING");
@@ -65,16 +66,29 @@ async function ensureManualCurrentEnrollment(
   });
   const existingCurrent = await tx.studentEnrollment.findUnique({ where: { studentId_academicYearId: { studentId: input.userId, academicYearId: currentYear.id } } });
   const existingTarget = targetYear ? await tx.studentEnrollment.findUnique({ where: { studentId_academicYearId: { studentId: input.userId, academicYearId: targetYear.id } } }) : null;
-  if (input.restoreMode === "PRE_ENROLLED" && existingTarget?.status === "PLANNED") return existingTarget;
+  if (input.restoreMode === "PRE_ENROLLED" && existingTarget?.status === "PLANNED") {
+    if (input.studentNumber !== undefined && existingTarget.studentNumber !== input.studentNumber) {
+      return tx.studentEnrollment.update({ where: { id: existingTarget.id }, data: { studentNumber: input.studentNumber, revision: { increment: 1 } } });
+    }
+    return existingTarget;
+  }
   if (!input.grade) throw new Error("ENROLLMENT_GRADE_REQUIRED");
-  if (existingCurrent?.status === "ACTIVE") return existingCurrent;
   const classRecord = input.classCode
     ? await tx.schoolClass.findUnique({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: input.grade, classCode: input.classCode } } })
     : null;
   if (input.classCode && (!classRecord || !classRecord.active)) throw new Error("CLASS_NOT_FOUND");
+  if (existingCurrent?.status === "ACTIVE") {
+    const classChanged = (existingCurrent.classId ?? null) !== (classRecord?.id ?? null);
+    const gradeChanged = existingCurrent.grade !== input.grade;
+    const numberChanged = input.studentNumber !== undefined && existingCurrent.studentNumber !== input.studentNumber;
+    if (classChanged || gradeChanged || numberChanged) {
+      return tx.studentEnrollment.update({ where: { id: existingCurrent.id }, data: { grade: input.grade, classId: classRecord?.id ?? null, ...(input.studentNumber !== undefined ? { studentNumber: input.studentNumber } : {}), revision: { increment: 1 } } });
+    }
+    return existingCurrent;
+  }
   const enrollment = existingCurrent
-    ? await tx.studentEnrollment.update({ where: { id: existingCurrent.id }, data: { grade: input.grade, classId: classRecord?.id ?? null, isCurrent: true, status: "ACTIVE", origin: "MANUAL", startedAt: existingCurrent.startedAt ?? new Date(), endedAt: null, revision: { increment: 1 } } })
-    : await tx.studentEnrollment.create({ data: { studentId: input.userId, academicYearId: currentYear.id, grade: input.grade, classId: classRecord?.id ?? null, isCurrent: true, status: "ACTIVE", origin: "MANUAL", startedAt: new Date() } });
+    ? await tx.studentEnrollment.update({ where: { id: existingCurrent.id }, data: { grade: input.grade, classId: classRecord?.id ?? null, ...(input.studentNumber !== undefined ? { studentNumber: input.studentNumber } : {}), isCurrent: true, status: "ACTIVE", origin: "MANUAL", startedAt: existingCurrent.startedAt ?? new Date(), endedAt: null, revision: { increment: 1 } } })
+    : await tx.studentEnrollment.create({ data: { studentId: input.userId, academicYearId: currentYear.id, grade: input.grade, classId: classRecord?.id ?? null, studentNumber: input.studentNumber ?? null, isCurrent: true, status: "ACTIVE", origin: "MANUAL", startedAt: new Date() } });
   if (existingTarget?.status === "PLANNED" && targetYear) {
     const disposition = deriveRolloverDisposition(input.grade, existingTarget.grade, existingTarget.classId);
     if (!disposition) throw new Error("TRANSITION_DISPOSITION_REQUIRED");
@@ -100,8 +114,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!body || typeof body.operation !== "string") return response("REQUEST_INVALID", 422);
   const operation = body.operation;
   const allowedIdentity = new Set(["operation", "legalName", "contactEmail", "nickname", "expectedUserRevision", "expectedProfileRevision"]);
-  const allowedStatus = new Set(["operation", "status", "suspendedReason", "restoreMode", "grade", "classCode", "expectedUserRevision"]);
-  const allowed = operation === "UPDATE_IDENTITY" ? allowedIdentity : operation === "CHANGE_STATUS" ? allowedStatus : null;
+  const allowedEnrollment = new Set(["operation", "studentNumber", "expectedUserRevision", "expectedEnrollmentRevision", "expectedRosterRevision"]);
+  const allowedStatus = new Set(["operation", "status", "suspendedReason", "restoreMode", "grade", "classCode", "studentNumber", "expectedUserRevision"]);
+  const allowed = operation === "UPDATE_IDENTITY" ? allowedIdentity : operation === "CHANGE_STATUS" ? allowedStatus : operation === "UPDATE_ENROLLMENT" ? allowedEnrollment : null;
   if (!allowed || Object.keys(body).some((key) => !allowed.has(key))) return response(Object.prototype.hasOwnProperty.call(body, "password") ? "PASSWORD_FIELD_NOT_ALLOWED" : "REQUEST_INVALID", 422);
   const grantSnapshot = await readRecentAuthGrantSnapshot({ req, userId: auth.userId });
   if (!grantSnapshot) return response("RECENT_AUTH_REQUIRED", 401);
@@ -113,6 +128,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!Number.isInteger(expectedUserRevision) || expectedUserRevision < 0) return response("REQUEST_INVALID", 422);
   const expectedProfileRevision = body.expectedProfileRevision === undefined || body.expectedProfileRevision === null ? null : Number(body.expectedProfileRevision);
   if (expectedProfileRevision !== null && (!Number.isInteger(expectedProfileRevision) || expectedProfileRevision < 0)) return response("REQUEST_INVALID", 422);
+  const expectedEnrollmentRevision = body.expectedEnrollmentRevision === undefined || body.expectedEnrollmentRevision === null ? null : Number(body.expectedEnrollmentRevision);
+  const expectedRosterRevision = body.expectedRosterRevision === undefined || body.expectedRosterRevision === null ? null : Number(body.expectedRosterRevision);
+  if (operation === "UPDATE_ENROLLMENT" && (expectedEnrollmentRevision === null || !Number.isInteger(expectedEnrollmentRevision) || expectedEnrollmentRevision < 0 || expectedRosterRevision === null || !Number.isInteger(expectedRosterRevision) || expectedRosterRevision < 0)) return response("REQUEST_INVALID", 422);
 
   let identity: { legalName: string; contactEmail: string | null; nickname: { ok: true; value: string; normalized: string } | null; changedFields: string[] } | null = null;
   if (operation === "UPDATE_IDENTITY") {
@@ -129,11 +147,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (nickname && !nickname.ok) return response("NICKNAME_INVALID", 422);
     const changedFields = [legalNameProvided ? "legalName" : null, contactProvided ? "contactEmail" : null, nicknameProvided ? "nickname" : null].filter((field): field is string => Boolean(field));
     identity = { legalName, contactEmail, nickname: nickname?.ok ? nickname : null, changedFields };
-  } else {
+  } else if (operation === "CHANGE_STATUS") {
     if (body.status !== "ACTIVE" && body.status !== "SUSPENDED") return response("STATUS_INVALID", 422);
     if (id === auth.userId && body.status === "SUSPENDED") return response("SELF_SUSPEND_FORBIDDEN", 409);
     if (target.role === ROLES.STUDENT && body.grade !== undefined && !parseStudentGrade(body.grade)) return response("GRADE_INVALID", 422);
     if (target.role === ROLES.STUDENT && body.classCode !== undefined && body.classCode !== null && body.classCode !== "" && !parseClassCode(body.classCode)) return response("CLASS_INVALID", 422);
+    if (target.role === ROLES.STUDENT && body.studentNumber !== undefined && body.studentNumber !== null && parseStudentNumber(body.studentNumber) === null) return response("STUDENT_NUMBER_INVALID", 422);
+  } else {
+    if (target.role !== ROLES.STUDENT) return response("REQUEST_INVALID", 422);
+    if (body.studentNumber !== undefined && body.studentNumber !== null && parseStudentNumber(body.studentNumber) === null) return response("STUDENT_NUMBER_INVALID", 422);
   }
   try {
     const updated = await prisma.$transaction(async (tx) => {
@@ -151,13 +173,30 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!grant || grant.userId !== auth.userId || grant.tokenVersion !== actor.tokenVersion || grant.credentialRevision !== actor.credentialRevision || grant.expiresAt <= new Date() || grant.reauthenticatedAt.getTime() !== grantSnapshot.grant.reauthenticatedAt.getTime() || grant.expiresAt.getTime() !== grantSnapshot.grant.expiresAt.getTime()) throw new Error("RECENT_AUTH_REQUIRED");
       if (!fresh) throw new Error("USER_NOT_FOUND");
       if (fresh.revision !== expectedUserRevision) throw new Error("ADMIN_USER_PROFILE_STALE");
-      if (operation === "UPDATE_IDENTITY") {
+      if (operation === "UPDATE_ENROLLMENT") {
+        if (fresh.role !== ROLES.STUDENT) throw new Error("REQUEST_INVALID");
+        const rosterState = await tx.rosterMutationState.findUnique({ where: { id: 1 }, select: { revision: true } });
+        if (!rosterState || rosterState.revision !== expectedRosterRevision) throw new Error("ADMIN_ROSTER_STALE");
+        const currentEnrollment = await tx.studentEnrollment.findFirst({ where: { studentId: id, academicYear: { status: "CURRENT" } }, select: { id: true, revision: true } });
+        if (!currentEnrollment) throw new Error("CURRENT_ENROLLMENT_REQUIRED");
+        if (currentEnrollment.revision !== expectedEnrollmentRevision) throw new Error("ADMIN_ROSTER_STALE");
+        const nextStudentNumber = body.studentNumber === undefined || body.studentNumber === null || String(body.studentNumber).trim() === "" ? null : parseStudentNumber(body.studentNumber);
+        if (body.studentNumber !== undefined && body.studentNumber !== null && nextStudentNumber === null) throw new Error("STUDENT_NUMBER_INVALID");
+        await tx.studentEnrollment.update({ where: { id: currentEnrollment.id }, data: { studentNumber: nextStudentNumber, revision: { increment: 1 } } });
+        // Enrollment identity is part of the admin directory snapshot as well
+        // as the roster snapshot. Bump the user revision so an open detail
+        // form cannot overwrite a number change that just committed.
+        await tx.user.update({ where: { id }, data: { revision: { increment: 1 } } });
+        await touchRosterRevision(tx);
+        await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: id, subjectAccount: fresh.accountName, eventType: "STUDENT_CLASS_CHANGED", ip: getClientIp(req.headers), metadata: { changedFields: ["studentNumber"] } }) });
+      } else if (operation === "UPDATE_IDENTITY") {
         const profileRevision = fresh.role === ROLES.STUDENT ? fresh.studentProfile?.profileRevision : fresh.role === ROLES.TEACHER ? fresh.teacherProfile?.profileRevision : null;
         if (profileRevision !== null && profileRevision !== undefined && expectedProfileRevision !== profileRevision) throw new Error("ADMIN_USER_PROFILE_STALE");
         const fields = identity!;
         await tx.user.update({ where: { id }, data: { ...(Object.prototype.hasOwnProperty.call(body, "contactEmail") ? { contactEmail: fields.contactEmail, contactEmailCanonical: fields.contactEmail } : {}), ...(fresh.role === ROLES.ADMIN && Object.prototype.hasOwnProperty.call(body, "legalName") ? { legacyName: fields.legalName } : {}), revision: { increment: 1 } } });
         if (fresh.role === ROLES.STUDENT) await tx.studentProfile.update({ where: { userId: id }, data: { ...(Object.prototype.hasOwnProperty.call(body, "legalName") ? { legalName: fields.legalName } : {}), ...(Object.prototype.hasOwnProperty.call(body, "nickname") && fields.nickname ? { nickname: fields.nickname.value, nicknameNormalized: fields.nickname.normalized, nicknameUpdatedAt: new Date() } : {}), profileRevision: { increment: 1 } } });
         if (fresh.role === ROLES.TEACHER && Object.prototype.hasOwnProperty.call(body, "legalName")) await tx.teacherProfile.update({ where: { userId: id }, data: { legalName: fields.legalName, profileRevision: { increment: 1 } } });
+        await touchRosterRevision(tx);
         await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: id, subjectAccount: fresh.accountName, eventType: "ADMIN_PROFILE_UPDATED", ip: getClientIp(req.headers), metadata: { changedFields: fields.changedFields } }) });
       } else {
         const nextStatus = body.status as "ACTIVE" | "SUSPENDED";
@@ -171,8 +210,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           const currentEnrollment = await tx.studentEnrollment.findFirst({ where: { studentId: id, academicYear: { status: "CURRENT" } }, select: { grade: true, classId: true, schoolClass: { select: { classCode: true } } } });
           const grade = body.grade === undefined ? currentEnrollment?.grade ?? null : parseStudentGrade(body.grade);
           const classCode = body.classCode === undefined ? currentEnrollment?.schoolClass?.classCode ?? null : body.classCode === null || body.classCode === "" ? null : parseClassCode(body.classCode);
-          await ensureManualCurrentEnrollment(tx, { userId: id, grade, classCode, restoreMode: typeof body.restoreMode === "string" ? body.restoreMode : undefined, actorUserId: auth.userId });
+          const studentNumber = body.studentNumber === undefined ? undefined : body.studentNumber === null ? null : parseStudentNumber(body.studentNumber);
+          await ensureManualCurrentEnrollment(tx, { userId: id, grade, classCode, studentNumber, restoreMode: typeof body.restoreMode === "string" ? body.restoreMode : undefined, actorUserId: auth.userId });
         }
+        if (statusChanged || (fresh.role === ROLES.STUDENT && nextStatus === "ACTIVE")) await touchRosterRevision(tx);
         if (statusChanged) await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: id, subjectAccount: fresh.accountName, eventType: nextStatus === "SUSPENDED" ? "ACCOUNT_SUSPENDED" : "ACCOUNT_REACTIVATED", ip: getClientIp(req.headers) }) });
       }
       return tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, accountName: true, contactEmail: true, role: true, status: true, suspendedAt: true, revision: true, legacyName: true, studentProfile: { select: { legalName: true, nickname: true } }, teacherProfile: { select: { legalName: true } } } });
@@ -183,9 +224,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (error instanceof Error && ["AUTH_REQUIRED"].includes(error.message)) return response(error.message, 401);
     if (error instanceof Error && ["RECENT_AUTH_REQUIRED"].includes(error.message)) return response(error.message, 401);
     if (error instanceof Error && ["ADMIN_USER_PROFILE_STALE", "LAST_ADMIN"].includes(error.message)) return response(error.message === "LAST_ADMIN" ? "LAST_ADMIN_PROTECTION" : error.message, 409);
-    if (error instanceof Error && ["ENROLLMENT_GRADE_REQUIRED", "CURRENT_YEAR_MISSING", "CURRENT_ENROLLMENT_REQUIRED", "GRADE_CLASS_REQUIRED", "PENDING_TRANSITION_REQUIRES_REPLAN", "TRANSITION_DISPOSITION_REQUIRED"].includes(error.message)) return response(error.message, 409);
+    if (error instanceof Error && ["ENROLLMENT_GRADE_REQUIRED", "CURRENT_YEAR_MISSING", "CURRENT_ENROLLMENT_REQUIRED", "GRADE_CLASS_REQUIRED", "PENDING_TRANSITION_REQUIRES_REPLAN", "TRANSITION_DISPOSITION_REQUIRED", "ADMIN_ROSTER_STALE"].includes(error.message)) return response(error.message, 409);
     if (error instanceof Error && error.message === "CLASS_NOT_FOUND") return response(error.message, 409);
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response("ACCOUNT_OR_EMAIL_EXISTS", 409);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response(String(error.meta?.target ?? "").includes("student_number") ? "STUDENT_NUMBER_CONFLICT" : "ACCOUNT_OR_EMAIL_EXISTS", 409);
     return response("INTERNAL_ERROR", 500);
   }
 }
@@ -221,6 +262,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
           if (target.role === ROLES.STUDENT) {
             await tx.studentYearTransition.deleteMany({ where: { studentId: id } });
           }
+          await touchRosterRevision(tx);
           await tx.securityEvent.create({ data: securityEventData({ actorUserId: auth.userId, subjectUserId: id, subjectAccount: target.accountName, eventType: "USER_DELETED", ip: getClientIp(req.headers), metadata: { role: target.role } }) });
           await tx.user.delete({ where: { id } });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

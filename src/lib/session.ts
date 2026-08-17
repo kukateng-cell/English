@@ -86,7 +86,25 @@ export async function requireUser(): Promise<AuthResult> {
 
 /** 要求登录用户属于指定角色之一（用于管理端 / 教师端 API）。 */
 export async function requireRole(...allowed: Role[]): Promise<AuthResult> {
-  const session = await getServerSession(authOptions);
+  let session;
+  try {
+    session = await getServerSession(authOptions);
+  } catch (error) {
+    // An invalidated JWT (for example after a password reset) is an ordinary
+    // unauthenticated request. Other failures are treated as a temporary auth
+    // backend outage rather than escaping the route as an unhandled 500.
+    if (error instanceof Error && error.message === "SESSION_INVALIDATED") {
+      return { ok: false, status: 401, message: "Unauthorized" };
+    }
+    console.error("[auth] role check unavailable", {
+      name: error instanceof Error ? error.name : "UnknownError",
+    });
+    return {
+      ok: false,
+      status: 503,
+      message: "认证服务暂时不可用，请稍后重试",
+    };
+  }
   if (!session?.user) {
     return { ok: false, status: 401, message: "Unauthorized" };
   }
