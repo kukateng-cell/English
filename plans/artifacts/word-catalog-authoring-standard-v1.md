@@ -16,6 +16,10 @@
 >
 > A2 參考 CSV：[a2-word-catalog-reference-v1.csv](../../outputs/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv)
 
+> B1 參考 CSV：[b1-word-catalog-reference-v1.csv](../../outputs/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv)
+
+> B2 參考 CSV：[b2-word-catalog-reference-v1.csv](../../outputs/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv)
+
 ## 1. 文件目的
 
 本文件供詞庫內容團隊、英文老師、審核人員及開發者共同使用，目標係令多人製作嘅詞庫可以：

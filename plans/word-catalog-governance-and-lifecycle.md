@@ -453,4 +453,14 @@ npm run test:e2e:card-motion
 - 2026-08-18 按候選池重用報告重整 A1 參考 CSV 嘅兩方向干擾池；保留 355 行及所有非干擾項欄位，將不計次序完整重複池由
   英譯中 4 組／中譯英 1 組降至 0，同 category 共享至少五項候選嘅 pair 由 131／121 降至 0，最大重疊降至 4／6；候選仍受
   answer set、synonym、同詞 sibling sense、語言及詞性大類檢查。規範同步加入 unordered signature 及同 category overlap gate；
+- 2026-08-18 按 A1／A2 干擾項審核再修訂兩份參考 CSV：重建候選池時對同 category 的 5／6 項重疊採 blocking gate，並修正
+  A2 `ski` 的 sibling-sense 中文答案碰撞；另人工修正 A1 `passport`／`Earth`／`far`／determiner、A2 `screen`／`well`／
+  `suggestion` 等明顯近義或類型提示。A2 `twin bed`／`single bed` 因同一裸中文題幹「單人床」可對應兩個英文答案，另
+  `traveller` 因「旅客」可對應多個常用英文，暫停三行中譯英方向並清空其候選池。當前檢查已確認兩份檔案均為 39 欄、單一 UTF-8 BOM、
+  無同分類 5／6 重疊、無完整不計次序重複池、
+  無目前／sibling 正解碰撞；三個獨立 sub-agent 已完成 A1、A2 及跨檔案審核，發現的 exact pool／5-6 overlap 及近義項
+  問題已跟進，並由本地 final validator 再次確認上述 blocking checks 通過。
+- 2026-08-18 按同一標準由現存 `word list.md` 產生 B1／B2 DRAFT 參考 CSV：原始 B1／B2 行先移除缺少可靠中文釋義的畸形項，並以 A1／A2 優先保留完全相同詞義；共移除 122 個已在較低程度出現的 exact sense，最後 B1 1,743 行、B2 2,096 行。修正可確認的來源錯譯／詞性及香港用語，包括 `die for`、`lift weights`、`iced tea`、`Mardi Gras`、`DNA`、`Skype`、`major`、`modeling`、`image`、`counter`、`paramedic`、`tomato paste`、`presentation`、`opening`、`wind machine`、`contract`、`database`、`mouse pad`、`landfill` 等。
+- 2026-08-18 B1／B2 干擾池按全域 answer-set、同詞跨 sense、形態相關詞、語言、詞性大類、完整 pool signature 及同 category 重用 gate 重建；三個獨立 sub-agent 已完成 B1、B2 及跨檔案審核，發現的答案碰撞、詞性／釋義及機械重用問題已跟進。最終 B1 英譯中 1,576 啟用／167 停用、中譯英 1,312 啟用／431 停用；B2 英譯中 1,936 啟用／160 停用、中譯英 1,638 啟用／458 停用。兩份均為 39 欄、單一 UTF-8 BOM、每個啟用方向六項候選；跨 A1–B2 無 exact sense duplicate，B1／B2 無 direct／sibling answer collision、無完整 pool duplicate，同分類最大候選重疊為 3 項。
+- B1／B2 參考檔所有行保持 `CREATE_DRAFT`，`prompt_en`／`prompt_zh`、來源、貢獻者及 change note 均留空；舊 Markdown 未提供的 IPA／例句沒有虛構填寫，故仍須英文老師逐行覆核詞義、詞性、干擾項、例句及音標後，先可進入 ACTIVE。上述中譯英停用方向係有意 fail closed，不能當成內容已完成啟用。
 - 尚未修改 Prisma schema、migration、runtime code、database或production；尚未執行功能測試。
