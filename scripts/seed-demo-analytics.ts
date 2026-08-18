@@ -14,6 +14,7 @@ import { currentAcademicYearDates, STUDENT_GRADES } from "../src/lib/roster-doma
 import { passwordPolicyError } from "../src/lib/password-policy";
 import { todayKey, offsetDay } from "../src/lib/streak";
 import { createInitialState, updateSM2At, type ReviewState, type Quality } from "../src/lib/sm2";
+import { isMasteredByInterval } from "../src/lib/mastered";
 import { OBJECTIVE_ITEM_CONSTRUCTION_VERSION, OBJECTIVE_QUALITY_POLICY_VERSION, RETRIEVAL_POLICY_VERSION } from "../src/lib/learning-policy/types";
 
 dotenv.config({ path: ".env.local" });
@@ -25,7 +26,80 @@ const args = new Set(process.argv.slice(2));
 const preview = args.has("--preview-reset");
 const rebuild = args.has("--reset-and-rebuild");
 const confirmed = args.has("--confirm-local-demo-reset");
-const VERSION = "demo-analytics-v1";
+const VERSION = "demo-analytics-v2";
+
+const DEMO_LEVELS = ["A1", "A2", "B1"] as const;
+type DemoLevel = (typeof DEMO_LEVELS)[number];
+type DemoTrack = "LEADING" | "ADVANCED" | "STEADY" | "PROGRESSING" | "DEVELOPING" | "INTERMITTENT" | "FOLLOW_UP" | "NEW";
+type DemoWord = { id: string; term: string; level: DemoLevel; definition: string };
+type DemoStage = { level: DemoLevel; poolSize: number };
+type DemoTrackConfig = {
+  stages: readonly DemoStage[];
+  participates: (day: number, effectiveDays: number) => boolean;
+  objectiveInterval: number;
+  streakTailDays: number;
+};
+
+const DEMO_TRACK_ORDER: readonly DemoTrack[] = ["NEW", "FOLLOW_UP", "INTERMITTENT", "DEVELOPING", "PROGRESSING", "STEADY", "ADVANCED", "LEADING"];
+const CLASS_TRACKS: readonly DemoTrack[] = [
+  "LEADING", "PROGRESSING", "DEVELOPING",
+  "ADVANCED", "STEADY", "INTERMITTENT",
+  "LEADING", "PROGRESSING", "FOLLOW_UP",
+  "ADVANCED", "STEADY", "DEVELOPING",
+  "LEADING", "PROGRESSING", "INTERMITTENT",
+  "ADVANCED", "STEADY", "NEW",
+];
+const DEMO_MIN_WORDS_PER_LEVEL = 10;
+const DEMO_TRACKS: Record<DemoTrack, DemoTrackConfig> = {
+  LEADING: {
+    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    participates: () => true,
+    objectiveInterval: 3,
+    streakTailDays: 7,
+  },
+  ADVANCED: {
+    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    participates: (day) => day % 7 < 6,
+    objectiveInterval: 3,
+    streakTailDays: 5,
+  },
+  STEADY: {
+    stages: [{ level: "A1", poolSize: 3 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    participates: (day) => day % 7 < 5,
+    objectiveInterval: 3,
+    streakTailDays: 3,
+  },
+  PROGRESSING: {
+    stages: [{ level: "A1", poolSize: 3 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    participates: (day) => day % 7 < 4,
+    objectiveInterval: 3,
+    streakTailDays: 2,
+  },
+  DEVELOPING: {
+    stages: [{ level: "A1", poolSize: 5 }, { level: "A2", poolSize: 4 }, { level: "B1", poolSize: 3 }],
+    participates: (day) => day % 7 < 3,
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+  INTERMITTENT: {
+    stages: [{ level: "A1", poolSize: 4 }, { level: "A2", poolSize: 3 }, { level: "B1", poolSize: 2 }],
+    participates: (day) => day % 21 < 4,
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+  FOLLOW_UP: {
+    stages: [{ level: "A1", poolSize: 3 }, { level: "A2", poolSize: 2 }],
+    participates: (day) => day % 13 === 0,
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+  NEW: {
+    stages: [{ level: "A1", poolSize: 3 }],
+    participates: (day, effectiveDays) => day >= Math.max(0, effectiveDays - 4),
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+};
 
 function fail(message: string): never { throw new Error(message); }
 function requireLocalEnvironment(): Environment {
@@ -38,8 +112,22 @@ function requireLocalEnvironment(): Environment {
 function randomId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
 function hash(value: string) { return crypto.createHash("sha256").update(value).digest("hex"); }
 function dateAt(key: string, hour = 12) { return new Date(`${key}T${String(hour).padStart(2, "0")}:00:00+08:00`); }
-function archetype(index: number) { const ratio = index % 20; return ratio < 4 ? "STEADY_HIGH" : ratio < 9 ? "STEADY_GENERAL" : ratio < 13 ? "IMPROVING" : ratio < 16 ? "INTERMITTENT" : ratio < 19 ? "FOLLOW_UP" : "NEW"; }
 function fixturePassword(envName: string) { const value = process.env[envName] ?? ""; if (passwordPolicyError(value)) fail(`${envName} 不符合密碼政策。`); return value; }
+
+function trackForStudent(classIndex: number, studentIndex: number): DemoTrack {
+  const base = CLASS_TRACKS[classIndex]!;
+  const baseIndex = DEMO_TRACK_ORDER.indexOf(base);
+  const variation = studentIndex === 0 ? 1 : studentIndex >= 6 ? -1 : 0;
+  return DEMO_TRACK_ORDER[Math.max(0, Math.min(DEMO_TRACK_ORDER.length - 1, baseIndex + variation))]!;
+}
+
+function demoQuality(track: DemoTrack, day: number, studentIndex: number): Quality {
+  if (track === "FOLLOW_UP") return 2;
+  if (track === "INTERMITTENT") return (day + studentIndex) % 3 === 0 ? 2 : 4;
+  if (track === "DEVELOPING") return (day + studentIndex) % 17 === 0 ? 2 : 4;
+  if (track === "PROGRESSING" && studentIndex % 3 === 0 && day % 19 === 0) return 2;
+  return 4;
+}
 
 async function previewReset(env: Environment) {
   const [users, years, classes, reviews, events, encounters, days] = await Promise.all([
@@ -103,8 +191,17 @@ async function buildDemo() {
       const assigned = [...classMap.values()].filter((_, classIndex) => classIndex % teachers.length === index || (index === 0 && classIndex < 6));
       for (const classId of assigned) await tx.teacherClassAccess.create({ data: { teacherId: teacher.id, classId, canViewProgress: true, canResetStudentPassword: index < 3, grantedById: admin.id } });
     }
-    const words = await tx.word.findMany({ take: 24, orderBy: { term: "asc" }, select: { id: true, term: true, level: true, definition: true } });
-    if (!words.length) fail("Word 詞庫為空，請先執行標準 seed。");
+    const wordsByLevel = new Map<DemoLevel, DemoWord[]>();
+    for (const level of DEMO_LEVELS) {
+      const rows = await tx.word.findMany({
+        where: { level },
+        take: DEMO_MIN_WORDS_PER_LEVEL,
+        orderBy: [{ category: "asc" }, { term: "asc" }, { id: "asc" }],
+        select: { id: true, term: true, level: true, definition: true },
+      });
+      if (rows.length < DEMO_MIN_WORDS_PER_LEVEL) fail(`${level} 詞庫不足，至少需要 ${DEMO_MIN_WORDS_PER_LEVEL} 個單詞。`);
+      wordsByLevel.set(level, rows.map((row) => ({ ...row, level })));
+    }
     // Direct fixture writes still use the same V2 writer marker as production,
     // so the legacy Review trigger cannot create a second incomplete event.
     await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v2', true)`;
@@ -135,18 +232,41 @@ async function buildDemo() {
     const missingStudentNumbers = await tx.studentEnrollment.count({ where: { academicYearId: year.id, student: { user: { role: "STUDENT" } }, studentNumber: null } });
     if (missingStudentNumbers !== 0) fail(`示範資料有 ${missingStudentNumbers} 名學生未設定學號。`);
     for (const student of students) {
-      const kind = archetype(student.index);
+      const studentIndex = student.index % 8;
+      const track = trackForStudent(Math.floor(student.index / 8), studentIndex);
+      const trackConfig = DEMO_TRACKS[track];
       const session = await tx.studySession.create({ data: { userId: student.id, queueFingerprint: hash(`${VERSION}:${student.id}`), expiresAt: dateAt(offsetDay(effectiveEnd, -1)), retiredAt: dateAt(effectiveEnd), flowVersion: "v2", learningPolicyVersion: "retrieval-v1", mode: "global", revision: 0 } });
       const reviewStates = new Map<string, ReviewState>();
       const reviewRevisions = new Map<string, number>();
       const reviewTotals = new Map<string, number>();
+      const stagePools = trackConfig.stages.map((stage) => {
+        const words = wordsByLevel.get(stage.level)?.slice(0, stage.poolSize) ?? [];
+        if (words.length !== stage.poolSize) fail(`${track} 的 ${stage.level} staged pool 不足。`);
+        return { ...stage, words };
+      });
+      let currentStageIndex = 0;
+      let stageAttempt = 0;
+      const nextStagedWord = () => {
+        const previousStageIndex = currentStageIndex;
+        while (currentStageIndex < stagePools.length - 1) {
+          const stage = stagePools[currentStageIndex]!;
+          if (!stage.words.every((word) => isMasteredByInterval(reviewStates.get(word.id)?.interval ?? 0))) break;
+          currentStageIndex += 1;
+        }
+        if (currentStageIndex !== previousStageIndex) stageAttempt = 0;
+        const stage = stagePools[currentStageIndex]!;
+        const word = stage.words[stageAttempt % stage.words.length]!;
+        stageAttempt += 1;
+        return word;
+      };
       for (let day = 0; day < effectiveDays; day += 1) {
         const date = offsetDay(effectiveStart, day);
-        const participate = kind === "STEADY_HIGH" ? day % 2 === 0 : kind === "STEADY_GENERAL" ? day % 4 === 0 : kind === "IMPROVING" ? day > effectiveDays * 0.55 && day % 2 === 0 : kind === "INTERMITTENT" ? (day % 21) < 4 : kind === "FOLLOW_UP" ? day % 13 === 0 : day >= effectiveDays - 3;
+        const participate = trackConfig.participates(day, effectiveDays);
         if (!participate) continue;
-        const quality: Quality = kind === "FOLLOW_UP" || kind === "INTERMITTENT" && day % 3 === 0 ? 2 : 4;
+        const quality = demoQuality(track, day, studentIndex);
+        const objectiveProbe = day % trackConfig.objectiveInterval === 0 || day >= Math.max(0, effectiveDays - trackConfig.streakTailDays);
         await tx.studyDay.upsert({ where: { userId_date: { userId: student.id, date } }, create: { userId: student.id, date, createdAt: dateAt(date, 18) }, update: {} });
-        const word = words[(student.index + day) % words.length]!;
+        const word = nextStagedWord();
         const streamItemId = randomId("stream");
         const revealOperation = randomId("reveal");
         const operationId = randomId("encounter");
@@ -158,7 +278,7 @@ async function buildDemo() {
         ] });
         await tx.studyEncounter.create({ data: { userId: student.id, wordId: word.id, streamItemId, operationId, selfRating: quality === 4 ? "KNOWN" : "NOT_SURE", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", requiresVerification: false, acknowledgedAt: dateAt(date, 13), createdAt: dateAt(date, 13) } });
         session.revision = learningRevision;
-        if ((day + student.index) % 3 === 0) {
+        if (objectiveProbe) {
           const eventId = randomId("event"); const targetId = randomId("target"); const snapshotId = randomId("snapshot"); const obligationId = randomId("obligation"); const answerOperation = randomId("answer"); const feedbackOperation = randomId("feedback");
           const expectedRevision = reviewRevisions.get(word.id) ?? 0;
           await tx.evidenceObligation.create({ data: { id: obligationId, userId: student.id, wordId: word.id, kind: "EVIDENCE_OBLIGATION", status: "ANSWERED", sourceOperationId: operationId, selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", eligibleAt: dateAt(date, 14), expiresAt: dateAt(date, 23), answeredAt: dateAt(date, 15), terminalReason: "answered" } });

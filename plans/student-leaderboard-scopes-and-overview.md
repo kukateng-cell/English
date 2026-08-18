@@ -17,6 +17,8 @@
 - 頁面頂部即時顯示自己在三個範圍、三項指標的排名、分母及目前數值；無法參與本班榜時要清楚顯示原因。
 - 保留現有 Top 20 加入自己的 row、並列排名及 nickname-only privacy contract；排名範圍由 server 根據 session user 的 enrollment 決定。
 - 在繁／簡 locale、light／dark theme、mobile／desktop 及 keyboard 使用下保持可理解及可操作。
+- 排行榜內容區要按 desktop、tablet、mobile 可用寬度伸縮；desktop 不再被手機寬度容器限制，tablet／mobile 保持單欄可讀及無水平溢出。
+- 本地 development demo 要按 A1 → A2 → B1 的先後順序產生可解釋的學習進度，並令班級及學生的排名值有穩定、明顯差異。
 
 ### 2.2 非目標
 
@@ -24,7 +26,7 @@
 - 不為舊測試資料做資料修復或重新計算；all-time metric semantics 在第一版保留。
 - 不建立歷史班籍快照、排行榜物化表、分數正規化或跨學年比較。
 - 不增加教師／管理員 leaderboard surface，不顯示 legal name、account name、學號或其他公開 PII。
-- 不執行 production deploy、contract migration 或破壞性資料清理。
+- 不執行 production deploy、contract migration 或 production data cleanup；本地 development demo reset 只可由受 guard 保護的 exact confirmation command 執行。
 
 ### 2.3 成功準則
 
@@ -97,7 +99,14 @@ API 返回三個範圍各自的 `participantCount` 及三項 metric 的 `{ rank,
 
 ### 5.4 Data / migration
 
-第一版不改 Prisma schema、不新增 migration、不改現有資料；只把 current enrollment metadata 帶入 leaderboard read model。若實測 query plan 顯示需要 index，另開 migration 及驗證，不在本功能內以 `db push` 代替。
+第一版不改 Prisma schema、不新增 migration、不改 production／非-demo資料；只把 current enrollment metadata 帶入 leaderboard read model。今次 follow-up 只重建 local development demo fixture。若實測 query plan 顯示需要 index，另開 migration 及驗證，不在本功能內以 `db push` 代替。
+
+### 5.5 Responsive presentation and demo fixture
+
+- 排行榜頁面使用可伸縮的 wide content container：手機維持單欄，tablet 以多欄概覽及可換行 controls 充分利用空間，desktop 以三欄 scope overview 及較寬的 detail surface 呈現。
+- 概覽卡、範圍／指標 controls 及 leaderboard rows 必須在窄 viewport 不產生 horizontal overflow；長暱稱只截斷於 row 內，不能推開數值欄。
+- `scripts/seed-demo-analytics.ts` 仍只用 canonical V2 action／ReviewEvent／Review replay，但詞池按 level 分組，學生只有在目前 level 的 staged pool 全部達到 mastery threshold 後才可進入下一 level。
+- demo class track 及 student slot 提供 deterministic variation；checker 要驗證至少有多個 mastered-count band、每個高 level review 前的 lower level rows 已完成，以及至少有學生真正到達 A2／B1。
 
 ## 6. 分階段實施 checklist
 
@@ -118,13 +127,23 @@ API 返回三個範圍各自的 `participantCount` 及三項 metric 的 `{ rank,
 
 - [x] 在排行榜入口先顯示三範圍概覽，包含目前學生自己的 rank、value 及 participant count。
 - [x] 新增詳細榜單 scope switch；不可用 scope 有 disabled／說明，loading、error、empty 狀態完整。
-- [ ] 驗證繁／簡、light／dark、mobile／desktop、keyboard focus 及 screen-reader labels；authenticated browser smoke 受本機 login limiter 阻擋。
+- [x] 以 authenticated local browser 驗證 390px mobile、820px tablet、1440px desktop；三者均無 horizontal overflow，並核對 desktop wide container、三欄 overview 及 detail controls／list split。
+- [x] 在 browser smoke 內切換 metric 及 grade scope，確認 selected tab、cohort label 及 summary 更新。
+- [ ] 完整繁／簡、light／dark、keyboard focus 及 screen-reader matrix；今次已確認 Traditional／light responsive surface，native accessibility／device matrix仍 deferred。
 
 ### Phase D — verification and handoff
 
 - [x] 執行 focused unit、lint、typecheck、build 及 `git diff --check`；route service smoke 已完成。
 - [x] 以 local current-year fixtures 驗證同班、同級、全校 cohort；classless fallback／unauthorized scope rejection 的 route fixture 仍待可用 authenticated test account。
-- [x] 記錄實際測試、未執行項目、已知限制及 rollback 方法；browser matrix 保持未完成狀態。
+- [x] 記錄實際測試、未執行項目、已知限制及 rollback 方法；responsive browser matrix 已完成，native accessibility matrix 保持 deferred。
+
+### Phase E — responsive correction and staged demo fixture
+
+- [x] 移除排行榜 desktop 的 mobile-only `max-w-md` 限制，建立 max-width wide container、responsive overview grid 及 desktop detail two-column layout。
+- [x] 將 demo generator 詞池按 A1／A2／B1 分組；只有前一 staged pool 的 Review rows 全部達到 mastery threshold 才進入下一級。
+- [x] 加入 deterministic class track／student slot variation、recent streak tail 及較輕量 objective cadence，令領先、進步中、間歇及新加入學生有可見差異。
+- [x] 將 fixture marker 升至 `demo-analytics-v2`，checker 驗證 exact roster、V2 lineage、lower-level completion gate、A2／B1 覆蓋及班／人掌握詞數差異。
+- [x] 在本機 development database 以 guarded reset rebuild v2 fixture；Word catalog 保留，重建後 checker READY。
 
 ## 7. 風險及保護措施
 
@@ -158,8 +177,9 @@ API 返回三個範圍各自的 `participantCount` 及三項 metric 的 `{ rank,
 - [ ] 三個 scope 的 current-year active cohort、default、unavailable 及 unauthorized cases 已有 server tests。
 - [ ] overview 入頁顯示自己三項 metric 在本班／全年級／全校的 rank/value/outOf；classless 行為清楚。
 - [ ] 詳細榜單可切換三個可用範圍，既有 metric tabs、Top 20 + self、nickname privacy 及 rank semantics 保留。
-- [ ] 繁／簡、light／dark、responsive、keyboard／a11y QA 完成。
-- [ ] lint、typecheck、build、focused tests 通過；實際結果及未執行高成本項目已寫回本計劃。
+- [ ] 繁／簡、light／dark、responsive、keyboard／a11y QA 完成；responsive browser geometry 已通過，但 full native accessibility matrix deferred。
+- [x] development demo fixture 按 A1 → A2 → B1 staged order 產生，且 checker 能阻止 lower-level 未完成或班／人差異不足的 fixture。
+- [x] lint、typecheck、build、focused tests 通過；實際結果及未執行高成本項目已寫回本計劃。
 
 ## 11. 決策紀錄
 
@@ -169,6 +189,8 @@ API 返回三個範圍各自的 `participantCount` 及三項 metric 的 `{ rank,
 | 2026-08-18 | 進入頁面先顯示三層概覽，詳細榜單另以 scope switch 查看 | 先回答「我喺邊度」再讓學生查看完整榜單，減少逐頁尋找 |
 | 2026-08-18 | 保留現有 raw all-time metrics，不在本輪加入 normalization | 不改已生效的 metric contract；公平性改善另開決策 |
 | 2026-08-18 | MVP 不新增 schema／migration | 現有 enrollment relations 足以建立 cohort，降低資料及 rollout 風險 |
+| 2026-08-18 | Demo generator 以 staged A1 → A2 → B1 pool 及 guarded v2 marker 取代字母排序抽詞 | 排行榜 demo 要能解釋領先／落後及級別先後；不改 production metric 或 schema |
+| 2026-08-18 | 高參與 track 保留最近 objective tail，其餘 objective cadence 約每三日 | 同時保留可見 current streak、控制完整 V2 fixture rebuild 的 transaction workload，避免重播已掌握詞造成 SM-2 interval overflow |
 
 ## 12. 驗證紀錄及已知限制
 
@@ -180,11 +202,16 @@ API 返回三個範圍各自的 `participantCount` 及三項 metric 的 `{ rank,
 - `npm run build`：passed；sandbox 首次因 Turbopack 無法 bind process/port 而失敗，escalated retry passed。
 - `git diff --check`：passed。
 - `npx prisma migrate status`：escalated read-only check passed，49 migrations，database schema up to date；沒有執行 migration。
-- local read-only leaderboard service smoke：測試學生 default/class/grade/school 全部成功；fixture 回傳本班 9 人、全年級 9 人、全校 42 人，三項 overview rank/outOf 均有值。
+- local read-only leaderboard service smoke：v2 fixture 的測試學生 default scope 成功，overview 三個 cohort 的 participant counts 為本班 8、全年級 26、全校 149，三項 metrics 均有值。
+- `npm run seed:demo-analytics -- --reset-and-rebuild --confirm-local-demo-reset`（`DATABASE_ENVIRONMENT=development`）：成功建立 v2 local fixture；18 班、144 名班內學生、6 名特殊學生、90 日活動；Word catalog 保留。
+- `npm run check:demo-analytics-fixture`：通過；18 班、150 名 STUDENT、4 名 TEACHER、2,844 條 V2 ReviewEvent、7,626 encounters／StudyDay，並通過 A1 → A2 → B1 及班／人差異 gates。
+- read-only distribution query：mastered bands 為 0／1／2／3／6；領先班 A1／A2／B1 均有進度，student-test 的 class／grade／school participant counts 為 8／26／149。
+- authenticated Playwright responsive smoke：390px、820px、1440px 均無 horizontal overflow；desktop content 1,136px、overview 三欄約 354px、detail controls／list 約 384px＋682px；metric 及 grade scope tab 可切換。
 
 未完成／未執行：
 
-- authenticated Playwright smoke 未能進入排行榜 assertion：sandbox bind `127.0.0.1:3100` 受限，escalated retry 後 auth setup 被現有 `student-test` login limiter 拒絕；沒有可用的 storage state，故未把此結果判定為 UI pass 或 feature failure。
-- 未執行 production deploy、contract migration、destructive cleanup、完整 native screen-reader／device matrix。
+- 未執行 production deploy、contract migration、local demo 以外的 destructive cleanup、完整 native screen-reader／device matrix。
+
+本輪已執行的 destructive action 只係 user-requested、guarded local development demo rebuild；沒有執行 production 或 contract migration。
 
 已知限制：第一版保留 raw all-time 指標；全校「掌握詞數」未做年級／學習年資 normalization。後續若要公平化，需另開產品決策及計劃，不在本輪偷偷改 metric contract。

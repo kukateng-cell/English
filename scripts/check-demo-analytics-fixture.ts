@@ -14,7 +14,7 @@ function fail(message: string): never { throw new Error(message); }
 
 async function main() {
   const marker = await prisma.databaseMetadata.findUnique({ where: { key: "demoAnalytics" } });
-  if (marker?.value !== "demo-analytics-v1") fail("示範資料 READY 標記不存在。");
+  if (marker?.value !== "demo-analytics-v2") fail("示範資料 READY 標記不存在。");
   const year = await prisma.academicYear.findFirst({ where: { status: "CURRENT" }, select: { id: true } });
   if (!year) fail("找不到 CURRENT 學年。");
   const classes = await prisma.schoolClass.findMany({ where: { academicYearId: year.id, active: true }, select: { id: true, grade: true, classCode: true, _count: { select: { enrollments: { where: { status: "ACTIVE" } } } } } });
@@ -48,6 +48,43 @@ async function main() {
   if (remediationObligations !== 0) fail("示範資料仍有未完成的 remediation obligation。");
   const receiptCounts = new Map(receipts.map((row) => [row.actionKind, row._count._all]));
   if ((receiptCounts.get("REVEAL") ?? 0) !== learningItems || (receiptCounts.get("SELF_RATING") ?? 0) !== learningItems || (receiptCounts.get("ANSWER") ?? 0) !== objectiveTargets.length || (receiptCounts.get("FEEDBACK_ACK") ?? 0) !== objectiveTargets.length) fail("四種 V2 durable action receipts 數量不完整。");
+
+  const [progressionRows, rosterRows] = await Promise.all([
+    prisma.review.findMany({ select: { userId: true, interval: true, word: { select: { level: true } } } }),
+    prisma.studentEnrollment.findMany({ where: { academicYearId: year.id, status: "ACTIVE", classId: { not: null } }, select: { studentId: true, classId: true } }),
+  ]);
+  const levelOrder = ["A1", "A2", "B1", "B2"] as const;
+  const progressByUser = new Map<string, Map<string, { reviewed: number; mastered: number }>>();
+  for (const row of progressionRows) {
+    const byLevel = progressByUser.get(row.userId) ?? new Map<string, { reviewed: number; mastered: number }>();
+    const summary = byLevel.get(row.word.level) ?? { reviewed: 0, mastered: 0 };
+    summary.reviewed += 1;
+    if (row.interval >= 22) summary.mastered += 1;
+    byLevel.set(row.word.level, summary);
+    progressByUser.set(row.userId, byLevel);
+  }
+  let masteredA2Students = 0;
+  let masteredB1Students = 0;
+  const rosterMasteredCounts: number[] = [];
+  const classMasteredTotals = new Map<string, number>();
+  for (const roster of rosterRows) {
+    const byLevel = progressByUser.get(roster.studentId) ?? new Map<string, { reviewed: number; mastered: number }>();
+    const masteredCount = [...byLevel.values()].reduce((total, summary) => total + summary.mastered, 0);
+    rosterMasteredCounts.push(masteredCount);
+    classMasteredTotals.set(roster.classId!, (classMasteredTotals.get(roster.classId!) ?? 0) + masteredCount);
+    if ((byLevel.get("A2")?.mastered ?? 0) > 0) masteredA2Students += 1;
+    if ((byLevel.get("B1")?.mastered ?? 0) > 0) masteredB1Students += 1;
+    for (let levelIndex = 1; levelIndex < levelOrder.length; levelIndex += 1) {
+      const current = byLevel.get(levelOrder[levelIndex]!);
+      if (!current?.reviewed) continue;
+      for (let lowerIndex = 0; lowerIndex < levelIndex; lowerIndex += 1) {
+        const lower = byLevel.get(levelOrder[lowerIndex]!);
+        if (!lower || lower.reviewed === 0 || lower.mastered !== lower.reviewed) fail("示範學生在完成較低級別前已經開始較高級別，A1 → A2 → B1 順序驗證失敗。");
+      }
+    }
+  }
+  if (!masteredA2Students || !masteredB1Students) fail("示範資料沒有同時覆蓋 A2 及 B1 的已掌握進度。");
+  if (new Set(rosterMasteredCounts).size < 4 || new Set(classMasteredTotals.values()).size < 3) fail("示範資料的學生／班級掌握詞數差異不足。");
 
   const toTraditional = OpenCC.Converter({ from: "cn", to: "tw" });
   for (const sourceFile of ["prisma/seed.ts", "scripts/seed-demo-analytics.ts"]) {
