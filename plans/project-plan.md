@@ -1,100 +1,100 @@
-# 中学生英语单词认读学习平台 · 项目计划与现状
+# 中學生英語單詞認讀學習平臺 · 項目計劃與現狀
 
-> 科创比赛参赛项目
+> 科創比賽參賽項目
 > 版本：v0.4（Retrieval-first V2 local product baseline）
-> 创建日期：2026-07-19
-> 更新日期：2026-08-15
-> 状态：Retrieval-first V2 本地产品基线已完成；production／pilot／research deferred
+> 創建日期：2026-07-19
+> 更新日期：2026-08-18
+> 狀態：Retrieval-first V2 本地產品基線已完成；production／pilot／research deferred
 
 > 計劃書索引見 `plans/README.md`。本文內的程式及文件路徑均相對 repository root。
 
-> 本文同时记录产品愿景、已实现能力和后续路线。代码行为以测试与
-> `prisma/schema.prisma` 为准；生产部署流程以 `DEPLOY.md` 为准。
-> 当前学生流程及 AI 交接快照见
+> 本文同時記錄產品願景、已實現能力和後續路線。代碼行為以測試與
+> `prisma/schema.prisma` 為準；生產部署流程以 `DEPLOY.md` 為準。
+> 當前學生流程及 AI 交接快照見
 > [Retrieval-first V2 Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)。
 
 ---
 
-## 一、项目概述
+## 一、項目概述
 
-### 1.1 项目背景
+### 1.1 項目背景
 
-初中阶段英语词汇学习存在三个长期痛点：
+初中階段英語詞彙學習存在三個長期痛點：
 
-1. **死记硬背效率低**：学生普遍采用"背单词表"方式，缺乏科学的复习节奏，遗忘率高。
-2. **碎片时间难利用**：课间、通勤、排队等 1–10 分钟的碎片时间没有顺手的学习工具。
-3. **学校场景仍有专门需求**：通用卡片工具自由度高，消费级背词产品内容丰富，
-   但本项目要验证的是另一组约束——学校统一账号、教师可见进度、透明算法、
-   可审计事件，以及学生无需自行配置的 Retrieval-first 认读流程。竞品公开能力见第六节。
+1. **死記硬背效率低**：學生普遍採用"背單詞表"方式，缺乏科學的複習節奏，遺忘率高。
+2. **碎片時間難利用**：課間、通勤、排隊等 1–10 分鐘的碎片時間沒有順手的學習工具。
+3. **學校場景仍有專門需求**：通用卡片工具自由度高，消費級背詞產品內容豐富，
+   但本項目要驗證的是另一組約束——學校統一賬號、教師可見進度、透明算法、
+   可審計事件，以及學生無需自行配置的 Retrieval-first 認讀流程。競品公開能力見第六節。
 
-认知心理学与教育数据挖掘领域已有大量成熟研究（Ebbinghaus 遗忘曲线、SM-2、知识追踪），但**这些成果在国内中学生可用产品中的严谨落地仍然稀缺**。
+認知心理學與教育數據挖掘領域已有大量成熟研究（Ebbinghaus 遺忘曲線、SM-2、知識追蹤），但**這些成果在國內中學生可用產品中的嚴謹落地仍然稀缺**。
 
-### 1.2 项目目标
+### 1.2 項目目標
 
-构建一个**面向中学生、移动优先**的英语单词**认读**学习网站：
+構建一個**面向中學生、移動優先**的英語單詞**認讀**學習網站：
 
-- **核心目标**：认字——看到英文能迅速反应出中文含义（不含拼写/语法/听说）。
-- **算法核心**：基于 **SM-2 间隔重复算法**，科学安排每个单词的复习时间。
-- **体验核心**：随时随地、可随时中断、下次自动续学。
-- **学习核心**：先让学生尝试从记忆提取词义，再揭示答案；self-rating 与客观认读证据分开。
-- **交互核心**：Learning Card 需在非发音区域原地长按 3 秒揭示，揭示后报告与刚才所想
-  是否一致；Objective Probe 的第一次合法答案才由服务器判分并推动间隔状态。
+- **核心目標**：認字——看到英文能迅速反應出中文含義（不含拼寫/語法/聽說）。
+- **算法核心**：基於 **SM-2 間隔重複算法**，科學安排每個單詞的複習時間。
+- **體驗核心**：隨時隨地、可隨時中斷、下次自動續學。
+- **學習核心**：先讓學生嘗試從記憶提取詞義，再揭示答案；self-rating 與客觀認讀證據分開。
+- **交互核心**：Learning Card 需在非發音區域原地長按 3 秒揭示，揭示後報告與剛才所想
+  是否一致；Objective Probe 的第一次合法答案才由服務器判分並推動間隔狀態。
 
-### 1.3 项目意义
+### 1.3 項目意義
 
-- 先把认知心理学与 SM-2 间隔重复实现成可运行、可测试的基线，再以真实学习事件
-  评估 HLR、FSRS 或知识追踪等后续模型。
-- 移动优先设计，贴合中学生碎片化学习场景，降低坚持学习的门槛。
-- 所有记忆调度逻辑严格遵循公开论文，**可复现、可评估、可对比**，具备科研价值。
-
----
-
-## 二、目标用户与使用场景
-
-### 2.1 目标用户
-
-- **主要用户**：初一至初三学生。
-- **核心学习目标**：应对中考英语认读，以 A1–B1 为核心范围。
-- **当前内容范围**：仓库词表和产品级别已扩展至 A1–B2、5000+ 去重词条；B2
-  属扩展内容，不应与“中考核心词汇数量”混为一谈。
-
-### 2.2 典型使用场景
-
-- 课间、通勤、排队、睡前等碎片时间。
-- 单次学习时长 **1–10 分钟**，随时可中断。
-- 下次打开自动从上次位置继续，无需任何"恢复"操作。
-
-### 2.3 典型用户故事
-
-> 小明在公交车上打开网站。系统从 continuous stream 发出当前最合适的 Learning Card
-> 或 Objective Probe，不要求完成固定题数。
->
-> - 看到 `abandon`，他先在心里想中文意思；约一秒后出现长按提示。他在非发音区域
->   原地长按三秒，卡片翻转并显示中文意思、音标位及发音，然后报告答案与刚才所想
->   是否一致。这个报告只用于记录学习过程，不直接改变掌握度。
-> - 稍后系统发出 Objective Probe；他第一次选择答案后由服务器判分。答对／答错分别
->   按 versioned policy 映射为 SM-2 quality 4／2，决定后续复习间隔。
->
-> 5 分钟后到站，他关闭页面。下次打开，系统自动接着上次的进度继续。
+- 先把認知心理學與 SM-2 間隔重複實現成可運行、可測試的基線，再以真實學習事件
+  評估 HLR、FSRS 或知識追蹤等後續模型。
+- 移動優先設計，貼合中學生碎片化學習場景，降低堅持學習的門檻。
+- 所有記憶調度邏輯嚴格遵循公開論文，**可復現、可評估、可對比**，具備科研價值。
 
 ---
 
-## 三、核心功能与实现状态
+## 二、目標用戶與使用場景
 
-| # | 功能 | 当前状态 | 说明 |
+### 2.1 目標用戶
+
+- **主要用戶**：初一至初三學生。
+- **核心學習目標**：應對中考英語認讀，以 A1–B1 為核心範圍。
+- **當前內容範圍**：倉庫詞表和產品級別已擴展至 A1–B2、5000+ 去重詞條；B2
+  屬擴展內容，不應與“中考覈心詞彙數量”混為一談。
+
+### 2.2 典型使用場景
+
+- 課間、通勤、排隊、睡前等碎片時間。
+- 單次學習時長 **1–10 分鐘**，隨時可中斷。
+- 下次打開自動從上次位置繼續，無需任何"恢復"操作。
+
+### 2.3 典型用戶故事
+
+> 小明在公交車上打開網站。系統從 continuous stream 發出當前最合適的 Learning Card
+> 或 Objective Probe，不要求完成固定題數。
+>
+> - 看到 `abandon`，他先在心裏想中文意思；約一秒後出現長按提示。他在非發音區域
+>   原地長按三秒，卡片翻轉並顯示中文意思、音標位及發音，然後報告答案與剛才所想
+>   是否一致。這個報告只用於記錄學習過程，不直接改變掌握度。
+> - 稍後系統發出 Objective Probe；他第一次選擇答案後由服務器判分。答對／答錯分別
+>   按 versioned policy 映射為 SM-2 quality 4／2，決定後續複習間隔。
+>
+> 5 分鐘後到站，他關閉頁面。下次打開，系統自動接着上次的進度繼續。
+
+---
+
+## 三、核心功能與實現狀態
+
+| # | 功能 | 當前狀態 | 說明 |
 |---|---|---|---|
-| 1 | **统一发放学生账号** | ✅ 已实现 | Seed 可选择建立独立临时密码的学生账号；首次登录强制改密，JWT 会话最长 30 天 |
-| 2 | **Retrieval-first Learning Card** | ✅ 已实现 | 持续思考提示、延迟长按提示、3 秒 stationary long-press、揭示／翻卡及揭示后“一样／不一样”self-rating |
-| 3 | **Objective Probe + SM-2 调度** | ✅ 已实现 | 首次客观认读答案由服务器判分，`retrieval-v1` 以 correct=4／wrong=2 推进 Review；self-rating 不直接评分 |
-| 4 | **助记面板** | ⚠️ UI 已实现，内容待充实 | 支持音标、释义、例句、图片及近反义词，但默认 seed 目前主要导入单词、释义、级别和分类 |
-| 5 | **进度持久化与续学** | ✅ 已实现 | Continuous stream、Checkpoint、离线 outbox、stream-item credential、operationId 幂等、session／lease bounded recovery |
-| 6 | **分级与单元闯关** | ✅ 已实现 | A1 / A2 / B1 / B2；按主题分类，达到 80% 认字率后顺序解锁 |
-| 7 | **学习统计与留存** | ✅ 已实现 | 已解锁范围进度、A1–B2 明细、7 日柱状图／30 日热力图、连续打卡、成就及排行榜 |
-| 8 | **教师端** | ✅ 已实现核心能力 | 班级概览、学生分级进度与密码重置；尚未提供任务布置 |
-| 9 | **管理端** | ✅ 已实现 | 用户、角色、单词库及系统统计管理，并保护最后一名管理员 |
-| 10 | **安全与审计** | ✅ 已实现 | Upstash 分布式限流、session 撤销、审计哈希、ReviewEvent ledger 与生产配置门禁 |
-| 11 | **简繁与主题** | ✅ 已实现 | opencc-js 简繁切换及明暗主题 |
-| 12 | **PWA** | ⏳ 未实现 | 尚无 web app manifest、service worker 或安装流程 |
+| 1 | **統一發放學生賬號** | ✅ 已實現 | Seed 可選擇建立獨立臨時密碼的學生賬號；首次登錄強制改密，JWT 會話最長 30 天 |
+| 2 | **Retrieval-first Learning Card** | ✅ 已實現 | 持續思考提示、延遲長按提示、3 秒 stationary long-press、揭示／翻卡及揭示後“一樣／不一樣”self-rating |
+| 3 | **Objective Probe + SM-2 調度** | ✅ 已實現 | 首次客觀認讀答案由服務器判分，`retrieval-v1` 以 correct=4／wrong=2 推進 Review；self-rating 不直接評分 |
+| 4 | **助記面板** | ⚠️ UI 已實現，內容待充實 | 支持音標、釋義、例句、圖片及近反義詞，但默認 seed 目前主要導入單詞、釋義、級別和分類 |
+| 5 | **進度持久化與續學** | ✅ 已實現 | Continuous stream、Checkpoint、離線 outbox、stream-item credential、operationId 冪等、session／lease bounded recovery |
+| 6 | **分級與單元闖關** | ✅ 已實現 | A1 / A2 / B1 / B2；按主題分類，達到 80% 認字率後順序解鎖 |
+| 7 | **學習統計與留存** | ✅ 已實現 | 已解鎖範圍進度、A1–B2 明細、7 日柱狀圖／30 日熱力圖、連續打卡、成就及排行榜 |
+| 8 | **教師端** | ✅ 已實現核心能力 | 班級概覽、學生分級進度與密碼重置；尚未提供任務佈置 |
+| 9 | **管理端** | ✅ 已實現 | 用戶、角色、單詞庫及系統統計管理，並保護最後一名管理員 |
+| 10 | **安全與審計** | ✅ 已實現 | Upstash 分佈式限流、session 撤銷、審計哈希、ReviewEvent ledger 與生產配置門禁 |
+| 11 | **簡繁與主題** | ✅ 已實現 | opencc-js 簡繁切換及明暗主題 |
+| 12 | **PWA** | ⏳ 未實現 | 尚無 web app manifest、service worker 或安裝流程 |
 | 13 | **班級與名冊管理** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲兩個相同全範圍 reviewer PASS；49 個 normal forward migrations、guarded reset／reseed、roster/auth/invariant suites、fresh 4-test disposable admin workflow（含 explicit rollover dispositions）、teacher canonical workspace／global reset、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy仍 deferred |
 
 管理員用戶頁的 `PATCH /api/admin/users/[id]` 現在只接受明確的
@@ -102,74 +102,74 @@
 canonical identity validation；停權／恢復一律委派名冊 lifecycle service。密碼不再由 generic PATCH 處理，管理員／教師必須使用
 各自 audience-bound 的 prepare→commit reset route；所有 callers 及測試均按此 contract，避免重複 status／credential writer。
 
-### 3.1 Learning Card 揭示后的内容
+### 3.1 Learning Card 揭示後的內容
 
-- **音标 + TTS 发音**（浏览器内置 SpeechSynthesis，零成本）
-- **中文释义**（按词性分条）
-- **例句**（优先初高中难度）
-- **助记图片**（视觉联想）
-- **近义词 / 反义词**
+- **音標 + TTS 發音**（瀏覽器內置 SpeechSynthesis，零成本）
+- **中文釋義**（按詞性分條）
+- **例句**（優先初高中難度）
+- **助記圖片**（視覺聯想）
+- **近義詞 / 反義詞**
 
-> 当前数据边界：组件和数据库字段已支持上述内容，但 `prisma/seed.ts` 只从
-> `word list.md` 自动导入 term、definition、level 与 category；音标、例句、图片、
-> 近义词和反义词需要经管理端或后续内容管线补充。因此“答案面已实现”不等于
-> “全部 5000+ 词均已有完整多模态素材”。
+> 當前數據邊界：組件和數據庫字段已支持上述內容，但 `prisma/seed.ts` 只從
+> `word list.md` 自動導入 term、definition、level 與 category；音標、例句、圖片、
+> 近義詞和反義詞需要經管理端或後續內容管線補充。因此“答案面已實現”不等於
+> “全部 5000+ 詞均已有完整多模態素材”。
 
 ---
 
-## 四、技术方案
+## 四、技術方案
 
-### 4.1 记忆算法 —— SM-2
+### 4.1 記憶算法 —— SM-2
 
-#### 论文依据
+#### 論文依據
 
-- **理论基础**：
-  - Ebbinghaus, H. (1885). *Memory: A contribution to experimental psychology*. —— 遗忘曲线奠基之作。
-  - Cepeda, N. J., et al. (2008). *Spacing effects in learning: A temporal ridgeline of optimal retention*. **Psychological Science**. —— 综合 254 项实验，给出最佳复习间隔。
-- **算法本体**：
-  - Wozniak, P. (1994). *Optimization of learning: A new approach and computer application*. —— **SM-2 算法原始论文**。
+- **理論基礎**：
+  - Ebbinghaus, H. (1885). *Memory: A contribution to experimental psychology*. —— 遺忘曲線奠基之作。
+  - Cepeda, N. J., et al. (2008). *Spacing effects in learning: A temporal ridgeline of optimal retention*. **Psychological Science**. —— 綜合 254 項實驗，給出最佳複習間隔。
+- **算法本體**：
+  - Wozniak, P. (1994). *Optimization of learning: A new approach and computer application*. —— **SM-2 算法原始論文**。
   - Leitner, S. (1972). *So lernt man lernen*. —— Leitner System，SM-2 的概念前身。
 
-> 截至 2026-08-10，[Anki 官方文档](https://docs.ankiweb.net/deck-options.html#fsrs)
-> 已把 FSRS 作为现代调度方案，并将 SM-2 称为 legacy algorithm。因此本项目选择
-> SM-2 的理由应是实现透明、容易复现、适合 MVP 与研究基线，而不是
-> “Anki 当前也使用 SM-2”。
+> 截至 2026-08-10，[Anki 官方文檔](https://docs.ankiweb.net/deck-options.html#fsrs)
+> 已把 FSRS 作為現代調度方案，並將 SM-2 稱為 legacy algorithm。因此本項目選擇
+> SM-2 的理由應是實現透明、容易復現、適合 MVP 與研究基線，而不是
+> “Anki 當前也使用 SM-2”。
 
-#### 为什么选 SM-2
+#### 為什麼選 SM-2
 
-| 候选 | 论文依据 | 实现难度 | 适合本项目？ |
+| 候選 | 論文依據 | 實現難度 | 適合本項目？ |
 |---|---|---|---|
-| Leitner System | Leitner 1972 | 极低 | 创新性偏弱 |
-| **SM-2** | **Wozniak 1994** | **低（公式现成）** | **✅ 当前可解释基线** |
-| FSRS | 开源可训练调度器 | 中 | 收集足够复习数据后评估 |
-| Half-Life Regression | Settles 2016 (Duolingo) | 中（需训练） | 未来工作 |
-| BKT / DKT | Corbett 1995 / Piech 2015 | 高（概率图/神经网络） | 未来工作 |
+| Leitner System | Leitner 1972 | 極低 | 創新性偏弱 |
+| **SM-2** | **Wozniak 1994** | **低（公式現成）** | **✅ 當前可解釋基線** |
+| FSRS | 開源可訓練調度器 | 中 | 收集足夠複習數據後評估 |
+| Half-Life Regression | Settles 2016 (Duolingo) | 中（需訓練） | 未來工作 |
+| BKT / DKT | Corbett 1995 / Piech 2015 | 高（概率圖/神經網絡） | 未來工作 |
 
-#### 算法状态（每词一份）
+#### 算法狀態（每詞一份）
 
 ```ts
 interface ReviewState {
-  easeFactor: number;      // 难度系数，初始 2.5
-  interval: number;        // 当前间隔（天）
-  repetitions: number;     // 连续答对次数
+  easeFactor: number;      // 難度係數，初始 2.5
+  interval: number;        // 當前間隔（天）
+  repetitions: number;     // 連續答對次數
   nextReviewDate: Date;    // 下次到期日
   lastReviewedAt: Date | null;
 }
 ```
 
-#### V2 学习证据 → SM-2 quality 评级
+#### V2 學習證據 → SM-2 quality 評級
 
-| 事件 | 是否 scored | quality (0–5) | 含义 |
+| 事件 | 是否 scored | quality (0–5) | 含義 |
 |---|---:|---:|---|
-| Learning Card 揭示后的“一样／不一样”self-rating | 否 | 不适用 | 只记录 operational encounter，不直接改变 Review／mastery |
-| Objective Probe 第一次合法答案正确 | 是 | 4 | 客观认读成功，正常推进间隔 |
-| Objective Probe 第一次合法答案错误 | 是 | 2 | 客观认读失败，重置为短间隔并安排 remediation |
-| Research-only diagnostic | 否 | 不适用 | 研究功能关闭；即使日后获批亦无 operational 副作用 |
+| Learning Card 揭示後的“一樣／不一樣”self-rating | 否 | 不適用 | 只記錄 operational encounter，不直接改變 Review／mastery |
+| Objective Probe 第一次合法答案正確 | 是 | 4 | 客觀認讀成功，正常推進間隔 |
+| Objective Probe 第一次合法答案錯誤 | 是 | 2 | 客觀認讀失敗，重置為短間隔並安排 remediation |
+| Research-only diagnostic | 否 | 不適用 | 研究功能關閉；即使日後獲批亦無 operational 副作用 |
 
-quality mapping 属于 versioned `retrieval-v1` learning policy，不是永久不可改变的教育结论。
-客户端不能提交可信 quality、correctness 或正确答案；服务器按 immutable question snapshot 判分。
+quality mapping 屬於 versioned `retrieval-v1` learning policy，不是永久不可改變的教育結論。
+客戶端不能提交可信 quality、correctness 或正確答案；服務器按 immutable question snapshot 判分。
 
-#### SM-2 更新公式（标准实现）
+#### SM-2 更新公式（標準實現）
 
 ```ts
 function updateSM2(state: ReviewState, quality: number): ReviewState {
@@ -199,38 +199,38 @@ function updateSM2(state: ReviewState, quality: number): ReviewState {
 }
 ```
 
-### 4.2 技术栈
+### 4.2 技術棧
 
-| 层 | 技术 | 说明 |
+| 層 | 技術 | 說明 |
 |---|---|---|
 | 前端框架 | **Next.js 16.2 + React 19.2** | App Router、Route Handlers、Server / Client Components |
-| UI | **Tailwind CSS v4 + Framer Motion 12** | 移动优先；Framer Motion 已成为字卡手势的确定方案 |
-| 数据库 | **PostgreSQL** | 本地 Docker 与托管 PostgreSQL 使用同一套 schema |
+| UI | **Tailwind CSS v4 + Framer Motion 12** | 移動優先；Framer Motion 已成為字卡手勢的確定方案 |
+| 數據庫 | **PostgreSQL** | 本地 Docker 與託管 PostgreSQL 使用同一套 schema |
 | ORM | **Prisma 7 + `@prisma/adapter-pg`** | 生成 Client 至 `src/generated/prisma`，runtime 使用 `pg` pool |
-| 认证 | **Auth.js v4 Credentials Provider** | 账号密码、JWT、角色守卫、首次改密及 tokenVersion 撤销 |
-| 分布式限流 | **Upstash Redis** | Production 必填；涵盖登录、学习队列、提交及凭证轮换 |
-| 本地持久化 | **浏览器储存** | Checkpoint 和离线评测 outbox；恢复时仍由服务端重新授权 |
-| 测试 | **Node test + Playwright** | Pure policy／DB integration／migration／Chromium／Firefox／WebKit／mobile emulation；实际数量以当前 test output 与计划 evidence 为准 |
-| 部署 | **GitHub Actions + Vercel** | 先验证与迁移数据库，再部署同一 commit；是否已正式上线须由部署记录确认 |
+| 認證 | **Auth.js v4 Credentials Provider** | 賬號密碼、JWT、角色守衞、首次改密及 tokenVersion 撤銷 |
+| 分佈式限流 | **Upstash Redis** | Production 必填；涵蓋登錄、學習隊列、提交及憑證輪換 |
+| 本地持久化 | **瀏覽器儲存** | Checkpoint 和離線評測 outbox；恢復時仍由服務端重新授權 |
+| 測試 | **Node test + Playwright** | Pure policy／DB integration／migration／Chromium／Firefox／WebKit／mobile emulation；實際數量以當前 test output 與計劃 evidence 為準 |
+| 部署 | **GitHub Actions + Vercel** | 先驗證與遷移數據庫，再部署同一 commit；是否已正式上線須由部署記錄確認 |
 
-### 4.3 系统架构
+### 4.3 系統架構
 
 ```mermaid
 flowchart LR
-    subgraph Client[浏览器]
+    subgraph Client[瀏覽器]
         UI[Next.js UI]
-        Local[Checkpoint 与离线 outbox]
+        Local[Checkpoint 與離線 outbox]
         Speech[SpeechSynthesis]
     end
 
     subgraph App[Next.js on Vercel]
         Pages[Server / Client Components]
         API[Route Handlers]
-        Auth[Auth.js 与角色守卫]
-        Cron[StudySession 清理任务]
+        Auth[Auth.js 與角色守衞]
+        Cron[StudySession 清理任務]
     end
 
-    subgraph Data[共享服务]
+    subgraph Data[共享服務]
         PG[(PostgreSQL)]
         Redis[(Upstash Redis)]
     end
@@ -248,181 +248,181 @@ flowchart LR
     Cron --> PG
 ```
 
-当前 runtime 不会查询 ECDICT、Free Dictionary API 或 Unsplash。词表内容由 seed
-预先写入 PostgreSQL，应用请求只访问本项目数据库和限流服务。
+當前 runtime 不會查詢 ECDICT、Free Dictionary API 或 Unsplash。詞表內容由 seed
+預先寫入 PostgreSQL，應用請求只訪問本項目數據庫和限流服務。
 
-### 4.4 数据模型（Prisma）
+### 4.4 數據模型（Prisma）
 
-为避免计划书中的复制版 schema 再次落后，完整字段只在
-`prisma/schema.prisma` 维护。当前模型职责如下：
+為避免計劃書中的複製版 schema 再次落後，完整字段只在
+`prisma/schema.prisma` 維護。當前模型職責如下：
 
-| 模型 | 职责 |
+| 模型 | 職責 |
 |---|---|
-| `User` | 账号、bcrypt 密码、角色、tokenVersion、首次改密状态及各类关联 |
-| `Word` | 单词、释义、A1–B2 级别、分类及可选助记素材 |
-| `Review` | 每位用户每个单词的当前 SM-2 状态 |
-| `ReviewEvent` | V1／V2 scored ledger、词条快照、event kind、objective provenance 及成就解锁结果 |
-| `StudySession` | 服务端签发的 V1／V2 flow-pinned session、到期时间、退休状态及原子轮换键 |
-| `StudySessionItem` | 保留作 V1 compatibility／rollback 的 legacy 逐词 nonce item |
-| `StudyStreamItem` | V2 canonical stream item、typed action、lease、credential digest lineage 及完成状态 |
-| `EvidenceObligation` | 有上限／期限的日后 objective verification 工作 |
-| `ObjectiveEvidenceTarget` | 单一 scored evidence target、expected Review revision 及 authoritative result |
+| `User` | 賬號、bcrypt 密碼、角色、tokenVersion、首次改密狀態及各類關聯 |
+| `Word` | 單詞、釋義、A1–B2 級別、分類及可選助記素材 |
+| `Review` | 每位用戶每個單詞的當前 SM-2 狀態 |
+| `ReviewEvent` | V1／V2 scored ledger、詞條快照、event kind、objective provenance 及成就解鎖結果 |
+| `StudySession` | 服務端簽發的 V1／V2 flow-pinned session、到期時間、退休狀態及原子輪換鍵 |
+| `StudySessionItem` | 保留作 V1 compatibility／rollback 的 legacy 逐詞 nonce item |
+| `StudyStreamItem` | V2 canonical stream item、typed action、lease、credential digest lineage 及完成狀態 |
+| `EvidenceObligation` | 有上限／期限的日後 objective verification 工作 |
+| `ObjectiveEvidenceTarget` | 單一 scored evidence target、expected Review revision 及 authoritative result |
 | `ObjectiveQuestionSnapshot` | Immutable option／answer snapshot，供 server scoring、retry 及 dispute audit |
-| `StudyEncounter` | Learning Card reveal／self-rating 等 operational encounter 记录 |
-| `OperationReceipt` | 全局 `(userId, operationId)` 幂等结果及 authoritative response |
-| `SecurityEvent` | 密码、角色、用户及 session 撤销等安全审计事件 |
-| `DatabaseMetadata` | 数据库环境分类及 seed 安全标记 |
-| `StudyDay` | 以 Asia/Shanghai 日历日记录的幂等打卡 |
-| `UserAchievement` | 用户已解锁的成就 key 与时间 |
+| `StudyEncounter` | Learning Card reveal／self-rating 等 operational encounter 記錄 |
+| `OperationReceipt` | 全局 `(userId, operationId)` 冪等結果及 authoritative response |
+| `SecurityEvent` | 密碼、角色、用戶及 session 撤銷等安全審計事件 |
+| `DatabaseMetadata` | 數據庫環境分類及 seed 安全標記 |
+| `StudyDay` | 以 Asia/Shanghai 日曆日記錄的冪等打卡 |
+| `UserAchievement` | 用戶已解鎖的成就 key 與時間 |
 
-枚举包括 `Level`（A1 / A2 / B1 / B2）、`Role`（STUDENT / TEACHER /
-ADMIN）、`ReviewEventKind` 与 `SecurityEventType`。
+枚舉包括 `Level`（A1 / A2 / B1 / B2）、`Role`（STUDENT / TEACHER /
+ADMIN）、`ReviewEventKind` 與 `SecurityEventType`。
 
-### 4.5 助记素材来源
+### 4.5 助記素材來源
 
-| 素材 | 当前来源 | 当前状态 |
+| 素材 | 當前來源 | 當前狀態 |
 |---|---|---|
-| 单词、中文释义、级别、主题 | 仓库内 `word list.md` | Seed 已自动解析；同词重复时保留最低级别 |
-| 音标、词性 | 管理端 / 后续内容管线 | Schema 与 UI 支持，seed 未自动填充 |
-| 例句 | 管理端 / 后续内容管线 | Schema 与 UI 支持，当前没有 Free Dictionary runtime 调用 |
-| 近义词 / 反义词 | 管理端 / 后续内容管线 | 新词 seed 时写入空数组 |
-| 助记图片 | 管理端填写 URL / 后续内容管线 | 当前没有 Unsplash runtime 调用 |
-| 发音 | 浏览器 `SpeechSynthesis` API | 零成本，无需音频文件 |
+| 單詞、中文釋義、級別、主題 | 倉庫內 `word list.md` | Seed 已自動解析；同詞重複時保留最低級別 |
+| 音標、詞性 | 管理端 / 後續內容管線 | Schema 與 UI 支持，seed 未自動填充 |
+| 例句 | 管理端 / 後續內容管線 | Schema 與 UI 支持，當前沒有 Free Dictionary runtime 調用 |
+| 近義詞 / 反義詞 | 管理端 / 後續內容管線 | 新詞 seed 時寫入空數組 |
+| 助記圖片 | 管理端填寫 URL / 後續內容管線 | 當前沒有 Unsplash runtime 調用 |
+| 發音 | 瀏覽器 `SpeechSynthesis` API | 零成本，無需音頻文件 |
 
-ECDICT、受许可词典或图片服务仍可作为未来的离线内容构建来源，但必须先处理授权、
-字段映射、内容审核与可重复构建；不能在本文中写成已经存在的线上依赖。
+ECDICT、受許可詞典或圖片服務仍可作為未來的離線內容構建來源，但必須先處理授權、
+字段映射、內容審核與可重複構建；不能在本文中寫成已經存在的線上依賴。
 
-### 4.6 迁移历史与正确指令
+### 4.6 遷移歷史與正確指令
 
-#### 当前迁移历史
+#### 當前遷移歷史
 
-| 范围 | 数量 | 作用 |
+| 範圍 | 數量 | 作用 |
 |---|---:|---|
-| 2026-07-24 至 2026-07-28 | 5 | 初始模型、角色、tokenVersion、首次改密及 B2；`add_user_role` 保留为历史 NO-OP |
-| 2026-08-02 | 2 | StudyDay 与 UserAchievement |
-| 2026-08-08 | 6 | ReviewEvent ledger、审计快照、事件种类、提交 session 与 legacy normalization |
-| 2026-08-09 | 4 | StudySession / security 加固、管理员与学习 provenance、审计 subject 重建与清理 |
+| 2026-07-24 至 2026-07-28 | 5 | 初始模型、角色、tokenVersion、首次改密及 B2；`add_user_role` 保留為歷史 NO-OP |
+| 2026-08-02 | 2 | StudyDay 與 UserAchievement |
+| 2026-08-08 | 6 | ReviewEvent ledger、審計快照、事件種類、提交 session 與 legacy normalization |
+| 2026-08-09 | 4 | StudySession / security 加固、管理員與學習 provenance、審計 subject 重建與清理 |
 | 2026-08-10 | 1 | StudySession 原子 rotation |
 | 2026-08-11 | 1 | Study credential lineage |
 | 2026-08-12 | 5 | Retrieval stream V2、encounter feedback／reveal、stream-work linkage 及 credential lineage |
-| `prisma/contract-migrations/` | 2 | Legacy review bridge 的独立 contract 阶段 |
+| `prisma/contract-migrations/` | 2 | Legacy review bridge 的獨立 contract 階段 |
 
-合计为 **24 个一般 migrations + 2 个 contract migrations**。具体顺序和 SQL 以
-`prisma/migrations/`、`prisma/contract-migrations/` 及 checksum 脚本为准；不要在
-计划书维护另一份逐文件复制清单。
+合計為 **24 個一般 migrations + 2 個 contract migrations**。具體順序和 SQL 以
+`prisma/migrations/`、`prisma/contract-migrations/` 及 checksum 腳本為準；不要在
+計劃書維護另一份逐文件複製清單。
 
-#### 正确指令（新环境部署）
+#### 正確指令（新環境部署）
 
 ```bash
 # 1. 生成 Prisma Client
 npx prisma generate
 
-# 2. 执行 checksum 与 production-safety preflight 后套用一般 migrations
+# 2. 執行 checksum 與 production-safety preflight 後套用一般 migrations
 npm run db:deploy
 
-# 3. 在确认数据库环境与 INITIAL_ADMIN_PASSWORD 后导入词表及账号
+# 3. 在確認數據庫環境與 INITIAL_ADMIN_PASSWORD 後導入詞表及賬號
 npm run seed
 ```
 
-- 不要用 `prisma db push` 建表；所有 schema 变更均须新增 migration。
-- `DATABASE_URL` 供 runtime 使用；托管环境通常是 transaction pooler 6543，并可带
+- 不要用 `prisma db push` 建表；所有 schema 變更均須新增 migration。
+- `DATABASE_URL` 供 runtime 使用；託管環境通常是 transaction pooler 6543，並可帶
   `?pgbouncer=true`。
 - `MIGRATE_URL` 只供 migration / seed，使用 direct connection 或 session pooler
-  5432，**不要**加 `pgbouncer=true`，也不会回退到 `DATABASE_URL`。
-- `npm run db:contract` 会移除 legacy bridge，只可在旧 writers 全部下线、检查窗口
-  通过并获得明确确认后独立执行。
-- Production 发布必须遵循 `.github/workflows/deploy-production.yml`：先验证、迁移，
-  再让 Vercel 部署同一 checkout。完整说明见 `DEPLOY.md`。
+  5432，**不要**加 `pgbouncer=true`，也不會回退到 `DATABASE_URL`。
+- `npm run db:contract` 會移除 legacy bridge，只可在舊 writers 全部下線、檢查窗口
+  通過並獲得明確確認後獨立執行。
+- Production 發佈必須遵循 `.github/workflows/deploy-production.yml`：先驗證、遷移，
+  再讓 Vercel 部署同一 checkout。完整說明見 `DEPLOY.md`。
 
 ---
 
-## 五、创新点
+## 五、創新點
 
-1. **可解释、可复现的学习基线**
-   当前调度公式、objective first response 到 versioned quality 的映射和测试均公开，适合作为比赛研究的
-   可复现基线；未来可用同一事件数据与 FSRS / HLR 做可量化对照。
+1. **可解釋、可復現的學習基線**
+   當前調度公式、objective first response 到 versioned quality 的映射和測試均公開，適合作為比賽研究的
+   可復現基線；未來可用同一事件數據與 FSRS / HLR 做可量化對照。
 
-2. **Retrieval-first 与客观证据分层**
-   Learning Card 先提供回想机会，再以 3 秒 stationary long-press 揭示；揭示后的 self-rating
-   不冒充客观成绩。Objective Probe 的第一次答案才形成 scored evidence，贴合**认读**这一具体目标。
+2. **Retrieval-first 與客觀證據分層**
+   Learning Card 先提供回想機會，再以 3 秒 stationary long-press 揭示；揭示後的 self-rating
+   不冒充客觀成績。Objective Probe 的第一次答案才形成 scored evidence，貼合**認讀**這一具體目標。
 
-3. **移动优先且可恢复的学习流程**
-   单次学习无最小时长限制；checkpoint 与离线 outbox 支持中断恢复，而服务端
-   stream-item credential、operation receipt 和 operationId 保证恢复与重试不会重复推进 SM-2。
+3. **移動優先且可恢復的學習流程**
+   單次學習無最小時長限制；checkpoint 與離線 outbox 支持中斷恢復，而服務端
+   stream-item credential、operation receipt 和 operationId 保證恢復與重試不會重複推進 SM-2。
 
-4. **面向学校场景的安全与可审计性**
-   统一账号、角色权限、首次改密、分布式限流、安全事件及逐次 ReviewEvent ledger
-   让教师管理、实验复核和故障追踪拥有同一份数据依据。
+4. **面向學校場景的安全與可審計性**
+   統一賬號、角色權限、首次改密、分佈式限流、安全事件及逐次 ReviewEvent ledger
+   讓教師管理、實驗複核和故障追蹤擁有同一份數據依據。
 
-5. **从产品事件直接走向研究评估**
-   V2 ReviewEvent 保存有 provenance 的 objective result、quality、级别、时间和幂等标识，
-   可支持后续留存、客观认读率及算法对照；research telemetry 目前关闭，正式研究必须另行
-   完成伦理、家长 permission、学生 assent、retention 及 protocol gate。
+5. **從產品事件直接走向研究評估**
+   V2 ReviewEvent 保存有 provenance 的 objective result、quality、級別、時間和冪等標識，
+   可支持後續留存、客觀認讀率及算法對照；research telemetry 目前關閉，正式研究必須另行
+   完成倫理、家長 permission、學生 assent、retention 及 protocol gate。
 
 ---
 
-## 六、产品定位与公开竞品基准
+## 六、產品定位與公開競品基準
 
-以下比较只采用截至 **2026-08-10** 可从官方页面确认的产品定位；没有公开证据的
-调度算法、效果或市场优劣不作推断。
+以下比較只採用截至 **2026-08-10** 可從官方頁面確認的產品定位；沒有公開證據的
+調度算法、效果或市場優劣不作推斷。
 
-| 产品 | 官方可确认的重点 | 与本项目的主要差异 |
+| 產品 | 官方可確認的重點 | 與本項目的主要差異 |
 |---|---|---|
-| Anki | 跨设备同步、媒体卡片、自定义牌组与间隔复习；现代版本提供 FSRS，并保留 legacy SM-2 | 通用型、自由度高；本项目聚焦校内统一账号、初中词表、Retrieval-first 客观认读及教师管理 |
-| 百词斩 | 考试词表、图像与场景记忆、例句、发音和多种内容形态 | 内容资产成熟；本项目强调公开可复现调度、学校角色及可审计学习事件 |
-| 墨墨背单词 | 根据学习数据分析遗忘曲线与记忆持久度，提供复习规划、解释、例句和助记 | 个性化内容和复习规划成熟；本项目当前更偏学校自管、Web 轻量流程与透明基线 |
-| **本项目** | A1–B2 分级单元、Retrieval-first continuous stream、Objective Probe、SM-2、断点续学、教师／管理端和安全审计 | 优势是学习证据分层、范围清晰与全栈可控；短板是多模态内容覆盖、真实学生验证及 PWA 尚未完成 |
+| Anki | 跨設備同步、媒體卡片、自定義牌組與間隔複習；現代版本提供 FSRS，並保留 legacy SM-2 | 通用型、自由度高；本項目聚焦校內統一賬號、初中詞表、Retrieval-first 客觀認讀及教師管理 |
+| 百詞斬 | 考試詞表、圖像與場景記憶、例句、發音和多種內容形態 | 內容資產成熟；本項目強調公開可復現調度、學校角色及可審計學習事件 |
+| 墨墨背單詞 | 根據學習數據分析遺忘曲線與記憶持久度，提供複習規劃、解釋、例句和助記 | 個性化內容和複習規劃成熟；本項目當前更偏學校自管、Web 輕量流程與透明基線 |
+| **本項目** | A1–B2 分級單元、Retrieval-first continuous stream、Objective Probe、SM-2、斷點續學、教師／管理端和安全審計 | 優勢是學習證據分層、範圍清晰與全棧可控；短板是多模態內容覆蓋、真實學生驗證及 PWA 尚未完成 |
 
-官方核对来源：[Anki 官网](https://apps.ankiweb.net/)、
-[Anki 调度说明](https://docs.ankiweb.net/deck-options.html#fsrs)、
-[百词斩官网](https://www.baicizhan.com/)、
-[墨墨产品与服务协议](https://www.maimemo.com/terms)。提交比赛材料前应再次检查日期与
-页面内容。
+官方核對來源：[Anki 官網](https://apps.ankiweb.net/)、
+[Anki 調度說明](https://docs.ankiweb.net/deck-options.html#fsrs)、
+[百詞斬官網](https://www.baicizhan.com/)、
+[墨墨產品與服務協議](https://www.maimemo.com/terms)。提交比賽材料前應再次檢查日期與
+頁面內容。
 
 ---
 
-## 七、开发里程碑与下一步
+## 七、開發里程碑與下一步
 
-| 阶段 | 状态 | 已有产出 | 下一验收点 |
+| 階段 | 狀態 | 已有產出 | 下一驗收點 |
 |---|---|---|---|
-| **P0 基础词表** | ✅ 已完成 | `word list.md`、A1–B2 分类及幂等 seed | 把内容完整度另列为 P7，不再假定 ECDICT 管线已存在 |
-| **P1 数据层** | ✅ 已完成 | PostgreSQL、Prisma schema、48 个 normal migrations 及新库 replay 检查 | 所有后续 schema 变更继续走 expand / contract 流程 |
-| **P2 认证与角色** | ✅ 已完成 | Auth.js、学生／教师／管理员、首次改密、撤销与限流 | 完成 production secrets 和真实部署验收 |
-| **P3 学习核心** | ✅ 本地基线完成 | Retrieval-first continuous stream、3 秒 long-press Learning Card、Objective Probe、versioned SM-2 evidence policy、单元模式 | 实体 iPhone Safari／Android Chrome 与完整 screen-reader acceptance 属 external gate |
-| **P4 可靠续学** | ✅ 本地基线完成 | Checkpoint、离线 outbox、stream-item credential、session／lease recovery、幂等 ledger、V1 rollback | Production observation 及 threshold decision 未获授权 |
-| **P5 统计与后台** | ✅ 已完成 | 统计、打卡、成就、排行榜、教师端及管理端 | 核对统计定义并加入比赛评估指标 |
-| **P6 发布准备** | 🟡 外部 gate deferred | Responsive UI、跨浏览器回归、production workflow、部署文件及 local rollback 已有 | 正式域名、secrets、production migration／deploy、监控、备份及 observation 需另行授权 |
-| **P7 内容完善** | ⏳ 待开始 | Schema / UI 已预留丰富字段 | 建立合规内容来源、自动 enrichment、人工抽检及覆盖率报告 |
-| **P8 PWA** | ⏳ 待开始 | 尚无实现 | Manifest、icons、service worker、更新策略及安装／离线验收 |
-| **P9 真实用户研究** | ⏸ 暂缓／功能关闭 | Operational objective ledger 已有；没有 research telemetry／assignment | 伦理／学校审批、家长 permission、学生 assent、protocol 获批前不得开始 |
-| **P10 教师任务** | ⏳ 待开始 | 已有教师角色、班级统计与学生详情 | 周任务布置、截止时间、完成状态及班级汇总 |
-| **P11 班级与名册** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲 Hume 與 Bernoulli 對相同 contract 全文 PASS；local canonical schema、49 個 normal forward migrations、guarded reset／reseed、auth／班級權限／名冊流程、teacher workspace／global reset、fresh 4-test disposable admin workflow、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy deferred | 補足需另行授權的 production／native-device release gates；之後另行審批 production migration、backup、deploy 及 observation |
+| **P0 基礎詞表** | ✅ 已完成 | `word list.md`、A1–B2 分類及冪等 seed | 把內容完整度另列為 P7，不再假定 ECDICT 管線已存在 |
+| **P1 數據層** | ✅ 已完成 | PostgreSQL、Prisma schema、48 個 normal migrations 及新庫 replay 檢查 | 所有後續 schema 變更繼續走 expand / contract 流程 |
+| **P2 認證與角色** | ✅ 已完成 | Auth.js、學生／教師／管理員、首次改密、撤銷與限流 | 完成 production secrets 和真實部署驗收 |
+| **P3 學習核心** | ✅ 本地基線完成 | Retrieval-first continuous stream、3 秒 long-press Learning Card、Objective Probe、versioned SM-2 evidence policy、單元模式 | 實體 iPhone Safari／Android Chrome 與完整 screen-reader acceptance 屬 external gate |
+| **P4 可靠續學** | ✅ 本地基線完成 | Checkpoint、離線 outbox、stream-item credential、session／lease recovery、冪等 ledger、V1 rollback | Production observation 及 threshold decision 未獲授權 |
+| **P5 統計與後臺** | ✅ 已完成 | 統計、打卡、成就、排行榜、教師端及管理端 | 核對統計定義並加入比賽評估指標 |
+| **P6 發佈準備** | 🟡 外部 gate deferred | Responsive UI、跨瀏覽器迴歸、production workflow、部署文件及 local rollback 已有 | 正式域名、secrets、production migration／deploy、監控、備份及 observation 需另行授權 |
+| **P7 內容完善及詞庫治理** | 🟡 Phase 0 修訂草案 | 已建立 39 欄 [`word-catalog-v1` 團隊編寫標準](./artifacts/word-catalog-authoring-standard-v1.md)及[詞庫生命週期實施計劃](./word-catalog-governance-and-lifecycle.md)；使用者已確認 Objective Probe 唔使用 prompt，題幹固定由 `term`／`definition_zh` 衍生，同詞其他 sense 正解不得成為干擾項；另納入 structured accepted answers、5–6 個人工干擾項、immutable approved revision、四眼審核、一般停用／緊急撤回及 catalog revision。現行 runtime 仍係單一 term／definition baseline | 確認其餘 sense-level contract，再建立 validator／Markdown converter、schema、老師審核／停用流程及內容覆蓋報告；production 未開始 |
+| **P8 PWA** | ⏳ 待開始 | 尚無實現 | Manifest、icons、service worker、更新策略及安裝／離線驗收 |
+| **P9 真實用戶研究** | ⏸ 暫緩／功能關閉 | Operational objective ledger 已有；沒有 research telemetry／assignment | 倫理／學校審批、家長 permission、學生 assent、protocol 獲批前不得開始 |
+| **P10 教師任務** | ⏳ 待開始 | 已有教師角色、班級統計與學生詳情 | 周任務佈置、截止時間、完成狀態及班級彙總 |
+| **P11 班級與名冊** | ✅ 已完成 local implementation／verification（external gates deferred） | Revision 3 已獲 Hume 與 Bernoulli 對相同 contract 全文 PASS；local canonical schema、49 個 normal forward migrations、guarded reset／reseed、auth／班級權限／名冊流程、teacher workspace／global reset、fresh 4-test disposable admin workflow、PII／migration contract checks 已驗證；production-only positive config、full-scale performance、完整原生 screen-reader／device matrix及deploy deferred | 補足需另行授權的 production／native-device release gates；之後另行審批 production migration、backup、deploy 及 observation |
 
 ### 7.1 Retrieval-first Learning Stream v2（2026-08-15 current baseline）
 
-本节后半保留 2026-08-12 至 2026-08-14 嘅 implementation chronology 作历史证据；当前
-产品行为以 [Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)、
-已批准 Contract 同程式／测试为准。尤其唔可以由历史 I-011 tap-to-reveal 描述覆盖其后
+本節後半保留 2026-08-12 至 2026-08-14 嘅 implementation chronology 作歷史證據；當前
+產品行為以 [Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)、
+已批准 Contract 同程式／測試為準。尤其唔可以由歷史 I-011 tap-to-reveal 描述覆蓋其後
 I-012／Contract C-011 已批准嘅 stationary long-press 3 秒 reveal。
 
 已完成 internal／test scope 的 operational handoff，並補上 local product-complete assignment：
 production V2 仍以 server assignment deny-by-default／allowlist 開啟，local development 可用
 明確 `STUDY_V2_ASSIGNMENT_MODE=all` 驗證完整 V2，session pin `flowVersion`，V1 仍保留作
-rollback。V2 具备 continuous global／bounded unit
+rollback。V2 具備 continuous global／bounded unit
 stream、Learning Card reveal gate、Objective Probe immutable snapshot、server scoring、
 Evidence Obligation cap／delay／expiry、StudyEncounter、item credential、global
-OperationReceipt、outbox／checkpoint 及 legacy metrics 分栏。self-rating 不直接更新
-Review／mastery；objective recognition 才产生带 provenance 的 V2 ReviewEvent。新增
+OperationReceipt、outbox／checkpoint 及 legacy metrics 分欄。self-rating 不直接更新
+Review／mastery；objective recognition 才產生帶 provenance 的 V2 ReviewEvent。新增
 credential compatibility inventory、bounded internal soak、request-level structured
 observability 及 support／incident runbook；本地 inventory 顯示 0 receipt／provenance／
 lineage gap。
 
 Production shared rate-limit backend guards 已同步涵蓋 login、password change、study queue、
 study action 及 credential renewal：正式 runtime 缺少 Upstash 時 fail closed，明確 browser-test
-runtime 才可使用 local fallback；production build 同完整 browser regression 已重新驗證。
+runtime 纔可使用 local fallback；production build 同完整 browser regression 已重新驗證。
 
-本地 feature-off rollback smoke 已完成；正式 production deploy、学生 pilot、研究
-telemetry／consent 及 contract cleanup 尚未执行。後者仍是
+本地 feature-off rollback smoke 已完成；正式 production deploy、學生 pilot、研究
+telemetry／consent 及 contract cleanup 尚未執行。後者仍是
 `plans/retrieval-first-learning-program.md` 及其受控子計劃的外部 gates。
 
 2026-08-13 local product-complete evidence 已補齊：local all-user V2 Playwright regression
@@ -441,7 +441,7 @@ correction 取代；production deploy、學生 pilot、研究 telemetry／consen
 cleanup 仍按 scope deferred。
 
 2026-08-13 其後新增並完成 I-012 interaction correction：學生先看到並保留思考提示，約 1 秒後追加
-長按 3 秒揭示答案，揭示前唔接受即時 tap，揭示後左右掃改用「和剛才想的一樣／不一樣」語義。已通過
+長按 3 秒揭示答案，揭示前唔接受即時 tap，揭示後左右掃改用「和剛纔想的一樣／不一樣」語義。已通過
 `npm run test:e2e:study-stream-v2`（4/4）、V1 feature-off student IA／QA 及完整 card-motion／study
 integration regression；不涉及 learning、evidence 或資料庫 contract。production deploy、學生 pilot、
 研究 telemetry／consent 及 destructive contract cleanup 仍按 scope deferred。
@@ -486,11 +486,11 @@ production deploy、真實學生 pilot、research collection 或 Stage E destruc
 
 ---
 
-## 八、参考文献
+## 八、參考文獻
 
 1. Ebbinghaus, H. (1885). *Memory: A contribution to experimental psychology*. New York: Teachers College, Columbia University.
 2. Leitner, S. (1972). *So lernt man lernen: Der Weg zum Erfolg*. Freiburg: Herder.
-3. Wozniak, P. (1994). *Optimization of learning: A new approach and computer application*. University of Technology in Poznan. **(SM-2 原始论文)**
+3. Wozniak, P. (1994). *Optimization of learning: A new approach and computer application*. University of Technology in Poznan. **(SM-2 原始論文)**
 4. Cepeda, N. J., Pashler, H., Vul, E., Wixted, J. T., & Rohrer, D. (2008). *Spacing effects in learning: A temporal ridgeline of optimal retention*. **Psychological Science**, 19(11), 1095–1102.
 5. Corbett, A. T., & Anderson, J. R. (1995). *Knowledge tracing: Modeling the acquisition of procedural knowledge*. **User Modeling and User-Adapted Interaction**, 4(4), 253–268.
 6. Piech, C., Bassen, J., Huang, J., Ganguli, S., Sahami, M., Guibas, L. J., & Sohl-Dickstein, J. (2015). *Deep knowledge tracing*. **Advances in Neural Information Processing Systems (NeurIPS)**, 28.
@@ -498,57 +498,57 @@ production deploy、真實學生 pilot、research collection 或 Stage E destruc
 
 ---
 
-## 九、未来工作（比赛论文中的创新展望）
+## 九、未來工作（比賽論文中的創新展望）
 
-1. **FSRS / Half-Life Regression 对照**
-   收集足够真实答题数据后，在固定评估指标下比较当前 SM-2、FSRS 与 HLR；只有在
-   留出数据上证明改善，才考虑替换生产调度，避免以算法名称代替实证。
+1. **FSRS / Half-Life Regression 對照**
+   收集足夠真實答題數據後，在固定評估指標下比較當前 SM-2、FSRS 與 HLR；只有在
+   留出數據上證明改善，才考慮替換生產調度，避免以算法名稱代替實證。
 
 2. **Bayesian / Deep Knowledge Tracing**
-   引入 BKT（Corbett 1995）或 DKT（Piech 2015），建模"学习者已掌握该词"的概率分布，从"调度复习"升级为"掌握度诊断 + 个性化推荐"。
+   引入 BKT（Corbett 1995）或 DKT（Piech 2015），建模"學習者已掌握該詞"的概率分佈，從"調度複習"升級為"掌握度診斷 + 個性化推薦"。
 
-3. **扩展学习模式**
-   - 听写模式（TTS → 学生输入）
-   - 拼写模式（看中文 → 学生输入）
-   - 当前 MVP 聚焦**认读**，其他模式作为路线图。
+3. **擴展學習模式**
+   - 聽寫模式（TTS → 學生輸入）
+   - 拼寫模式（看中文 → 學生輸入）
+   - 當前 MVP 聚焦**認讀**，其他模式作為路線圖。
 
-4. **教师任务系统**
-   教师查看班级与学生进度已经实现；下一步是布置周任务、设定范围与截止时间、
-   跟踪完成状态，并为学生提供清晰的待办入口。
+4. **教師任務系統**
+   教師查看班級與學生進度已經實現；下一步是佈置周任務、設定範圍與截止時間、
+   跟蹤完成狀態，併為學生提供清晰的待辦入口。
 
-5. **合规内容管线**
-   为音标、例句、近反义词和图片建立有授权、可重复构建、可人工抽检的 enrichment
-   流程，并持续报告每个级别的字段覆盖率与错误率。
+5. **合規內容管線**
+   為音標、例句、近反義詞和圖片建立有授權、可重複構建、可人工抽檢的 enrichment
+   流程，並持續報告每個級別的字段覆蓋率與錯誤率。
 
 ---
 
-## 附录 A：2026-08-10 历史代码审查快照
+## 附錄 A：2026-08-10 歷史代碼審查快照
 
-本附录只保存当日审查历史，不能覆盖 2026-08-15 Retrieval-first V2 Current Product Baseline。
+本附錄只保存當日審查歷史，不能覆蓋 2026-08-15 Retrieval-first V2 Current Product Baseline。
 
-- ✅ Next.js 16.2、React 19.2、Tailwind v4、Framer Motion 12 与 Prisma 7
-- ✅ PostgreSQL runtime / migration 凭证分离，以及 serverless pool 上限
-- ✅ 当时审查记录为 10 个 Prisma models、18 个一般 migrations；当前为 16 个 models、
-  24 个一般 migrations及 2 个 contract migrations，具体仍以 schema／目录为准
-- ✅ A1 / A2 / B1 / B2 词表解析、最低级别去重与幂等 upsert
-- ✅ Auth.js Credentials、三种角色、首次改密、session 撤销与最后管理员保护
-- ✅ Upstash production 限流门禁、安全审计哈希与 production config 检查
-- ✅ 当时已有 SM-2、滑动字卡、单元解锁、checkpoint、离线 outbox、study session / nonce
-- ✅ ReviewEvent 幂等 ledger、Serializable transaction 与冲突重试
-- ✅ 打卡、统计、9 项成就、排行榜、教师端、管理端、简繁及明暗主题
-- ✅ 当时已有 67 个 Node 单元测试及 Playwright 跨浏览器 workflow；当前数量以 test output 为准
-- ✅ `DEPLOY.md`、Docker Compose、migration safety checks 与 gated production workflow
-- 🟡 助记面板字段和 UI 已有，但丰富内容覆盖尚未完成
-- 🟡 发布自动化已存在，但正式域名、production secrets、数据库状态及线上部署结果
-  必须从外部平台核实，不能由仓库静态文件推断
-- ⏳ PWA、实体移动设备验收、真实学生研究、教师任务和算法对照尚未完成
+- ✅ Next.js 16.2、React 19.2、Tailwind v4、Framer Motion 12 與 Prisma 7
+- ✅ PostgreSQL runtime / migration 憑證分離，以及 serverless pool 上限
+- ✅ 當時審查記錄為 10 個 Prisma models、18 個一般 migrations；當前為 16 個 models、
+  24 個一般 migrations及 2 個 contract migrations，具體仍以 schema／目錄為準
+- ✅ A1 / A2 / B1 / B2 詞表解析、最低級別去重與冪等 upsert
+- ✅ Auth.js Credentials、三種角色、首次改密、session 撤銷與最後管理員保護
+- ✅ Upstash production 限流門禁、安全審計哈希與 production config 檢查
+- ✅ 當時已有 SM-2、滑動字卡、單元解鎖、checkpoint、離線 outbox、study session / nonce
+- ✅ ReviewEvent 冪等 ledger、Serializable transaction 與衝突重試
+- ✅ 打卡、統計、9 項成就、排行榜、教師端、管理端、簡繁及明暗主題
+- ✅ 當時已有 67 個 Node 單元測試及 Playwright 跨瀏覽器 workflow；當前數量以 test output 為準
+- ✅ `DEPLOY.md`、Docker Compose、migration safety checks 與 gated production workflow
+- 🟡 助記面板字段和 UI 已有，但豐富內容覆蓋尚未完成
+- 🟡 發佈自動化已存在，但正式域名、production secrets、數據庫狀態及線上部署結果
+  必須從外部平臺核實，不能由倉庫靜態文件推斷
+- ⏳ PWA、實體移動設備驗收、真實學生研究、教師任務和算法對照尚未完成
 
-## 附录 B：2026-08-15 当前交接摘要
+## 附錄 B：2026-08-15 當前交接摘要
 
 - ✅ Retrieval-first V2 local all-user mode、continuous global／bounded unit stream 已完成；
-- ✅ Learning Card 采用持续思考提示、延迟 secondary hint、3 秒 stationary long-press reveal、
-  flip answer 及揭示后一样／不一样 self-rating；
-- ✅ Objective Probe first response 由服务器评分，correct=4／wrong=2；self-rating 不改 mastery；
-- ✅ Credential v2 expand／dual-flow、offline／cross-device／resume、V1 feature-off rollback 已验证；
+- ✅ Learning Card 採用持續思考提示、延遲 secondary hint、3 秒 stationary long-press reveal、
+  flip answer 及揭示後一樣／不一樣 self-rating；
+- ✅ Objective Probe first response 由服務器評分，correct=4／wrong=2；self-rating 不改 mastery；
+- ✅ Credential v2 expand／dual-flow、offline／cross-device／resume、V1 feature-off rollback 已驗證；
 - ✅ I-011–I-035 final UI／responsive／stats／reward icon corrections 已完成；
 - ⏸ Production、pilot、research、原生完整 accessibility matrix 及 destructive cleanup deferred。
