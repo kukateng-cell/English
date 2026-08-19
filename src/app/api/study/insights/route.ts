@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { prisma, Prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { fetchRecentStudyDays, offsetDay, todayKey, todayStartUtc } from "@/lib/streak";
 import { getStudentDashboard } from "@/lib/student-metrics";
+import { currentCatalogReviewEventWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
 
 function errorResponse(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": "private, no-store" } });
@@ -18,31 +19,25 @@ export async function GET(req: Request) {
   const today = todayKey();
   const sinceDay = offsetDay(today, -(days - 1));
   const since = new Date(`${sinceDay}T00:00:00+08:00`);
-  const [dashboard, studyDays, activityRows, recentRows] = await Promise.all([
+  const [dashboard, studyDays, activityEvents, recentRows] = await Promise.all([
     getStudentDashboard(auth.userId),
     fetchRecentStudyDays(auth.userId, Math.max(days, 30)),
-    prisma.$queryRaw<Array<{ day: string; count: number }>>(Prisma.sql`
-      SELECT ("createdAt" AT TIME ZONE 'Asia/Shanghai')::date::text AS day,
-             COUNT(*)::integer AS count
-      FROM "ReviewEvent"
-      WHERE "userId" = ${auth.userId}
-        AND "eventKind" = 'REVIEW'
-        AND "isHistorical" = false
-        AND "createdAt" >= ${since}
-      GROUP BY 1
-      ORDER BY 1 ASC
-    `),
+    prisma.reviewEvent.findMany({ where: { AND: [currentCatalogReviewEventWhere(), { userId: auth.userId, createdAt: { gte: since } }] }, select: { createdAt: true } }),
     prisma.reviewEvent.findMany({
-      where: { userId: auth.userId, eventKind: "REVIEW", isHistorical: false, createdAt: { gte: since } },
+      where: { AND: [currentCatalogReviewEventWhere(), { userId: auth.userId, createdAt: { gte: since } }] },
       orderBy: { createdAt: "desc" },
       take: 20,
       select: { id: true, wordId: true, wordTerm: true, createdAt: true },
     }),
   ]);
+  const countByDay = new Map<string, number>();
+  for (const event of activityEvents) {
+    const day = todayKey(event.createdAt);
+    countByDay.set(day, (countByDay.get(day) ?? 0) + 1);
+  }
   const wordIds = recentRows.flatMap((row) => row.wordId ? [row.wordId] : []);
-  const reviews = await prisma.review.findMany({ where: { userId: auth.userId, wordId: { in: wordIds } }, select: { wordId: true, nextReviewDate: true } });
+  const reviews = await prisma.review.findMany({ where: { userId: auth.userId, wordId: { in: wordIds }, word: withCurrentCatalogWord() }, select: { wordId: true, nextReviewDate: true } });
   const nextReviewByWord = new Map(reviews.map((review) => [review.wordId, review.nextReviewDate.toISOString()]));
-  const countByDay = new Map(activityRows.map((row) => [row.day, row.count]));
   const activity = Array.from({ length: days }, (_, index) => {
     const day = offsetDay(sinceDay, index);
     return { day, count: countByDay.get(day) ?? 0 };

@@ -16,6 +16,7 @@ import { todayKey, offsetDay } from "../src/lib/streak";
 import { createInitialState, updateSM2At, type ReviewState, type Quality } from "../src/lib/sm2";
 import { isMasteredByInterval } from "../src/lib/mastered";
 import { OBJECTIVE_ITEM_CONSTRUCTION_VERSION, OBJECTIVE_QUALITY_POLICY_VERSION, RETRIEVAL_POLICY_VERSION } from "../src/lib/learning-policy/types";
+import { buildObjectiveQuestion, type QuestionWord } from "../src/lib/learning-policy/question";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config();
@@ -26,12 +27,29 @@ const args = new Set(process.argv.slice(2));
 const preview = args.has("--preview-reset");
 const rebuild = args.has("--reset-and-rebuild");
 const confirmed = args.has("--confirm-local-demo-reset");
-const VERSION = "demo-analytics-v2";
+const VERSION = "demo-analytics-v3-csv-sense";
 
-const DEMO_LEVELS = ["A1", "A2", "B1"] as const;
+const DEMO_LEVELS = ["A1", "A2", "B1", "B2"] as const;
 type DemoLevel = (typeof DEMO_LEVELS)[number];
 type DemoTrack = "LEADING" | "ADVANCED" | "STEADY" | "PROGRESSING" | "DEVELOPING" | "INTERMITTENT" | "FOLLOW_UP" | "NEW";
-type DemoWord = { id: string; term: string; level: DemoLevel; definition: string };
+type DemoWord = {
+  id: string;
+  senseId: string;
+  senseKey: string | null;
+  contentRevisionId: string | null;
+  catalogRevisionId: string | null;
+  term: string;
+  level: DemoLevel;
+  definition: string;
+  acceptedAnswers: string[];
+  acceptedForms: string[];
+  synonyms: string[];
+  antonyms: string[];
+  distractorZh: string[];
+  distractorEn: string[];
+  enableEnToZh: boolean;
+  enableZhToEn: boolean;
+};
 type DemoStage = { level: DemoLevel; poolSize: number };
 type DemoTrackConfig = {
   stages: readonly DemoStage[];
@@ -52,13 +70,13 @@ const CLASS_TRACKS: readonly DemoTrack[] = [
 const DEMO_MIN_WORDS_PER_LEVEL = 10;
 const DEMO_TRACKS: Record<DemoTrack, DemoTrackConfig> = {
   LEADING: {
-    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }, { level: "B2", poolSize: 2 }],
     participates: () => true,
     objectiveInterval: 3,
     streakTailDays: 7,
   },
   ADVANCED: {
-    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }, { level: "B2", poolSize: 1 }],
     participates: (day) => day % 7 < 6,
     objectiveInterval: 3,
     streakTailDays: 5,
@@ -109,10 +127,34 @@ function requireLocalEnvironment(): Environment {
   if (process.env.CONFIRM_DATABASE_ENVIRONMENT !== env) fail(`請同時設定 CONFIRM_DATABASE_ENVIRONMENT=${env}。`);
   return env;
 }
-function randomId(prefix: string) { return `${prefix}-${crypto.randomUUID()}`; }
+const DEMO_ANCHOR_DATE = "2026-08-19";
+function fixtureId(prefix: string, key: string) { return `${prefix}-${hash(`${VERSION}:${key}`).slice(0, 32)}`; }
 function hash(value: string) { return crypto.createHash("sha256").update(value).digest("hex"); }
 function dateAt(key: string, hour = 12) { return new Date(`${key}T${String(hour).padStart(2, "0")}:00:00+08:00`); }
 function fixturePassword(envName: string) { const value = process.env[envName] ?? ""; if (passwordPolicyError(value)) fail(`${envName} 不符合密碼政策。`); return value; }
+
+function asQuestionWord(word: DemoWord): QuestionWord {
+  return {
+    id: word.id,
+    senseId: word.senseId,
+    term: word.term,
+    definition: word.definition,
+    acceptedAnswers: word.acceptedAnswers,
+    acceptedForms: word.acceptedForms,
+    synonyms: word.synonyms,
+    antonyms: word.antonyms,
+    curatedDistractorsZh: word.distractorZh,
+    curatedDistractorsEn: word.distractorEn,
+    enableEnToZh: word.enableEnToZh,
+    enableZhToEn: word.enableZhToEn,
+  };
+}
+
+function deterministicSample(words: readonly DemoWord[], poolSize: number, seed: string): DemoWord[] {
+  return [...words]
+    .sort((left, right) => hash(`${seed}:${left.id}`).localeCompare(hash(`${seed}:${right.id}`)))
+    .slice(0, poolSize);
+}
 
 function trackForStudent(classIndex: number, studentIndex: number): DemoTrack {
   const base = CLASS_TRACKS[classIndex]!;
@@ -133,7 +175,7 @@ async function previewReset(env: Environment) {
   const [users, years, classes, reviews, events, encounters, days] = await Promise.all([
     prisma.user.count(), prisma.academicYear.count(), prisma.schoolClass.count(), prisma.review.count(), prisma.reviewEvent.count(), prisma.studyEncounter.count(), prisma.studyDay.count(),
   ]);
-  console.log(JSON.stringify({ environment: env, version: VERSION, warning: "這會徹底刪除本機名單及學習測試資料，只保留 Word 詞庫。", existingRows: { users, years, classes, reviews, events, encounters, days }, target: { classes: 18, rosterStudents: 144, specialStudents: 6 } }, null, 2));
+  console.log(JSON.stringify({ environment: env, version: VERSION, warning: "這會徹底刪除本機名單及學習測試資料，只保留已由 CSV 建立的 catalog／sense 及 Word compatibility projection。", existingRows: { users, years, classes, reviews, events, encounters, days }, target: { classes: 18, rosterStudents: 144, specialStudents: 6 } }, null, 2));
 }
 
 async function clearLocalDemo(tx: Prisma.TransactionClient) {
@@ -155,7 +197,7 @@ async function createUser(tx: Prisma.TransactionClient, input: { accountName: st
 
 async function buildDemo() {
   const dates = currentAcademicYearDates();
-  const anchor = todayKey();
+  const anchor = DEMO_ANCHOR_DATE;
   const start = todayKey(dates.startsOn) > anchor ? todayKey(dates.startsOn) : todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : todayKey(dates.startsOn);
   const effectiveEnd = todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : anchor;
   if (start > effectiveEnd) fail("目前學年沒有可建立示範資料的有效日期。");
@@ -192,16 +234,37 @@ async function buildDemo() {
       for (const classId of assigned) await tx.teacherClassAccess.create({ data: { teacherId: teacher.id, classId, canViewProgress: true, canResetStudentPassword: index < 3, grantedById: admin.id } });
     }
     const wordsByLevel = new Map<DemoLevel, DemoWord[]>();
+    const catalogRevision = await tx.catalogRevision.findFirst({ orderBy: { createdAt: "desc" }, select: { id: true, sourceDigest: true } });
+    if (!catalogRevision) fail("找不到 CSV catalog revision。");
     for (const level of DEMO_LEVELS) {
       const rows = await tx.word.findMany({
-        where: { level },
-        take: DEMO_MIN_WORDS_PER_LEVEL,
+        where: { level, senseId: { not: null }, catalogRevisionId: catalogRevision.id },
+        take: 80,
         orderBy: [{ category: "asc" }, { term: "asc" }, { id: "asc" }],
-        select: { id: true, term: true, level: true, definition: true },
+        select: {
+          id: true,
+          senseId: true,
+          senseKey: true,
+          contentRevisionId: true,
+          catalogRevisionId: true,
+          term: true,
+          level: true,
+          definition: true,
+          acceptedAnswers: true,
+          acceptedForms: true,
+          synonyms: true,
+          antonyms: true,
+          distractorZh: true,
+          distractorEn: true,
+          enableEnToZh: true,
+          enableZhToEn: true,
+        },
       });
       if (rows.length < DEMO_MIN_WORDS_PER_LEVEL) fail(`${level} 詞庫不足，至少需要 ${DEMO_MIN_WORDS_PER_LEVEL} 個單詞。`);
-      wordsByLevel.set(level, rows.map((row) => ({ ...row, level })));
+      const normalized = rows.flatMap((row) => row.senseId ? [{ ...row, senseId: row.senseId, level }] : []);
+      wordsByLevel.set(level, normalized);
     }
+    const allDemoWords = [...wordsByLevel.values()].flat();
     // Direct fixture writes still use the same V2 writer marker as production,
     // so the legacy Review trigger cannot create a second incomplete event.
     await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v2', true)`;
@@ -226,7 +289,7 @@ async function buildDemo() {
     const special = [] as string[];
     for (const spec of specialSpecs) {
       const user = await createUser(tx, { accountName: spec.accountName, legalName: spec.legalName, nickname: `測試${spec.legalName}`, role: "STUDENT", password: studentPassword, grade: spec.grade, classId: spec.classId ?? null, studentNumber: spec.studentNumber, startedAt: spec.startedAt ?? dateAt(effectiveStart) });
-      if (spec.status) await tx.user.update({ where: { id: user.id }, data: { status: spec.status, suspendedAt: new Date(), tokenVersion: { increment: 1 }, revision: { increment: 1 } } });
+      if (spec.status) await tx.user.update({ where: { id: user.id }, data: { status: spec.status, suspendedAt: dateAt(effectiveEnd, 18), tokenVersion: { increment: 1 }, revision: { increment: 1 } } });
       special.push(user.id);
     }
     const missingStudentNumbers = await tx.studentEnrollment.count({ where: { academicYearId: year.id, student: { user: { role: "STUDENT" } }, studentNumber: null } });
@@ -235,12 +298,12 @@ async function buildDemo() {
       const studentIndex = student.index % 8;
       const track = trackForStudent(Math.floor(student.index / 8), studentIndex);
       const trackConfig = DEMO_TRACKS[track];
-      const session = await tx.studySession.create({ data: { userId: student.id, queueFingerprint: hash(`${VERSION}:${student.id}`), expiresAt: dateAt(offsetDay(effectiveEnd, -1)), retiredAt: dateAt(effectiveEnd), flowVersion: "v2", learningPolicyVersion: "retrieval-v1", mode: "global", revision: 0 } });
+      const session = await tx.studySession.create({ data: { userId: student.id, queueFingerprint: hash(`${VERSION}:${student.index}`), expiresAt: dateAt(offsetDay(effectiveEnd, -1)), retiredAt: dateAt(effectiveEnd), flowVersion: "v2", learningPolicyVersion: "retrieval-v1", mode: "global", catalogReadMode: "SENSE_V1", revision: 0 } });
       const reviewStates = new Map<string, ReviewState>();
       const reviewRevisions = new Map<string, number>();
       const reviewTotals = new Map<string, number>();
       const stagePools = trackConfig.stages.map((stage) => {
-        const words = wordsByLevel.get(stage.level)?.slice(0, stage.poolSize) ?? [];
+        const words = deterministicSample(wordsByLevel.get(stage.level) ?? [], stage.poolSize, `${student.index}:${stage.level}`);
         if (words.length !== stage.poolSize) fail(`${track} 的 ${stage.level} staged pool 不足。`);
         return { ...stage, words };
       });
@@ -267,34 +330,36 @@ async function buildDemo() {
         const objectiveProbe = day % trackConfig.objectiveInterval === 0 || day >= Math.max(0, effectiveDays - trackConfig.streakTailDays);
         await tx.studyDay.upsert({ where: { userId_date: { userId: student.id, date } }, create: { userId: student.id, date, createdAt: dateAt(date, 18) }, update: {} });
         const word = nextStagedWord();
-        const streamItemId = randomId("stream");
-        const revealOperation = randomId("reveal");
-        const operationId = randomId("encounter");
+        const streamItemId = fixtureId("stream", `${student.index}:${day}:card`);
+        const revealOperation = fixtureId("reveal", `${student.index}:${day}:card`);
+        const operationId = fixtureId("encounter", `${student.index}:${day}:card`);
         const learningRevision = session.revision + 1;
-        await tx.studyStreamItem.create({ data: { id: streamItemId, sessionId: session.id, streamItemKey: `${student.index}-${day}-card`, wordId: word.id, itemKind: "LEARNING_CARD", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", status: "ACKNOWLEDGED", leaseExpiresAt: dateAt(date, 12), credentialDigest: hash(`${student.id}:${day}:card:digest`), credentialExpiresAt: dateAt(date, 12), credentialLineage: { version: 1, parentDigest: null, issuedAt: dateAt(date, 12).toISOString(), expiresAt: dateAt(date, 12).toISOString() }, revealedAt: dateAt(date, 12), usedAt: dateAt(date, 13), feedbackAcknowledgedAt: dateAt(date, 13), operationId, clientRevision: learningRevision } });
+        await tx.studyStreamItem.create({ data: { id: streamItemId, sessionId: session.id, streamItemKey: `${student.index}-${day}-card`, wordId: word.id, senseId: word.senseId, itemKind: "LEARNING_CARD", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", status: "ACKNOWLEDGED", leaseExpiresAt: dateAt(date, 12), credentialDigest: hash(`${student.index}:${day}:card:digest`), credentialExpiresAt: dateAt(date, 12), credentialLineage: { version: 1, parentDigest: null, issuedAt: dateAt(date, 12).toISOString(), expiresAt: dateAt(date, 12).toISOString() }, revealedAt: dateAt(date, 12), usedAt: dateAt(date, 13), feedbackAcknowledgedAt: dateAt(date, 13), operationId, clientRevision: learningRevision } });
         await tx.operationReceipt.createMany({ data: [
           { userId: student.id, operationId: revealOperation, flowVersion: "v2", actionKind: "REVEAL", requestFingerprint: hash(`${streamItemId}:reveal`), outcomeStatus: "REVEALED", outcomeReference: streamItemId },
           { userId: student.id, operationId, flowVersion: "v2", actionKind: "SELF_RATING", requestFingerprint: hash(`${streamItemId}:self-rating`), outcomeStatus: "COMMITTED", outcomeReference: streamItemId },
         ] });
-        await tx.studyEncounter.create({ data: { userId: student.id, wordId: word.id, streamItemId, operationId, selfRating: quality === 4 ? "KNOWN" : "NOT_SURE", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", requiresVerification: false, acknowledgedAt: dateAt(date, 13), createdAt: dateAt(date, 13) } });
+        await tx.studyEncounter.create({ data: { userId: student.id, wordId: word.id, senseId: word.senseId, streamItemId, operationId, selfRating: quality === 4 ? "selfRecalled" : "selfForgot", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", requiresVerification: false, acknowledgedAt: dateAt(date, 13), createdAt: dateAt(date, 13) } });
         session.revision = learningRevision;
         if (objectiveProbe) {
-          const eventId = randomId("event"); const targetId = randomId("target"); const snapshotId = randomId("snapshot"); const obligationId = randomId("obligation"); const answerOperation = randomId("answer"); const feedbackOperation = randomId("feedback");
+          const eventId = fixtureId("event", `${student.index}:${day}:objective`); const targetId = fixtureId("target", `${student.index}:${day}:objective`); const snapshotId = fixtureId("snapshot", `${student.index}:${day}:objective`); const obligationId = fixtureId("obligation", `${student.index}:${day}:objective`); const answerOperation = fixtureId("answer", `${student.index}:${day}:objective`); const feedbackOperation = fixtureId("feedback", `${student.index}:${day}:objective`);
           const expectedRevision = reviewRevisions.get(word.id) ?? 0;
-          await tx.evidenceObligation.create({ data: { id: obligationId, userId: student.id, wordId: word.id, kind: "EVIDENCE_OBLIGATION", status: "ANSWERED", sourceOperationId: operationId, selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", eligibleAt: dateAt(date, 14), expiresAt: dateAt(date, 23), answeredAt: dateAt(date, 15), terminalReason: "answered" } });
-          await tx.objectiveEvidenceTarget.create({ data: { id: targetId, userId: student.id, wordId: word.id, purpose: "DUE_REVIEW", expectedReviewRevision: expectedRevision, policyVersion: RETRIEVAL_POLICY_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, status: "CONSUMED", obligationId, winningOperationId: answerOperation, winningReviewEventId: eventId, consumedAt: dateAt(date, 15) } });
-          await tx.objectiveQuestionSnapshot.create({ data: { id: snapshotId, targetId, wordId: word.id, prompt: word.term, wordTerm: word.term, wordDefinition: word.definition, direction: "TERM_TO_DEFINITION", options: [{ id: "a", text: word.definition }, { id: "b", text: "其他答案" }, { id: "c", text: "未選答案" }, { id: "d", text: "示範選項" }], correctOptionId: "a", contentVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, createdAt: dateAt(date, 14) } });
+          await tx.evidenceObligation.create({ data: { id: obligationId, userId: student.id, wordId: word.id, senseId: word.senseId, kind: "EVIDENCE_OBLIGATION", status: "ANSWERED", sourceOperationId: operationId, selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", eligibleAt: dateAt(date, 14), expiresAt: dateAt(date, 23), answeredAt: dateAt(date, 15), terminalReason: "answered" } });
+          await tx.objectiveEvidenceTarget.create({ data: { id: targetId, userId: student.id, wordId: word.id, senseId: word.senseId, purpose: "DUE_REVIEW", expectedReviewRevision: expectedRevision, policyVersion: RETRIEVAL_POLICY_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, status: "CONSUMED", obligationId, winningOperationId: answerOperation, winningReviewEventId: eventId, consumedAt: dateAt(date, 15) } });
+          const question = buildObjectiveQuestion(asQuestionWord(word), allDemoWords.map(asQuestionWord), `${student.index}:${day}:${targetId}:${expectedRevision}`);
+          if (!question) fail(`${word.term} 缺少 production-grade curated objective question。`);
+          await tx.objectiveQuestionSnapshot.create({ data: { id: snapshotId, targetId, wordId: word.id, senseId: word.senseId, contentRevisionId: word.contentRevisionId, catalogRevisionId: word.catalogRevisionId, prompt: question.prompt, wordTerm: question.wordTerm, wordDefinition: question.wordDefinition, direction: question.direction, options: question.options as unknown as Prisma.InputJsonValue, correctOptionId: question.correctOptionId, contentVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, createdAt: dateAt(date, 14) } });
           const answerRevision = session.revision + 1;
-          const objectiveItemId = randomId("stream");
-          await tx.studyStreamItem.create({ data: { id: objectiveItemId, sessionId: session.id, streamItemKey: `${student.index}-${day}-objective`, wordId: word.id, itemKind: "OBJECTIVE_PROBE", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", status: "ACKNOWLEDGED", leaseExpiresAt: dateAt(date, 14), credentialDigest: hash(`${student.id}:${day}:objective:digest`), credentialExpiresAt: dateAt(date, 14), credentialLineage: { version: 1, parentDigest: null, issuedAt: dateAt(date, 14).toISOString(), expiresAt: dateAt(date, 14).toISOString() }, usedAt: dateAt(date, 15), feedbackAcknowledgedAt: dateAt(date, 16), operationId: answerOperation, clientRevision: answerRevision, objectiveEvidenceTargetId: targetId, objectiveQuestionSnapshotId: snapshotId, workObligationId: obligationId } });
+          const objectiveItemId = fixtureId("stream", `${student.index}:${day}:objective`);
+          await tx.studyStreamItem.create({ data: { id: objectiveItemId, sessionId: session.id, streamItemKey: `${student.index}-${day}-objective`, wordId: word.id, senseId: word.senseId, itemKind: "OBJECTIVE_PROBE", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", status: "ACKNOWLEDGED", leaseExpiresAt: dateAt(date, 14), credentialDigest: hash(`${student.index}:${day}:objective:digest`), credentialExpiresAt: dateAt(date, 14), credentialLineage: { version: 1, parentDigest: null, issuedAt: dateAt(date, 14).toISOString(), expiresAt: dateAt(date, 14).toISOString() }, usedAt: dateAt(date, 15), feedbackAcknowledgedAt: dateAt(date, 16), operationId: answerOperation, clientRevision: answerRevision, objectiveEvidenceTargetId: targetId, objectiveQuestionSnapshotId: snapshotId, workObligationId: obligationId } });
           const previous = reviewStates.get(word.id) ?? createInitialState();
           const nextState = updateSM2At(previous, quality, dateAt(date, 15));
           const nextTotal = (reviewTotals.get(word.id) ?? 0) + 1;
-          if (reviewRevisions.has(word.id)) await tx.review.update({ where: { userId_wordId: { userId: student.id, wordId: word.id } }, data: { ...nextState, revision: expectedRevision + 1, totalReviews: nextTotal } });
-          else await tx.review.create({ data: { userId: student.id, wordId: word.id, ...nextState, revision: 1, totalReviews: nextTotal } });
+          if (reviewRevisions.has(word.id)) await tx.review.update({ where: { userId_wordId: { userId: student.id, wordId: word.id } }, data: { ...nextState, senseId: word.senseId, revision: expectedRevision + 1, totalReviews: nextTotal } });
+          else await tx.review.create({ data: { userId: student.id, wordId: word.id, senseId: word.senseId, ...nextState, revision: 1, totalReviews: nextTotal } });
           reviewStates.set(word.id, nextState); reviewRevisions.set(word.id, expectedRevision + 1); reviewTotals.set(word.id, nextTotal);
-          await tx.reviewEvent.create({ data: { id: eventId, operationId: answerOperation, userId: student.id, submittedWordId: word.id, wordId: word.id, wordTerm: word.term, wordLevel: word.level, quality, evidenceKind: "OBJECTIVE_PROBE", flowVersion: "v2", qualityPolicyVersion: OBJECTIVE_QUALITY_POLICY_VERSION, probePurpose: "DUE_REVIEW", itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, objectiveEvidenceTargetId: targetId, objectiveQuestionSnapshotId: snapshotId, createdAt: dateAt(date, 15) } });
-          if (quality === 2) await tx.evidenceObligation.create({ data: { id: randomId("remediation"), userId: student.id, wordId: word.id, kind: "REMEDIATION", status: "EXPIRED", sourceOperationId: answerOperation, selectionReason: "self-forgot-remediation", policyVersion: "retrieval-v1", eligibleAt: dateAt(date, 15), expiresAt: dateAt(date, 15), answeredAt: null, terminalReason: "demo-expired" } });
+          await tx.reviewEvent.create({ data: { id: eventId, operationId: answerOperation, userId: student.id, submittedWordId: word.id, wordId: word.id, senseId: word.senseId, submittedSenseId: word.senseId, senseKey: word.senseKey, contentRevisionId: word.contentRevisionId, catalogRevisionId: word.catalogRevisionId, wordTerm: word.term, wordLevel: word.level, quality, evidenceKind: "OBJECTIVE_PROBE", flowVersion: "v2", qualityPolicyVersion: OBJECTIVE_QUALITY_POLICY_VERSION, probePurpose: "DUE_REVIEW", itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, objectiveEvidenceTargetId: targetId, objectiveQuestionSnapshotId: snapshotId, createdAt: dateAt(date, 15) } });
+          if (quality === 2) await tx.evidenceObligation.create({ data: { id: fixtureId("remediation", `${student.index}:${day}:objective`), userId: student.id, wordId: word.id, senseId: word.senseId, kind: "REMEDIATION", status: "EXPIRED", sourceOperationId: answerOperation, selectionReason: "self-forgot-remediation", policyVersion: "retrieval-v1", eligibleAt: dateAt(date, 15), expiresAt: dateAt(date, 15), answeredAt: null, terminalReason: "demo-expired" } });
           await tx.operationReceipt.createMany({ data: [
             { userId: student.id, operationId: answerOperation, flowVersion: "v2", actionKind: "ANSWER", requestFingerprint: hash(`${targetId}:answer`), outcomeStatus: "COMMITTED", outcomeReference: eventId },
             { userId: student.id, operationId: feedbackOperation, flowVersion: "v2", actionKind: "FEEDBACK_ACK", requestFingerprint: hash(`${targetId}:feedback`), outcomeStatus: "COMMITTED", outcomeReference: objectiveItemId },

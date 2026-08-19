@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { todayStartUtc } from "@/lib/streak";
+import { currentCatalogReviewEventWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
 
 export async function GET() {
   const auth = await requireRole(ROLES.ADMIN);
@@ -12,18 +13,12 @@ export async function GET() {
     const [totalUsers, totalWords, totalReviews, usersByRole, wordsByLevel, reviewsToday] =
       await Promise.all([
         prisma.user.count(),
-        prisma.word.count(),
-        prisma.reviewEvent.count(),
+        prisma.word.count({ where: withCurrentCatalogWord() }),
+        prisma.reviewEvent.count({ where: currentCatalogReviewEventWhere() }),
         prisma.user.groupBy({ by: ["role"], _count: true }),
-        prisma.word.groupBy({ by: ["level"], _count: true }),
+        prisma.word.groupBy({ by: ["level"], where: withCurrentCatalogWord(), _count: true }),
         prisma.reviewEvent.count({
-          where: {
-            isHistorical: false,
-            eventKind: "REVIEW",
-            createdAt: {
-              gte: todayStartUtc(),
-            },
-          },
+          where: { AND: [currentCatalogReviewEventWhere(), { createdAt: { gte: todayStartUtc() } }] },
         }),
       ]);
 

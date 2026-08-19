@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Prisma, StudentGrade, ClassCode, Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
+import { currentCatalogReviewEventWhere, currentCatalogSenseWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
 import { todayKey, offsetDay } from "@/lib/streak";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
@@ -372,22 +373,22 @@ export function countEncountersForLocalDate(rows: Array<{ acknowledgedAt: Date }
 }
 
 async function loadActivity(db: Db, memberIds: string[], range: EffectiveRange, asOf: Date): Promise<LoadedActivity> {
-  if (!memberIds.length) return { reviewEvents: [], encounters: [], studyDays: [], reviews: [], wordCount: await db.word.count(), reviewEventsByUser: new Map(), encountersByUser: new Map(), studyDaysByUser: new Map(), reviewsByUser: new Map() };
+  if (!memberIds.length) return { reviewEvents: [], encounters: [], studyDays: [], reviews: [], wordCount: await db.word.count({ where: withCurrentCatalogWord() }), reviewEventsByUser: new Map(), encountersByUser: new Map(), studyDaysByUser: new Map(), reviewsByUser: new Map() };
   const from = atShanghaiStart(range.from); const to = atShanghaiEnd(range.to);
   // An interactive Prisma transaction is backed by one PostgreSQL client.
   // Running these reads with Promise.all makes pg queue overlapping
   // client.query calls; under the small local pool this can leave the
   // analytics request waiting until the transaction times out and becomes a
   // generic 500. Keep the reads on the snapshot connection sequential.
-  const reviewEvents = await db.reviewEvent.findMany({ where: { userId: { in: memberIds }, eventKind: "REVIEW", createdAt: { gte: from, lt: to, lte: asOf } }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { id: true, operationId: true, userId: true, submittedWordId: true, quality: true, createdAt: true, isHistorical: true, evidenceKind: true, flowVersion: true, qualityPolicyVersion: true, probePurpose: true, objectiveEvidenceTargetId: true, objectiveQuestionSnapshotId: true, objectiveEvidenceTarget: { select: { status: true, winningOperationId: true, winningReviewEventId: true, purpose: true, obligation: { select: { status: true } }, questionSnapshot: { select: { id: true } } } } } });
+  const reviewEvents = await db.reviewEvent.findMany({ where: { AND: [currentCatalogReviewEventWhere(), { userId: { in: memberIds }, createdAt: { gte: from, lt: to, lte: asOf } }] }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { id: true, operationId: true, userId: true, submittedWordId: true, quality: true, createdAt: true, isHistorical: true, evidenceKind: true, flowVersion: true, qualityPolicyVersion: true, probePurpose: true, objectiveEvidenceTargetId: true, objectiveQuestionSnapshotId: true, objectiveEvidenceTarget: { select: { status: true, winningOperationId: true, winningReviewEventId: true, purpose: true, obligation: { select: { status: true } }, questionSnapshot: { select: { id: true } } } } } });
   if (reviewEvents.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
-  const encounters = await db.studyEncounter.findMany({ where: { userId: { in: memberIds }, acknowledgedAt: { gte: from, lt: to, lte: asOf } }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, wordId: true, acknowledgedAt: true } });
+  const encounters = await db.studyEncounter.findMany({ where: { userId: { in: memberIds }, senseId: { not: null }, sense: { is: currentCatalogSenseWhere() }, acknowledgedAt: { gte: from, lt: to, lte: asOf } }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, wordId: true, acknowledgedAt: true } });
   if (encounters.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
   const studyDays = await db.studyDay.findMany({ where: { userId: { in: memberIds }, date: { gte: range.from, lte: range.to }, createdAt: { lte: asOf } }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, date: true, createdAt: true } });
   if (studyDays.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
-  const reviews = await db.review.findMany({ where: { userId: { in: memberIds } }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, interval: true, nextReviewDate: true } });
+  const reviews = await db.review.findMany({ where: { userId: { in: memberIds }, word: withCurrentCatalogWord() }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, interval: true, nextReviewDate: true } });
   if (reviews.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
-  const wordCount = await db.word.count();
+  const wordCount = await db.word.count({ where: withCurrentCatalogWord() });
   return { reviewEvents, encounters, studyDays, reviews, wordCount, reviewEventsByUser: indexByUser(reviewEvents), encountersByUser: indexByUser(encounters), studyDaysByUser: indexByUser(studyDays), reviewsByUser: indexByUser(reviews) };
 }
 

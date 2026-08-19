@@ -64,5 +64,25 @@ test("public projection never exposes the answer key", () => {
 
   const publicQuestion = toPublicObjectiveQuestion(snapshot);
   assert.equal("correctOptionId" in publicQuestion, false);
+  assert.equal("wordTerm" in publicQuestion, false);
+  assert.equal("wordDefinition" in publicQuestion, false);
   assert.deepEqual(publicQuestion.options, snapshot.options);
+});
+
+test("sense-level construction uses only the row's curated pool and enabled direction", () => {
+  const sense: QuestionWord = {
+    id: "run-a1",
+    senseId: "sense-run-a1",
+    term: "run",
+    definition: "跑步",
+    enableEnToZh: true,
+    enableZhToEn: false,
+    curatedDistractorsZh: ["行走", "跳躍", "游泳", "站立", "坐下", "經營"],
+    curatedDistractorsEn: ["walk", "jump", "swim", "stand", "sit"],
+  };
+  const snapshot = buildObjectiveQuestion(sense, [sense, { id: "run-a2", senseId: "sense-run-a2", term: "run", definition: "經營" }], "sense-seed");
+  assert.ok(snapshot);
+  assert.equal(snapshot.direction, "en-zh");
+  assert.ok(snapshot.options.every((option) => option.text === "跑步" || sense.curatedDistractorsZh?.includes(option.text)));
+  assert.ok(!snapshot.options.some((option) => option.text === "經營"));
 });

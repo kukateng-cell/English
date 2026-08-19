@@ -60,6 +60,9 @@ export function productionConfigurationErrors(
   if (isProductionRuntime(env) && env.STUDY_V2_ASSIGNMENT_MODE === "all") {
     errors.push("STUDY_V2_ASSIGNMENT_MODE=all is only permitted in local development");
   }
+  if (isProductionRuntime(env) && env.LOCAL_CATALOG_BOOTSTRAP === "1") {
+    errors.push("LOCAL_CATALOG_BOOTSTRAP=1 is only permitted in local development/test");
+  }
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
     errors.push("distributed Upstash login/study rate limiting is required");
   }

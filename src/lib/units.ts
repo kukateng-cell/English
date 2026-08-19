@@ -1,10 +1,11 @@
+import { CATALOG_CATEGORIES } from "@/lib/catalog/taxonomy";
+
 /**
- * 单元（unit）定义：单元即 word list.md 中的 `### Category` 分组。
+ * 單元（unit）定義：單元即 versioned CSV catalog 中的 category code 分組。
  * 这里显式声明每个级别的单元顺序，保证 /units 页面与 API 的展示顺序一致、
  * 且符合词表的学习顺序（数据库本身不存储顺序）。
  *
- * category 名必须与 seed.ts 解析出的 Word.category 完全一致
- * （seed 用 `### Title (中文)` 中的英文标题，去掉括号）。
+ * category 名必須與 catalog taxonomy 完全一致；未知 code 由 validator 拒絕。
  *
  * 注意：这里【不】从 @/generated/prisma 直接 import Level，而是用本地
  * `as const` 字面量联合——保持 lib 层与 Prisma 生成代码解耦，便于单测
@@ -12,48 +13,15 @@
  * 可直接赋给 where/create/update 的 level 字段。
  */
 
-/** A1 级别全部单元（按词表顺序） */
-export const A1_UNITS: string[] = [
-  "Hello and Goodbye",
-  "People",
-  "Numbers 0 to 100",
-  "Family",
-  "Colors",
-  "Months and Seasons",
-  "Time and Date",
-  "Personal Information",
-  "The Body",
-  "The Head and Face",
-  "Opposite Adjectives",
-  "House and Apartment",
-  "Furniture and Home Appliances",
-  "Jobs",
-  "Clothes and Shoes",
-  "Animals",
-  "Basic Verbs",
-  "Household Items",
-  "Food and Ingredients",
-  "Food and Drinks",
-  "The Weather and Nature",
-  "Useful Verbs",
-  "School",
-  "City",
-  "Free Time Activities",
-  "Countries and Nationalities",
-  "Simple Verbs",
-  "Transportation",
-  "Directions and Continents",
-  "Adverbs and Pronouns",
-  "Prepositions and Determiners",
-  "Describing People",
-];
+/** A1 級別全部單元（按 catalog taxonomy 順序） */
+export const A1_UNITS: string[] = [...CATALOG_CATEGORIES];
 
 /** 每个级别的单元顺序；未在表中出现的单元会追加在末尾（按字母序）。 */
 export const UNIT_ORDER: Record<string, string[]> = {
   A1: A1_UNITS,
-  A2: [],
-  B1: [],
-  B2: [],
+  A2: [...CATALOG_CATEGORIES],
+  B1: [...CATALOG_CATEGORIES],
+  B2: [...CATALOG_CATEGORIES],
 };
 
 /**

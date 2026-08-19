@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Level, Role } from "@/generated/prisma";
 import { prisma, Prisma } from "@/lib/prisma";
+import { currentCatalogSenseWhere, eligibleOperationalObjectiveEventWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
 import { ROLES } from "@/lib/roles";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
@@ -406,14 +407,14 @@ async function awaitTeacherGlobalReset(userId: string) {
 }
 
 async function metricSnapshot(userIds: string[], now = new Date()) {
-  const totalWords = await prisma.word.count();
-  const wordsByLevel = await prisma.word.groupBy({ by: ["level"], _count: { _all: true } });
+  const totalWords = await prisma.word.count({ where: withCurrentCatalogWord() });
+  const wordsByLevel = await prisma.word.groupBy({ by: ["level"], where: withCurrentCatalogWord(), _count: { _all: true } });
   const todayDate = todayKey(now);
   const sevenDayStart = offsetDay(todayDate, -6);
   const [reviews, reviewEvents, studyDays, encounters, todayEncounters] = await Promise.all([
-    prisma.review.findMany({ where: { userId: { in: userIds } }, select: { userId: true, interval: true, nextReviewDate: true, word: { select: { level: true } } } }),
+    prisma.review.findMany({ where: { userId: { in: userIds }, word: withCurrentCatalogWord() }, select: { userId: true, interval: true, nextReviewDate: true, word: { select: { level: true } } } }),
     prisma.reviewEvent.findMany({
-      where: { userId: { in: userIds }, eventKind: "REVIEW", isHistorical: false },
+      where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId: { in: userIds } }] },
       select: {
         id: true,
         userId: true,
@@ -429,8 +430,8 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
       },
     }),
     prisma.studyDay.findMany({ where: { userId: { in: userIds }, date: { gte: sevenDayStart, lte: todayDate } }, select: { userId: true, date: true } }),
-    prisma.studyEncounter.groupBy({ by: ["userId"], where: { userId: { in: userIds } }, _max: { acknowledgedAt: true } }),
-    prisma.studyEncounter.groupBy({ by: ["userId"], where: { userId: { in: userIds }, acknowledgedAt: { gte: new Date(`${todayDate}T00:00:00+08:00`), lt: new Date(`${offsetDay(todayDate, 1)}T00:00:00+08:00`) } }, _count: { _all: true } }),
+    prisma.studyEncounter.groupBy({ by: ["userId"], where: { userId: { in: userIds }, senseId: { not: null }, sense: { is: currentCatalogSenseWhere() } }, _max: { acknowledgedAt: true } }),
+    prisma.studyEncounter.groupBy({ by: ["userId"], where: { userId: { in: userIds }, senseId: { not: null }, sense: { is: currentCatalogSenseWhere() }, acknowledgedAt: { gte: new Date(`${todayDate}T00:00:00+08:00`), lt: new Date(`${offsetDay(todayDate, 1)}T00:00:00+08:00`) } }, _count: { _all: true } }),
   ]);
   const levels = new Map<string, number>(wordsByLevel.map((row) => [row.level, row._count._all]));
   const perUser = new Map<string, { mastered: number; due: number; byLevel: Map<string, number> }>();

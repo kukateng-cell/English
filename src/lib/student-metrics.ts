@@ -3,6 +3,12 @@ import { computeStreak, todayStartUtc } from "@/lib/streak";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 import { LEVELS, MASTERED_REPETITIONS, normalizeLevel, type LevelCode } from "@/lib/units";
 import { fetchUnitProgress } from "@/lib/unit-progress-server";
+import {
+  currentCatalogReviewEventWhere,
+  currentCatalogSenseWhere,
+  eligibleOperationalObjectiveEventWhere,
+  withCurrentCatalogWord,
+} from "@/lib/catalog/runtime";
 
 export type WordReviewSnapshot = {
   repetitions: number;
@@ -38,8 +44,13 @@ export function unlockedWordFilters(
     level.units
       .filter((unit) => unit.unlocked)
       .map((unit) => ({
-        level: normalizeLevel(level.level),
-        category: unit.name === "未分类" ? null : unit.name,
+        AND: [
+          withCurrentCatalogWord(),
+          {
+            level: normalizeLevel(level.level),
+            category: unit.name === "未分类" ? null : unit.name,
+          },
+        ],
       })),
   );
 }
@@ -159,22 +170,22 @@ export async function getStudentLearningMetrics(
     levelWordRows,
     levelReviewRows,
   ] = await Promise.all([
-    prisma.word.count(),
-    prisma.review.count({ where: { userId } }),
-    prisma.review.count({ where: { userId, lastReviewedAt: { gte: todayStart } } }),
-    prisma.review.count({ where: { userId, totalReviews: 1, lastReviewedAt: { gte: todayStart } } }),
-    prisma.reviewEvent.count({ where: { userId, eventKind: "REVIEW", isHistorical: false, createdAt: { gte: todayStart } } }),
-    prisma.reviewEvent.count({ where: { userId, eventKind: "REVIEW", evidenceKind: "OBJECTIVE_PROBE", flowVersion: "v2", objectiveEvidenceTargetId: { not: null }, isHistorical: false, createdAt: { gte: todayStart } } }),
-    prisma.studyEncounter.count({ where: { userId, createdAt: { gte: todayStart } } }),
-    prisma.reviewEvent.count({ where: { userId, evidenceKind: "LEGACY_UNKNOWN", isHistorical: false, createdAt: { gte: todayStart } } }),
-    prisma.review.count({ where: { userId, repetitions: { gte: MASTERED_REPETITIONS } } }),
-    prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL } } }),
+    prisma.word.count({ where: withCurrentCatalogWord() }),
+    prisma.review.count({ where: { userId, word: withCurrentCatalogWord() } }),
+    prisma.review.count({ where: { userId, lastReviewedAt: { gte: todayStart }, word: withCurrentCatalogWord() } }),
+    prisma.review.count({ where: { userId, totalReviews: 1, lastReviewedAt: { gte: todayStart }, word: withCurrentCatalogWord() } }),
+    prisma.reviewEvent.count({ where: { AND: [currentCatalogReviewEventWhere(), { userId, createdAt: { gte: todayStart } }] } }),
+    prisma.reviewEvent.count({ where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId, createdAt: { gte: todayStart } }] } }),
+    prisma.studyEncounter.count({ where: { userId, senseId: { not: null }, sense: currentCatalogSenseWhere(), createdAt: { gte: todayStart } } }),
+    prisma.reviewEvent.count({ where: { AND: [currentCatalogReviewEventWhere(), { userId, evidenceKind: "LEGACY_UNKNOWN", createdAt: { gte: todayStart } }] } }),
+    prisma.review.count({ where: { userId, repetitions: { gte: MASTERED_REPETITIONS }, word: withCurrentCatalogWord() } }),
+    prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL }, word: withCurrentCatalogWord() } }),
     prisma.word.count({ where: unlockedWordWhere }),
     prisma.review.count({ where: { userId, repetitions: { gte: MASTERED_REPETITIONS }, word: unlockedWordWhere } }),
     prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL }, word: unlockedWordWhere } }),
-    prisma.word.findMany({ select: { level: true } }),
+    prisma.word.findMany({ where: withCurrentCatalogWord(), select: { level: true } }),
     prisma.review.findMany({
-      where: { userId },
+      where: { userId, word: withCurrentCatalogWord() },
       select: { repetitions: true, interval: true, word: { select: { level: true } } },
     }),
   ]);
@@ -243,7 +254,7 @@ export async function getStudentDashboard(
 
   const [metrics, dueBacklogCount, availableNewCount, streak] = await Promise.all([
     getStudentLearningMetrics(userId, now, { visibleFilters }),
-    prisma.review.count({ where: { userId, nextReviewDate: { lte: now } } }),
+    prisma.review.count({ where: { userId, nextReviewDate: { lte: now }, word: withCurrentCatalogWord() } }),
     prisma.word.count({ where: newWordWhere }),
     computeStreak(userId),
   ]);

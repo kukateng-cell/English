@@ -7,7 +7,7 @@
 
 export const RETRIEVAL_POLICY_VERSION = "retrieval-v1" as const;
 export const OBJECTIVE_QUALITY_POLICY_VERSION = "retrieval-v1-quality-v1" as const;
-export const OBJECTIVE_ITEM_CONSTRUCTION_VERSION = "retrieval-v1-mcq-v1" as const;
+export const OBJECTIVE_ITEM_CONSTRUCTION_VERSION = "retrieval-v1-mcq-curated-v2" as const;
 
 export type StreamMode = "global" | "unit";
 
@@ -62,6 +62,7 @@ export interface WorkRecord {
   id: string;
   learnerId: string;
   wordId: string;
+  senseId?: string | null;
   kind: WorkKind;
   status: WorkStatus;
   admittedAt: number;
@@ -74,6 +75,7 @@ export interface WorkRecord {
 export interface CandidateRecord {
   id: string;
   wordId: string;
+  senseId?: string | null;
   kind: StreamItemKind;
   purpose?: ProbePurpose;
   workId?: string;

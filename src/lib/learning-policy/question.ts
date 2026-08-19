@@ -9,6 +9,13 @@ export interface QuestionWord {
   id: string;
   term: string;
   definition: string;
+  senseId?: string | null;
+  acceptedAnswers?: string[] | null;
+  acceptedForms?: string[] | null;
+  curatedDistractorsEn?: string[] | null;
+  curatedDistractorsZh?: string[] | null;
+  enableEnToZh?: boolean;
+  enableZhToEn?: boolean;
   phonetic?: string | null;
   synonyms?: string[] | null;
   antonyms?: string[] | null;
@@ -31,8 +38,6 @@ export interface ObjectiveQuestionSnapshotData {
 
 export interface PublicObjectiveQuestion {
   prompt: string;
-  wordTerm: string;
-  wordDefinition: string;
   direction: QuestionDirection;
   options: ObjectiveQuestionOption[];
   itemConstructionVersion: typeof OBJECTIVE_ITEM_CONSTRUCTION_VERSION;
@@ -92,6 +97,28 @@ function sameText(left: string, right: string): boolean {
     normalizeQuestionText(right).toLocaleLowerCase("en-US");
 }
 
+function directionAnswerSet(word: QuestionWord, direction: QuestionDirection): Set<string> {
+  const answer = direction === "en-zh" ? word.definition : word.term;
+  const accepted = direction === "en-zh" ? word.acceptedAnswers : word.acceptedForms;
+  return new Set([answer, ...(accepted ?? [])].map((value) => normalizeQuestionText(value).toLocaleLowerCase("en-US")));
+}
+
+function isCuratedWord(word: QuestionWord): boolean {
+  return word.senseId !== undefined && word.senseId !== null;
+}
+
+function allowedDirections(word: QuestionWord): QuestionDirection[] {
+  if (!isCuratedWord(word)) return ["en-zh", "zh-en"];
+  return [
+    ...(word.enableEnToZh ? ["en-zh" as const] : []),
+    ...(word.enableZhToEn ? ["zh-en" as const] : []),
+  ];
+}
+
+function curatedCandidates(word: QuestionWord, direction: QuestionDirection): string[] {
+  return (direction === "en-zh" ? word.curatedDistractorsZh : word.curatedDistractorsEn) ?? [];
+}
+
 /**
  * Construct the immutable server-side question snapshot. Returning null is
  * intentional: an invalid or under-populated question must not become a live
@@ -104,39 +131,52 @@ export function buildObjectiveQuestion(
 ): ObjectiveQuestionSnapshotData | null {
   if (!isQuizzable(word) || seed.trim().length === 0) return null;
 
-  const direction: QuestionDirection = digest(`${seed}\0direction`).charCodeAt(0) % 2 === 0
-    ? "en-zh"
-    : "zh-en";
+  const directions = allowedDirections(word);
+  if (directions.length === 0) return null;
+  const direction = directions[digest(`${seed}\0direction`).charCodeAt(0) % directions.length]!;
   const answerText = direction === "en-zh" ? word.definition : word.term;
   const targetTerm = normalizeQuestionText(word.term);
   const targetDefinition = normalizeQuestionText(word.definition);
   const answerKey = normalizeQuestionText(answerText).toLocaleLowerCase("en-US");
+  const targetAnswers = directionAnswerSet(word, direction);
+  const siblingAnswers = new Set(
+    source
+      .filter((candidate) => candidate.id !== word.id && sameText(candidate.term, targetTerm))
+      .flatMap((candidate) => [...directionAnswerSet(candidate, direction)])
+      .map((value) => normalizeQuestionText(value).toLocaleLowerCase("en-US")),
+  );
   const targetSynonyms = normalizedSet(word.synonyms);
   const targetAntonyms = normalizedSet(word.antonyms);
-
-  const candidates = source.filter((candidate) => {
-    if (!isQuizzable(candidate) || candidate.id === word.id) return false;
-    const candidateTerm = normalizeQuestionText(candidate.term);
-    const candidateDefinition = normalizeQuestionText(candidate.definition);
-    const candidateText = direction === "en-zh" ? candidateDefinition : candidateTerm;
-
-    if (normalizeQuestionText(candidateText).toLocaleLowerCase("en-US") === answerKey) return false;
-    if (direction === "en-zh") {
-      if (!hasCjk(candidateDefinition) || sameText(candidateTerm, targetTerm)) return false;
-    } else {
-      if (hasCjk(candidateTerm) || sameText(candidateDefinition, targetDefinition)) return false;
-      const candidateTermKey = candidateTerm.toLocaleLowerCase("en-US");
-      if (targetSynonyms.has(candidateTermKey) || targetAntonyms.has(candidateTermKey)) return false;
-      const candidateSynonyms = normalizedSet(candidate.synonyms);
-      if (candidateSynonyms.has(targetTerm.toLocaleLowerCase("en-US"))) return false;
-    }
-    return true;
-  });
+  const candidates = isCuratedWord(word)
+    ? curatedCandidates(word, direction).map((text, index) => ({
+        id: `${word.senseId}:${direction}:${index}`,
+        term: direction === "zh-en" ? text : `curated-${index}`,
+        definition: direction === "en-zh" ? text : `curated-${index}`,
+      } satisfies QuestionWord))
+    : source.filter((candidate) => {
+        if (!isQuizzable(candidate) || candidate.id === word.id) return false;
+        const candidateTerm = normalizeQuestionText(candidate.term);
+        const candidateDefinition = normalizeQuestionText(candidate.definition);
+        const candidateText = direction === "en-zh" ? candidateDefinition : candidateTerm;
+        if (normalizeQuestionText(candidateText).toLocaleLowerCase("en-US") === answerKey) return false;
+        if (direction === "en-zh") {
+          if (!hasCjk(candidateDefinition) || sameText(candidateTerm, targetTerm)) return false;
+        } else {
+          if (hasCjk(candidateTerm) || sameText(candidateDefinition, targetDefinition)) return false;
+          const candidateTermKey = candidateTerm.toLocaleLowerCase("en-US");
+          if (targetSynonyms.has(candidateTermKey) || targetAntonyms.has(candidateTermKey)) return false;
+          const candidateSynonyms = normalizedSet(candidate.synonyms);
+          if (candidateSynonyms.has(targetTerm.toLocaleLowerCase("en-US"))) return false;
+        }
+        return true;
+      });
 
   const uniqueCandidates = new Map<string, QuestionWord>();
   for (const candidate of order(candidates, `${seed}\0candidates`, (item) => item.id)) {
     const text = direction === "en-zh" ? candidate.definition : candidate.term;
     const key = normalizeQuestionText(text).toLocaleLowerCase("en-US");
+    if (targetAnswers.has(key) || siblingAnswers.has(key)) continue;
+    if (direction === "zh-en" && (targetSynonyms.has(key) || targetAntonyms.has(key))) continue;
     if (!uniqueCandidates.has(key)) uniqueCandidates.set(key, candidate);
   }
 
@@ -179,8 +219,6 @@ export function toPublicObjectiveQuestion(
 ): PublicObjectiveQuestion {
   return {
     prompt: snapshot.prompt,
-    wordTerm: snapshot.wordTerm,
-    wordDefinition: snapshot.wordDefinition,
     direction: snapshot.direction,
     options: snapshot.options.map((option) => ({ ...option })),
     itemConstructionVersion: snapshot.itemConstructionVersion,

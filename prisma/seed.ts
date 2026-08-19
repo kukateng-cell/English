@@ -1,17 +1,14 @@
 /**
- * Seed 腳本：解析 word list.md 匯入單詞到資料庫
+ * Seed 腳本：匯入 versioned CSV 詞庫及本地帳戶 fixture
  * 執行：npx tsx prisma/seed.ts
  *
- * word list.md 格式：
- *   ## A1 Level / A1 級別
- *   ### Category Name (中文名)
- *   - english — 中文釋義
+ * canonical vocabulary source: outputs/*-word-catalog-reference-v1/*.csv
  */
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
-import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Prisma, PrismaClient, type Level } from "../src/generated/prisma";
+import { Prisma, PrismaClient } from "../src/generated/prisma";
+import { seedCatalog } from "../src/lib/catalog/seed";
 import { ROLES } from "../src/lib/roles";
 import { passwordPolicyError } from "../src/lib/password-policy";
 import { generateTemporaryPassword } from "../src/lib/temporary-password";
@@ -30,10 +27,6 @@ const prisma = new PrismaClient({
     connectionString: process.env.MIGRATE_URL,
   }),
 });
-
-const WORD_LIST_PATH = fileURLToPath(
-  new URL("../word list.md", import.meta.url),
-);
 
 // ── 學生帳號預生成 ──
 // 帳號由教師統一發放給學生，不設自助註冊。
@@ -388,149 +381,23 @@ async function main() {
     throw new Error(`INITIAL_ADMIN_PASSWORD：${initialPasswordError}`);
   }
 
-  // 讀文件（Node.js 兼容）
-  const fs = await import("fs");
-  const text = fs.readFileSync(WORD_LIST_PATH, "utf-8");
-
-  // 支援的級別（與 schema 的 enum Level 一致）。
-  const SUPPORTED_LEVELS = ["A1", "A2", "B1", "B2"] as const;
-  const isSupportedLevel = (s: string): s is Level =>
-    (SUPPORTED_LEVELS as readonly string[]).includes(s.toUpperCase());
-
-  // 任何 `## XXX Level` 形式的標題都會被捕獲（含 A1/A2/B1/B2 及未知級別）。
-  // 遇到未知級別時立刻報錯並中止，避免沿用上一個級別導致錯誤歸類（歷史上
-  // 正因舊正則只匹配 A\d，B1 被靜默吞入 A2）。
-  const LEVEL_HEADING_RE = /^##\s+([A-Za-z]\d)\s+Level\b/i;
-
-  let currentLevel: Level | null = null;
-  let currentCategory = "";
-  const words: { term: string; definition: string; level: Level; category: string }[] = [];
-
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine;
-    // 級別標題：先捕獲所有 `## X# Level`，再校驗是否為支援級別。
-    const levelMatch = line.match(LEVEL_HEADING_RE);
-    if (levelMatch) {
-      const raw = levelMatch[1];
-      if (!isSupportedLevel(raw)) {
-        throw new Error(
-            `word list.md 出現不支援的級別「${raw}」（支援的級別：${SUPPORTED_LEVELS.join(", ")}）。` +
-            `已中止匯入，請修正詞表後重試。`,
-        );
-      }
-      currentLevel = raw.toUpperCase() as Level;
-      continue;
-    }
-
-    // 分類標題
-    const catMatch = line.match(/^###\s+(.+?)(?:\s*\(.+\))?\s*$/);
-    if (catMatch) {
-      currentCategory = catMatch[1].trim();
-      continue;
-    }
-
-    // 單詞行
-    const wordMatch = line.match(/^-\s+(.+?)\s+[—–-]\s+(.+)$/);
-    if (wordMatch) {
-      const term = wordMatch[1].trim();
-      const definition = wordMatch[2].trim();
-      // currentLevel 在出現任何級別標題前必須已被設定，否則視為詞表結構錯誤。
-      if (currentLevel === null) {
-        throw new Error(
-          `在出現任何級別標題（## A1/A2/B1/B2 Level）前就讀到單詞「${term}」。` +
-          `請檢查 word list.md 是否以級別標題開頭。`,
-        );
-      }
-      words.push({ term, definition, level: currentLevel, category: currentCategory });
-    }
-  }
-
-  // 解析後 sanity check：四個級別都必須出現，且數量 > 0。
-  const byLevel = new Map<Level, number>();
-  for (const w of words) byLevel.set(w.level, (byLevel.get(w.level) ?? 0) + 1);
-  const missing = SUPPORTED_LEVELS.filter((lv) => !byLevel.has(lv));
-  if (missing.length > 0) {
-    throw new Error(
-      `word list.md 解析後缺少以下級別：${missing.join(", ")}。` +
-        `各級別統計：${[...byLevel.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`,
-    );
-  }
-  console.log(
-    `Parsed ${words.length} words from word list.md | ` +
-      `per-level: ${[...byLevel.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`,
+  const catalog = await prisma.$transaction(
+    (tx) =>
+      seedCatalog(tx, {
+        environment: databaseEnvironment,
+        localBootstrap:
+          databaseEnvironment !== "production" &&
+          process.env.LOCAL_CATALOG_BOOTSTRAP === "1",
+        actor: "prisma/seed",
+        finalize: process.env.CATALOG_FINALIZE !== "0",
+      }),
+    { isolationLevel: "Serializable", timeout: 120_000 },
   );
-
-  // 按 term 去重。
-  // DB 的 Word.term 是唯一鍵，但詞表中同一 term 可能出現在多個級別
-  // （如 "red" 同時在 A1 與 B1、"date" 在 A1/B1/B2）。教學慣例取「最低級別」
-  // （該詞最早被引入的級別），因此按 (A1 > A2 > B1 > B2) 優先序保留；
-  // 同級別內多筆取第一筆（保留首次出現的 category/definition）。
-  // 注意：絕不能用 (term, level, category) 當 key 去重——那會讓同一 term 出現多筆，
-  // 後續 upsert 時「後寫入者勝」（B2 在檔案最後），會把共享 term 錯誤抬高到高級別。
-  const LEVEL_RANK: Record<Level, number> = { A1: 0, A2: 1, B1: 2, B2: 3 };
-  const bestByTerm = new Map<string, { rank: number; word: typeof words[number] }>();
-  for (const w of words) {
-    const rank = LEVEL_RANK[w.level];
-    const cur = bestByTerm.get(w.term);
-    if (!cur || rank < cur.rank) {
-      bestByTerm.set(w.term, { rank, word: w });
-    }
-  }
-  const unique = [...bestByTerm.values()].map((x) => x.word);
-
-  console.log(`After dedup (lowest-level wins per term): ${unique.length} words`);
-
-  // 批量插入 / 校正
-  // 關鍵：使用 upsert 而非「存在即跳過」。歷史上因級別正則 bug，B1 單詞被誤歸入 A2；
-  // 若只改正則重跑 seed，舊記錄仍會是錯的。upsert 能在重跑時把 level/category/definition
-  // 一次性校正為詞表的最新值，保證「重新執行 seed 不會再次造成錯誤分類」。
-  let inserted = 0;
-  let updated = 0;
-  let unchanged = 0;
-  // 記錄本次實際落庫的 per-level 數量，用於和解析統計對照。
-  const dbByLevel = new Map<Level, number>();
-
-  for (const w of unique) {
-    const existing = await prisma.word.findUnique({ where: { term: w.term } });
-    if (!existing) {
-      await prisma.word.create({
-        data: {
-          term: w.term,
-          definition: w.definition,
-          level: w.level,
-          category: w.category || null,
-          // Postgres 原生 String[]：用空陣列
-          synonyms: [],
-          antonyms: [],
-        },
-      });
-      inserted++;
-    } else {
-      const needsUpdate =
-        existing.level !== w.level ||
-        existing.definition !== w.definition ||
-        (existing.category ?? null) !== (w.category || null);
-      if (needsUpdate) {
-        await prisma.word.update({
-          where: { id: existing.id },
-          data: {
-            definition: w.definition,
-            level: w.level,
-            category: w.category || null,
-          },
-        });
-        // 含級別被糾正的情況（如 B1 誤歸 A2 的修正）。
-        updated++;
-      } else {
-        unchanged++;
-      }
-    }
-    dbByLevel.set(w.level, (dbByLevel.get(w.level) ?? 0) + 1);
-  }
-
   console.log(
-    `Done: ${inserted} inserted, ${updated} updated, ${unchanged} unchanged | ` +
-      `db per-level: ${[...dbByLevel.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`,
+    `Catalog ready: ${catalog.rows} rows, ${catalog.validRows} valid, ` +
+      `${catalog.validationFailed} failed, ${catalog.localEligible} local eligible, ` +
+      `${catalog.projections} Word compatibility projections | ` +
+      `revision=${catalog.catalogRevisionKey}`,
   );
 
   // 管理員 / 教師帳號（每次 seed 都會 upsert，冪等）。

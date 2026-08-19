@@ -35,6 +35,7 @@ import {
   waitForTransactionRetry,
 } from "@/lib/transaction-retry";
 import { isSameOriginMutation } from "@/lib/csrf";
+import { withCurrentCatalogWord } from "@/lib/catalog/runtime";
 
 /**
  * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
@@ -206,7 +207,7 @@ export async function GET(req: Request) {
   if (resumeIds) {
     const resumeWords = await prisma.word.findMany({
       where: {
-        id: { in: resumeIds },
+        AND: [withCurrentCatalogWord(), { id: { in: resumeIds } }],
         ...(unitMode
           ? { level: normalizeLevel(level), category: unitCategoryValue }
           : {
@@ -251,7 +252,7 @@ export async function GET(req: Request) {
   } else if (unitMode) {
     // ── 单元练习模式：取出该单元全部单词 ──
     const unitWords = await prisma.word.findMany({
-      where: { level: normalizeLevel(level), category: unitCategoryValue },
+      where: withCurrentCatalogWord({ level: normalizeLevel(level), category: unitCategoryValue }),
       orderBy: { term: "asc" },
     });
     const unitWordIds = unitWords.map((w) => w.id);
@@ -331,6 +332,7 @@ export async function GET(req: Request) {
       where: {
         userId,
         nextReviewDate: { lte: new Date() },
+        word: withCurrentCatalogWord(),
       },
       include: { word: true },
       orderBy: { nextReviewDate: "asc" },
@@ -358,11 +360,13 @@ export async function GET(req: Request) {
     if (unlockedCats.length > 0) {
       const newWordsRaw = await prisma.word.findMany({
         where: {
+          AND: [withCurrentCatalogWord(), {
           reviews: { none: { userId } },
           OR: unlockedCats.map((c) => ({
             level: c.level,
             category: c.category,
           })),
+          }],
         },
         orderBy: { term: "asc" },
         take: 100,
@@ -397,8 +401,7 @@ export async function GET(req: Request) {
   if (unlockedCats.length > 0) {
     const candidates = await prisma.word.findMany({
       where: {
-        id: { notIn: queueWordIds },
-        OR: unlockedCats,
+        AND: [withCurrentCatalogWord(), { id: { notIn: queueWordIds }, OR: unlockedCats }],
       },
       select: { id: true, term: true, definition: true },
       take: 200,

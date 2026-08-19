@@ -51,6 +51,7 @@ import {
   isRetryableTransactionConflict,
   waitForTransactionRetry,
 } from "@/lib/transaction-retry";
+import { withCurrentCatalogWord } from "@/lib/catalog/runtime";
 
 const STREAM_SESSION_TTL_MS = 30 * 60_000;
 const STREAM_ITEM_LEASE_MS = 15 * 60_000;
@@ -274,10 +275,10 @@ function learningCardAnswer(word: Word | null): LearningCardAnswer | null {
 function scopeFilters(filters: Set<string>): Prisma.WordWhereInput[] {
   return [...filters].map((key) => {
     const separator = key.indexOf("::");
-    return {
+    return withCurrentCatalogWord({
       level: normalizeLevel(key.slice(0, separator)),
       category: key.slice(separator + 2) === "未分类" ? null : key.slice(separator + 2),
-    };
+    });
   });
 }
 
@@ -313,7 +314,7 @@ async function resolveScope(
       mode,
       level,
       category,
-      where: { level, category },
+      where: withCurrentCatalogWord({ level, category }),
     };
   }
 
@@ -332,6 +333,7 @@ function toWorkRecord(row: {
   id: string;
   userId: string;
   wordId: string | null;
+  senseId: string | null;
   kind: string;
   status: string;
   admittedAt: Date;
@@ -345,6 +347,7 @@ function toWorkRecord(row: {
     id: row.id,
     learnerId: row.userId,
     wordId: row.wordId,
+    senseId: row.senseId,
     kind: workKind(row.kind),
     status: row.status as WorkRecord["status"],
     admittedAt: row.admittedAt.getTime(),
@@ -398,6 +401,7 @@ function candidateForWork(
   return {
     id: `work:${row.id}`,
     wordId: row.wordId,
+    senseId: row.senseId,
     kind: remediation ? "LEARNING_CARD" : "OBJECTIVE_PROBE",
     purpose: remediation ? undefined : "EVIDENCE_OBLIGATION",
     workId: row.id,
@@ -428,7 +432,7 @@ async function buildCandidates(
     },
     orderBy: [{ nextReviewDate: "asc" }, { id: "asc" }],
     take: MAX_CANDIDATES,
-    select: { id: true, wordId: true },
+    select: { id: true, wordId: true, senseId: true },
   });
   const openTargets = await tx.objectiveEvidenceTarget.findMany({
     where: { userId, status: "OPEN", wordId: { not: null } },
@@ -441,6 +445,7 @@ async function buildCandidates(
     candidates.push({
       id: `due:${review.id}`,
       wordId: review.wordId,
+      senseId: review.senseId,
       kind: "OBJECTIVE_PROBE",
       purpose: "DUE_REVIEW",
       eligibleAt: now.getTime(),
@@ -469,6 +474,7 @@ async function buildCandidates(
     candidates.push({
       id: `new:${word.id}`,
       wordId: word.id,
+      senseId: word.senseId,
       kind: "LEARNING_CARD",
       mode: scope.mode,
       selectionReason: "new-word",
@@ -484,13 +490,14 @@ async function buildCandidates(
       },
       orderBy: [{ lastReviewedAt: "asc" }, { id: "asc" }],
       take: MAX_CANDIDATES,
-      select: { id: true, wordId: true },
+      select: { id: true, wordId: true, senseId: true },
     });
     for (const review of ordinary) {
       if (workWordIds.has(review.wordId) || recentWordIds.has(review.wordId)) continue;
       candidates.push({
         id: `ordinary:${review.id}`,
         wordId: review.wordId,
+        senseId: review.senseId,
         kind: "LEARNING_CARD",
         mode: scope.mode,
         selectionReason: "spaced-learning-card",
@@ -543,7 +550,17 @@ function snapshotToData(snapshot: ObjectiveQuestionSnapshot): ObjectiveQuestionS
     if (!isRecord(option) || typeof option.id !== "string" || typeof option.text !== "string") return [];
     return [{ id: option.id, text: option.text }];
   });
-  if (options.length !== 4 || !options.some((option) => option.id === snapshot.correctOptionId)) return null;
+  const optionIds = new Set(options.map((option) => option.id));
+  const optionTexts = new Set(options.map((option) => option.text.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase("en-US")));
+  const correctCount = options.filter((option) => option.id === snapshot.correctOptionId).length;
+  const expectedPrompt = snapshot.direction === "en-zh" ? snapshot.wordTerm : snapshot.wordDefinition;
+  if (
+    options.length !== 4 ||
+    optionIds.size !== 4 ||
+    optionTexts.size !== 4 ||
+    correctCount !== 1 ||
+    snapshot.prompt.normalize("NFKC").replace(/\s+/gu, " ").trim() !== expectedPrompt.normalize("NFKC").replace(/\s+/gu, " ").trim()
+  ) return null;
   return {
     prompt: snapshot.prompt,
     wordTerm: snapshot.wordTerm,
@@ -560,6 +577,13 @@ function questionWord(word: Word): QuestionWord {
     id: word.id,
     term: word.term,
     definition: word.definition,
+    senseId: word.senseId,
+    acceptedAnswers: word.acceptedAnswers,
+    acceptedForms: word.acceptedForms,
+    curatedDistractorsEn: word.distractorEn,
+    curatedDistractorsZh: word.distractorZh,
+    enableEnToZh: word.enableEnToZh,
+    enableZhToEn: word.enableZhToEn,
     phonetic: word.phonetic,
     synonyms: word.synonyms,
     antonyms: word.antonyms,
@@ -733,6 +757,7 @@ async function ensureSession(
       flowVersion: STUDY_STREAM_FLOW_VERSION,
       learningPolicyVersion: RETRIEVAL_V1_POLICY.policyVersion,
       mode: scope.mode,
+      catalogReadMode: "SENSE_V1",
       scopeLevel: scope.level,
       scopeCategory: scope.category,
       revision: 0,
@@ -745,7 +770,6 @@ async function createObjectiveTarget(
   userId: string,
   session: StudySession,
   candidate: CandidateRecord,
-  scope: StreamScope,
 ): Promise<{
   target: ObjectiveEvidenceTarget;
   snapshot: ObjectiveQuestionSnapshot;
@@ -779,6 +803,7 @@ async function createObjectiveTarget(
       data: {
         userId,
         wordId: word.id,
+        senseId: word.senseId,
         purpose,
         expectedReviewRevision: expectedRevision,
         policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
@@ -795,9 +820,11 @@ async function createObjectiveTarget(
   });
   if (!snapshot) {
     const source = await tx.word.findMany({
-      where: scope.where,
+      // Curated distractors come from the target row.  The source query is
+      // only needed for sibling-sense answer exclusion, so do not cap it to
+      // an arbitrary unlocked-word window that could miss run=經營.
+      where: withCurrentCatalogWord({ term: word.term }),
       orderBy: { id: "asc" },
-      take: 250,
     });
     const built = buildObjectiveQuestion(
       questionWord(word),
@@ -809,6 +836,9 @@ async function createObjectiveTarget(
       data: {
         targetId: target.id,
         wordId: word.id,
+        senseId: word.senseId,
+        contentRevisionId: word.contentRevisionId,
+        catalogRevisionId: word.catalogRevisionId,
         prompt: built.prompt,
         wordTerm: built.wordTerm,
         wordDefinition: built.wordDefinition,
@@ -828,7 +858,6 @@ async function createStreamItem(
   userId: string,
   session: StudySession,
   candidate: CandidateRecord,
-  scope: StreamScope,
   now: Date,
 ): Promise<{ item: StreamItemWithRelations; credential: string }> {
   const credential = createStudyStreamCredential();
@@ -836,7 +865,7 @@ async function createStreamItem(
   let targetId: string | null = null;
   let snapshotId: string | null = null;
   if (candidate.kind === "OBJECTIVE_PROBE") {
-    const objective = await createObjectiveTarget(tx, userId, session, candidate, scope);
+    const objective = await createObjectiveTarget(tx, userId, session, candidate);
     targetId = objective.target.id;
     snapshotId = objective.snapshot.id;
   }
@@ -845,6 +874,7 @@ async function createStreamItem(
       sessionId: session.id,
       streamItemKey: `stream-${randomUUID()}`,
       wordId: candidate.wordId,
+      senseId: candidate.senseId ?? null,
       itemKind: candidate.kind,
       selectionReason: candidate.selectionReason,
       policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
@@ -1004,7 +1034,7 @@ export async function getOrCreateStudyStream(
             });
             if (!decision.candidate) break;
             try {
-              const created = await createStreamItem(tx, userId, session, decision.candidate, scope, now);
+              const created = await createStreamItem(tx, userId, session, decision.candidate, now);
               const item = toPublicItem(created.item, created.credential);
               if (!item) throw new StudyStreamError(409, "学习项目已失效，请重新载入");
               return streamResponse(session, item, false, unitSummary);
@@ -1161,6 +1191,7 @@ async function admissionWork(
   tx: StreamTransaction,
   userId: string,
   wordId: string,
+  senseId: string | null,
   kind: WorkKind,
   now: Date,
   sourceOperationId: string,
@@ -1196,6 +1227,7 @@ async function admissionWork(
     data: {
       userId,
       wordId,
+      senseId,
       kind,
       status: "PENDING",
       sourceOperationId,
@@ -1298,9 +1330,9 @@ async function processSelfRating(
       now: now.getTime(),
       sourceOperationId: input.operationId,
     });
-    if (required) admission = await admissionWork(tx, userId, item.word.id, "EVIDENCE_OBLIGATION", now, input.operationId);
+    if (required) admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "EVIDENCE_OBLIGATION", now, input.operationId);
   } else {
-    admission = await admissionWork(tx, userId, item.word.id, "REMEDIATION", now, input.operationId);
+    admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "REMEDIATION", now, input.operationId);
   }
 
   await checkInStudyDay(userId, tx);
@@ -1310,6 +1342,7 @@ async function processSelfRating(
     data: {
       userId,
       wordId: item.word.id,
+      senseId: item.word.senseId,
       streamItemId: item.id,
       operationId: input.operationId,
       selfRating,
@@ -1424,7 +1457,7 @@ async function processObjectiveAnswer(
   if (review) {
     const updatedReview = await tx.review.updateMany({
       where: { userId, wordId: item.word.id, revision: currentRevision },
-      data: { ...nextState, revision: nextRevision, totalReviews: { increment: 1 } },
+      data: { ...nextState, senseId: item.word.senseId, revision: nextRevision, totalReviews: { increment: 1 } },
     });
     if (updatedReview.count !== 1) throw new StudyStreamError(409, "学习状态已被其他装置更新");
   } else {
@@ -1432,6 +1465,7 @@ async function processObjectiveAnswer(
       data: {
         userId,
         wordId: item.word.id,
+        senseId: item.word.senseId,
         ...nextState,
         revision: nextRevision,
         totalReviews: 1,
@@ -1447,6 +1481,11 @@ async function processObjectiveAnswer(
       userId,
       submittedWordId: item.word.id,
       wordId: item.word.id,
+      senseId: item.word.senseId,
+      submittedSenseId: item.word.senseId,
+      senseKey: item.word.senseKey,
+      contentRevisionId: item.word.contentRevisionId,
+      catalogRevisionId: item.word.catalogRevisionId,
       wordTerm: item.word.term,
       wordLevel: item.word.level,
       eventKind: "REVIEW",
@@ -1479,7 +1518,7 @@ async function processObjectiveAnswer(
     });
   }
   if (!isCorrect) {
-    await admissionWork(tx, userId, item.word.id, "REMEDIATION", new Date(), input.operationId);
+    await admissionWork(tx, userId, item.word.id, item.word.senseId, "REMEDIATION", new Date(), input.operationId);
   }
 
   const now = new Date();

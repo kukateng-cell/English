@@ -63,10 +63,17 @@ model User {
   @@index([role, status])
 }
 
-// ── 单词（来自 word list.md + ECDICT） ──
+// ── Legacy-compatible word read model ──
+// A fresh catalog can contain the same spelling more than once.  Word remains
+// as a read projection for the V1 path and for the expand window; its senseId
+// is the canonical link for rows produced by the CSV catalog seed.
 model Word {
   id                       String                      @id @default(cuid())
-  term                     String                      @unique
+  term                     String
+  senseId                  String?                     @unique
+  senseKey                 String?
+  contentRevisionId        String?
+  catalogRevisionId        String?
   phonetic                 String?
   pos                      String?
   definition               String
@@ -75,7 +82,16 @@ model Word {
   examples                 Json? // 例句数组 [{"en":"...","zh":"..."}]
   synonyms                 String[] // 近义词
   antonyms                 String[] // 反义词
+  acceptedAnswers          String[]                    @default([])
+  acceptedForms            String[]                    @default([])
+  distractorZh             String[]                    @default([])
+  distractorEn             String[]                    @default([])
+  enableEnToZh             Boolean                     @default(false)
+  enableZhToEn             Boolean                     @default(false)
   imageUrl                 String? // 助记图
+  sense                    WordSense?                  @relation("WordSenseProjection", fields: [senseId], references: [id], onDelete: SetNull)
+  catalogRevision          CatalogRevision?            @relation("CatalogWordProjectionRevision", fields: [catalogRevisionId], references: [id], onDelete: SetNull)
+  legacySenseMappings      LegacyWordSenseMap[]
   reviews                  Review[]
   reviewEvents             ReviewEvent[]
   studySessionItems        StudySessionItem[]
@@ -87,25 +103,210 @@ model Word {
 
   @@index([level])
   @@index([category])
+  @@index([term])
+}
+
+enum CatalogStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+// Stable headword identity.  A single entry may contain multiple independent
+// senses, for example run=跑步 and run=經營.
+model CatalogEntry {
+  id              String      @id @default(cuid())
+  catalogKey      String      @unique
+  lemma           String
+  normalizedLemma String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  senses          WordSense[]
+
+  @@index([normalizedLemma])
+}
+
+// Stable sense / learning-item identity.  Content is immutable in revisions;
+// approvedRevisionId is the only content pointer that runtime code may use.
+model WordSense {
+  id                  String                      @id @default(cuid())
+  catalogEntryId      String
+  senseKey            String                      @unique
+  term                String
+  normalizedTerm      String
+  pos                 String?
+  level               Level
+  category            String
+  status              CatalogStatus               @default(DRAFT)
+  approvedRevisionId  String?                     @unique
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  catalogEntry        CatalogEntry                @relation(fields: [catalogEntryId], references: [id], onDelete: Restrict)
+  revisions           WordSenseRevision[]         @relation("WordSenseRevisions")
+  approvedRevision    WordSenseRevision?          @relation("ApprovedWordSenseRevision", fields: [approvedRevisionId], references: [id], onDelete: SetNull)
+  wordProjection      Word?                       @relation("WordSenseProjection")
+  reviews             Review[]
+  reviewEvents        ReviewEvent[]               @relation("ReviewEventSense")
+  studySessionItems   StudySessionItem[]
+  streamItems         StudyStreamItem[]
+  evidenceObligations EvidenceObligation[]
+  objectiveTargets    ObjectiveEvidenceTarget[]
+  questionSnapshots   ObjectiveQuestionSnapshot[]
+  studyEncounters     StudyEncounter[]
+  localEligibilities  CatalogEligibility[]
+  legacyWordMappings  LegacyWordSenseMap[]
+
+  @@index([normalizedTerm])
+  @@index([level, status])
+  @@index([catalogEntryId, level])
+}
+
+model WordSenseRevision {
+  id                String               @id @default(cuid())
+  senseId           String
+  revision          Int
+  term              String
+  lemma             String
+  pos               String?
+  level             Level
+  category          String
+  definitionZh      String
+  acceptedAnswersZh String[]             @default([])
+  phoneticIpa       String?
+  exampleEn         String?
+  exampleZh         String?
+  acceptedFormsEn   String[]             @default([])
+  synonymsEn        String[]             @default([])
+  antonymsEn        String[]             @default([])
+  enableEnToZh      Boolean              @default(false)
+  distractorZh      String[]             @default([])
+  enableZhToEn      Boolean              @default(false)
+  distractorEn      String[]             @default([])
+  contentDigest     String
+  sourceReference   String?
+  contributorRef    String?
+  changeNote        String?
+  retirementReason  String?
+  catalogRevisionId String?
+  createdAt         DateTime             @default(now())
+  sense             WordSense            @relation("WordSenseRevisions", fields: [senseId], references: [id], onDelete: Restrict)
+  approvedFor       WordSense?           @relation("ApprovedWordSenseRevision")
+  catalogRevision   CatalogRevision?     @relation(fields: [catalogRevisionId], references: [id], onDelete: SetNull)
+  eligibilities     CatalogEligibility[]
+
+  @@unique([senseId, revision])
+  @@index([contentDigest])
+  @@index([catalogRevisionId])
+}
+
+model CatalogRevision {
+  id                   String               @id @default(cuid())
+  revisionKey          String               @unique
+  sourceDigest         String
+  taxonomyDigest       String
+  validatorVersion     String
+  normalizationVersion String
+  activationBasis      String
+  status               String               @default("BUILDING")
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  senseRevisions       WordSenseRevision[]
+  eligibilities        CatalogEligibility[]
+  importBatches        CatalogImportBatch[]
+  wordProjections      Word[]               @relation("CatalogWordProjectionRevision")
+
+  @@index([status, createdAt])
+}
+
+model CatalogEligibility {
+  id                String            @id @default(cuid())
+  senseId           String
+  senseRevisionId   String
+  catalogRevisionId String
+  environment       String
+  basis             String
+  sourceDigest      String
+  validatorVersion  String
+  reason            String
+  createdAt         DateTime          @default(now())
+  sense             WordSense         @relation(fields: [senseId], references: [id], onDelete: Restrict)
+  senseRevision     WordSenseRevision @relation(fields: [senseRevisionId], references: [id], onDelete: Restrict)
+  catalogRevision   CatalogRevision   @relation(fields: [catalogRevisionId], references: [id], onDelete: Restrict)
+
+  @@unique([senseRevisionId, environment])
+  @@index([environment, catalogRevisionId])
+  @@index([senseId, environment])
+}
+
+model CatalogImportBatch {
+  id                   String             @id @default(cuid())
+  sourceDigest         String             @unique
+  taxonomyDigest       String
+  validatorVersion     String
+  normalizationVersion String
+  status               String             @default("PREVIEW")
+  catalogRevisionId    String?
+  manifest             Json
+  report               Json?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  catalogRevision      CatalogRevision?   @relation(fields: [catalogRevisionId], references: [id], onDelete: SetNull)
+  rows                 CatalogImportRow[]
+
+  @@index([status, createdAt])
+}
+
+model CatalogImportRow {
+  id                 String             @id @default(cuid())
+  batchId            String
+  sourceFile         String
+  sourceRow          Int
+  rowDigest          String
+  primaryDisposition String
+  eligibilityResult  String?
+  catalogKey         String?
+  senseKey           String?
+  issues             Json?
+  createdAt          DateTime           @default(now())
+  batch              CatalogImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, sourceFile, sourceRow])
+  @@index([primaryDisposition])
+  @@index([eligibilityResult])
+}
+
+// Explicit mapping for the one-spelling-one-item V1 compatibility projection.
+model LegacyWordSenseMap {
+  id        String    @id @default(cuid())
+  wordId    String    @unique
+  senseId   String    @unique
+  isPrimary Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  word      Word      @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  sense     WordSense @relation(fields: [senseId], references: [id], onDelete: Restrict)
 }
 
 // ── 学习记录（每用户每词一份 SM-2 状态） ──
 model Review {
-  id             String    @id @default(cuid())
+  id             String     @id @default(cuid())
   userId         String
   wordId         String
-  easeFactor     Float     @default(2.5)
-  interval       Int       @default(0)
-  repetitions    Int       @default(0)
+  senseId        String?
+  easeFactor     Float      @default(2.5)
+  interval       Int        @default(0)
+  repetitions    Int        @default(0)
   nextReviewDate DateTime
   lastReviewedAt DateTime?
-  totalReviews   Int       @default(0)
-  revision       Int       @default(0)
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  word           Word      @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  totalReviews   Int        @default(0)
+  revision       Int        @default(0)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word           Word       @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  sense          WordSense? @relation(fields: [senseId], references: [id], onDelete: SetNull)
 
   @@unique([userId, wordId])
+  @@unique([userId, senseId])
   @@index([userId, nextReviewDate])
+  @@index([userId, senseId, nextReviewDate])
 }
 
 // ── 学习评测事件（每次提交一条，兼作幂等日志） ──
@@ -117,6 +318,11 @@ model ReviewEvent {
   userId                      String
   submittedWordId             String
   wordId                      String?
+  senseId                     String?
+  submittedSenseId            String?
+  senseKey                    String?
+  contentRevisionId           String?
+  catalogRevisionId           String?
   // 删除词库项目时仍保留审计／统计；以下快照不依赖当前 Word 行。
   wordTerm                    String
   wordLevel                   Level
@@ -136,12 +342,14 @@ model ReviewEvent {
   createdAt                   DateTime                   @default(now())
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   word                        Word?                      @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  sense                       WordSense?                 @relation("ReviewEventSense", fields: [senseId], references: [id], onDelete: SetNull)
   objectiveEvidenceTarget     ObjectiveEvidenceTarget?   @relation("ObjectiveTargetReviewEvents", fields: [objectiveEvidenceTargetId], references: [id], onDelete: SetNull)
   objectiveQuestionSnapshot   ObjectiveQuestionSnapshot? @relation("QuestionSnapshotReviewEvents", fields: [objectiveQuestionSnapshotId], references: [id], onDelete: SetNull)
 
   @@unique([userId, operationId])
   @@index([userId, createdAt])
   @@index([wordId])
+  @@index([senseId])
 }
 
 enum Level {
@@ -203,6 +411,7 @@ model StudySession {
   flowVersion           String             @default("v1")
   learningPolicyVersion String?
   mode                  String             @default("global")
+  catalogReadMode       String             @default("LEGACY_WORD")
   scopeLevel            Level?
   scopeCategory         String?
   revision              Int                @default(0)
@@ -222,6 +431,7 @@ model StudySessionItem {
   id            String            @id @default(cuid())
   sessionId     String
   wordId        String
+  senseId       String?
   nonce         String            @unique
   usedAt        DateTime?
   renewedAt     DateTime?
@@ -229,12 +439,14 @@ model StudySessionItem {
   sourceItemId  String?           @unique
   session       StudySession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   word          Word              @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  sense         WordSense?        @relation(fields: [senseId], references: [id], onDelete: SetNull)
   sourceItem    StudySessionItem? @relation("StudyCredentialLineage", fields: [sourceItemId], references: [id], onDelete: SetNull)
   successorItem StudySessionItem? @relation("StudyCredentialLineage")
 
   @@unique([sessionId, wordId])
   @@index([sessionId, usedAt])
   @@index([operationId])
+  @@index([sessionId, senseId])
 }
 
 // V2 stream item identity. This table intentionally does not share the V1
@@ -245,6 +457,7 @@ model StudyStreamItem {
   sessionId                   String
   streamItemKey               String
   wordId                      String?
+  senseId                     String?
   itemKind                    String
   selectionReason             String
   policyVersion               String
@@ -269,6 +482,7 @@ model StudyStreamItem {
   updatedAt                   DateTime                   @updatedAt
   session                     StudySession               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   word                        Word?                      @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  sense                       WordSense?                 @relation(fields: [senseId], references: [id], onDelete: SetNull)
   objectiveEvidenceTarget     ObjectiveEvidenceTarget?   @relation(fields: [objectiveEvidenceTargetId], references: [id], onDelete: SetNull)
   objectiveQuestionSnapshot   ObjectiveQuestionSnapshot? @relation(fields: [objectiveQuestionSnapshotId], references: [id], onDelete: SetNull)
   workObligation              EvidenceObligation?        @relation("WorkStreamItems", fields: [workObligationId], references: [id], onDelete: SetNull)
@@ -282,12 +496,14 @@ model StudyStreamItem {
   @@index([operationId])
   @@index([objectiveEvidenceTargetId, status])
   @@index([workObligationId, status])
+  @@index([sessionId, senseId, status])
 }
 
 model EvidenceObligation {
   id                      String                   @id @default(cuid())
   userId                  String
   wordId                  String?
+  senseId                 String?
   kind                    String                   @default("EVIDENCE_OBLIGATION")
   status                  String                   @default("PENDING")
   sourceOperationId       String?
@@ -305,18 +521,21 @@ model EvidenceObligation {
   updatedAt               DateTime                 @updatedAt
   user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   word                    Word?                    @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  sense                   WordSense?               @relation(fields: [senseId], references: [id], onDelete: SetNull)
   objectiveEvidenceTarget ObjectiveEvidenceTarget? @relation("ObligationTarget")
   encounters              StudyEncounter[]
   workStreamItems         StudyStreamItem[]        @relation("WorkStreamItems")
 
   @@index([userId, status, eligibleAt, expiresAt])
   @@index([userId, wordId, kind, status])
+  @@index([userId, senseId, kind, status])
 }
 
 model ObjectiveEvidenceTarget {
   id                      String                     @id @default(cuid())
   userId                  String
   wordId                  String?
+  senseId                 String?
   purpose                 String
   expectedReviewRevision  Int?
   policyVersion           String
@@ -331,6 +550,7 @@ model ObjectiveEvidenceTarget {
   updatedAt               DateTime                   @updatedAt
   user                    User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   word                    Word?                      @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  sense                   WordSense?                 @relation(fields: [senseId], references: [id], onDelete: SetNull)
   obligation              EvidenceObligation?        @relation("ObligationTarget", fields: [obligationId], references: [id], onDelete: SetNull)
   reviewEvents            ReviewEvent[]              @relation("ObjectiveTargetReviewEvents")
   streamItems             StudyStreamItem[]
@@ -338,12 +558,16 @@ model ObjectiveEvidenceTarget {
 
   @@index([userId, status, purpose])
   @@index([userId, wordId, expectedReviewRevision, purpose])
+  @@index([userId, senseId, expectedReviewRevision, purpose])
 }
 
 model ObjectiveQuestionSnapshot {
   id                      String                   @id @default(cuid())
   targetId                String?                  @unique
   wordId                  String?
+  senseId                 String?
+  contentRevisionId       String?
+  catalogRevisionId       String?
   prompt                  String
   wordTerm                String
   wordDefinition          String
@@ -355,16 +579,19 @@ model ObjectiveQuestionSnapshot {
   createdAt               DateTime                 @default(now())
   target                  ObjectiveEvidenceTarget? @relation("TargetQuestionSnapshot", fields: [targetId], references: [id], onDelete: SetNull)
   word                    Word?                    @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  sense                   WordSense?               @relation(fields: [senseId], references: [id], onDelete: SetNull)
   streamItems             StudyStreamItem[]
   reviewEvents            ReviewEvent[]            @relation("QuestionSnapshotReviewEvents")
 
   @@index([wordId, createdAt])
+  @@index([senseId, createdAt])
 }
 
 model StudyEncounter {
   id                      String              @id @default(cuid())
   userId                  String
   wordId                  String?
+  senseId                 String?
   streamItemId            String              @unique
   operationId             String
   selfRating              String
@@ -377,12 +604,14 @@ model StudyEncounter {
   acknowledgedAt          DateTime            @default(now())
   user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   word                    Word?               @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  sense                   WordSense?          @relation(fields: [senseId], references: [id], onDelete: SetNull)
   streamItem              StudyStreamItem     @relation(fields: [streamItemId], references: [id], onDelete: Cascade)
   evidenceObligation      EvidenceObligation? @relation(fields: [evidenceObligationId], references: [id], onDelete: SetNull)
 
   @@unique([userId, operationId])
   @@index([userId, createdAt])
   @@index([userId, wordId, createdAt])
+  @@index([userId, senseId, createdAt])
 }
 
 // Global idempotency receipt shared by V1 and V2 action namespaces.

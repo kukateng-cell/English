@@ -2,13 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import WordFormModal, { type WordFormData } from "@/components/admin/WordFormModal";
-import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
 import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
-import { rosterFetch } from "@/lib/roster-client";
 
 interface WordItem {
   id: string;
@@ -39,15 +36,6 @@ export default function AdminWordsPage() {
   const [levelFilter, setLevelFilter] = useState<string>("ALL");
   const [visibleCount, setVisibleCount] = useState(100);
 
-  // 彈窗狀態
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<WordItem | null>(null);
-  const [deleting, setDeleting] = useState<WordItem | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  // 删除失败的错误文案（在确认弹窗内展示，不静默失败）
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  // 每次「打开」表单时自增，作为 Modal 的 key 强制 remount，让表单从最新 props 重新初始化。
-  const [formKey, setFormKey] = useState(0);
   const { tc } = useLocale();
 
   useEffect(() => {
@@ -76,88 +64,6 @@ export default function AdminWordsPage() {
     const matchLevel = levelFilter === "ALL" || w.level === levelFilter;
     return matchSearch && matchLevel;
   });
-
-  const openCreate = () => {
-    setEditing(null);
-    setFormKey((k) => k + 1);
-    setFormOpen(true);
-  };
-
-  const openEdit = (word: WordItem) => {
-    setEditing(word);
-    setFormKey((k) => k + 1);
-    setFormOpen(true);
-  };
-
-  const handleSubmit = async (data: WordFormData) => {
-    setSubmitting(true);
-    try {
-      // 把逗号分隔的字符串切成数组发给后端
-      const payload = {
-        ...data,
-        synonyms: data.synonyms
-          ? data.synonyms.split(",").map((s) => s.trim()).filter(Boolean)
-          : [],
-        antonyms: data.antonyms
-          ? data.antonyms.split(",").map((s) => s.trim()).filter(Boolean)
-          : [],
-      };
-      if (editing) {
-        const res = await rosterFetch(`/api/admin/words/${editing.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          throw new Error(await responseErrorMessage(res, tc));
-        }
-        const updated: WordItem = await res.json();
-        setWords((prev) => {
-          const next = prev.map((w) => (w.id === updated.id ? { ...w, ...updated } : w));
-          // 重新按字母序排列，因为 term 可能被改过
-          next.sort((a, b) => a.term.localeCompare(b.term));
-          return next;
-        });
-      } else {
-        const res = await rosterFetch("/api/admin/words", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          throw new Error(await responseErrorMessage(res, tc));
-        }
-        const created: WordItem = await res.json();
-        setWords((prev) => {
-          const next = [...prev, created];
-          next.sort((a, b) => a.term.localeCompare(b.term));
-          return next;
-        });
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleting) return;
-    setSubmitting(true);
-    setDeleteError(null);
-    try {
-        const res = await rosterFetch(`/api/admin/words/${deleting.id}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        throw new Error(await responseErrorMessage(res, tc));
-      }
-      setWords((prev) => prev.filter((w) => w.id !== deleting.id));
-      setDeleting(null);
-    } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "刪除失敗，請重試");
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const levels = ["ALL", "A1", "A2", "B1", "B2"];
   if (loading) {
@@ -192,13 +98,9 @@ export default function AdminWordsPage() {
             {tc(`共 ${words.length} 個單詞`)}
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="flex h-10 items-center gap-1.5 rounded-2xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-[var(--color-surface)] shadow-sm transition active:scale-[0.97]"
-        >
-          <Icon name="plus" size={16} />
-          {tc("新增")}
-        </button>
+        <span className="rounded-full border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--muted)]">
+          {tc("CSV catalog 只讀投影")}
+        </span>
       </div>
 
       {/* 搜尋＋篩選 */}
@@ -269,23 +171,9 @@ export default function AdminWordsPage() {
                     {tc(word.definition)}
                   </p>
                 </div>
-                {/* 操作按钮 */}
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    onClick={() => openEdit(word)}
-                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
-                    aria-label={tc("編輯")}
-                  >
-                    <Icon name="edit" size={16} />
-                  </button>
-                  <button
-                    onClick={() => setDeleting(word)}
-                    className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)]"
-                    aria-label={tc("刪除")}
-                  >
-                    <Icon name="trash" size={16} />
-                  </button>
-                </div>
+                <span className="shrink-0 rounded-full bg-[var(--border-soft)] px-2 py-1 text-[11px] text-[var(--muted)]">
+                  {tc("由 catalog workflow 管理")}
+                </span>
               </div>
               <div className="mt-3 flex items-center gap-3 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
                 {word.category && (
@@ -309,33 +197,6 @@ export default function AdminWordsPage() {
         </div>
       )}
 
-      {/* 添加 / 编辑弹窗 */}
-      <WordFormModal
-        key={formKey}
-        open={formOpen}
-        word={editing}
-        onClose={() => setFormOpen(false)}
-        onSubmit={handleSubmit}
-      />
-      {/* 删除确认 */}
-      <ConfirmDialog
-        open={!!deleting}
-        title={tc("刪除單詞")}
-        message={
-          deleting
-            ? tc(`確定刪除「${deleting.term}」嗎？關聯的學習記錄將一併刪除，且無法恢復。`)
-            : ""
-        }
-        confirmText={tc("刪除")}
-        destructive
-        loading={submitting}
-        error={deleteError}
-        onConfirm={handleDelete}
-        onClose={() => {
-          setDeleteError(null);
-          setDeleting(null);
-        }}
-      />
     </motion.div>
   );
 }

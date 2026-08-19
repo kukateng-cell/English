@@ -11,6 +11,7 @@ import { ROLES } from "@/lib/roles";
 import { todayKey, offsetDay } from "@/lib/streak";
 import { isMasteredByInterval } from "@/lib/mastered";
 import type { RewardIconName } from "@/lib/reward-icons";
+import { eligibleOperationalObjectiveEventWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
 
 export type LeaderboardType = "streak" | "words" | "studyDays";
 export type LeaderboardIcon = Extract<RewardIconName, "flame" | "word-stack" | "calendar-check">;
@@ -355,18 +356,11 @@ export async function getLeaderboard(
       select: { userId: true, date: true },
     }),
     prisma.review.findMany({
-      where: { userId: { in: participantIds } },
+      where: { userId: { in: participantIds }, word: withCurrentCatalogWord() },
       select: { userId: true, interval: true },
     }),
     prisma.reviewEvent.findMany({
-      where: {
-        userId: { in: participantIds },
-        eventKind: "REVIEW",
-        evidenceKind: "OBJECTIVE_PROBE",
-        flowVersion: "v2",
-        objectiveEvidenceTargetId: { not: null },
-        isHistorical: false,
-      },
+      where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId: { in: participantIds } }] },
       select: { userId: true, createdAt: true },
     }),
   ]);

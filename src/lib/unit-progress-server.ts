@@ -1,5 +1,6 @@
 import { Prisma, prisma } from "@/lib/prisma";
 import { aggregateUnitStatRows } from "@/lib/units";
+import { catalogRuntimeEnvironment } from "@/lib/catalog/runtime";
 
 type UnitProgressDatabase = Pick<Prisma.TransactionClient, "$queryRaw">;
 
@@ -7,6 +8,7 @@ export async function fetchUnitProgress(
   userId: string,
   db: UnitProgressDatabase = prisma,
 ) {
+  const environment = catalogRuntimeEnvironment();
   const rows = await db.$queryRaw<
     Array<{
       level: string;
@@ -32,6 +34,32 @@ export async function fetchUnitProgress(
     LEFT JOIN "Review" AS review
       ON review."wordId" = word."id"
       AND review."userId" = ${userId}
+    WHERE word."senseId" IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM "CatalogRevision" AS revision
+        WHERE revision."id" = word."catalogRevisionId"
+          AND revision."status" = 'READY'
+      )
+      AND EXISTS (
+        SELECT 1 FROM "WordSense" AS sense
+        WHERE sense."id" = word."senseId"
+          AND (
+            (sense."status" = 'ACTIVE' AND sense."approvedRevisionId" IS NOT NULL)
+            OR (
+              ${environment} <> 'production'
+              AND sense."status" = 'DRAFT'
+              AND EXISTS (
+                SELECT 1 FROM "CatalogEligibility" AS eligibility
+                JOIN "CatalogRevision" AS eligibility_revision
+                  ON eligibility_revision."id" = eligibility."catalogRevisionId"
+                WHERE eligibility."senseId" = sense."id"
+                  AND eligibility."environment" = ${environment}
+                  AND eligibility."basis" = 'LOCAL_DEMO_BOOTSTRAP'
+                  AND eligibility_revision."status" = 'READY'
+              )
+            )
+          )
+      )
     GROUP BY word."level", word."category"
   `);
   return aggregateUnitStatRows(rows);

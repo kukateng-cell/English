@@ -108,6 +108,19 @@ test("production configuration rejects local all-user V2 assignment", () => {
   assert.ok(errors.some((error) => error.includes("STUDY_V2_ASSIGNMENT_MODE=all")));
 });
 
+test("production configuration rejects local catalog bootstrap", () => {
+  const errors = productionConfigurationErrors({
+    UPSTASH_REDIS_REST_URL: "https://example.invalid",
+    UPSTASH_REDIS_REST_TOKEN: "test-token",
+    CRON_SECRET: "local-check-secret",
+    SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
+    SECURITY_AUDIT_HMAC_KEY_ID: "v1",
+    NODE_ENV: "production",
+    LOCAL_CATALOG_BOOTSTRAP: "1",
+  });
+  assert.ok(errors.some((error) => error.includes("LOCAL_CATALOG_BOOTSTRAP")));
+});
+
 test("teacher reset keyring validation is independent from production-only gates", () => {
   assert.ok(teacherResetPreconditionConfigurationErrors({}).some((error) => error.includes("CURRENT")));
   assert.deepEqual(teacherResetPreconditionConfigurationErrors({
