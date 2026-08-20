@@ -412,30 +412,30 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 - [ ] 同時解析 `MIGRATE_URL` 及 `DATABASE_URL`，確認兩者指向同一 allowlisted database／schema；輸出不得包含密碼或完整 URL；
 - [x] dry-run 顯示 server-observed target／role／address／port、現有 counts、CSV／taxonomy／identity digest、預期動作及不保留資料；
 - [x] execute confirmation 綁定 exact DB target 及上述 digests，並要求 development markers 及額外 local catalog reset confirmation；
-- [ ] 全程持有 database-scoped advisory lock；流程固定為 drop schema → migrations → catalog／projection seed → roster seed → demo factory → checker；
-- [ ] migration 完成後標記 `BUILDING`；只有全部 checker 通過才標 `READY`，失敗標 `FAILED` 並停止，不以半完成資料當成功；
+- [x] 全程持有 database-scoped advisory lock；流程固定為 drop schema → migrations → catalog／projection seed → roster seed → demo factory → checker；
+- [x] migration 完成後標記 `BUILDING`；只有全部 checker 通過才標 `READY`，失敗標 `FAILED` 並停止，不以半完成資料當成功；
 - [ ] dataset generation 只進 manifest／metadata／checker，打印 browser／storage-state 失效提示，不改 credential payload；
 - [ ] 測試 production／remote host／兩 URL 不同 target／錯 database／缺 confirmation／digest mismatch／並發 rebuild 全部 fail closed。
 
-驗收：未帶 execute 只能預覽；非 allowlisted／不一致 target 無法執行；同一 inputs 可由空 DB 重建成 `READY`，失敗重跑必須由完整 reset 開始。
+驗收：未帶 execute 只能預覽；非 allowlisted／不一致 target 無法執行；同一 inputs 已由空 schema 重建成 `READY`，並通過 post-seed checker。
 
 ### Phase 6 — 執行本地切換（需要另一次明確授權）
 
-- [ ] 保存 dry-run output 及四份 CSV digest；
-- [ ] 使用者明確批准指定 local target 的 execute；
-- [ ] 執行完整 schema rebuild；
-- [ ] 重新建立測試登入狀態，清除舊 browser checkpoint／outbox／storage state；
-- [ ] 執行 post-seed checker、V1 `off`／V2 sense targeted smoke 及數量 reconciliation；
-- [ ] 記錄每種 import disposition、正式 ACTIVE、LOCAL_ELIGIBLE、blocked／failed、compatibility mapping 及 dataset generation。
+- [x] 核對並記錄 dry-run target／CSV digest 及四份 CSV digest；
+- [x] 使用者明確批准指定 local target `english_dev/public` 的 execute；
+- [x] 執行完整 schema rebuild；
+- [ ] 重新建立瀏覽器測試登入狀態，清除舊 browser checkpoint／outbox／storage state（本次只重建 DB 帳戶，未操作瀏覽器 storage state）；
+- [x] 執行 post-seed checker、V1 ledger／rollback targeted smoke、V2 sense targeted smoke 及數量 reconciliation；
+- [x] 記錄每種 import disposition、正式 ACTIVE、LOCAL_ELIGIBLE、blocked／failed、compatibility mapping 及 dataset generation。
 
-驗收：所有舊 local data 已被取代，應用只顯示新 CSV 詞庫及新 demo histories。本 phase 未獲另行批准前不得勾選或執行。
+驗收：所有舊 local data 已被取代，應用只顯示新 CSV 詞庫及新 demo histories。本次指定 local target 已完成；browser storage state 及完整 authenticated browser matrix 仍屬後續驗證。
 
 ### Phase 7 — 文件及收尾
 
 - [ ] 更新 `plans/project-plan.md` 中過時的 Markdown seed／Word 模型描述；
 - [ ] 更新 `DEPLOY.md`／README 中 local seed、reset、browser state 及 troubleshooting 指引；
 - [x] 在本計劃記錄實際測試、未執行項目、已知限制及後續 production gates；
-- [ ] 只有全部必要驗證通過後，才把狀態改為「已完成」。
+- [ ] 只有全部必要驗證通過後，才把狀態改為「已完成」；目前仍有 browser storage／full browser matrix 及 V1 retirement contract gate。
 
 ### 本次 Revision 2 實際執行結果
 
@@ -448,13 +448,13 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 - Word／sense projection-consistency DB guard（包括 ReviewEvent），防止 matching pair 以外的 mixed identity；V1 physical `wordId` 尚未退役，所以最終 exactly-one contract 留作下一個 contract migration；
 - V2 queue、unit、leaderboard、student／teacher／admin metrics 及 insights 的 current-sense／eligible-event readers；admin Word API 改為 read-only governance boundary；
 - sense-level curated question builder、四個唯一 options 的 snapshot validation 及未答題 public payload answer-data boundary；
-- deterministic A1→A2→B1→B2 demo factory／chronology checker、guarded rebuild orchestrator 及 actual CSV digest lock。Demo full rebuild 尚未在現有 DB 執行。
+- deterministic A1→A2→B1→B2 demo factory／chronology checker、guarded rebuild orchestrator 及 actual CSV digest lock；本次 full rebuild 已完成並通過 demo checker。
 
 實際 local catalog seed／checker 結果：5,641 行輸入、5,576 行通過 validator、65 行 `VALIDATION_FAILED`、5,469 行 development `LOCAL_ELIGIBLE`、5,469 個 current Word projections；65 行係答案安全碰撞而 fail closed，並非靜默丟失。
 
-已通過：fresh／interrupted migration replay、migration checksum、Prisma validate／generate、`npx tsc --noEmit`、`npm run lint`、225 個 unit tests、`npm run build`、`DATABASE_ENVIRONMENT=development npm run check:catalog` 及受保護 catalog rebuild dry-run。兩個獨立 reviewer（資料模型／migration reviewer 及 demo／analytics／testing reviewer）已完成只讀審查；上述 guards、manifest、strict validator、current predicates、deterministic fixture、snapshot validation 及 admin read model 已按其主要 findings 跟進。
+已通過：fresh／interrupted migration replay、migration checksum、Prisma validate／generate、`npx tsc --noEmit`、`npm run lint`、225 個 unit tests、`npm run build`、`npm run test:db`、`npm run test:db:stream-v2`、catalog／demo checker、完整 guarded local rebuild 及其 READY transition。兩個獨立 reviewer（資料模型／migration reviewer 及 demo／analytics／testing reviewer）已完成只讀審查；上述 guards、manifest、strict validator、current predicates、deterministic fixture、snapshot validation 及 admin read model 已按其主要 findings 跟進。
 
-未執行／未宣稱完成：`db:rebuild:catalog --execute` destructive schema reset、fresh DB 完整 roster／demo seed、browser storage-state 清理、V1 `off`／V2 targeted smoke、真正 event replay quantitative fixture verification 及 production rollout。呢啲要在 Phase 6 取得指定 local target 的獨立明確授權後先可執行；因此本計劃仍然係「進行中」。
+未執行／未宣稱完成：browser storage-state 清理、完整 authenticated browser／native device matrix、最終 V1 retirement exact-one contract migration 及 production rollout。DB-level V1 ledger smoke、V2 sense stream smoke、demo event chronology／lineage checker 已通過；因此本計劃仍然係「進行中」，但指定 local DB cutover 已完成。
 
 ## 9. 測試矩陣
 

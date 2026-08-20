@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import type { StudyStreamActionInput } from "../src/lib/study-stream/contracts";
+import { CATALOG_CATEGORIES } from "../src/lib/catalog/taxonomy";
+import { withCurrentCatalogWord } from "../src/lib/catalog/runtime";
 
 dotenv.config({ path: ".env.local" });
 
@@ -24,9 +26,11 @@ async function main() {
   const { todayKey } = await import("../src/lib/streak");
   const { authOptions, validateAuthTokenVersion } = await import("../src/lib/auth");
   const suffix = randomUUID();
+  const testUnitCategory = CATALOG_CATEGORIES[0];
   let userId: string | null = null;
   let studyDayOnlyUserId: string | null = null;
   const wordIds: string[] = [];
+  const cleanupWordIds: string[] = [];
 
   try {
     const user = await prisma.user.create({
@@ -84,19 +88,14 @@ async function main() {
     );
     await prisma.user.update({ where: { id: user.id }, data: { tokenVersion: user.tokenVersion } });
 
-    for (let index = 0; index < 8; index += 1) {
-      const word = await prisma.word.create({
-        data: {
-          term: `streamword-${suffix}-${index}`,
-          definition: `测试释义${index}；学习词条`,
-          level: "A1",
-          category: "Hello and Goodbye",
-          synonyms: [],
-          antonyms: [],
-        },
-      });
-      wordIds.push(word.id);
-    }
+    const currentWords = await prisma.word.findMany({
+      where: withCurrentCatalogWord(),
+      orderBy: [{ level: "asc" }, { category: "asc" }, { term: "asc" }, { id: "asc" }],
+      take: 8,
+      select: { id: true },
+    });
+    if (currentWords.length < 8) throw new Error("current CSV catalog has fewer than eight words for the V2 smoke test");
+    wordIds.push(...currentWords.map((word) => word.id));
 
     const bootstrap = await getOrCreateStudyStream(user.id);
     assert.equal(bootstrap.assigned, true);
@@ -109,7 +108,7 @@ async function main() {
     const unitBootstrap = await getOrCreateStudyStream(user.id, {
       mode: "unit",
       level: "A1",
-      category: "Hello and Goodbye",
+      category: testUnitCategory,
     });
     assert.equal(unitBootstrap.session.mode, "unit");
     assert.ok(unitBootstrap.item);
@@ -596,7 +595,7 @@ async function main() {
     const unitSummaryAfter = await getOrCreateStudyStream(user.id, {
       mode: "unit",
       level: "A1",
-      category: "Hello and Goodbye",
+      category: testUnitCategory,
     });
     assert.equal(unitSummaryAfter.unitSummary?.objectiveRecognitionCount, 1);
     assert.ok((unitSummaryAfter.unitSummary?.encounteredWordCount ?? 0) > 0);
@@ -632,7 +631,7 @@ async function main() {
     await prisma.studyDay.create({ data: { userId: studyDayOnlyUser.id, date: todayKey() } });
     const leaderboard = await getLeaderboard(user.id);
     const scoredStreak = leaderboard.lists.find((list) => list.type === "streak");
-    assert.equal(scoredStreak?.label, "客观认读连续天数");
+    assert.equal(scoredStreak?.label, "客觀認讀連續天數");
     assert.equal(scoredStreak?.entries.find((entry) => entry.userId === user.id)?.value, 1);
     const studyDayOnlyLeaderboard = await getLeaderboard(studyDayOnlyUser.id);
     const studyDayOnlyStreak = studyDayOnlyLeaderboard.lists.find((list) => list.type === "streak");
@@ -651,7 +650,7 @@ async function main() {
         antonyms: [],
       },
     });
-    wordIds.push(legacyWord.id);
+    cleanupWordIds.push(legacyWord.id);
     await prisma.review.create({
       data: { userId: user.id, wordId: legacyWord.id, nextReviewDate: new Date() },
     });
@@ -708,7 +707,7 @@ async function main() {
   } finally {
     if (userId) await prisma.user.delete({ where: { id: userId } });
     if (studyDayOnlyUserId) await prisma.user.delete({ where: { id: studyDayOnlyUserId } });
-    if (wordIds.length > 0) await prisma.word.deleteMany({ where: { id: { in: wordIds } } });
+    if (cleanupWordIds.length > 0) await prisma.word.deleteMany({ where: { id: { in: cleanupWordIds } } });
     await prisma.$disconnect();
   }
 }
