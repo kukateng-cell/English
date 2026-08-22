@@ -47,6 +47,9 @@ model User {
   studyEncounters            StudyEncounter[]
   securityEventsAsActor      SecurityEvent[]              @relation("SecurityEventActor")
   securityEventsAsSubject    SecurityEvent[]              @relation("SecurityEventSubject")
+  catalogChangeRequestsProposed CatalogChangeRequest[]    @relation("CatalogChangeRequestProposer")
+  catalogChangeRequestsReviewed CatalogChangeRequest[]    @relation("CatalogChangeRequestReviewer")
+  catalogAuditEvents         CatalogAuditEvent[]           @relation("CatalogAuditActor")
   studyDays                  StudyDay[]
   achievements               UserAchievement[]
   studentProfile             StudentProfile?
@@ -112,6 +115,20 @@ enum CatalogStatus {
   RETIRED
 }
 
+enum CatalogChangeKind {
+  UPDATE
+  CREATE
+  RETIRE
+  REACTIVATE
+}
+
+enum CatalogChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 // Stable headword identity.  A single entry may contain multiple independent
 // senses, for example run=跑步 and run=經營.
 model CatalogEntry {
@@ -155,6 +172,8 @@ model WordSense {
   studyEncounters     StudyEncounter[]
   localEligibilities  CatalogEligibility[]
   legacyWordMappings  LegacyWordSenseMap[]
+  changeRequests      CatalogChangeRequest[]
+  auditEvents         CatalogAuditEvent[]
 
   @@index([normalizedTerm])
   @@index([level, status])
@@ -267,12 +286,71 @@ model CatalogImportRow {
   catalogKey         String?
   senseKey           String?
   issues             Json?
+  sourceData         Json?
   createdAt          DateTime           @default(now())
   batch              CatalogImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  changeRequests     CatalogChangeRequest[]
 
   @@unique([batchId, sourceFile, sourceRow])
   @@index([primaryDisposition])
   @@index([eligibilityResult])
+}
+
+// A teacher/admin proposal. Content is kept as a JSON snapshot so a later
+// CSV rebuild cannot rewrite an in-flight review request.
+model CatalogChangeRequest {
+  id                 String               @id @default(cuid())
+  operationId        String
+  requestFingerprint String
+  kind               CatalogChangeKind
+  status             CatalogChangeStatus  @default(PENDING)
+  catalogKey         String?
+  senseKey           String?
+  senseId            String?
+  sourceImportRowId  String?
+  proposerId         String
+  reviewerId         String?
+  baseRevision       Int?
+  baseStatus         CatalogStatus?
+  proposedRevision   Int?
+  revision           Int                  @default(0)
+  payload            Json
+  reason             String?
+  reviewNote         String?
+  reviewedAt         DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  sense              WordSense?           @relation(fields: [senseId], references: [id], onDelete: Restrict)
+  sourceImportRow    CatalogImportRow?    @relation(fields: [sourceImportRowId], references: [id], onDelete: Restrict)
+  proposer           User                 @relation("CatalogChangeRequestProposer", fields: [proposerId], references: [id], onDelete: Restrict)
+  reviewer           User?                @relation("CatalogChangeRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  auditEvents        CatalogAuditEvent[]
+
+  @@unique([proposerId, operationId])
+  @@index([status, createdAt])
+  @@index([senseId, status])
+  @@index([senseKey, status])
+  @@index([sourceImportRowId, status])
+}
+
+model CatalogAuditEvent {
+  id          String                @id @default(cuid())
+  requestId   String?
+  actorUserId String?
+  senseId     String?
+  action      String
+  fromStatus  String?
+  toStatus    String?
+  revision    Int?
+  metadata    Json?
+  createdAt   DateTime              @default(now())
+  request     CatalogChangeRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  actor       User?                 @relation("CatalogAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  sense       WordSense?            @relation(fields: [senseId], references: [id], onDelete: SetNull)
+
+  @@index([requestId, createdAt])
+  @@index([senseId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 // Explicit mapping for the one-spelling-one-item V1 compatibility projection.
@@ -717,6 +795,7 @@ model TeacherProfile {
   // Account-level capability; effective reset scope still requires CURRENT
   // class view access for the target student.
   canResetStudentPassword Boolean              @default(false)
+  canManageWordCatalog    Boolean              @default(false)
   profileRevision         Int                  @default(0)
   accessRevision          Int                  @default(0)
   createdAt               DateTime             @default(now())

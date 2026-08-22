@@ -16,6 +16,7 @@ const ITEMS: Record<"teacher" | "admin", WorkspaceItem[]> = {
     { href: "/teacher", label: "概览", icon: "bar-chart" },
     { href: "/teacher/analytics", label: "學習分析", icon: "trending-up" },
     { href: "/teacher/roster", label: "學生", icon: "clipboard" },
+    { href: "/teacher/words", label: "詞庫", icon: "book" },
   ],
   admin: [
     { href: "/admin", label: "概览", icon: "bar-chart" },

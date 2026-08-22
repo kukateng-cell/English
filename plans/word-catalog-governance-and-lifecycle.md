@@ -1,8 +1,8 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（只完成 Phase 0 現況盤點及規範草案；功能程式、migration、轉換及 UI 尚未開始）
+> 狀態：進行中（治理工作區第一階段已完成 local implementation／verification；CSV preview／commit、學習流程 sense-level cutover 及 production rollout 仍未完成）
 >
-> 日期：2026-08-18
+> 日期：2026-08-22
 >
 > 工作 branch：`codex/word-catalog-governance-and-lifecycle`
 >
@@ -289,12 +289,12 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 
 ### Phase 2 — Expand schema及 data services
 
-- [ ] 更新 Prisma schema及新增一般 forward migration；
-- [ ] 建立 catalog parent、sense identity、immutable sense revision／approved pointer、全域 catalog revision、change request、import batch／audit；
-- [ ] 新增 teacher account-level capability及授權 audit；
+- [x] 更新 Prisma schema及新增一般 forward migration；
+- [x] 建立 catalog parent、sense identity、immutable sense revision／approved pointer、全域 catalog revision、change request、import batch／audit；
+- [x] 新增 teacher account-level capability及授權 audit；
 - [ ] 保留既有 physical Word 為 read-only compatibility，建立 `LegacyWordSenseMap`、optional sense provenance及 legacy／new read boundary；
-- [ ] Prisma generate、checksum、fresh replay、DB invariants及migration tests；
-- [ ] local protected reset／seed方案另行確認後先執行。
+- [x] Prisma generate、checksum、fresh replay、DB invariants及migration tests；
+- [x] local protected activation／seed方案已在 development database 以 topology、環境、catalog digest 及 metadata guard 執行；正式 reset／contract cleanup 仍未授權。
 
 ### Phase 3 — Question、scheduler及 learning integration
 
@@ -308,10 +308,10 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 
 ### Phase 4 — Submission、review及 lifecycle UI/API
 
-- [ ] 一般老師 create／update draft、change／retire requests；
-- [ ] capability teacher/admin review、approve、reject、retire、reactivate、emergency withdraw及post-review；
-- [ ] server-side authorization、CSRF、rate limit、revision CAS及audit；
-- [ ] admin／teacher responsive catalog workspace；
+- [x] 一般老師 create／update draft、change／retire／reactivate requests；CSV batch submission仍待 Phase 5；
+- [x] capability teacher/admin review、approve、reject、retire、reactivate；emergency withdraw及post-review history仍待補；
+- [x] server-side authorization、CSRF、revision CAS及catalog／security audit；catalog-specific rate limit仍待補；
+- [x] admin／teacher responsive catalog workspace，支援完整載入、狀態／程度／方向／搜尋篩選及逐條編輯；
 - [ ] zh-Hant／zh-Hans、theme、keyboard、screen-reader驗收。
 
 ### Phase 5 — CSV preview／commit及 conflict resolution
@@ -465,4 +465,14 @@ npm run test:e2e:card-motion
 - B1／B2 參考檔所有行保持 `CREATE_DRAFT`，`prompt_en`／`prompt_zh`、來源、貢獻者及 change note 均留空；舊 Markdown 未提供的 IPA／例句沒有虛構填寫，故仍須英文老師逐行覆核詞義、詞性、干擾項、例句及音標後，先可進入 ACTIVE。上述中譯英停用方向係有意 fail closed，不能當成內容已完成啟用。
 - 2026-08-19 由官方 [ECDICT](https://github.com/skywind3000/ECDICT) `ecdict.csv`（770,611 行；其中 218,065 行有 `phonetic`）補入四份參考 CSV 的 `phonetic_ipa`；只修改音標欄，其他 38 欄均與合併前一致。以 normalized `term` 作精確對應，A1 加入 345／355、A2 1,375／1,447、B1 1,620／1,743、B2 1,859／2,096；沒有 ECDICT 可用音標的行保持空白，沒有以相似詞猜配。ECDICT 只有單一 `phonetic` 欄，沒有美式／英式標記，故本次只能採用其唯一可用值，不能聲稱已完成可靠的美式優先選擇；正式 ACTIVE 前仍需英文老師覆核音標格式及讀音。
 - 2026-08-19 再以 [Cambridge English Dictionary](https://dictionary.cambridge.org/us/dictionary/english/date-of-birth)（美式優先、英式後備）及 [Oxford Learner’s Dictionaries](https://www.oxfordlearnersdictionaries.com/definition/english/friend)（只接受頁面詞頭完全匹配）補回 ECDICT 未提供的音標；只修改 `phonetic_ipa`，CSV 的來源欄仍保持空白。今次新增 Cambridge US 283、Cambridge UK 2、Oxford US 21，共 306 條；四份表的音標覆蓋率由 A1 345/355、A2 1,375/1,447、B1 1,620/1,743、B2 1,859/2,096 提升至 A1 352/355、A2 1,416/1,447、B1 1,719/1,743、B2 2,018/2,096。其餘 136 條因官方頁面沒有可可靠取得的完整詞組音標而保留空白，沒有按拼字估音；正式 ACTIVE 前仍需英文老師覆核音標格式及讀音。
-- 尚未修改 Prisma schema、migration、runtime code、database或production；尚未執行功能測試。
+
+### 2026-08-22：治理工作區第一階段 local implementation／verification
+
+- 新增 `CatalogChangeRequest`、`CatalogAuditEvent`、request identity／revision CAS、immutable proposal payload、approved revision pointer 及 `TeacherProfile.canManageWordCatalog`；只保留 ADMIN／TEACHER／STUDENT 三個角色。
+- 新增 `/admin/words` 及 `/teacher/words` 共用治理工作區：管理員及老師可查看完整 current READY catalog，按狀態、程度、題目方向、搜尋字串篩選；capability teacher／管理員可處理審核 queue，一般老師只可提交草稿。
+- 新增逐條 UPDATE／CREATE／RETIRE／REACTIVATE request API；所有 mutation 經現有 roster CSRF 流程、server-side role／capability、self-review block、current READY batch、identity check、validator 及 revision CAS；批准後才更新 approved revision／Word projection，拒絕不會覆蓋正式內容。
+- current local CSV source digest `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`：5,641 source rows、5,576 valid、65 validation failed；development database 目前 5,469 ACTIVE、107 DRAFT、0 RETIRED。DRAFT 係方向／內容未達到 initial activation gate 的項目，ACTIVE 項目已指向 approved revision。
+- initial activation 僅由 guarded `scripts/activate-initial-catalog.ts` 執行；會核對 development environment、local reset topology、資料庫 target、catalog digest 及 metadata，並且可重複執行。seed 已改為保留 approved lineage，缺行／缺資料／重匯不會自動 RETIRE 或刪除舊 revision；停用及重啟必須使用明確 request。
+- read-only `scripts/check-catalog-governance.ts` 已確認 READY batch／revision、sourceData、pending request identity、DRAFT approved pointer、ACTIVE lineage 及 Word projection 全部 invariant 通過。
+- 已執行／通過：`npm test`、`npm run lint`、`npx tsc --noEmit`、`npm run build`、`npm run test:migrations`、`npm run test:migration-checksums`、`npm run check:catalog`、`npm run check:catalog-governance` 及 guarded activation idempotency smoke。建置曾因 sandbox process restriction 失敗，改用獲准權限重跑後通過。
+- 兩個獨立 sub-agent 已完成初次 review；已跟進 CSRF、READY batch scope、standalone CREATE identity、approved／latest revision顯示、REACTIVATE projection、seed stale cleanup、activation target guard、pending queue truncation、modal focus／keyboard、reject note、DRAFT retire guard、pending CREATE exact-sense conflict 及 approval-time duplicate recheck 等問題。其後兩位 reviewer 再獨立確認最新修訂，均報告 blocker／high issue 為 0；非字串 `sourceRowId` 亦已改為 fail closed。未完成項包括 CSV preview／atomic commit、audit history UI、catalog-specific rate limit、full API／browser integration coverage、legacy mapping 及 sense-level learning／統計 cutover。

@@ -1,5 +1,5 @@
 import CatalogGovernanceWorkspace from "@/components/catalog/CatalogGovernanceWorkspace";
 
-export default function AdminWordsPage() {
+export default function TeacherWordsPage() {
   return <CatalogGovernanceWorkspace />;
 }

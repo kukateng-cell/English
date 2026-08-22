@@ -146,10 +146,6 @@ export async function seedCatalog(
         : "CREATED_DRAFT";
   });
   const report = buildCatalogImportReport(rows, validations, "A1-A2-B1-B2", manifestDispositions);
-  const currentSenseKeys = new Set(
-    rows.filter((_, index) => validations[index]?.errors.length === 0)
-      .map((row) => row.senseKey),
-  );
   const catalogRevisionKey = `catalog_${sourceDigest.slice(0, 24)}`;
   const catalogRevision = await tx.catalogRevision.upsert({
     where: { revisionKey: catalogRevisionKey },
@@ -165,7 +161,6 @@ export async function seedCatalog(
     update: {
       sourceDigest,
       status: "BUILDING",
-      activationBasis: options.localBootstrap ? "LOCAL_DEMO_BOOTSTRAP" : "DRAFT_IMPORT",
     },
   });
   const batch = await tx.catalogImportBatch.upsert({
@@ -220,6 +215,7 @@ export async function seedCatalog(
       catalogKey: row.catalogKey,
       senseKey: row.senseKey,
       issues: json({ errors: validation.errors, warnings: validation.warnings }),
+      sourceData: json(row),
     });
     if (validation.errors.length > 0 || assignment.resolution === "MERGE" || assignment.resolution === "CONFLICT") continue;
 
@@ -227,6 +223,10 @@ export async function seedCatalog(
       where: { catalogKey: row.catalogKey },
       create: { catalogKey: row.catalogKey, lemma: row.lemma, normalizedLemma: row.normalizedLemma },
       update: { lemma: row.lemma, normalizedLemma: row.normalizedLemma },
+    });
+    const existingSense = await tx.wordSense.findUnique({
+      where: { senseKey: row.senseKey },
+      select: { id: true, approvedRevisionId: true },
     });
     const sense = await tx.wordSense.upsert({
       where: { senseKey: row.senseKey },
@@ -242,12 +242,13 @@ export async function seedCatalog(
       },
       update: {
         catalogEntryId: entry.id,
-        term: row.term,
-        normalizedTerm: row.normalizedTerm,
-        pos: row.partOfSpeech || null,
-        level: row.level,
-        category: row.category,
-        status: "DRAFT",
+        ...(existingSense?.approvedRevisionId ? {} : {
+          term: row.term,
+          normalizedTerm: row.normalizedTerm,
+          pos: row.partOfSpeech || null,
+          level: row.level,
+          category: row.category,
+        }),
       },
     });
     const revisionNumber = row.recordRevision ?? 1;
@@ -308,76 +309,75 @@ export async function seedCatalog(
     }
   }
 
-  await tx.catalogImportRow.deleteMany({ where: { batchId: batch.id } });
-  if (importRows.length > 0) await tx.catalogImportRow.createMany({ data: importRows });
+  for (const importRow of importRows) {
+    await tx.catalogImportRow.upsert({
+      where: { batchId_sourceFile_sourceRow: { batchId: importRow.batchId, sourceFile: importRow.sourceFile, sourceRow: importRow.sourceRow } },
+      create: importRow,
+      update: {
+        rowDigest: importRow.rowDigest,
+        primaryDisposition: importRow.primaryDisposition,
+        eligibilityResult: importRow.eligibilityResult,
+        catalogKey: importRow.catalogKey,
+        senseKey: importRow.senseKey,
+        issues: importRow.issues,
+        sourceData: importRow.sourceData,
+      },
+    });
+  }
   await tx.catalogEligibility.deleteMany({ where: { catalogRevisionId: catalogRevision.id, environment: options.environment } });
   if (eligibilityRows.length > 0) await tx.catalogEligibility.createMany({ data: eligibilityRows, skipDuplicates: true });
 
   const primarySenseKeys = new Set(
     manifest.assignments.filter((assignment) => assignment.legacyPrimary).map((assignment) => assignment.senseKey),
   );
-  const staleCurrentWords = {
-    senseId: { not: null },
-    sense: { senseKey: { notIn: [...currentSenseKeys] } },
-  } satisfies Prisma.WordWhereInput;
-  await tx.legacyWordSenseMap.deleteMany({ where: { word: staleCurrentWords } });
-  await tx.word.updateMany({
-    where: staleCurrentWords,
-    data: { senseId: null, senseKey: null, contentRevisionId: null, catalogRevisionId: null },
-  });
-  await tx.wordSense.updateMany({
-    where: {
-      senseKey: { notIn: [...currentSenseKeys] },
-      revisions: { some: { catalogRevisionId: catalogRevision.id } },
-    },
-    data: { status: "RETIRED" },
-  });
-  await tx.legacyWordSenseMap.deleteMany({ where: { word: { catalogRevisionId: { not: catalogRevision.id } } } });
   for (const item of projectionRows) {
     const sense = await tx.wordSense.findUniqueOrThrow({ where: { senseKey: item.row.senseKey } });
     const revision = await tx.wordSenseRevision.findUniqueOrThrow({ where: { id: item.revisionId } });
+    const projectionRevision = sense.approvedRevisionId
+      ? await tx.wordSenseRevision.findUniqueOrThrow({ where: { id: sense.approvedRevisionId } })
+      : revision;
     const word = await tx.word.upsert({
       where: { senseId: sense.id },
       create: {
         senseId: sense.id,
         senseKey: sense.senseKey,
-        contentRevisionId: revision.id,
+        contentRevisionId: projectionRevision.id,
         catalogRevisionId: catalogRevision.id,
-        term: revision.term,
-        phonetic: revision.phoneticIpa,
-        pos: revision.pos,
-        definition: revision.definitionZh,
-        level: revision.level,
-        category: revision.category,
-        examples: revision.exampleEn && revision.exampleZh ? json([{ en: revision.exampleEn, zh: revision.exampleZh }]) : json([]),
-        synonyms: revision.synonymsEn,
-        antonyms: revision.antonymsEn,
-        acceptedAnswers: revision.acceptedAnswersZh,
-        acceptedForms: revision.acceptedFormsEn,
-        distractorZh: revision.distractorZh,
-        distractorEn: revision.distractorEn,
-        enableEnToZh: revision.enableEnToZh,
-        enableZhToEn: revision.enableZhToEn,
+        term: projectionRevision.term,
+        phonetic: projectionRevision.phoneticIpa,
+        pos: projectionRevision.pos,
+        definition: projectionRevision.definitionZh,
+        level: projectionRevision.level,
+        category: projectionRevision.category,
+        examples: projectionRevision.exampleEn && projectionRevision.exampleZh ? json([{ en: projectionRevision.exampleEn, zh: projectionRevision.exampleZh }]) : json([]),
+        synonyms: projectionRevision.synonymsEn,
+        antonyms: projectionRevision.antonymsEn,
+        acceptedAnswers: projectionRevision.acceptedAnswersZh,
+        acceptedForms: projectionRevision.acceptedFormsEn,
+        distractorZh: projectionRevision.distractorZh,
+        distractorEn: projectionRevision.distractorEn,
+        enableEnToZh: projectionRevision.enableEnToZh,
+        enableZhToEn: projectionRevision.enableZhToEn,
       },
       update: {
         senseKey: sense.senseKey,
-        contentRevisionId: revision.id,
+        contentRevisionId: projectionRevision.id,
         catalogRevisionId: catalogRevision.id,
-        term: revision.term,
-        phonetic: revision.phoneticIpa,
-        pos: revision.pos,
-        definition: revision.definitionZh,
-        level: revision.level,
-        category: revision.category,
-        examples: revision.exampleEn && revision.exampleZh ? json([{ en: revision.exampleEn, zh: revision.exampleZh }]) : json([]),
-        synonyms: revision.synonymsEn,
-        antonyms: revision.antonymsEn,
-        acceptedAnswers: revision.acceptedAnswersZh,
-        acceptedForms: revision.acceptedFormsEn,
-        distractorZh: revision.distractorZh,
-        distractorEn: revision.distractorEn,
-        enableEnToZh: revision.enableEnToZh,
-        enableZhToEn: revision.enableZhToEn,
+        term: projectionRevision.term,
+        phonetic: projectionRevision.phoneticIpa,
+        pos: projectionRevision.pos,
+        definition: projectionRevision.definitionZh,
+        level: projectionRevision.level,
+        category: projectionRevision.category,
+        examples: projectionRevision.exampleEn && projectionRevision.exampleZh ? json([{ en: projectionRevision.exampleEn, zh: projectionRevision.exampleZh }]) : json([]),
+        synonyms: projectionRevision.synonymsEn,
+        antonyms: projectionRevision.antonymsEn,
+        acceptedAnswers: projectionRevision.acceptedAnswersZh,
+        acceptedForms: projectionRevision.acceptedFormsEn,
+        distractorZh: projectionRevision.distractorZh,
+        distractorEn: projectionRevision.distractorEn,
+        enableEnToZh: projectionRevision.enableEnToZh,
+        enableZhToEn: projectionRevision.enableZhToEn,
       },
     });
     projections += 1;
@@ -390,7 +390,6 @@ export async function seedCatalog(
     }
   }
 
-  await tx.catalogRevision.updateMany({ where: { id: { not: catalogRevision.id }, status: "READY" }, data: { status: "RETIRED" } });
   if (options.finalize !== false) await tx.catalogRevision.update({ where: { id: catalogRevision.id }, data: { status: "READY" } });
   if (options.finalize !== false) await tx.catalogImportBatch.update({ where: { id: batch.id }, data: { status: "READY" } });
   await tx.catalogImportBatch.update({ where: { id: batch.id }, data: { status: options.finalize === false ? "BUILDING" : "READY", report: json({ ...report, sourceDigest, localBootstrap: options.localBootstrap }) } });
