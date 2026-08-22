@@ -11,7 +11,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: proc
 async function main() {
   const batch = await prisma.catalogImportBatch.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, sourceDigest: true, catalogRevisionId: true, status: true } });
   if (!batch?.catalogRevisionId) throw new Error("No READY catalog batch with a catalog revision exists.");
-  const [revision, status, sourceDataMissing, draftWithApproved, pendingIdentityMissing, activeSenses, obsoleteEligibilityCount, identitySenses, catalogEntries] = await Promise.all([
+  const [revision, status, sourceDataMissing, draftWithApproved, pendingIdentityMissing, activeSenses, obsoleteEligibilityCount, identitySenses, catalogEntries, finalizingSubmissionBatches, terminalBatchesWithPendingChildren, mutationStates, historySourceViolations, submissionTriggers] = await Promise.all([
     prisma.catalogRevision.findUnique({ where: { id: batch.catalogRevisionId }, select: { id: true, status: true, activationBasis: true } }),
     prisma.wordSense.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.catalogImportRow.count({ where: { batchId: batch.id, sourceData: { equals: Prisma.JsonNull } } }),
@@ -29,6 +29,22 @@ async function main() {
       },
     }),
     prisma.catalogEntry.findMany({ select: { id: true, normalizedLemma: true } }),
+    prisma.catalogSubmissionBatch.count({ where: { status: "FINALIZING" } }),
+    prisma.catalogSubmissionBatch.count({ where: { status: { in: ["COMMITTED", "REJECTED", "STALE", "EXPIRED", "CANCELLED", "SUPERSEDED"] }, proposalGroups: { some: { changeRequest: { is: { status: "PENDING" } } } } } }),
+    prisma.catalogMutationState.findMany({ select: { id: true, revision: true } }),
+    prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count
+      FROM "CatalogHistoryFeedEntry"
+      WHERE num_nonnulls("requestId", "submissionBatchId", "initialImportBatchId") <> 1
+    `,
+    prisma.$queryRaw<Array<{ tgname: string }>>`
+      SELECT tgname FROM pg_trigger
+      WHERE tgname IN (
+        'CatalogChangeRequest_batch_transition_guard',
+        'CatalogSubmissionBatch_terminal_children_guard',
+        'CatalogChangeRequest_terminal_parent_guard'
+      ) AND NOT tgisinternal
+    `,
   ]);
   const activeMissingLineage = activeSenses.filter((sense) => !sense.approvedRevisionId || !sense.approvedRevision || sense.approvedRevision.senseId !== sense.id || sense.approvedRevision.catalogRevision?.status !== "READY").length;
   const projectionMismatch = activeSenses.filter((sense) => !sense.wordProjection || sense.wordProjection.senseId !== sense.id || sense.wordProjection.contentRevisionId !== sense.approvedRevisionId).length;
@@ -45,7 +61,7 @@ async function main() {
   for (const entry of catalogEntries) normalizedLemmaCounts.set(entry.normalizedLemma, (normalizedLemmaCounts.get(entry.normalizedLemma) ?? 0) + 1);
   const duplicateNormalizedLemmaGroups = [...normalizedLemmaCounts.values()].filter((count) => count > 1).length;
   const result = {
-    ready: revision?.status === "READY" && revision.activationBasis === "INITIAL_BASELINE_MANIFEST" && sourceDataMissing === 0 && draftWithApproved === 0 && pendingIdentityMissing === 0 && activeMissingLineage === 0 && projectionMismatch === 0 && obsoleteEligibilityCount === 0 && lemmaIdentityMismatch === 0 && unknownCategoryCount === 0 && duplicateNormalizedLemmaGroups === 0,
+    ready: revision?.status === "READY" && revision.activationBasis === "INITIAL_BASELINE_MANIFEST" && sourceDataMissing === 0 && draftWithApproved === 0 && pendingIdentityMissing === 0 && activeMissingLineage === 0 && projectionMismatch === 0 && obsoleteEligibilityCount === 0 && lemmaIdentityMismatch === 0 && unknownCategoryCount === 0 && duplicateNormalizedLemmaGroups === 0 && finalizingSubmissionBatches === 0 && terminalBatchesWithPendingChildren === 0 && mutationStates.length === 1 && mutationStates[0]?.id === 1 && Number(historySourceViolations[0]?.count ?? 0) === 0 && submissionTriggers.length === 3,
     batch,
     revision,
     status,
@@ -59,6 +75,11 @@ async function main() {
     lemmaIdentityMismatch,
     unknownCategoryCount,
     duplicateNormalizedLemmaGroups,
+    finalizingSubmissionBatches,
+    terminalBatchesWithPendingChildren,
+    mutationStates,
+    historySourceViolations: Number(historySourceViolations[0]?.count ?? 0),
+    submissionTriggers: submissionTriggers.map((item) => item.tgname).sort(),
   };
   console.log(JSON.stringify(result, null, 2));
   if (!result.ready) throw new Error("catalog governance invariant failed");

@@ -60,6 +60,11 @@ export function productionConfigurationErrors(
   if (isProductionRuntime(env) && env.STUDY_V2_ASSIGNMENT_MODE === "all") {
     errors.push("STUDY_V2_ASSIGNMENT_MODE=all is only permitted in local development");
   }
+  const bulkCatalogEnabled = env.CATALOG_BULK_SUBMISSION_ENABLED === "1" || env.CATALOG_BULK_SUBMISSION_ENABLED === "true";
+  const catalogHistoryEnabled = env.CATALOG_HISTORY_ENABLED === "1" || env.CATALOG_HISTORY_ENABLED === "true";
+  if (bulkCatalogEnabled && !catalogHistoryEnabled) {
+    errors.push("CATALOG_BULK_SUBMISSION_ENABLED requires CATALOG_HISTORY_ENABLED");
+  }
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
     errors.push("distributed Upstash login/study rate limiting is required");
   }

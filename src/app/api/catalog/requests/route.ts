@@ -21,7 +21,7 @@ export async function GET(req: Request) {
     const requestedStatus = new URL(req.url).searchParams.get("status") ?? "PENDING";
     const status = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"].includes(requestedStatus) ? requestedStatus : "PENDING";
     const requests = await prisma.catalogChangeRequest.findMany({
-      where: { status: status as "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" },
+      where: { status: status as "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED", submissionProposalGroupId: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       take: 1001,
       select: {

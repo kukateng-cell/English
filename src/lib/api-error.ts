@@ -120,6 +120,52 @@ const CODE_MESSAGES: Record<string, string> = {
   CATALOG_REVIEW_NOTE_REQUIRED: "拒絕草稿時必須填寫審核備註",
   CATALOG_REQUEST_NOT_FOUND: "找不到這項詞庫審核申請",
   CATALOG_APPROVED_REVISION_MISSING: "詞義缺少已批准內容，暫時不能重新啟用",
+  CATALOG_BULK_DISABLED: "CSV 批量提交功能目前未啟用",
+  CATALOG_HISTORY_DISABLED: "詞庫修改歷史目前未啟用",
+  CATALOG_CSV_TOO_LARGE: "CSV 超過 5 MiB 上限",
+  CATALOG_CSV_TOO_MANY_ROWS: "CSV 超過 200 行上限",
+  CATALOG_CSV_EMPTY: "CSV 沒有資料行",
+  CATALOG_CSV_UTF8_INVALID: "CSV 必須使用有效 UTF-8 編碼",
+  CATALOG_CSV_HEADER_INVALID: "CSV 欄名與 word-catalog-v1 規格不符",
+  CATALOG_CSV_HEADER_DUPLICATE: "CSV 有重複欄名",
+  CATALOG_CSV_QUOTING_INVALID: "CSV 引號格式不正確",
+  CATALOG_CSV_COLUMN_COUNT_INVALID: "CSV 某行欄數不正確",
+  CATALOG_CSV_FORMULA_INVALID: "CSV 包含不安全的試算表公式開頭",
+  CATALOG_FILENAME_INVALID: "CSV 檔名編碼不正確",
+  CATALOG_CONTENT_TYPE_INVALID: "請以 text/csv 格式上載 CSV",
+  CATALOG_EXPORT_SELECTION_INVALID: "請選擇 1 至 200 個不重複的詞義",
+  CATALOG_EXPORT_SELECTION_STALE: "部分所選詞義已不存在，請重新載入詞庫",
+  IDEMPOTENCY_KEY_INVALID: "操作識別碼格式不正確，請重新嘗試",
+  IDEMPOTENCY_CONFLICT: "相同操作識別碼已用於不同內容，請重新嘗試",
+  CATALOG_BATCH_NOT_FOUND: "找不到這個詞庫批次",
+  CATALOG_BATCH_FORBIDDEN: "你沒有權限查看或修改這個詞庫批次",
+  CATALOG_BATCH_STALE: "批次已被其他人更新，請重新載入",
+  CATALOG_GROUP_STALE: "提案組已被其他人更新，請重新載入",
+  CATALOG_BATCH_HAS_ERRORS: "批次仍有驗證錯誤，請修正 CSV 後重新預覽",
+  CATALOG_BATCH_EMPTY: "批次沒有任何實際修改，毋須提交審核",
+  CATALOG_BATCH_NEEDS_RESOLUTION: "批次仍有未處理的重複或衝突",
+  CATALOG_BATCH_NOT_SUBMITTABLE: "批次目前不能提交審核",
+  CATALOG_BATCH_NOT_REVIEWABLE: "批次目前不能審核",
+  CATALOG_BATCH_NOT_FINALIZABLE: "批次尚未完成所有審核決定",
+  CATALOG_BATCH_EXPIRED: "批次預覽已過期，請重新上載建立新預覽",
+  CATALOG_BATCH_ALREADY_CLAIMED: "批次已由另一位審核者領取",
+  CATALOG_REVIEW_CLAIM_REQUIRED: "請先領取這個批次才可審核",
+  CATALOG_BATCH_REVIEW_REQUIRED: "CSV 批次子項必須由批次審核流程處理",
+  CATALOG_BATCH_DEPENDENCY_STALE: "詞庫或其他待審申請已改變，請重新建立預覽",
+  CATALOG_REVIEW_CLAIM_FORBIDDEN: "只有目前領取批次的審核者才可執行此操作",
+  CATALOG_REVIEW_ACKNOWLEDGEMENT_REQUIRED: "批准前必須展開並確認全部修改欄位",
+  CATALOG_SUBMITTED_PAYLOAD_IMMUTABLE: "批次提交後內容已凍結；如要修改，請建立新預覽",
+  CATALOG_CORRECTIVE_SOURCE_INVALID: "只可為已完成並已套用的批次建立修正預覽",
+  CATALOG_CORRECTIVE_STALE: "原批次套用的詞條其後已改變，不能自動建立安全修正；請逐條處理",
+  CATALOG_EXPORT_SELECTION_PENDING: "所選詞條包含等待審核的修改，請完成審核後再匯出",
+  CATALOG_RESOLUTION_REASON_REQUIRED: "這種處理方式必須填寫理由",
+  CATALOG_RESOLUTION_TARGET_REQUIRED: "所選處理方式需要有效的現有詞義",
+  CATALOG_SOURCE_SELECTION_REQUIRED: "來源行內容不同；請明確採用其中一行，或實際編輯自訂最終提案",
+  CATALOG_HISTORY_CURSOR_INVALID: "歷史分頁資料已失效，請重新載入",
+  CATALOG_HISTORY_NOT_FOUND: "找不到這項詞庫歷史",
+  CATALOG_HISTORY_FORBIDDEN: "你沒有權限查看這項詞庫歷史",
+  CATALOG_HISTORY_FILTER_FORBIDDEN: "一般老師不能按其他使用者身份搜尋內部審核歷史",
+  CATALOG_RATE_LIMITED: "詞庫操作過於頻繁，請稍後再試",
 };
 
 /** 根據 HTTP 狀態碼給出通用提示。 */
@@ -127,7 +173,7 @@ export function statusMessage(status: number): string {
   if (status === 401) return "登入狀態無效，請重新登入";
   if (status === 403) return "沒有權限訪問此頁面";
   if (status === 404) return "找不到請求的資源";
-  if (status === 422) return "請先設定新密碼後繼續";
+  if (status === 422) return "提交資料格式不正確，請檢查後再試";
   if (status === 429) return "操作過於頻繁，請稍後再試";
   if (status >= 500) return "伺服器暫時出錯，請稍後再試";
   return "載入失敗，請稍後再試";

@@ -157,6 +157,17 @@ export interface CatalogImportReport {
   warnings: number;
 }
 
+export const CATALOG_GOVERNANCE_MAX_BYTES = 5 * 1024 * 1024;
+export const CATALOG_GOVERNANCE_MAX_ROWS = 200;
+export type CatalogValidationMode = "bootstrap" | "governance";
+
+export class CatalogCsvError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "CatalogCsvError";
+  }
+}
+
 function csvRecords(text: string): string[][] {
   const records: string[][] = [];
   let record: string[] = [];
@@ -192,6 +203,68 @@ function csvRecords(text: string): string[][] {
   }
 
   if (field.length > 0 || record.length > 0) {
+    record.push(field.replace(/\r$/u, ""));
+    records.push(record);
+  }
+  return records;
+}
+
+function strictCsvRecords(text: string, sourceFile: string): string[][] {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = "";
+  let quoted = false;
+  let closedQuote = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"') {
+        if (text[index + 1] === '"') {
+          field += '"';
+          index += 1;
+        } else {
+          quoted = false;
+          closedQuote = true;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+    if (closedQuote) {
+      if (char === ",") {
+        record.push(field);
+        field = "";
+        closedQuote = false;
+      } else if (char === "\n") {
+        record.push(field.replace(/\r$/u, ""));
+        records.push(record);
+        record = [];
+        field = "";
+        closedQuote = false;
+      } else if (char !== "\r") {
+        throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: unexpected character after closing quote`);
+      }
+      continue;
+    }
+    if (char === '"') {
+      if (field.length > 0) throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: quote inside an unquoted field`);
+      quoted = true;
+    } else if (char === ",") {
+      record.push(field);
+      field = "";
+    } else if (char === "\n") {
+      record.push(field.replace(/\r$/u, ""));
+      records.push(record);
+      record = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+  if (quoted) throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: unclosed quoted field`);
+  if (field.length > 0 || record.length > 0 || closedQuote) {
     record.push(field.replace(/\r$/u, ""));
     records.push(record);
   }
@@ -241,6 +314,67 @@ export function parseCatalogCsv(text: string, sourceFile: string): CatalogSource
     const row = Object.fromEntries(CATALOG_HEADERS.map((key, keyIndex) => [key, values[keyIndex] ?? ""])) as unknown as CatalogSourceRow;
     return [{ ...row, sourceFile, sourceRow: index + 2 }];
   });
+}
+
+function governanceText(bytes: Uint8Array, sourceFile: string): string {
+  if (bytes.byteLength > CATALOG_GOVERNANCE_MAX_BYTES) {
+    throw new CatalogCsvError("CATALOG_CSV_TOO_LARGE", `${sourceFile}: CSV exceeds 5 MiB`);
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new CatalogCsvError("CATALOG_CSV_UTF8_INVALID", `${sourceFile}: CSV must be valid UTF-8`);
+  }
+  if (text.includes("\uFFFD")) throw new CatalogCsvError("CATALOG_CSV_UTF8_INVALID", `${sourceFile}: replacement characters are not accepted`);
+  if (/\u0000/u.test(text) || /[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(text)) {
+    throw new CatalogCsvError("CATALOG_CSV_CONTROL_CHARACTER", `${sourceFile}: CSV contains a disallowed control character`);
+  }
+  const withoutLeadingBom = text.replace(/^\uFEFF/u, "");
+  if (withoutLeadingBom.includes("\uFEFF")) {
+    throw new CatalogCsvError("CATALOG_CSV_EMBEDDED_BOM", `${sourceFile}: embedded BOM is not accepted`);
+  }
+  return withoutLeadingBom;
+}
+
+function dangerousFormula(value: string): boolean {
+  const trimmed = value.trimStart();
+  if (/^[=+@]/u.test(trimmed)) return true;
+  return /^-\d/u.test(trimmed);
+}
+
+/** Strict, header-name based parser for teacher governance uploads. */
+export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string): CatalogSourceRow[] {
+  const records = strictCsvRecords(governanceText(bytes, sourceFile), sourceFile);
+  const header = records[0]?.map((value) => clean(value));
+  if (!header || header.length !== CATALOG_HEADERS.length) {
+    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: expected ${CATALOG_HEADERS.length} headers`);
+  }
+  if (new Set(header).size !== header.length) {
+    throw new CatalogCsvError("CATALOG_CSV_HEADER_DUPLICATE", `${sourceFile}: duplicate header`);
+  }
+  const required = new Set<string>(CATALOG_HEADERS);
+  if (header.some((value) => !required.has(value)) || CATALOG_HEADERS.some((value) => !header.includes(value))) {
+    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: header names must match word-catalog-v1`);
+  }
+  const rows = records.slice(1).flatMap((values, index) => {
+    if (values.length === 1 && clean(values[0]) === "") return [];
+    if (values.length !== header.length) {
+      throw new CatalogCsvError("CATALOG_CSV_COLUMN_COUNT_INVALID", `${sourceFile}: row ${index + 2} has ${values.length} columns; expected ${header.length}`);
+    }
+    const record = Object.fromEntries(header.map((key, keyIndex) => [key, values[keyIndex] ?? ""])) as unknown as CatalogSourceRow;
+    for (const key of CATALOG_HEADERS) {
+      if (dangerousFormula(record[key])) {
+        throw new CatalogCsvError("CATALOG_CSV_FORMULA_INVALID", `${sourceFile}: row ${index + 2} field ${key} begins with a spreadsheet formula marker`);
+      }
+    }
+    return [{ ...record, sourceFile, sourceRow: index + 2 }];
+  });
+  if (rows.length === 0) throw new CatalogCsvError("CATALOG_CSV_EMPTY", `${sourceFile}: CSV has no data rows`);
+  if (rows.length > CATALOG_GOVERNANCE_MAX_ROWS) {
+    throw new CatalogCsvError("CATALOG_CSV_TOO_MANY_ROWS", `${sourceFile}: CSV exceeds ${CATALOG_GOVERNANCE_MAX_ROWS} rows`);
+  }
+  return rows;
 }
 
 function validLevel(value: string): value is CatalogLevel {
@@ -312,7 +446,12 @@ export function normalizeCatalogRow(row: CatalogSourceRow, ordinal: number): Nor
   };
 }
 
-export function validateCatalogRow(row: NormalizedCatalogRow, siblingRows: readonly NormalizedCatalogRow[] = []): CatalogRowValidation {
+export function validateCatalogRow(
+  row: NormalizedCatalogRow,
+  siblingRows: readonly NormalizedCatalogRow[] = [],
+  mode: CatalogValidationMode = "bootstrap",
+  sourceRow?: CatalogSourceRow,
+): CatalogRowValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
   errors.push(...row.parseErrors);
@@ -324,8 +463,24 @@ export function validateCatalogRow(row: NormalizedCatalogRow, siblingRows: reado
   if (!row.category) errors.push("category is required");
   if (!row.definitionZh) errors.push("definition_zh is required");
   if (row.promptEn || row.promptZh) errors.push("prompt_en/prompt_zh must be empty; prompts are server-owned");
-  if (row.catalogStatus && row.catalogStatus !== "DRAFT") errors.push("catalog_status must be empty or DRAFT for CSV bootstrap");
-  if (row.requestedAction !== "CREATE_DRAFT") errors.push("requested_action must be CREATE_DRAFT for CSV bootstrap");
+  if (mode === "bootstrap") {
+    if (row.catalogStatus && row.catalogStatus !== "DRAFT") errors.push("catalog_status must be empty or DRAFT for CSV bootstrap");
+    if (row.requestedAction !== "CREATE_DRAFT") errors.push("requested_action must be CREATE_DRAFT for CSV bootstrap");
+  } else {
+    if (row.requestedAction !== "CREATE" && row.requestedAction !== "UPDATE") errors.push("requested_action must be CREATE or UPDATE for governance submission");
+    if (row.retirementReason) errors.push("retirement_reason must be empty for CREATE/UPDATE governance submission");
+    if (!sourceRow) {
+      errors.push("governance validation requires source metadata");
+    } else if (row.requestedAction === "CREATE") {
+      if ([sourceRow.catalog_key, sourceRow.sense_key, sourceRow.record_revision, sourceRow.catalog_status].some((value) => clean(value) !== "")) {
+        errors.push("CREATE system identity fields must be empty");
+      }
+    } else if (row.requestedAction === "UPDATE") {
+      if (!clean(sourceRow.catalog_key) || !clean(sourceRow.sense_key)) errors.push("UPDATE requires catalog_key and sense_key");
+      if (row.recordRevision === null) errors.push("UPDATE requires record_revision");
+      if (!(["ACTIVE", "DRAFT", "RETIRED"] as string[]).includes(row.catalogStatus)) errors.push("UPDATE catalog_status must be ACTIVE, DRAFT or RETIRED");
+    }
+  }
   if (row.exampleEn && !row.exampleZh) errors.push("example_zh is required when example_en is present");
   if (row.exampleZh && !row.exampleEn) errors.push("example_en is required when example_zh is present");
 
@@ -384,4 +539,24 @@ export function buildCatalogImportReport(
     errors: validations.reduce((sum, item) => sum + item.errors.length, 0),
     warnings: validations.reduce((sum, item) => sum + item.warnings.length, 0),
   };
+}
+
+export function neutralizeCsvCell(value: unknown): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  const safe = /^[=+@]/u.test(text.trimStart()) || /^-\d/u.test(text.trimStart()) ? `'${text}` : text;
+  return /[",\r\n]/u.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+}
+
+export function catalogRowsToCsv(rows: readonly Partial<Record<CatalogHeader, unknown>>[]): string {
+  const lines = [CATALOG_HEADERS.map(neutralizeCsvCell).join(",")];
+  for (const row of rows) {
+    lines.push(CATALOG_HEADERS.map((header) => neutralizeCsvCell(row[header])).join(","));
+  }
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+}
+
+export function safeCatalogDownloadName(value: string, fallback = "word-catalog.csv"): string {
+  const normalized = value.normalize("NFKC").replace(/[\u0000-\u001F\u007F/\\]/gu, "-").trim();
+  const candidate = normalized.slice(0, 120) || fallback;
+  return candidate.toLocaleLowerCase("en-US").endsWith(".csv") ? candidate : `${candidate}.csv`;
 }

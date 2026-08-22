@@ -4,9 +4,9 @@
 >
 > 規範版本：`word-catalog-v1`
 >
-> 狀態：修訂草案；已按使用者決定取消測驗 prompt，其他 contract 決策仍待整體審批
+> 狀態：現行 v1 內容規範；已加入 bootstrap 與日常治理 CSV 模式
 >
-> 日期：2026-08-18
+> 日期：2026-08-22
 >
 > 適用範圍：A1／A2／B1／B2 英語認讀詞庫、批量草稿提交、重複與衝突檢查、審核、啟用及停用
 >
@@ -94,9 +94,24 @@ B1 `run = 經營`。
 - 不可包含 spreadsheet formula。任何非內容欄以 `=`、`+`、`-` 或 `@` 開頭都會被拒絕或安全轉義；
 - 不可放 password、學生姓名、學生帳號、聯絡資料或其他個人資料；`contributor_ref` 只用團隊編號；
 - 從匯出檔更新既有資料時，必須保留 `catalog_key`、`sense_key` 及 `record_revision`；不可自行重新編號；
-- 新增貢獻同更新既有資料使用兩種明確模式：新增用 `CREATE_DRAFT` 並將 keys、revision、status 留空；更新只能由系統匯出既有行，使用
-  `UPDATE_DRAFT` 並保留只讀 metadata；兩種模式錯配會被拒絕；
+- 初始建庫同日常治理係兩個明確模式，action 值不可混用；詳細 contract 見下節；
 - 檔案缺少某個既有詞義不代表停用；匯入器永遠不得以「CSV 冇呢行」自動刪除或停用資料。
+
+### 4.1.1 Bootstrap 與日常治理模式
+
+| 模式 | 用途 | `requested_action` | key／revision／status | 會否直接改正式詞庫 |
+|---|---|---|---|---|
+| Bootstrap | 開發期由完整 A1–B2 canonical CSV 重建本地／新環境基線 | 固定 `CREATE_DRAFT` | 由 converter／seed contract 管理 | 只可經受控 seed／reconciliation；不可用老師上載 API |
+| Governance CREATE | 老師／內容團隊日常新增一個詞義 | 固定 `CREATE` | `catalog_key`、`sense_key`、`record_revision`、`catalog_status` 必須留空 | 不會；先建立 preview，再提交草稿及由另一位授權老師審核 |
+| Governance UPDATE | 修改現有詞義內容 | 固定 `UPDATE` | 必須完整保留系統匯出的四項只讀 metadata | 不會；批准及 finalization 後先建立新 approved revision |
+
+日常治理 template 由工作區下載；UPDATE 必須先在工作區選取現有 `sense_key` 再匯出，不能抄另一行或自行編 key。Launch 每檔最多
+200 個 data rows、5 MiB，嚴格 UTF-8，可有一個檔首 BOM。欄名按名稱解析，所以次序可調整，但 39 欄必須各出現一次，不能有未知或
+重複欄。空檔、broken quoting、NUL／control character、embedded BOM 及公式開頭會在 preview 前拒絕。
+
+治理上載只支援 `CREATE`／`UPDATE`；停用與重新啟用繼續使用逐條工作流。CSV 缺行永遠不代表停用。相同內容 UPDATE 會標示
+`NO_CHANGE` 並排除；已有待審申請、stale revision、identity 衝突或 validation error 會阻擋提交。Preview 不會改 `WordSense`、
+approved revision 或學生 runtime；整批提交及最後套用各自保持原子性，批次內批准／拒絕決定及歷史永久保存。
 
 ### 4.2 標準欄目次序
 
@@ -112,7 +127,7 @@ schema_version,requested_action,catalog_key,sense_key,record_revision,catalog_st
 | 欄目 | 類型 | 誰填寫 | 啟用前要求 | 意義 |
 |---|---|---|---|---|
 | `schema_version` | enum | 團隊／template | 必須 | 固定填 `word-catalog-v1` |
-| `requested_action` | enum | 團隊／老師 | 必須 | `CREATE_DRAFT`、`UPDATE_DRAFT`、`REQUEST_RETIRE` 或 `REQUEST_REACTIVATE`；緊急撤回只經授權 UI／API |
+| `requested_action` | enum | 團隊／老師 | 必須 | Bootstrap 固定 `CREATE_DRAFT`；日常治理只接受 `CREATE` 或 `UPDATE`；停用／重啟及緊急撤回只經授權 UI／API |
 | `catalog_key` | string | 系統 | 新增留空；更新必須保留 | 同一詞目嘅穩定識別碼；多個 `run` 詞義共用同一 key |
 | `sense_key` | string | 系統 | 新增留空；更新必須保留 | 單一詞義／學習項目嘅穩定識別碼 |
 | `record_revision` | positive integer | 系統 | 更新既有資料時必須 | 防止舊 CSV 覆蓋較新修改 |
@@ -422,7 +437,7 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 
 - 缺少必填欄、enum／Boolean／長度格式錯誤；
 - 同一 `sense_key` 對應兩組不同內容，或同一 `catalog_key` 出現不合理 lemma 衝突；
-- `CREATE_DRAFT` 填咗任何 key／revision／status，或者 `UPDATE_DRAFT` 缺 stable keys／expected revision；
+- Bootstrap `CREATE_DRAFT` 或治理 `CREATE` 填咗任何 key／revision／status，或者治理 `UPDATE` 缺 stable keys／expected revision；
 - 一般匯入嘗試直接設定／改寫 `catalog_status`、approved revision、審核人或審核時間；
 - exact-sense fingerprint 重複而未合併；
 - 同一方向少於五個或多於六個非空干擾項、重複，或同完整 `normalized_answer_set` 相交；
@@ -430,7 +445,7 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 - 英譯中候選項包含同一 normalized term／lemma 其他 sense 嘅 canonical 或 accepted 中文答案；
 - final options 同時包含多於一個可接受答案，或者兩個題目將對方合理正解當成干擾項；
 - 更新既有資料使用過期 `record_revision`；
-- `REQUEST_RETIRE` 無 `sense_key`、revision 或 `retirement_reason`；
+- 治理 CSV 使用 `CREATE`／`UPDATE` 以外 action；停用／重啟必須改用逐條工作流並填理由；
 - 檔案有未知必要欄、重複 header、公式、個人資料或不能解析嘅 CSV 結構。
 
 ### 9.4 必須人工處理嘅警告
@@ -473,7 +488,7 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 3. 每個詞義獨立一行，完成兩個方向是否啟用嘅判斷；
 4. 對每個啟用方向逐項檢查 5–6 個干擾項；
 5. 多義詞補上學習用例句，並檢查每個中文干擾池冇包含同一英文其他詞義嘅答案；
-6. 新建行使用新增貢獻 template，將 keys、revision、status 留空，`requested_action` 填 `CREATE_DRAFT`；更新只用系統匯出行並填 `UPDATE_DRAFT`；
+6. 完整基線工作包填 `CREATE_DRAFT`；日常工作區新建行填 `CREATE` 並留空 keys／revision／status，更新只用系統匯出行並保留 `UPDATE`；
 7. 使用自動 validator，零 row-level error 先交畀下一位檢查。
 
 ### 10.3 同儕檢查及老師審核
@@ -581,7 +596,7 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 - [ ] 多義／非字面內容已有自然例句及對應翻譯；
 - [ ] 如有引用／改編外部材料，已填可追溯來源；否則來源欄可以留空；
 - [ ] 已用共享登記表搜尋 lemma，知道係新增詞目、新詞義定修改既有項目；
-- [ ] 新資料 keys／revision／status 留空，`requested_action=CREATE_DRAFT`；更新資料來自系統匯出並使用 `UPDATE_DRAFT`；
+- [ ] 已確認交件模式：完整基線使用 `CREATE_DRAFT`；工作區新增使用 `CREATE` 並留空 keys／revision／status；工作區更新來自系統匯出並使用 `UPDATE`；
 - [ ] 如有使用 `contributor_ref`，只填團隊編號；檔案冇個人資料或公式；
 - [ ] validator 顯示零 row-level blocking error。
 

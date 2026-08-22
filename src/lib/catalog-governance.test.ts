@@ -30,6 +30,9 @@ const payload: CatalogGovernancePayload = {
   distractorZh: ["跳躍", "行走", "游泳", "站立", "坐下"],
   enableZhToEn: true,
   distractorEn: ["walk", "jump", "swim", "stand", "sit"],
+  sourceReference: null,
+  contributorRef: null,
+  changeNote: null,
   retirementReason: null,
 };
 

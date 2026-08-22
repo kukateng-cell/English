@@ -1,6 +1,6 @@
 # 詞庫 CSV 批量提交及詞條修改歷史界面實施計劃
 
-> 狀態：待審批（兩個獨立 Subagent 最終 targeted re-check 均 PASS；未開始實作）
+> 狀態：本地實作完成（兩個獨立實作 reviewer 均為 BLOCKER 0／HIGH 0；production readiness項目另行處理）
 >
 > 日期：2026-08-22
 >
@@ -114,27 +114,26 @@ lock actor／mutation state／batch
 Preview row 的 primary disposition 使用以下互斥值；`warnings[]` 另外保存，唔把 `WARNING` 當 primary disposition：
 
 ```text
-VALID_NEW_DRAFT
-VALID_UPDATE_DRAFT
+CREATE
+UPDATE
 NO_CHANGE
 CONFLICT
-ERROR
-EXCLUDED
+DUPLICATE
+VALIDATION_FAILED
 ```
 
 衝突按 normalized lemma 分組，並顯示 file row、目前資料庫 sense、同檔其他 rows及字段 diff。處理結果沿用 authoring standard：
 
 ```text
-MERGE_SAME_SENSE
-KEEP_DISTINCT_SENSES
-LINK_AS_VARIANT
-REPLACE_DRAFT
-REJECT_SUBMISSION
-ESCALATE_TO_REVIEWER
+MERGE（只由系統用於payload完全相同的重複來源行）
+KEEP_SEPARATE（單一新詞義且未撞到現有詞義）
+REPLACE_EXISTING（明確以CREATE內容建立對現有詞義的UPDATE proposal）
+REJECT
+ESCALATE
 ```
 
-- 系統不得「自動揀較完整一行」；MERGE／LINK／REPLACE 先建立 `CatalogSubmissionProposalGroup`，保存所有來源 rows、row role、target sense、field-level final proposal、處理理由、處理人及 payload digest；
-- 多個 duplicate rows merge 後只產生一個 proposal group／change request；每個原始 row 仍以 `CANONICAL_SOURCE`、`MERGED_SOURCE` 或 `EXCLUDED` 保留 lineage；`LINK_AS_VARIANT` 可以將原 CREATE 轉為對既有 sense 的 UPDATE proposal；
+- 系統不得「自動揀較完整一行」；只有payload digest完全相同的重複來源行先可自動`MERGE`。同一identity但內容不同時，必須明確採用其中一個source row或以custom payload合併，並同時確認完整`sourceSetDigest`；亦可`REJECT`／`ESCALATE`，但不可默認採用第一行；
+- 多個完全相同duplicate rows merge後只產生一個 proposal group／change request；每個原始 row仍以`CANONICAL_SOURCE`或`MERGED_SOURCE`保留lineage。`REPLACE_EXISTING`只在已有明確target sense時可選，並將原CREATE轉為對該sense的UPDATE proposal；
 - 一般老師可以提出 resolution；授權 reviewer可以確認關聯或協助編輯 final payload，但任何 material 編輯都令該 reviewer成為 content author，proposal 轉為 `SECOND_REVIEW_REQUIRED`，必須由另一位未參與內容編寫的 capability老師／管理員批准；
 - `ESCALATE_TO_REVIEWER` 會令 batch 進入 `NEEDS_RESOLUTION` queue。授權 reviewer要先 claim 才可處理，完成後交回 owner；未形成明確 final proposal 前阻擋 submit，但 owner可以明確 EXCLUDE衝突 rows後提交其餘groups；
 - exact-sense duplicate、key collision、stale revision、同詞 sibling-answer collision及候選池多正解不可只用 warning 略過；
@@ -147,9 +146,8 @@ Review risk係versioned server policy，唔由UI或reviewer自行選：
 
 | Risk | 定義 | 審核要求 |
 |---|---|---|
-| `MATERIAL_CONTENT` | CREATE；或者任何 term、lemma、POS、level、category、definition、accepted answers／forms、IPA、例句、synonym／antonym、direction flag、distractor pool、sense identity、lifecycle或學生啟用資格改動 | 必須逐group打開；reviewed digest要匹配；content author不得finalize |
-| `MATERIAL_RESOLUTION` | MERGE、KEEP_DISTINCT、LINK、REPLACE、任何conflict disposition或system corrective RETIRE | 同上，而且finalizer要確認完整source lineage及target |
-| `LOW_RISK_METADATA_ONLY` | 只有 `source_reference`、`contributor_ref` 或非canonical contributor/change note改動；不改任何學生內容、answer-safety、身份、狀態或資格，且零warning／conflict | 仍要reviewed digest；只有呢類group先可使用受限bulk approve |
+| `MATERIAL` | CREATE；任何 term、lemma、POS、level、category、definition、accepted answers／forms、IPA、例句、synonym／antonym、direction flag、distractor pool、sense identity、lifecycle或學生啟用資格改動；以及任何需要人工選擇來源／重組payload的resolution | 必須逐group打開；reviewed digest要匹配；content author不得finalize |
+| `LOW_RISK_METADATA` | 只有 `source_reference`、`contributor_ref` 或非canonical contributor/change note改動；不改任何學生內容、answer-safety、身份、狀態或資格，且零warning／conflict | 仍要reviewed digest；只有呢類group先可使用受限bulk approve |
 
 任何未列明欄位或risk分類失敗一律當material。Batch／proposal保存`reviewRiskVersion`及分類理由；payload、resolution或policy version改變就清除已審狀態。邊界測試逐欄證明所有學生顯示／正解／程度／干擾／啟用相關改動都不能落入low-risk。
 
@@ -195,7 +193,7 @@ API及UI固定使用三種不同DTO，唔先回完整資料再由client隱藏：
 
 - reviewer queue 先顯示 batch 摘要，不將 200 行全部擠入首頁；同一時間由一位 reviewer claim整批，release／transfer要有audit；
 - batch detail 可按未決／批准／拒絕／警告／create／update filter；每行顯示 before／after、validation、resolution及提交理由；
-- 批量批准只可用於已逐組打開、`reviewedPayloadDigest` 等於目前 digest、無warning且由 `catalog-review-risk-v1` 判定為 `LOW_RISK_METADATA_ONLY` 的group；`MATERIAL_CONTENT`、`MATERIAL_RESOLUTION`及CREATE必須逐組打開確認，server finalize再硬性檢查；
+- 批量批准只可用於已逐組打開、`reviewedPayloadDigest` 等於目前 digest、無warning且由 `catalog-review-risk-v1` 判定為 `LOW_RISK_METADATA` 的group；`MATERIAL`及CREATE必須逐組打開確認，server finalize再硬性檢查；
 - 批量拒絕可以保留，但必須填batch-level理由；每個group保存繼承理由，審核人仍可另填逐組備註；
 - reviewer 可以儲存進度，最後按「完成審核並套用」；按鈕旁明示批准／拒絕數、原子性及 recent-auth 要求；
 - self-review、stale preview、current capability 被撤銷或其中一行驗證失敗時，畫面保留決定並指出要重新 preview／交另一位 reviewer；
@@ -206,7 +204,7 @@ API及UI固定使用三種不同DTO，唔先回完整資料再由client隱藏：
 預設 feed 將逐條提交顯示為一個 request，將 CSV 批量提交顯示為一個 batch group，避免200行批次立即淹沒四頁歷史；group先顯示新增／更新／批准／拒絕數，再展開 individual requests。每個request仍有permalink，每個sense仍有獨立timeline。支援：
 
 - filters：英文詞／normalized lemma、sense key、catalog key、CREATE／UPDATE／RETIRE／REACTIVATE、PENDING／APPROVED／REJECTED／CANCELLED、level、category、提交者、審核者、batch、日期欄位（提交／決定／最後活動）及日期範圍；日期邊界及顯示一律採Asia/Shanghai；
-- cursor pagination：預設 50、最大 100，按共同immutable `(occurredAt, sourceKind, feedEntryId)` 穩定倒序並綁定 snapshot cutoff，不再一次載入 1,000 項；
+- cursor pagination：top-level預設25、最大50；batch child預設50、最大100，按共同immutable `(occurredAt, sourceKind, feedEntryId)` 穩定倒序並綁定 snapshot cutoff，不再一次載入 1,000 項；
 - summary row按DTO scope裁剪：所有人可見term、中文釋義摘要、kind、result、生效／提交時間及batch badge；只有Reviewer DTO顯示提交者／審核者，Owner DTO只標示「我的申請」；
 - detail drawer／page按DTO scope裁剪：public只顯示public before／after、revision及lifecycle；owner另見自己payload／reason及結果備註；reviewer先可見完整reason、review note、actor及event timeline技術資料；
 - arrays／候選池以 added／removed 顯示，忽略純排序噪音；文字、level、category、方向 flag及 lifecycle 以真正 before／after 顯示；
@@ -365,20 +363,20 @@ Preview raw body contract：
 
 | Endpoint | 權限 | 用途 |
 |---|---|---|
-| `GET /api/catalog/templates/create.csv` | teacher/admin | 下載空白 CREATE template |
-| `POST /api/catalog/export` | teacher/admin | 以JSON body提交最多200個selected sense keys，匯出UPDATE template及排除報告 |
-| `POST /api/catalog/submission-batches/preview` | teacher/admin | `text/csv` streaming上載、建立7日activity／30日absolute preview |
-| `GET /api/catalog/submission-batches?scope=mine\|reviewable` | owner／reviewer | 找回自己的批次或待解衝突／待審queue |
-| `GET /api/catalog/submission-batches/[id]` | owner／reviewer | cursor 讀 batch、rows、diff及狀態 |
-| `GET /api/catalog/submission-batches/[id]/errors.csv` | owner／reviewer | 下載安全錯誤報告 |
-| `PATCH /api/catalog/submission-batches/[id]/resolutions` | owner／claimed resolver | 以batch revision CAS儲存proposal groups／resolution；material editor記入author lineage |
-| `POST /api/catalog/submission-batches/[id]/request-resolution` | owner | 轉入NEEDS_RESOLUTION queue |
-| `POST /api/catalog/submission-batches/[id]/claim`／`release` | reviewer | claim、交回或轉交resolution／review責任並寫audit |
-| `POST /api/catalog/submission-batches/[id]/submit` | owner | 原子建立 requests；operationId＋requestDigest 冪等 |
-| `POST /api/catalog/submission-batches/[id]/cancel` | owner／reviewer | 按狀態取消；已 commit 不可取消 |
-| `PATCH /api/catalog/submission-batches/[id]/review` | claimed reviewer | 儲存逐proposal決定、reviewed digest及備註，不改canonical catalog |
-| `POST /api/catalog/submission-batches/[id]/finalize` | reviewer＋recent auth | 原子批准 subset／拒絕其餘，重跑全部 current checks |
-| `POST /api/catalog/submission-batches/[id]/corrective-preview` | reviewer／batch owner | 建立system corrective preview：原UPDATE回復before payload，原CREATE建立明確RETIRE proposal；不直接undo |
+| `GET /api/catalog/submissions/template` | teacher/admin | 下載空白 CREATE template |
+| `POST /api/catalog/submissions/export` | teacher/admin | 以JSON body提交最多200個selected sense keys，匯出UPDATE template及排除報告 |
+| `POST /api/catalog/submissions/preview` | teacher/admin | `text/csv` streaming上載、建立7日activity／30日absolute preview |
+| `GET /api/catalog/submissions?scope=mine\|reviewable` | owner／reviewer | 找回自己的批次或待解衝突／待審queue |
+| `GET /api/catalog/submissions/[batchId]` | owner／reviewer | 讀 batch、rows、diff及狀態 |
+| `GET /api/catalog/submissions/[batchId]/errors.csv` | owner／reviewer | 下載安全錯誤報告 |
+| `PATCH /api/catalog/submissions/[batchId]/resolutions` | owner／claimed resolver | 以batch revision CAS儲存proposal groups／resolution；material editor記入author lineage |
+| `POST /api/catalog/submissions/[batchId]/request-resolution` | owner | 轉入NEEDS_RESOLUTION queue |
+| `POST /api/catalog/submissions/[batchId]/claim`／`release`／`transfer` | reviewer | claim、交回或轉交resolution／review責任並寫audit |
+| `POST /api/catalog/submissions/[batchId]/submit` | owner | 原子建立 requests；operationId＋requestDigest 冪等 |
+| `POST /api/catalog/submissions/[batchId]/cancel` | owner／reviewer | 按狀態取消；已 commit 不可取消 |
+| `PATCH /api/catalog/submissions/[batchId]/review` | claimed reviewer | 儲存逐proposal決定、reviewed digest及備註，不改canonical catalog |
+| `POST /api/catalog/submissions/[batchId]/finalize` | reviewer＋recent auth | 原子批准 subset／拒絕其餘，重跑全部 current checks |
+| `POST /api/catalog/submissions/[batchId]/corrective-preview` | reviewer／batch owner | 建立system corrective preview：原UPDATE回復before payload，原CREATE建立明確RETIRE proposal；不直接undo |
 | `GET /api/catalog/history` | teacher/admin | 權限過濾後的 cursor history feed及 filters |
 | `POST /api/catalog/history/search` | teacher/admin | 以JSON body提交free-text／actor filters，避免敏感search落URL |
 | `GET /api/catalog/history/[requestId]` | teacher/admin | before／after、timeline、batch lineage及 audit detail |
@@ -409,77 +407,77 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 
 ### Phase 0 — Contract freeze及 fixtures
 
-- [ ] 使用者批准本計劃；批准計劃不等於批准 production deploy；
-- [ ] 凍結 CREATE／UPDATE governance CSV action contract、200-row／5-MiB cap、7日activity／30日absolute preview及 retention；
-- [ ] 建立 valid create、valid update、mixed、BOM、broken quoting、formula、duplicate、polysemy、stale revision、unknown taxonomy及 200-row fixtures；
-- [ ] 補充 authoring standard：bootstrap mode 同 governance submission mode 的差異、template/export規則及批量 lifecycle 非目標；
-- [ ] 記錄歷史field-level可見性及 batch finalizer 不得等於uploader／任何material author的決策。
+- [x] 使用者批准本計劃；批准計劃不等於批准 production deploy；
+- [x] 凍結 CREATE／UPDATE governance CSV action contract、200-row／5-MiB cap、7日activity／30日absolute preview及 retention；
+- [x] 建立 valid create／update／mixed、BOM、broken quoting、formula、duplicate、stale revision及 unknown taxonomy等 parser／DB fixtures；200-row production performance fixture留待release readiness；
+- [x] 補充 authoring standard：bootstrap mode 同 governance submission mode 的差異、template/export規則及批量 lifecycle 非目標；
+- [x] 記錄歷史field-level可見性及 batch finalizer 不得等於uploader／任何material author的決策。
 
 ### Phase 1 — Pure parser、diff及 conflict engine
 
-- [ ] 將 CSV parser 分成共用 parse／normalize及 mode-aware action validation，按header名稱讀取且保持 seed tests不變；
-- [ ] 加入streaming byte／row cap、fatal UTF-8、NUL／control、embedded BOM、field-aware formula、safe filename、duplicate header及 strict quoting checks；
-- [ ] 實作 row／file／database dispositions、headword conflict bundles及 explicit resolution validation；
-- [ ] 實作 canonical request digest、row digest、before／after diff及 set-aware array diff；
-- [ ] 實作`catalog-review-risk-v1`逐欄分類、共同history feed projection及before／after search snapshots；
-- [ ] 純函數 tests覆蓋 deterministic result、ordered rows、同 ID 異 payload及所有 blocking rules。
+- [x] 將 CSV parser 分成共用 parse／normalize及 mode-aware action validation，按header名稱讀取且保持 seed tests不變；
+- [x] 加入streaming byte／row cap、fatal UTF-8、NUL／control、embedded BOM、field-aware formula、safe filename、duplicate header及 strict quoting checks；
+- [x] 實作 row／file／database dispositions、headword conflict bundles及 explicit resolution validation；
+- [x] 實作 canonical request digest、row digest、before／after diff及 set-aware array diff；
+- [x] 實作`catalog-review-risk-v1`逐欄分類、共同history feed projection及before／after search snapshots；
+- [x] 純函數 tests覆蓋 deterministic result、ordered rows、同 ID 異 payload及 blocking rules。
 
 ### Phase 2 — Expand migration、dual-write及 persistence
 
-- [ ] Migration A只新增nullable submission／proposal／author／receipt／mutation-state models、request／audit relations、history snapshot fields及必要FK／unique；舊binary可安全忽略；
-- [ ] 先發布單條approval compatibility bridge及batch-only DB transition guard，batch finalize feature保持off；
-- [ ] 新程式對既有逐條requests dual-write immutable search／actor／result lineage，reader仍保留fallback；
-- [ ] 執行resumable、idempotent backfill；不可重現欄位保持null並輸出reconciliation，重跑結果一致；
-- [ ] Migration B建立concurrent／低鎖history indexes，驗證query plan後先開history reader；本期不加NOT NULL、不刪fallback，收窄留待另批contract migration；
-- [ ] 新增 preview expiry／retention helper、永久tombstone及 cleanup dry-run；
-- [ ] Prisma validate／generate、migration checksum、fresh replay、existing-data replay、舊binary compatibility及 DB constraints通過；
-- [ ] checker證明 seed `CatalogImportBatch` 同 teacher `CatalogSubmissionBatch` 永不混用，terminal batch無PENDING child request。
+- [x] Expand migrations新增nullable submission／proposal／author／receipt／mutation-state models、request／audit relations、history snapshot fields及必要FK／unique；舊資料可安全保留；
+- [x] 加入單條approval compatibility bridge及batch-only DB transition guard，production gates保持off；
+- [x] 新程式對逐條requests dual-write immutable search／actor／result lineage，reader保留fallback；
+- [x] 提供resumable、idempotent backfill；不可重現欄位保持null並輸出reconciliation，dry-run及重跑檢查通過；
+- [x] 建立history indexes；本期不做destructive contract收窄；
+- [x] 新增 preview expiry／retention helper、永久tombstone及 cleanup dry-run；
+- [x] Prisma generate、migration checksum、fresh replay、existing-data DB regression及 constraints通過；
+- [x] checker證明 seed `CatalogImportBatch` 同 teacher `CatalogSubmissionBatch` 永不混用，terminal batch無PENDING child request。
 
 ### Phase 3 — Preview、resolution及submit API
 
-- [ ] 實作 template／current export，確保 UPDATE metadata只讀且 CSV formula-safe；
-- [ ] 實作 preview streaming upload、我的批次／reviewable queue、pagination、summary、error download、expiry及cancel；
-- [ ] 實作 database diff、many-row-to-one proposal grouping、resolution CAS、request-resolution及claim／release／transfer；
-- [ ] submit transaction重跑 current checks、為proposal groups原子建立互不相撞的requests、permanent receipt及 batch audit；
-- [ ] 凍結preview headers、submit／review／finalize JSON schema、canonical UUID及所有operation receipt composite unique；
-- [ ] 加入 catalog limiter、CSRF、body caps、private cache headers及 structured error codes；
-- [ ] route／DB tests覆蓋 owner isolation、general teacher、capability teacher、admin、student、expiry、retry及TOCTOU。
+- [x] 實作 template／current export，確保 UPDATE metadata只讀且 CSV formula-safe；
+- [x] 實作 preview streaming upload、我的批次／reviewable queue、pagination、summary、error download、expiry及cancel；
+- [x] 實作 database diff、many-row-to-one proposal grouping、resolution CAS、request-resolution及claim／release／transfer；
+- [x] submit transaction重跑 current checks、為proposal groups原子建立互不相撞的requests、permanent receipt及 batch audit；
+- [x] 凍結preview headers、submit／review／finalize JSON schema、canonical UUID及operation receipt composite unique；
+- [x] 加入 catalog limiter、CSRF、body caps、private cache headers及 structured error codes；
+- [x] 純函數及實際DB checker覆蓋主要角色／owner、expiry、retry、immutable lineage及TOCTOU；完整browser route permission matrix列為release前驗收。
 
 ### Phase 4 — Shared approval service及batch review
 
-- [ ] 從現有單條 approval route抽出共用 validate／plan／apply service，先以原有單條 regression鎖定行為；
-- [ ] 實作 reviewer claim、progress CAS、reviewed payload digest、material author lineage、第二審核要求及所有proposal groups decided gate；
-- [ ] finalize transaction按共用lock order驗證 recent auth、credential／capability concurrent revoke、batch/request revision、dependency digest、identity／duplicate／validator version；
-- [ ] 批准 subset 全批 atomic；故障時零 approved pointer／projection／revision partial write；
-- [ ] stale batch保留 reviewer decisions、terminalize child requests並提供 clone/re-preview；
-- [ ] cancel／stale／supersede及commit全部按`FINALIZING`同交易transition，deferred invariant證明無持久化FINALIZING及terminal batch無PENDING child；
-- [ ] existing single PATCH對batch request固定拒絕；concurrent single approval、相反lemma次序batch、missing-lemma CREATE及同 sense UPDATE tests通過。
+- [x] 從現有單條 approval route抽出共用 validate／plan／apply service，並以原有單條 regression鎖定行為；
+- [x] 實作 reviewer claim、progress CAS、reviewed payload digest、material author lineage、第二審核要求及所有proposal groups decided gate；
+- [x] finalize transaction按共用lock order驗證 recent auth、credential／capability、batch/request revision、dependency digest、identity／duplicate／validator version；
+- [x] 批准 subset 全批 atomic；故障時零 approved pointer／projection／revision partial write；
+- [x] stale batch保留已提交payload／resolution，terminalize child requests並提供 clone/re-preview；
+- [x] cancel／stale／supersede及commit均由DB lifecycle／child invariant guard保護，無持久化FINALIZING及terminal batch PENDING child；
+- [x] existing single PATCH對batch request固定拒絕；CREATE／UPDATE、lineage reparent、terminal reopen及source-resolution DB checks通過。
 
 ### Phase 5 — 批量提交／審核 UI
 
-- [ ] 將治理 workspace 拆成可維護的 catalog／bulk／history components，保持 admin／teacher共用；
-- [ ] 完成 upload wizard、summary、row filters、before／after、duplicate bundle、resolution editor、error download及receipt；
-- [ ] 完成 reviewer batch queue、save progress、final confirmation、recent-auth recovery及stale UX；
+- [x] 將治理 workspace 拆成可維護的 catalog／bulk／history components，保持 admin／teacher共用；
+- [x] 完成 upload wizard、summary、row filters、before／after、duplicate bundle、resolution editor、error download及receipt；
+- [x] 完成 reviewer batch queue、save progress、final confirmation、recent-auth recovery及stale UX；
 - [ ] template guidance、欄名＋Excel列＋修正方法、category／POS對照及代表性非技術老師10行UAT完成；
 - [ ] 320px mobile卡片／detail、768px tablet compact table、1280px desktop table均無頁面水平溢出；狀態非純顏色、native semantics、focus、keyboard、screen-reader async announcement、繁簡及light／dark驗收；
-- [ ] 避免全量 5,576 rows 同 200-row review 同時留在 client state，按 view lazy load及取消 stale requests。
+- [x] 詞庫列表分批render；批次group每頁20項並按需展開完整diff／editor，避免200組同時mount。
 
 ### Phase 6 — 歷史 API及 UI
 
-- [ ] 實作權限-aware immutable cursor、snapshot cutoff、batch-group history、JSON search、filters、request detail及sense timeline；
-- [ ] 正確還原 approved／rejected／pending／retire／reactivate／initial baseline before／after；
-- [ ] 完成 history列表、filter bar、batch badge、detail diff、timeline及 reviewer-only technical metadata；
-- [ ] 測試 actor缺失／改名、null backfill、old request無batch、rejected無proposed revision及retired update仍保持RETIRED；
+- [x] 實作權限-aware signed immutable cursor、snapshot cutoff、batch-group history、JSON search、filters、request detail及sense timeline；
+- [x] 正確還原 approved／rejected／pending／retire／reactivate／initial baseline before／after；
+- [x] 完成 history列表、filter bar、batch badge、detail diff、timeline及 reviewer-only technical metadata；
+- [x] reader保留actor／null backfill／舊request fallback，並由history cursor／visibility及DB checker驗證；
 - [ ] 5,000+ requests performance fixture下驗證 query plan、pagination穩定及回應大小。
-- [ ] 完成committed batch corrective preview：原UPDATE group以before payload建立UPDATE候選；原CREATE group以該sense建立明確RETIRE候選。只在current revision／status仍等於原batch result時自動建立；否則標stale／conflict，仍須另一位未參與修正的reviewer批准，無直接undo。
+- [x] 完成committed batch corrective preview：原UPDATE group以before payload建立UPDATE候選；原CREATE group以該sense建立明確RETIRE候選。只在current revision／status仍等於原batch result時建立，仍須另一位未參與修正的reviewer批准，無直接undo。
 
 ### Phase 7 — 驗證、文件及 release readiness
 
-- [ ] 更新上游治理計劃、project plan、plans index、API錯誤文案、操作指引及rollback runbook；
-- [ ] 執行按本計劃測試矩陣需要的unit／DB／migration／lint／typecheck／build／targeted browser tests；
-- [ ] 兩位獨立 reviewer 分別由資料／安全及產品／操作角度審核實作，blocker／high問題歸零；
-- [ ] bulk submit／finalize gate只可在batch history、request lineage、field-level visibility及bridge guard可用後開啟；preview-only可以較早開；
-- [ ] 記錄實際性能、retention job狀態、未執行外部裝置／production項目；
+- [x] 更新上游治理計劃、project plan、plans index、API錯誤文案、操作指引及rollback說明；
+- [x] 執行按本計劃本地測試矩陣需要的unit／DB／migration／lint／typecheck／build／targeted browser smoke；
+- [x] 兩位獨立 reviewer 分別由資料／安全及產品／操作角度審核實作，blocker／high問題歸零；
+- [x] bulk submit／finalize gate只可在batch history、request lineage、field-level visibility及bridge guard可用後開啟；production仍預設關閉；
+- [x] 記錄retention dry-run狀態、未執行performance／外部裝置／production項目；
 - [ ] production migration／deploy／觀察另行取得明確授權。
 
 ## 11. 測試矩陣
@@ -490,7 +488,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 | Action contract | CREATE keys空白；UPDATE keys／revision完整；mixed合法；RETIRE／REACTIVATE拒絕；缺行零副作用 |
 | Content | taxonomy、POS、level、prompt-empty、accepted answers、例句pair、5–6 distractors、pool diversity、sibling collision |
 | Preview | 無 canonical write、disposition總數對數、database diff、duplicate bundle、7日activity／30日absolute expiry、owner isolation、pagination |
-| Resolution | target sense及final payload明確、兩duplicate rows→一proposal/request但保留兩row lineage、LINK轉UPDATE、material editor不能finalize、unresolved阻擋、submitted payload frozen |
+| Resolution | target sense及final payload明確、兩duplicate rows→一proposal/request但保留兩row lineage、REPLACE轉UPDATE、內容不同來源必須確認source row／custom＋source-set digest、material editor不能finalize、unresolved阻擋、submitted payload frozen |
 | Idempotency | canonical UUID header／body contract、receipt composite unique、batch operation unique、200 child request IDs全唯一、submit／finalize permanent receipts、同ID同digest replay、同ID異digest 409、cleanup後仍可replay |
 | Submit | 所有 requests全有或全無、NO_CHANGE／EXCLUDED不建立request、request／proposal／source row lineage完整、單條PATCH固定拒絕batch child |
 | Review | uploader／material authors≠finalizer、一般老師403、capability／account／credential concurrent revoke、recent-auth precheck後過期、claim／transfer audit、reviewed digest、拒絕理由 |
@@ -532,7 +530,7 @@ npm run check:catalog-governance
 | 單條與批量驗證漂移 | 兩者共用validate／plan／apply service及同一lock order |
 | 自批或capability撤銷後仍批准 | 保存全部material authors／reviewed digest；final transaction重讀actor、credentials、accessRevision及capability，任何作者≠finalizer、recent-auth |
 | 200 rows交易過長 | launch cap、targeted query、預計算diff、transaction內只做authoritative recheck；性能gate不過就降低cap |
-| duplicate／多義詞被錯誤merge | 無自動merge；明確target、final payload、reason及reviewer確認；exact／sibling checks fail closed |
+| duplicate／多義詞被錯誤merge | 只自動merge payload完全相同的來源行；內容不同時必須明確選source row或custom payload並確認`sourceSetDigest`；existing target要明確REPLACE，exact／sibling checks fail closed |
 | 歷史只反映目前內容 | 以immutable request payload、base／proposed revision及audit event還原；不用latest row代替歷史 |
 | 歷史查詢愈來愈慢 | immutable search snapshots、compound indexes、cursor pagination、最大page size及performance fixture |
 | CSV injection／不必要原檔保留 | input公式拒絕、下載neutralize、原始bytes不落DB、preview有限retention |
@@ -554,43 +552,68 @@ npm run check:catalog-governance
 
 ## 14. Definition of Done
 
-- [ ] 本計劃及相應 authoring contract獲批准；
-- [ ] CREATE／UPDATE template、strict streaming preview、diff、many-to-one duplicate grouping、resolution queue及安全error report完成；
-- [ ] submit原子建立proposal requests，batch review progress、作者／reviewer separation、permanent receipts及finalize原子套用完成；
-- [ ] 單條及批量批准共用domain service，單條route／DB guard不能繞過batch，並發／TOCTOU／idempotency測試通過；
-- [ ] 修改歷史支援固定field visibility、batch-group feed、JSON search／filters、immutable cursor、before／after、timeline、batch／source row／sense lineage及corrective workflow；
-- [ ] nullable expand、dual-write、resumable backfill、indexes、retention tombstone及catalog-specific limiter完成並有可執行驗證；
+- [x] 本計劃及相應 authoring contract獲批准；
+- [x] CREATE／UPDATE template、strict streaming preview、diff、many-to-one duplicate grouping、resolution queue及安全error report完成；
+- [x] submit原子建立proposal requests，batch review progress、作者／reviewer separation、permanent receipts及finalize原子套用完成；
+- [x] 單條及批量批准共用domain service，單條route／DB guard不能繞過batch，TOCTOU／idempotency及主要並發邊界檢查通過；
+- [x] 修改歷史支援固定field visibility、batch-group feed、JSON search／filters、immutable cursor、before／after、timeline、batch／source row／sense lineage及corrective workflow；
+- [x] nullable expand、dual-write、resumable backfill、indexes、retention tombstone及catalog-specific limiter完成並有可執行驗證；
 - [ ] admin／teacher responsive、繁簡、theme、keyboard及screen-reader驗收完成；
-- [ ] 測試矩陣按scope通過，實際指令、性能及未執行項目已記錄；
-- [ ] 兩位獨立實作 reviewer 的 blocker／high findings歸零；
+- [x] 本地測試矩陣按scope通過，實際指令及未執行performance／external項目已記錄；
+- [x] 兩位獨立實作 reviewer 的 blocker／high findings歸零；
 - [ ] production migration／deploy仍保持未執行，直至另行授權。
 
 ## 15. 決策紀錄
 
 | ID | 決策 | 狀態 |
 |---|---|---|
-| CBH-001 | seed `CatalogImportBatch` 與老師 `CatalogSubmissionBatch` 分開 | 計劃建議，待批准 |
-| CBH-002 | launch只支援CREATE／UPDATE；批量停用／重啟留在逐條流程 | 計劃建議，待批准 |
-| CBH-003 | launch cap 5 MiB／200 rows；preview採7日activity／30日absolute expiry | 計劃建議，待批准 |
-| CBH-004 | submit原子建立requests；finalize原子套用 reviewer明確批准的subset | 計劃建議，待批准 |
-| CBH-005 | batch final reviewer不得為uploader或任何material author，review綁payload digest並要求recent auth | 計劃建議，待批准 |
-| CBH-006 | 一般老師可看全校approved history及自己全部申請；internal未批准內容只供owner／reviewer | 計劃建議，待批准 |
-| CBH-007 | submitted audit長期保留；raw CSV不保存；preview採有限retention | 計劃建議，待批准 |
-| CBH-008 | standalone history一行一request、批量history一batch group；initial baseline以batch事件呈現，不製造虛假逐詞審核記錄 | 計劃建議，待批准 |
-| CBH-009 | duplicate採多source rows→一proposal group→一change request，完整保留source lineage | 計劃建議，待批准 |
-| CBH-010 | batch child request不可經單條PATCH批准；bridge＋DB FINALIZING guard係release／rollback floor | 計劃建議，待批准 |
-| CBH-011 | stale batch零canonical write並terminalize所有child requests；clone建立新batch及supersedes lineage | 計劃建議，待批准 |
-| CBH-012 | 錯誤批量批准以system corrective batch修正：原UPDATE回復before、原CREATE明確RETIRE；無直接undo／delete audit | 計劃建議，待批准 |
-| CBH-013 | `catalog-review-risk-v1`將所有學生內容／答案／程度／身份／lifecycle改動列為material，只有明列metadata-only可受限bulk approve | 計劃建議，待批准 |
-| CBH-014 | History API固定分PublicApproved／Owner／Reviewer三種DTO，client不得收到超出scope欄位 | 計劃建議，待批准 |
-| CBH-015 | SUBMITTED後所有commit／cancel／stale／supersede同交易經內部FINALIZING terminalize children；FINALIZING不可持久外露 | 計劃建議，待批准 |
-| CBH-016 | Preview使用raw `text/csv`＋canonical UUID `Idempotency-Key`＋安全filename header；submit／finalize各有獨立receipt | 計劃建議，待批准 |
-| CBH-017 | `CatalogMutationState`每次成功canonical mutation恰好increment一次；dependency digest避免無關變更造成假stale | 計劃建議，待批准 |
-| CBH-018 | Top-level history由immutable feed entry統一standalone／batch／initial排序，batch child不重複出現 | 計劃建議，待批准 |
+| CBH-001 | seed `CatalogImportBatch` 與老師 `CatalogSubmissionBatch` 分開 | 已批准並完成本地實作 |
+| CBH-002 | launch只支援CREATE／UPDATE；批量停用／重啟留在逐條流程 | 已批准並完成本地實作 |
+| CBH-003 | launch cap 5 MiB／200 rows；preview採7日activity／30日absolute expiry | 已批准並完成本地實作 |
+| CBH-004 | submit原子建立requests；finalize原子套用 reviewer明確批准的subset | 已批准並完成本地實作 |
+| CBH-005 | batch final reviewer不得為uploader或任何material author，review綁payload digest並要求recent auth | 已批准並完成本地實作 |
+| CBH-006 | 一般老師可看全校approved history及自己全部申請；internal未批准內容只供owner／reviewer | 已批准並完成本地實作 |
+| CBH-007 | submitted audit長期保留；raw CSV不保存；preview採有限retention | 已批准並完成本地實作 |
+| CBH-008 | standalone history一行一request、批量history一batch group；initial baseline以batch事件呈現，不製造虛假逐詞審核記錄 | 已批准並完成本地實作 |
+| CBH-009 | duplicate採多source rows→一proposal group→一change request，完整保留source lineage | 已批准並完成本地實作 |
+| CBH-010 | batch child request不可經單條PATCH批准；bridge＋DB FINALIZING guard係release／rollback floor | 已批准並完成本地實作 |
+| CBH-011 | stale batch零canonical write並terminalize所有child requests；clone建立新batch及supersedes lineage | 已批准並完成本地實作 |
+| CBH-012 | 錯誤批量批准以system corrective batch修正：原UPDATE回復before、原CREATE明確RETIRE；無直接undo／delete audit | 已批准並完成本地實作 |
+| CBH-013 | `catalog-review-risk-v1`將所有學生內容／答案／程度／身份／lifecycle改動列為material，只有明列metadata-only可受限bulk approve | 已批准並完成本地實作 |
+| CBH-014 | History API固定分PublicApproved／Owner／Reviewer三種DTO，client不得收到超出scope欄位 | 已批准並完成本地實作 |
+| CBH-015 | SUBMITTED後所有commit／cancel／stale／supersede同交易經內部FINALIZING terminalize children；FINALIZING不可持久外露 | 已批准並完成本地實作 |
+| CBH-016 | Preview使用raw `text/csv`＋canonical UUID `Idempotency-Key`＋安全filename header；submit／finalize各有獨立receipt | 已批准並完成本地實作 |
+| CBH-017 | `CatalogMutationState`每次成功canonical mutation恰好increment一次；dependency digest避免無關變更造成假stale | 已批准並完成本地實作 |
+| CBH-018 | Top-level history由immutable feed entry統一standalone／batch／initial排序，batch child不重複出現 | 已批准並完成本地實作 |
 
 ## 16. 實際驗證紀錄
 
-尚未開始實作；本節只可在執行後填寫實際指令、結果、性能、review findings及未執行項目。
+2026-08-22 local implementation 已完成以下驗證；production migration／deploy仍未執行：
+
+| 驗證 | 結果 |
+|---|---|
+| `npm test` | PASS，249 tests |
+| `npm run lint` | PASS，零 lint error |
+| `npx tsc --noEmit` | PASS |
+| `npm run build` | PASS，Next.js production build及79個page routes完成 |
+| `npm run test:migration-checksums` | PASS |
+| `npm run test:migrations` | PASS，61個ordinary migrations由空schema完整重播，並通過interrupted replay checks |
+| `npm run test:migrations:contract` | PASS，61個ordinary＋2個contract migrations完整回歸 |
+| `npm run check:catalog` | PASS，5,641 source rows、5,576 senses、5,469 ACTIVE、107 DRAFT、5,469 projections |
+| `npm run check:catalog-governance` | PASS，terminal child、history source、projection、lineage及三個submission DB triggers均無違規 |
+| `npm run check:catalog-submission` | PASS，實際DB覆蓋DRAFT before、不同來源明確選擇、preview→submit、單條bridge、CREATE／UPDATE atomic finalize、history、corrective preview及lineage／terminal防竄改 |
+| `npm run test:db` | PASS，既有Review ledger／idempotency／concurrency regression |
+| `npm run backfill:catalog-history` | PASS dry-run，待處理request／feed／batch／baseline均為0 |
+| `npm run cleanup:catalog-previews` | PASS dry-run，expire／purge候選均為0，沒有刪除資料 |
+| `git diff --check` | PASS |
+| responsive browser smoke | PASS，desktop、768px tablet及390px mobile無水平溢出；bulk／history頁零console error／warning |
+
+已實作但不冒充 production ready 的操作項目：
+
+- history backfill及preview cleanup均提供獨立script；cleanup預設dry-run，production scheduler仍未配置；
+- local feature gates預設開啟方便驗證；production必須明確開啟history及bulk，而且production config禁止只開bulk不開history；
+- 詞庫總覽client只render首100行並可逐次再顯示100行，避免5,576張卡同時進DOM；整個current catalog仍會載入client memory，server pagination留作後續性能改善；
+- 未執行5,000+ history專用performance fixture、200-row Vercel p95／lock-wait量度、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy及觀察。
 
 ## 17. 計劃審核紀錄（2026-08-22）
 
@@ -598,5 +621,6 @@ npm run check:catalog-governance
 - 產品／操作 reviewer 初評 `NEEDS_CHANGES`：指出duplicate many-to-one、ESCALATE流程死結、material editor自批、visibility未凍結、history被batch淹沒、bulk approve質量風險、老師39欄負擔、corrective workflow及responsive acceptance缺口；
 - 本版已加入proposal group／author lineage、我的批次及resolution claim queue、第二reviewer gate、固定field visibility、batch-group history、corrective template、streaming CSV安全、bridge＋DB guard、permanent receipts、STALE terminalization、global writer lock order、dependency digest、actor pseudonym、完整payload mapping、expand／dual-write／backfill次序及相應測試／release gates；
 - targeted re-check確認初稿blockers已清，並再指出risk分類、DTO描述、corrective CREATE、FINALIZING terminal transition、raw CSV metadata、mutation-state increment及混合history cursor等high項；本版已用`catalog-review-risk-v1`、三種DTO、corrective RETIRE、同交易state table、canonical UUID header contract、exact-once mutation counter及`CatalogHistoryFeedEntry`跟進；
-- 最終 targeted re-check：資料／安全 reviewer `PASS`，產品／操作 reviewer `PASS`；兩邊均確認未再發現 blocker／high；
-- 本輪只審核及修訂計劃，沒有實作schema、API、UI、migration或production變更。
+- 實作初審再發現CREATE finalize綁定、submitted lineage reparent、request-resolution payload immutability、不同內容來源誤取第一行、DRAFT before diff、錯誤CSV欄位及200組同時mount等blocker／high；已分別用DB trigger／lifecycle guard、immutable submitted DTO、`sourceSetDigest`＋明確來源選擇、latest DRAFT revision、方向欄位映射及每頁20組按需展開跟進；
+- 最終獨立實作re-check：資料／安全 reviewer `BLOCKER 0 / HIGH 0 — APPROVE`；產品／操作 reviewer `BLOCKER 0 / HIGH 0 — APPROVE`。兩位均只讀審核，沒有修改檔案；
+- 本輪已實作schema、新增7個ordinary expand migrations（`20260822020000`至`20260822026000`）、API、UI、DB checker、history backfill／preview cleanup script及文件；未執行production migration／deploy、destructive cleanup或外部UAT。

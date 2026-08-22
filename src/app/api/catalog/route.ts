@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { catalogAccess } from "@/lib/catalog/access";
+import { catalogBulkSubmissionEnabled, catalogHistoryEnabled } from "@/lib/catalog/features";
 import {
   catalogEntryAcceptsLemma,
   parseCatalogGovernancePayload,
@@ -14,6 +15,9 @@ import {
 } from "@/lib/catalog/governance";
 import { normalizeCatalogRow, normalizeCatalogText } from "@/lib/catalog/csv";
 import { isRetryableTransactionConflict } from "@/lib/transaction-retry";
+import { catalogActorPseudonym } from "@/lib/catalog/submission";
+import { consumeCatalogGovernanceLimit } from "@/lib/catalog-limiter";
+import { getClientIp } from "@/lib/login-limiter";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
 const CHANGE_KINDS = ["UPDATE", "CREATE", "RETIRE", "REACTIVATE"] as const;
@@ -39,6 +43,9 @@ const revisionSelect = {
   distractorZh: true,
   enableZhToEn: true,
   distractorEn: true,
+  sourceReference: true,
+  contributorRef: true,
+  changeNote: true,
   retirementReason: true,
 } as const;
 
@@ -143,7 +150,7 @@ export async function GET() {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: { id: true, sourceDigest: true, status: true, createdAt: true, report: true },
     });
-    if (!batch) return NextResponse.json({ rows: [], counts: { all: 0 }, canReview: access.canReview, batch: null }, { headers: privateHeaders() });
+    if (!batch) return NextResponse.json({ rows: [], counts: { all: 0 }, canReview: access.canReview, actorUserId: auth.userId, bulkEnabled: catalogBulkSubmissionEnabled(), historyEnabled: catalogHistoryEnabled(), batch: null }, { headers: privateHeaders() });
 
     const importRows = await prisma.catalogImportRow.findMany({
       where: { batchId: batch.id },
@@ -295,6 +302,9 @@ export async function GET() {
       rows,
       counts,
       canReview: access.canReview,
+      actorUserId: auth.userId,
+      bulkEnabled: catalogBulkSubmissionEnabled(),
+      historyEnabled: catalogHistoryEnabled(),
       batch: { id: batch.id, sourceDigest: batch.sourceDigest, status: batch.status, createdAt: batch.createdAt.toISOString(), report: batch.report },
     }, { headers: privateHeaders() });
   } catch (error) {
@@ -307,6 +317,12 @@ export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return errorResponse("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return errorResponse(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 401 ? "AUTH_REQUIRED" : "ROLE_FORBIDDEN", auth.status);
+  const limit = await consumeCatalogGovernanceLimit(auth.userId, getClientIp(req));
+  if (!limit.ok) {
+    const response = errorResponse(limit.backendUnavailable ? "RATE_LIMIT_BACKEND_UNAVAILABLE" : "CATALOG_RATE_LIMITED", limit.backendUnavailable ? 503 : 429);
+    response.headers.set("Retry-After", String(limit.retryAfterSec));
+    return response;
+  }
   const rawBody = await req.text().catch(() => "");
   if (Buffer.byteLength(rawBody, "utf8") > MAX_REQUEST_BYTES) return errorResponse("CATALOG_INPUT_TOO_LARGE", 413);
   let body: Record<string, unknown>;
@@ -363,6 +379,9 @@ export async function POST(req: Request) {
       if (kind === "CREATE" && targetSense) throw new Error("CATALOG_ALREADY_EXISTS");
       if (kind !== "CREATE" && !targetSense) throw new Error("CATALOG_SENSE_NOT_FOUND");
       const latest = targetSense?.revisions[0] ?? null;
+      const beforePayload = targetSense && (targetSense.approvedRevision ?? latest)
+        ? payloadFromRevision((targetSense.approvedRevision ?? latest)!)
+        : null;
       const baseRevision = targetSense?.approvedRevision?.revision ?? latest?.revision ?? null;
       const expectedRevision = body.expectedRevision === undefined || body.expectedRevision === null ? null : Number(body.expectedRevision);
       if (expectedRevision !== null && (!Number.isInteger(expectedRevision) || expectedRevision < 1)) throw new Error("CATALOG_REVISION_INVALID");
@@ -474,11 +493,26 @@ export async function POST(req: Request) {
           baseRevision,
           baseStatus: targetSense?.status ?? "DRAFT",
           payload: (payload ?? {}) as unknown as Prisma.InputJsonValue,
+          beforePayloadSnapshot: beforePayload ? beforePayload as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
+          afterPayloadSnapshot: (payload ?? beforePayload ?? {}) as unknown as Prisma.InputJsonValue,
           reason: reason || null,
+          beforeTermSnapshot: targetSense?.approvedRevision?.term ?? latest?.term ?? null,
+          afterTermSnapshot: payload?.term ?? targetSense?.approvedRevision?.term ?? latest?.term ?? null,
+          beforeNormalizedTermSnapshot: targetSense ? normalizeCatalogText(targetSense.approvedRevision?.term ?? latest?.term ?? targetSense.term) : null,
+          afterNormalizedTermSnapshot: payload ? normalizeCatalogText(payload.term) : targetSense ? normalizeCatalogText(targetSense.approvedRevision?.term ?? latest?.term ?? targetSense.term) : null,
+          beforeDefinitionSnapshot: targetSense?.approvedRevision?.definitionZh ?? latest?.definitionZh ?? null,
+          afterDefinitionSnapshot: payload?.definitionZh ?? targetSense?.approvedRevision?.definitionZh ?? latest?.definitionZh ?? null,
+          beforeLevelSnapshot: targetSense?.approvedRevision?.level ?? latest?.level ?? null,
+          afterLevelSnapshot: payload?.level ?? targetSense?.approvedRevision?.level ?? latest?.level ?? null,
+          beforeCategorySnapshot: targetSense?.approvedRevision?.category ?? latest?.category ?? null,
+          afterCategorySnapshot: payload?.category ?? targetSense?.approvedRevision?.category ?? latest?.category ?? null,
+          actorPseudonym: catalogActorPseudonym(auth.userId).value,
+          actorKeyVersion: catalogActorPseudonym(auth.userId).keyVersion,
         },
         select: { id: true, status: true, kind: true, createdAt: true },
       });
       await tx.catalogAuditEvent.create({ data: { requestId: created.id, actorUserId: auth.userId, senseId: targetSense?.id ?? null, action: "SUBMITTED", fromStatus: targetSense?.status ?? null, toStatus: "PENDING", revision: latest?.revision ?? null, metadata: { warnings: validationWarnings } } });
+      await tx.catalogHistoryFeedEntry.create({ data: { occurredAt: created.createdAt, sourceKind: "STANDALONE_REQUEST", requestId: created.id } });
       return { replay: false, requestId: created.id, status: created.status, kind: created.kind, createdAt: created.createdAt.toISOString() };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
     return NextResponse.json(result, { status: result.replay ? 200 : 201, headers: privateHeaders() });

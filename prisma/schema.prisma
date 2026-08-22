@@ -13,55 +13,63 @@ datasource db {
 
 // ── 用户（账号+密码登录） ──
 model User {
-  id                         String                       @id @default(cuid())
+  id                                String                              @id @default(cuid())
   // Keep the physical column named email during the expand/rollback window:
   // legacy binaries still use it as the login account. New code uses the
   // truthful accountName contract and stores real contact mail separately.
-  accountName                String                       @unique @map("email")
+  accountName                       String                              @unique @map("email")
   // Nullable companion used by the canonical writer during the expand window.
   // The physical login column remains mapped to email until a separately
   // approved contract migration retires legacy writers.
-  accountNameCanonical       String?                      @unique
-  contactEmail               String?                      @unique
-  contactEmailCanonical      String?                      @unique
-  passwordHash               String
-  legacyName                 String?                      @map("name")
-  role                       Role                         @default(STUDENT)
-  status                     AccountStatus                @default(ACTIVE)
-  suspendedAt                DateTime?
-  suspendedReason            String?
+  accountNameCanonical              String?                             @unique
+  contactEmail                      String?                             @unique
+  contactEmailCanonical             String?                             @unique
+  passwordHash                      String
+  legacyName                        String?                             @map("name")
+  role                              Role                                @default(STUDENT)
+  status                            AccountStatus                       @default(ACTIVE)
+  suspendedAt                       DateTime?
+  suspendedReason                   String?
   // 角色变更令牌版本号：管理员修改用户角色时 +1，
   // jwt 回调据此在下次请求时刷新缓存的角色（实时生效机制）。
-  tokenVersion               Int                          @default(0)
-  credentialRevision         Int                          @default(0)
-  revision                   Int                          @default(0)
+  tokenVersion                      Int                                 @default(0)
+  credentialRevision                Int                                 @default(0)
+  revision                          Int                                 @default(0)
   // 首次登入強制改密碼：seed 的學生帳號預設 true，重設密碼後設 false。
-  mustChangePassword         Boolean                      @default(true)
-  createdAt                  DateTime                     @default(now())
-  reviews                    Review[]
-  reviewEvents               ReviewEvent[]
-  studySessions              StudySession[]
-  operationReceipts          OperationReceipt[]
-  evidenceObligations        EvidenceObligation[]
-  objectiveEvidenceTargets   ObjectiveEvidenceTarget[]
-  studyEncounters            StudyEncounter[]
-  securityEventsAsActor      SecurityEvent[]              @relation("SecurityEventActor")
-  securityEventsAsSubject    SecurityEvent[]              @relation("SecurityEventSubject")
-  catalogChangeRequestsProposed CatalogChangeRequest[]    @relation("CatalogChangeRequestProposer")
-  catalogChangeRequestsReviewed CatalogChangeRequest[]    @relation("CatalogChangeRequestReviewer")
-  catalogAuditEvents         CatalogAuditEvent[]           @relation("CatalogAuditActor")
-  studyDays                  StudyDay[]
-  achievements               UserAchievement[]
-  studentProfile             StudentProfile?
-  teacherProfile             TeacherProfile?
-  teacherClassAccessGrants   TeacherClassAccess[]         @relation("TeacherClassAccessGranter")
-  rosterImportBatches        RosterImportBatch[]
-  adminMutationBatches       AdminMutationBatch[]         @relation("AdminMutationActor")
-  adminOperationReceipts     AdminOperationReceipt[]
-  rosterImportUserLinks      RosterImportBatchUserLink[]
-  adminMutationUserLinks     AdminMutationBatchUserLink[]
-  recentAuthGrants           RecentAuthGrant[]
-  rolloverTransitionsAsActor StudentYearTransition[]      @relation("TransitionActor")
+  mustChangePassword                Boolean                             @default(true)
+  createdAt                         DateTime                            @default(now())
+  reviews                           Review[]
+  reviewEvents                      ReviewEvent[]
+  studySessions                     StudySession[]
+  operationReceipts                 OperationReceipt[]
+  evidenceObligations               EvidenceObligation[]
+  objectiveEvidenceTargets          ObjectiveEvidenceTarget[]
+  studyEncounters                   StudyEncounter[]
+  securityEventsAsActor             SecurityEvent[]                     @relation("SecurityEventActor")
+  securityEventsAsSubject           SecurityEvent[]                     @relation("SecurityEventSubject")
+  catalogChangeRequestsProposed     CatalogChangeRequest[]              @relation("CatalogChangeRequestProposer")
+  catalogChangeRequestsReviewed     CatalogChangeRequest[]              @relation("CatalogChangeRequestReviewer")
+  catalogAuditEvents                CatalogAuditEvent[]                 @relation("CatalogAuditActor")
+  catalogSubmissionBatchesProposed  CatalogSubmissionBatch[]            @relation("CatalogSubmissionProposer")
+  catalogSubmissionBatchesOwned     CatalogSubmissionBatch[]            @relation("CatalogSubmissionResolutionOwner")
+  catalogSubmissionBatchesReviewed  CatalogSubmissionBatch[]            @relation("CatalogSubmissionReviewer")
+  catalogSubmissionBatchesFinalized CatalogSubmissionBatch[]            @relation("CatalogSubmissionFinalizer")
+  catalogProposalGroupsAuthored     CatalogSubmissionProposalGroup[]    @relation("CatalogProposalLastContentAuthor")
+  catalogProposalGroupsDecided      CatalogSubmissionProposalGroup[]    @relation("CatalogProposalDecider")
+  catalogProposalAuthors            CatalogSubmissionProposalAuthor[]   @relation("CatalogProposalAuthorActor")
+  catalogSubmissionReceipts         CatalogSubmissionOperationReceipt[] @relation("CatalogSubmissionReceiptActor")
+  studyDays                         StudyDay[]
+  achievements                      UserAchievement[]
+  studentProfile                    StudentProfile?
+  teacherProfile                    TeacherProfile?
+  teacherClassAccessGrants          TeacherClassAccess[]                @relation("TeacherClassAccessGranter")
+  rosterImportBatches               RosterImportBatch[]
+  adminMutationBatches              AdminMutationBatch[]                @relation("AdminMutationActor")
+  adminOperationReceipts            AdminOperationReceipt[]
+  rosterImportUserLinks             RosterImportBatchUserLink[]
+  adminMutationUserLinks            AdminMutationBatchUserLink[]
+  recentAuthGrants                  RecentAuthGrant[]
+  rolloverTransitionsAsActor        StudentYearTransition[]             @relation("TransitionActor")
 
   @@index([role, status])
 }
@@ -129,6 +137,65 @@ enum CatalogChangeStatus {
   CANCELLED
 }
 
+enum CatalogSubmissionStatus {
+  PREVIEW
+  NEEDS_RESOLUTION
+  SUBMITTED
+  REVIEWING
+  REVIEWED
+  FINALIZING
+  COMMITTED
+  REJECTED
+  STALE
+  EXPIRED
+  CANCELLED
+  SUPERSEDED
+}
+
+enum CatalogSubmissionRowRole {
+  CANONICAL_SOURCE
+  MERGED_SOURCE
+  EXCLUDED
+}
+
+enum CatalogProposalResolution {
+  MERGE
+  KEEP_SEPARATE
+  LINK_EXISTING
+  REPLACE_EXISTING
+  REJECT
+  ESCALATE
+}
+
+enum CatalogProposalDecision {
+  PENDING
+  APPROVE
+  REJECT
+}
+
+enum CatalogReviewRisk {
+  MATERIAL
+  LOW_RISK_METADATA
+}
+
+enum CatalogProposalContributionKind {
+  UPLOAD
+  RESOLUTION_EDIT
+  REVIEW_EDIT
+  CORRECTIVE_PREVIEW
+}
+
+enum CatalogSubmissionOperationKind {
+  SUBMIT
+  FINALIZE
+}
+
+enum CatalogHistorySourceKind {
+  STANDALONE_REQUEST
+  BATCH
+  INITIAL_BASELINE
+}
+
 // Stable headword identity.  A single entry may contain multiple independent
 // senses, for example run=跑步 and run=經營.
 model CatalogEntry {
@@ -146,36 +213,37 @@ model CatalogEntry {
 // Stable sense / learning-item identity.  Content is immutable in revisions;
 // approvedRevisionId is the only content pointer that runtime code may use.
 model WordSense {
-  id                  String                      @id @default(cuid())
-  catalogEntryId      String
-  senseKey            String                      @unique
-  term                String
-  normalizedTerm      String
-  pos                 String?
-  level               Level
-  category            String
-  status              CatalogStatus               @default(DRAFT)
-  approvedRevisionId  String?                     @unique
-  createdAt           DateTime                    @default(now())
-  updatedAt           DateTime                    @updatedAt
-  catalogEntry        CatalogEntry                @relation(fields: [catalogEntryId], references: [id], onDelete: Restrict)
-  revisions           WordSenseRevision[]         @relation("WordSenseRevisions")
-  approvedRevision    WordSenseRevision?          @relation("ApprovedWordSenseRevision", fields: [approvedRevisionId], references: [id], onDelete: SetNull)
-  wordProjection      Word?                       @relation("WordSenseProjection")
-  reviews             Review[]
-  reviewEvents        ReviewEvent[]               @relation("ReviewEventSense")
-  studySessionItems   StudySessionItem[]
-  streamItems         StudyStreamItem[]
-  evidenceObligations EvidenceObligation[]
-  objectiveTargets    ObjectiveEvidenceTarget[]
-  questionSnapshots   ObjectiveQuestionSnapshot[]
-  studyEncounters     StudyEncounter[]
+  id                       String                           @id @default(cuid())
+  catalogEntryId           String
+  senseKey                 String                           @unique
+  term                     String
+  normalizedTerm           String
+  pos                      String?
+  level                    Level
+  category                 String
+  status                   CatalogStatus                    @default(DRAFT)
+  approvedRevisionId       String?                          @unique
+  createdAt                DateTime                         @default(now())
+  updatedAt                DateTime                         @updatedAt
+  catalogEntry             CatalogEntry                     @relation(fields: [catalogEntryId], references: [id], onDelete: Restrict)
+  revisions                WordSenseRevision[]              @relation("WordSenseRevisions")
+  approvedRevision         WordSenseRevision?               @relation("ApprovedWordSenseRevision", fields: [approvedRevisionId], references: [id], onDelete: SetNull)
+  wordProjection           Word?                            @relation("WordSenseProjection")
+  reviews                  Review[]
+  reviewEvents             ReviewEvent[]                    @relation("ReviewEventSense")
+  studySessionItems        StudySessionItem[]
+  streamItems              StudyStreamItem[]
+  evidenceObligations      EvidenceObligation[]
+  objectiveTargets         ObjectiveEvidenceTarget[]
+  questionSnapshots        ObjectiveQuestionSnapshot[]
+  studyEncounters          StudyEncounter[]
   // Deprecated expand-window relation. Runtime and seed no longer read or
   // write environment-scoped catalog eligibility.
-  localEligibilities  CatalogEligibility[]
-  legacyWordMappings  LegacyWordSenseMap[]
-  changeRequests      CatalogChangeRequest[]
-  auditEvents         CatalogAuditEvent[]
+  localEligibilities       CatalogEligibility[]
+  legacyWordMappings       LegacyWordSenseMap[]
+  changeRequests           CatalogChangeRequest[]
+  auditEvents              CatalogAuditEvent[]
+  submissionProposalGroups CatalogSubmissionProposalGroup[]
 
   @@index([normalizedTerm])
   @@index([level, status])
@@ -183,7 +251,7 @@ model WordSense {
 }
 
 model WordSenseRevision {
-  id                String               @id @default(cuid())
+  id                String                 @id @default(cuid())
   senseId           String
   revision          Int
   term              String
@@ -192,28 +260,29 @@ model WordSenseRevision {
   level             Level
   category          String
   definitionZh      String
-  acceptedAnswersZh String[]             @default([])
+  acceptedAnswersZh String[]               @default([])
   phoneticIpa       String?
   exampleEn         String?
   exampleZh         String?
-  acceptedFormsEn   String[]             @default([])
-  synonymsEn        String[]             @default([])
-  antonymsEn        String[]             @default([])
-  enableEnToZh      Boolean              @default(false)
-  distractorZh      String[]             @default([])
-  enableZhToEn      Boolean              @default(false)
-  distractorEn      String[]             @default([])
+  acceptedFormsEn   String[]               @default([])
+  synonymsEn        String[]               @default([])
+  antonymsEn        String[]               @default([])
+  enableEnToZh      Boolean                @default(false)
+  distractorZh      String[]               @default([])
+  enableZhToEn      Boolean                @default(false)
+  distractorEn      String[]               @default([])
   contentDigest     String
   sourceReference   String?
   contributorRef    String?
   changeNote        String?
   retirementReason  String?
   catalogRevisionId String?
-  createdAt         DateTime             @default(now())
-  sense             WordSense            @relation("WordSenseRevisions", fields: [senseId], references: [id], onDelete: Restrict)
-  approvedFor       WordSense?           @relation("ApprovedWordSenseRevision")
-  catalogRevision   CatalogRevision?     @relation(fields: [catalogRevisionId], references: [id], onDelete: SetNull)
+  createdAt         DateTime               @default(now())
+  sense             WordSense              @relation("WordSenseRevisions", fields: [senseId], references: [id], onDelete: Restrict)
+  approvedFor       WordSense?             @relation("ApprovedWordSenseRevision")
+  catalogRevision   CatalogRevision?       @relation(fields: [catalogRevisionId], references: [id], onDelete: SetNull)
   eligibilities     CatalogEligibility[]
+  resultOfRequests  CatalogChangeRequest[] @relation("CatalogChangeResultRevision")
 
   @@unique([senseId, revision])
   @@index([contentDigest])
@@ -221,20 +290,21 @@ model WordSenseRevision {
 }
 
 model CatalogRevision {
-  id                   String               @id @default(cuid())
-  revisionKey          String               @unique
+  id                   String                   @id @default(cuid())
+  revisionKey          String                   @unique
   sourceDigest         String
   taxonomyDigest       String
   validatorVersion     String
   normalizationVersion String
   activationBasis      String
-  status               String               @default("BUILDING")
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  status               String                   @default("BUILDING")
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
   senseRevisions       WordSenseRevision[]
   eligibilities        CatalogEligibility[]
   importBatches        CatalogImportBatch[]
-  wordProjections      Word[]               @relation("CatalogWordProjectionRevision")
+  wordProjections      Word[]                   @relation("CatalogWordProjectionRevision")
+  submissionBatches    CatalogSubmissionBatch[]
 
   @@index([status, createdAt])
 }
@@ -262,25 +332,26 @@ model CatalogEligibility {
 }
 
 model CatalogImportBatch {
-  id                   String             @id @default(cuid())
-  sourceDigest         String             @unique
+  id                   String                   @id @default(cuid())
+  sourceDigest         String                   @unique
   taxonomyDigest       String
   validatorVersion     String
   normalizationVersion String
-  status               String             @default("PREVIEW")
+  status               String                   @default("PREVIEW")
   catalogRevisionId    String?
   manifest             Json
   report               Json?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  catalogRevision      CatalogRevision?   @relation(fields: [catalogRevisionId], references: [id], onDelete: SetNull)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  catalogRevision      CatalogRevision?         @relation(fields: [catalogRevisionId], references: [id], onDelete: SetNull)
   rows                 CatalogImportRow[]
+  historyFeedEntry     CatalogHistoryFeedEntry?
 
   @@index([status, createdAt])
 }
 
 model CatalogImportRow {
-  id                 String             @id @default(cuid())
+  id                 String                 @id @default(cuid())
   batchId            String
   sourceFile         String
   sourceRow          Int
@@ -291,8 +362,8 @@ model CatalogImportRow {
   senseKey           String?
   issues             Json?
   sourceData         Json?
-  createdAt          DateTime           @default(now())
-  batch              CatalogImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdAt          DateTime               @default(now())
+  batch              CatalogImportBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
   changeRequests     CatalogChangeRequest[]
 
   @@unique([batchId, sourceFile, sourceRow])
@@ -303,58 +374,262 @@ model CatalogImportRow {
 // A teacher/admin proposal. Content is kept as a JSON snapshot so a later
 // CSV rebuild cannot rewrite an in-flight review request.
 model CatalogChangeRequest {
-  id                 String               @id @default(cuid())
-  operationId        String
-  requestFingerprint String
-  kind               CatalogChangeKind
-  status             CatalogChangeStatus  @default(PENDING)
-  catalogKey         String?
-  senseKey           String?
-  senseId            String?
-  sourceImportRowId  String?
-  proposerId         String
-  reviewerId         String?
-  baseRevision       Int?
-  baseStatus         CatalogStatus?
-  proposedRevision   Int?
-  revision           Int                  @default(0)
-  payload            Json
-  reason             String?
-  reviewNote         String?
-  reviewedAt         DateTime?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  sense              WordSense?           @relation(fields: [senseId], references: [id], onDelete: Restrict)
-  sourceImportRow    CatalogImportRow?    @relation(fields: [sourceImportRowId], references: [id], onDelete: Restrict)
-  proposer           User                 @relation("CatalogChangeRequestProposer", fields: [proposerId], references: [id], onDelete: Restrict)
-  reviewer           User?                @relation("CatalogChangeRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  auditEvents        CatalogAuditEvent[]
+  id                           String                          @id @default(cuid())
+  operationId                  String
+  requestFingerprint           String
+  kind                         CatalogChangeKind
+  status                       CatalogChangeStatus             @default(PENDING)
+  catalogKey                   String?
+  senseKey                     String?
+  senseId                      String?
+  sourceImportRowId            String?
+  submissionProposalGroupId    String?                         @unique
+  resultRevisionId             String?
+  proposerId                   String
+  reviewerId                   String?
+  baseRevision                 Int?
+  baseStatus                   CatalogStatus?
+  proposedRevision             Int?
+  revision                     Int                             @default(0)
+  payload                      Json
+  beforePayloadSnapshot        Json?
+  afterPayloadSnapshot         Json?
+  reason                       String?
+  reviewNote                   String?
+  reviewedAt                   DateTime?
+  beforeTermSnapshot           String?
+  afterTermSnapshot            String?
+  beforeNormalizedTermSnapshot String?
+  afterNormalizedTermSnapshot  String?
+  beforeDefinitionSnapshot     String?
+  afterDefinitionSnapshot      String?
+  beforeLevelSnapshot          Level?
+  afterLevelSnapshot           Level?
+  beforeCategorySnapshot       String?
+  afterCategorySnapshot        String?
+  actorPseudonym               String?
+  actorKeyVersion              String?
+  createdAt                    DateTime                        @default(now())
+  updatedAt                    DateTime                        @updatedAt
+  sense                        WordSense?                      @relation(fields: [senseId], references: [id], onDelete: Restrict)
+  sourceImportRow              CatalogImportRow?               @relation(fields: [sourceImportRowId], references: [id], onDelete: Restrict)
+  submissionProposalGroup      CatalogSubmissionProposalGroup? @relation(fields: [submissionProposalGroupId], references: [id], onDelete: Restrict)
+  resultRevision               WordSenseRevision?              @relation("CatalogChangeResultRevision", fields: [resultRevisionId], references: [id], onDelete: SetNull)
+  proposer                     User                            @relation("CatalogChangeRequestProposer", fields: [proposerId], references: [id], onDelete: Restrict)
+  reviewer                     User?                           @relation("CatalogChangeRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  auditEvents                  CatalogAuditEvent[]
+  historyFeedEntry             CatalogHistoryFeedEntry?
 
   @@unique([proposerId, operationId])
   @@index([status, createdAt])
   @@index([senseId, status])
   @@index([senseKey, status])
   @@index([sourceImportRowId, status])
+  @@index([createdAt, id])
+  @@index([status, createdAt, id])
+  @@index([kind, createdAt, id])
+  @@index([beforeNormalizedTermSnapshot, createdAt, id])
+  @@index([afterNormalizedTermSnapshot, createdAt, id])
+  @@index([proposerId, createdAt, id])
+  @@index([reviewerId, createdAt, id])
 }
 
 model CatalogAuditEvent {
-  id          String                @id @default(cuid())
-  requestId   String?
-  actorUserId String?
-  senseId     String?
-  action      String
-  fromStatus  String?
-  toStatus    String?
-  revision    Int?
-  metadata    Json?
-  createdAt   DateTime              @default(now())
-  request     CatalogChangeRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
-  actor       User?                 @relation("CatalogAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
-  sense       WordSense?            @relation(fields: [senseId], references: [id], onDelete: SetNull)
+  id                String                  @id @default(cuid())
+  requestId         String?
+  actorUserId       String?
+  senseId           String?
+  submissionBatchId String?
+  action            String
+  fromStatus        String?
+  toStatus          String?
+  revision          Int?
+  metadata          Json?
+  createdAt         DateTime                @default(now())
+  request           CatalogChangeRequest?   @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  actor             User?                   @relation("CatalogAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  sense             WordSense?              @relation(fields: [senseId], references: [id], onDelete: SetNull)
+  submissionBatch   CatalogSubmissionBatch? @relation(fields: [submissionBatchId], references: [id], onDelete: SetNull)
 
   @@index([requestId, createdAt])
   @@index([senseId, createdAt])
   @@index([actorUserId, createdAt])
+  @@index([submissionBatchId, createdAt])
+}
+
+// A teacher-uploaded governance batch. This is deliberately separate from
+// CatalogImportBatch, which belongs exclusively to deterministic seed/import.
+model CatalogSubmissionBatch {
+  id                     String                              @id @default(cuid())
+  proposerId             String
+  resolutionOwnerId      String?
+  reviewerId             String?
+  finalizerId            String?
+  operationId            String
+  fileName               String
+  fileHash               String
+  requestDigest          String
+  schemaVersion          String
+  validatorVersion       String
+  normalizationVersion   String
+  taxonomyDigest         String
+  readyCatalogRevisionId String?
+  baseMutationRevision   Int
+  status                 CatalogSubmissionStatus             @default(PREVIEW)
+  revision               Int                                 @default(0)
+  rowCount               Int
+  summary                Json
+  expiresAt              DateTime
+  absoluteExpiresAt      DateTime
+  submittedAt            DateTime?
+  reviewedAt             DateTime?
+  committedAt            DateTime?
+  lastActivityAt         DateTime                            @default(now())
+  contentPurgedAt        DateTime?
+  supersedesBatchId      String?
+  actorPseudonym         String?
+  actorKeyVersion        String?
+  createdAt              DateTime                            @default(now())
+  updatedAt              DateTime                            @updatedAt
+  proposer               User                                @relation("CatalogSubmissionProposer", fields: [proposerId], references: [id], onDelete: Restrict)
+  resolutionOwner        User?                               @relation("CatalogSubmissionResolutionOwner", fields: [resolutionOwnerId], references: [id], onDelete: SetNull)
+  reviewer               User?                               @relation("CatalogSubmissionReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  finalizer              User?                               @relation("CatalogSubmissionFinalizer", fields: [finalizerId], references: [id], onDelete: SetNull)
+  readyCatalogRevision   CatalogRevision?                    @relation(fields: [readyCatalogRevisionId], references: [id], onDelete: SetNull)
+  supersedesBatch        CatalogSubmissionBatch?             @relation("CatalogSubmissionSupersession", fields: [supersedesBatchId], references: [id], onDelete: SetNull)
+  supersededBy           CatalogSubmissionBatch[]            @relation("CatalogSubmissionSupersession")
+  rows                   CatalogSubmissionRow[]
+  proposalGroups         CatalogSubmissionProposalGroup[]
+  receipts               CatalogSubmissionOperationReceipt[]
+  auditEvents            CatalogAuditEvent[]
+  historyFeedEntry       CatalogHistoryFeedEntry?
+
+  @@unique([proposerId, operationId])
+  @@index([proposerId, status, createdAt, id])
+  @@index([reviewerId, status, createdAt, id])
+  @@index([status, expiresAt])
+  @@index([fileHash, proposerId])
+}
+
+model CatalogSubmissionRow {
+  id                      String                          @id @default(cuid())
+  batchId                 String
+  rowNumber               Int
+  rowDigest               String
+  requestedAction         CatalogChangeKind
+  primaryDisposition      String
+  warnings                Json
+  errors                  Json
+  normalizedTerm          String
+  normalizedLemma         String
+  normalizedSourcePayload Json?
+  proposalGroupId         String?
+  rowRole                 CatalogSubmissionRowRole        @default(CANONICAL_SOURCE)
+  createdAt               DateTime                        @default(now())
+  batch                   CatalogSubmissionBatch          @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  proposalGroup           CatalogSubmissionProposalGroup? @relation(fields: [proposalGroupId], references: [id], onDelete: SetNull)
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, primaryDisposition, rowNumber])
+  @@index([proposalGroupId, rowNumber])
+}
+
+model CatalogSubmissionProposalGroup {
+  id                    String                            @id @default(cuid())
+  batchId               String
+  groupNumber           Int
+  requestedAction       CatalogChangeKind
+  resolution            CatalogProposalResolution?
+  resolutionReason      String?
+  targetCatalogKey      String?
+  targetSenseKey        String?
+  targetSenseId         String?
+  baseRevision          Int?
+  baseStatus            CatalogStatus?
+  dependencyDigest      String
+  finalProposalPayload  Json
+  payloadDigest         String
+  lastContentAuthorId   String
+  reviewRisk            CatalogReviewRisk
+  reviewRiskVersion     String
+  reviewRiskReason      Json
+  decision              CatalogProposalDecision           @default(PENDING)
+  decidedById           String?
+  decidedAt             DateTime?
+  reviewedPayloadDigest String?
+  reviewNote            String?
+  revision              Int                               @default(0)
+  actorPseudonym        String?
+  actorKeyVersion       String?
+  createdAt             DateTime                          @default(now())
+  updatedAt             DateTime                          @updatedAt
+  batch                 CatalogSubmissionBatch            @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  targetSense           WordSense?                        @relation(fields: [targetSenseId], references: [id], onDelete: Restrict)
+  lastContentAuthor     User                              @relation("CatalogProposalLastContentAuthor", fields: [lastContentAuthorId], references: [id], onDelete: Restrict)
+  decidedBy             User?                             @relation("CatalogProposalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  sourceRows            CatalogSubmissionRow[]
+  authors               CatalogSubmissionProposalAuthor[]
+  changeRequest         CatalogChangeRequest?
+
+  @@unique([batchId, groupNumber])
+  @@index([batchId, decision, groupNumber])
+  @@index([targetSenseId, createdAt])
+  @@index([lastContentAuthorId])
+}
+
+model CatalogSubmissionProposalAuthor {
+  id               String                          @id @default(cuid())
+  proposalGroupId  String
+  actorUserId      String
+  payloadDigest    String
+  contributionKind CatalogProposalContributionKind
+  actorPseudonym   String?
+  actorKeyVersion  String?
+  createdAt        DateTime                        @default(now())
+  proposalGroup    CatalogSubmissionProposalGroup  @relation(fields: [proposalGroupId], references: [id], onDelete: Restrict)
+  actor            User                            @relation("CatalogProposalAuthorActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([proposalGroupId, actorUserId, payloadDigest, contributionKind])
+  @@index([actorUserId, createdAt])
+}
+
+model CatalogSubmissionOperationReceipt {
+  id                 String                         @id @default(cuid())
+  batchId            String
+  actorUserId        String
+  operationKind      CatalogSubmissionOperationKind
+  operationId        String
+  requestFingerprint String
+  outcomeStatus      CatalogSubmissionStatus
+  summary            Json
+  createdAt          DateTime                       @default(now())
+  batch              CatalogSubmissionBatch         @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  actor              User                           @relation("CatalogSubmissionReceiptActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([actorUserId, operationKind, operationId])
+  @@index([batchId, createdAt])
+}
+
+model CatalogMutationState {
+  id        Int      @id
+  revision  Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model CatalogHistoryFeedEntry {
+  id                   String                   @id @default(cuid())
+  occurredAt           DateTime
+  sourceKind           CatalogHistorySourceKind
+  requestId            String?                  @unique
+  submissionBatchId    String?                  @unique
+  initialImportBatchId String?                  @unique
+  createdAt            DateTime                 @default(now())
+  request              CatalogChangeRequest?    @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  submissionBatch      CatalogSubmissionBatch?  @relation(fields: [submissionBatchId], references: [id], onDelete: Restrict)
+  initialImportBatch   CatalogImportBatch?      @relation(fields: [initialImportBatchId], references: [id], onDelete: Restrict)
+
+  @@index([occurredAt, sourceKind, id])
+  @@index([sourceKind, occurredAt, id])
 }
 
 // Explicit mapping for the one-spelling-one-item V1 compatibility projection.

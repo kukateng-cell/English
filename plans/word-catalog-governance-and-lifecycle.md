@@ -317,9 +317,9 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 
 ### Phase 4 — Submission、review及 lifecycle UI/API
 
-- [x] 一般老師 create／update draft、change／retire／reactivate requests；CSV batch submission仍待 Phase 5；
-- [x] capability teacher/admin review、approve、reject、retire、reactivate；emergency withdraw及post-review history仍待補；
-- [x] server-side authorization、CSRF、revision CAS及catalog／security audit；catalog-specific rate limit仍待補；
+- [x] 一般老師 create／update draft、change／retire／reactivate requests及CSV batch submission；
+- [x] capability teacher/admin review、approve、reject、retire、reactivate、批次審核及post-review history；emergency withdraw仍待補；
+- [x] server-side authorization、CSRF、revision CAS、catalog／security audit及catalog-specific limiter；
 - [x] admin／teacher responsive catalog workspace，支援完整載入、狀態／程度／方向／搜尋篩選及逐條編輯；
 - [x] 2026-08-22 follow-up audit：治理提交必須拒絕未知 taxonomy category、既有 sense 不可令穩定 CatalogEntry lemma 漂移、同 lemma 新 sense 必須重用同一 headword；停用詞義可先修訂但不得被 audit 誤報為 ACTIVE，並以 checker／unit tests 鎖定；
 - [ ] zh-Hant／zh-Hans、theme、keyboard、screen-reader驗收。
@@ -328,11 +328,11 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 
 詳細設計及分階段驗收見 [詞庫 CSV 批量提交及詞條修改歷史界面實施計劃](./word-catalog-bulk-submission-and-history.md)；以下 checklist 保留作上游總覽。
 
-- [ ] upload caps、preview batches、downloadable error report；
-- [ ] database diff、duplicate grouping、explicit dispositions；
-- [ ] request-digest-bound idempotent atomic draft commit及 preview→commit TOCTOU regression；
-- [ ] stale revision同 concurrent approval tests；
-- [ ] import retention／cleanup及operational metrics；
+- [x] upload caps、preview batches、downloadable error report；
+- [x] database diff、duplicate grouping、explicit source selection／dispositions；
+- [x] request-digest-bound idempotent atomic draft commit及 preview→commit TOCTOU regression；
+- [x] stale revision、lineage immutability及approval transaction checks；
+- [x] import retention／cleanup dry-run及operational audit；production scheduler仍待配置；
 - [ ] full-size performance測試。
 
 ### Phase 6 — 現有詞庫轉換及內容補充
@@ -509,3 +509,12 @@ npm run test:e2e:card-motion
 - governance checker 新增 lemma identity、unknown category 及 duplicate normalized-lemma headword 三項 invariant。本地 seed 冪等重跑結果仍為 5,641 source rows、5,576 senses、5,469 ACTIVE、107 DRAFT、0 RETIRED、5,469 projections；三項新增 invariant 全為 0。
 - 已通過：236 個 `npm test`、`npm run lint -- --max-warnings=0`、`npx tsc --noEmit`、`npm run build`、`npm run check:catalog`、`npm run check:catalog-governance`、`git diff --check` 及 `npm run seed:catalog` 冪等重跑。build／DB 指令首次受 sandbox process／localhost 限制，按項目規則以獲准權限重跑後通過。
 - 仍未完成但沒有喺本次 audit 假裝完成：CSV bulk preview／atomic commit、catalog-specific distributed rate limit、post-review audit history UI、emergency withdrawal、完整 route／browser integration matrix，以及 global catalog lifecycle revision／as-of analytics。
+
+### 2026-08-22：CSV批量提交及修改歷史本地實作
+
+- 新增嚴格`word-catalog-v1` governance CSV template／export／streaming preview、5 MiB／200-row上限、安全錯誤報告、database diff、duplicate grouping及明確source row／custom payload選擇；內容不同的來源必須同時確認`sourceSetDigest`，不可默認採用第一行。
+- 新增批次owner／resolver／reviewer流程、claim／transfer、immutable submit、payload-digest審核、material-author separation、recent-auth finalize、Serializable atomic CREATE／UPDATE套用、stale／corrective preview及永久operation receipts。
+- 新增權限裁剪的修改歷史feed、signed cursor／snapshot cutoff、JSON search、batch child pagination、request detail、sense timeline及Public／Owner／Reviewer DTO；一般老師不可讀取其他人未批准內容或技術身份。
+- 新增7個ordinary expand migrations（`20260822020000`至`20260822026000`），包括submission／history模型、request snapshots、batch／child／lineage／terminal DB guards；production feature gates預設關閉，raw CSV不落DB。
+- 本地驗證通過：249個unit tests、lint、typecheck、79-route production build、61個ordinary migration fresh／interrupted replay、2個contract migration regression、checksum、catalog／governance／submission DB check、Review DB regression，以及history backfill／preview cleanup dry-run。
+- 兩個獨立實作reviewer最終均為`BLOCKER 0 / HIGH 0 — APPROVE`。未執行：5,000+ history及200-row Vercel性能測試、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy／scheduler、emergency withdraw及global lifecycle revision／as-of analytics。

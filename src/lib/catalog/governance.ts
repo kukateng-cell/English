@@ -27,6 +27,9 @@ export interface CatalogGovernancePayload {
   distractorZh: string[];
   enableZhToEn: boolean;
   distractorEn: string[];
+  sourceReference: string | null;
+  contributorRef: string | null;
+  changeNote: string | null;
   retirementReason: string | null;
 }
 
@@ -105,6 +108,9 @@ export function parseCatalogGovernancePayload(value: unknown): CatalogGovernance
     distractorZh: parseList(input.distractorZh, "distractorZh"),
     enableZhToEn: parseBoolean(input.enableZhToEn, "enableZhToEn"),
     distractorEn: parseList(input.distractorEn, "distractorEn"),
+    sourceReference: parseNullableText(input.sourceReference, "sourceReference", 500),
+    contributorRef: parseNullableText(input.contributorRef, "contributorRef", 180),
+    changeNote: parseNullableText(input.changeNote, "changeNote", 1000),
     retirementReason: parseNullableText(input.retirementReason, "retirementReason", 500),
   };
   return payload;
@@ -149,9 +155,9 @@ export function payloadToSourceRow(payload: CatalogGovernancePayload, identity: 
     distractor_en_4: payload.distractorEn[3] ?? "",
     distractor_en_5: payload.distractorEn[4] ?? "",
     distractor_en_6: payload.distractorEn[5] ?? "",
-    source_reference: "",
-    contributor_ref: "",
-    change_note: "",
+    source_reference: payload.sourceReference ?? "",
+    contributor_ref: payload.contributorRef ?? "",
+    change_note: payload.changeNote ?? "",
     retirement_reason: payload.retirementReason ?? "",
   };
 }
@@ -215,6 +221,9 @@ export function payloadFromRevision(revision: {
   distractorZh: string[];
   enableZhToEn: boolean;
   distractorEn: string[];
+  sourceReference: string | null;
+  contributorRef: string | null;
+  changeNote: string | null;
   retirementReason: string | null;
 }): CatalogGovernancePayload {
   return {
@@ -235,6 +244,9 @@ export function payloadFromRevision(revision: {
     distractorZh: revision.distractorZh,
     enableZhToEn: revision.enableZhToEn,
     distractorEn: revision.distractorEn,
+    sourceReference: revision.sourceReference,
+    contributorRef: revision.contributorRef,
+    changeNote: revision.changeNote,
     retirementReason: revision.retirementReason,
   };
 }

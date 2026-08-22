@@ -33,6 +33,9 @@ const revisionSelect = {
   distractorZh: true,
   enableZhToEn: true,
   distractorEn: true,
+  sourceReference: true,
+  contributorRef: true,
+  changeNote: true,
   retirementReason: true,
 } as const;
 
@@ -60,6 +63,9 @@ function sourcePayload(value: unknown): CatalogGovernancePayload | null {
     distractorZh: list(row.distractorZh),
     enableZhToEn: row.enableZhToEn === true,
     distractorEn: list(row.distractorEn),
+    sourceReference: typeof row.sourceReference === "string" ? row.sourceReference : null,
+    contributorRef: typeof row.contributorRef === "string" ? row.contributorRef : null,
+    changeNote: typeof row.changeNote === "string" ? row.changeNote : null,
     retirementReason: typeof row.retirementReason === "string" ? row.retirementReason : null,
   };
 }
