@@ -9,9 +9,11 @@ import {
   normalizeCatalogRow,
 } from "@/lib/catalog/csv";
 import {
+  catalogEntryAcceptsLemma,
   parseCatalogGovernancePayload,
   payloadFromRevision,
   payloadToSourceRow,
+  resolveExistingCatalogEntryForLemma,
   revisionContentDigest,
   validateCatalogGovernancePayload,
   type CatalogGovernancePayload,
@@ -108,6 +110,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!catalogRevision) throw new Error("CATALOG_NOT_READY");
       let approvedSenseId = request.senseId;
       let approvedSenseKey = request.senseKey ?? request.sense?.senseKey ?? request.sourceImportRow?.senseKey ?? null;
+      let approvedCatalogKey = request.catalogKey ?? request.sourceImportRow?.catalogKey ?? request.sense?.catalogEntry.catalogKey ?? null;
+      let approvedToStatus = request.baseStatus ?? "DRAFT";
 
       if (request.kind === "RETIRE") {
         if (!request.sense || request.sense.status === "RETIRED") throw new Error("CATALOG_ALREADY_RETIRED");
@@ -136,6 +140,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         payload = parseCatalogGovernancePayload(request.payload);
       } catch (error) {
         throw new Error(`CATALOG_PAYLOAD_REJECTED:${error instanceof Error ? error.message : "invalid payload"}`);
+      }
+      if (request.kind === "UPDATE" && request.sense && !catalogEntryAcceptsLemma(request.sense.catalogEntry.normalizedLemma, payload.lemma)) {
+        throw new Error("CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE");
       }
       const identity = {
         catalogKey: request.catalogKey ?? request.sourceImportRow?.catalogKey ?? request.sense?.catalogEntry.catalogKey ?? "",
@@ -169,11 +176,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             && normalizeCatalogText(candidatePos) === normalizeCatalogText(payload.partOfSpeech);
         };
         if (pendingCreates.some((candidate) => candidate.senseKey === identity.senseKey || sameSense(candidate.payload))) throw new Error("CATALOG_PENDING_SENSE_CONFLICT");
+        const existingSenses = await tx.wordSense.findMany({
+          where: {
+            OR: [
+              { normalizedTerm: normalizeCatalogText(payload.term) },
+              { catalogEntry: { normalizedLemma: normalizeCatalogText(payload.lemma) } },
+            ],
+          },
+          include: { approvedRevision: true, revisions: { orderBy: { revision: "desc" }, take: 1 } },
+        });
+        if (existingSenses.some((candidate) => sameSense(candidate.approvedRevision ?? candidate.revisions[0]))) throw new Error("CATALOG_ALREADY_EXISTS");
       }
 
       if (request.kind === "CREATE") {
         if (request.sense) throw new Error("CATALOG_ALREADY_EXISTS");
-        const entry = await tx.catalogEntry.upsert({ where: { catalogKey: identity.catalogKey }, create: { catalogKey: identity.catalogKey, lemma: payload.lemma, normalizedLemma: normalizeCatalogText(payload.lemma) }, update: { lemma: payload.lemma, normalizedLemma: normalizeCatalogText(payload.lemma) } });
+        const normalizedLemma = normalizeCatalogText(payload.lemma);
+        const [entryByKey, entryByLemma] = await Promise.all([
+          tx.catalogEntry.findUnique({ where: { catalogKey: identity.catalogKey } }),
+          tx.catalogEntry.findFirst({ where: { normalizedLemma }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+        ]);
+        const existingEntry = resolveExistingCatalogEntryForLemma(payload.lemma, entryByKey, entryByLemma);
+        const entry = existingEntry ?? await tx.catalogEntry.create({ data: { catalogKey: identity.catalogKey, lemma: payload.lemma, normalizedLemma } });
+        approvedCatalogKey = entry.catalogKey;
+        approvedToStatus = "ACTIVE";
         const sense = await tx.wordSense.create({ data: { catalogEntryId: entry.id, senseKey: identity.senseKey, term: payload.term, normalizedTerm: normalizeCatalogText(payload.term), pos: payload.partOfSpeech, level: payload.level, category: payload.category, status: "DRAFT" } });
         approvedSenseId = sense.id;
         approvedSenseKey = sense.senseKey;
@@ -184,6 +209,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         if (!request.sense || !latest) throw new Error("CATALOG_SENSE_NOT_FOUND");
         const revision = await tx.wordSenseRevision.create({ data: { senseId: request.sense.id, revision: latest.revision + 1, term: payload.term, lemma: payload.lemma, pos: payload.partOfSpeech, level: payload.level, category: payload.category, definitionZh: payload.definitionZh, acceptedAnswersZh: payload.acceptedAnswersZh, phoneticIpa: payload.phoneticIpa, exampleEn: payload.exampleEn, exampleZh: payload.exampleZh, acceptedFormsEn: payload.acceptedFormsEn, synonymsEn: payload.synonymsEn, antonymsEn: payload.antonymsEn, enableEnToZh: payload.enableEnToZh, distractorZh: payload.distractorZh, enableZhToEn: payload.enableZhToEn, distractorEn: payload.distractorEn, contentDigest: revisionContentDigest(payload), catalogRevisionId: catalogRevision.id, changeNote: request.reason ?? null } });
         const nextStatus = request.sense.status === "RETIRED" ? "RETIRED" : "ACTIVE";
+        approvedToStatus = nextStatus;
         await tx.wordSense.update({ where: { id: request.sense.id }, data: { term: payload.term, normalizedTerm: normalizeCatalogText(payload.term), pos: payload.partOfSpeech, level: payload.level, category: payload.category, status: nextStatus, approvedRevisionId: revision.id } });
         const projection = projectionData(payload, request.sense.id, request.sense.senseKey, revision.id, catalogRevision.id);
         await tx.word.upsert({ where: { senseId: request.sense.id }, create: projection, update: { ...projection, id: undefined } });
@@ -192,12 +218,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (request.sourceImportRowId) {
         await tx.catalogImportRow.update({
           where: { id: request.sourceImportRowId },
-          data: { primaryDisposition: "CREATED_DRAFT", eligibilityResult: "LOCAL_ELIGIBLE", issues: { errors: [], warnings: validationWarnings } },
+          data: { primaryDisposition: "CREATED_DRAFT", eligibilityResult: "ACTIVATION_ELIGIBLE", issues: { errors: [], warnings: validationWarnings } },
         });
       }
 
-      const updated = await tx.catalogChangeRequest.update({ where: { id, revision: expectedRevision, status: "PENDING" }, data: { senseId: approvedSenseId, status: "APPROVED", reviewerId: auth.userId, reviewNote: reviewNote || null, reviewedAt: new Date(), proposedRevision: request.kind === "CREATE" ? 1 : (latest?.revision ?? 0) + 1, revision: { increment: 1 } }, select: { id: true, status: true, kind: true, reviewNote: true, reviewedAt: true } });
-      await tx.catalogAuditEvent.create({ data: { requestId: id, actorUserId: auth.userId, senseId: approvedSenseId, action: "APPROVED", fromStatus: request.baseStatus, toStatus: "ACTIVE", revision: updated.status === "APPROVED" ? (request.kind === "CREATE" ? 1 : (latest?.revision ?? 0) + 1) : null, metadata: { reviewNote, senseKey: approvedSenseKey, sourceIssues: request.sourceImportRow?.issues ?? null } } });
+      const updated = await tx.catalogChangeRequest.update({ where: { id, revision: expectedRevision, status: "PENDING" }, data: { senseId: approvedSenseId, catalogKey: approvedCatalogKey, status: "APPROVED", reviewerId: auth.userId, reviewNote: reviewNote || null, reviewedAt: new Date(), proposedRevision: request.kind === "CREATE" ? 1 : (latest?.revision ?? 0) + 1, revision: { increment: 1 } }, select: { id: true, status: true, kind: true, reviewNote: true, reviewedAt: true } });
+      await tx.catalogAuditEvent.create({ data: { requestId: id, actorUserId: auth.userId, senseId: approvedSenseId, action: "APPROVED", fromStatus: request.baseStatus, toStatus: approvedToStatus, revision: updated.status === "APPROVED" ? (request.kind === "CREATE" ? 1 : (latest?.revision ?? 0) + 1) : null, metadata: { reviewNote, senseKey: approvedSenseKey, sourceIssues: request.sourceImportRow?.issues ?? null } } });
       return { replay: false, request: reviewSummary(updated) };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
     return NextResponse.json(result, { headers: headers() });
@@ -205,10 +231,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const message = error instanceof Error ? error.message : "";
     if (isRetryableTransactionConflict(error)) return response("CATALOG_REQUEST_STALE", 409);
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return response("CATALOG_REQUEST_STALE", 409);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response("CATALOG_IDENTITY_CONFLICT", 409);
     if (message === "CATALOG_REQUEST_NOT_FOUND") return response(message, 404);
     if (["CATALOG_REQUEST_STALE", "CATALOG_REVISION_STALE", "CATALOG_SELF_REVIEW_FORBIDDEN", "CATALOG_ALREADY_RETIRED", "CATALOG_NOT_RETIRED", "CATALOG_NOT_ACTIVE", "CATALOG_PENDING_SENSE_CONFLICT", "CATALOG_ALREADY_EXISTS"].includes(message)) return response(message, 409);
     if (message.startsWith("CATALOG_PAYLOAD_REJECTED:")) return response("CATALOG_PAYLOAD_REJECTED", 422, { detail: message.slice("CATALOG_PAYLOAD_REJECTED:".length) });
-    if (["CATALOG_NO_ENABLED_DIRECTION", "CATALOG_NOT_READY", "CATALOG_SENSE_NOT_FOUND", "CATALOG_IDENTITY_MISSING", "CATALOG_APPROVED_REVISION_MISSING"].includes(message)) return response(message, 422);
+    if (["CATALOG_NO_ENABLED_DIRECTION", "CATALOG_NOT_READY", "CATALOG_SENSE_NOT_FOUND", "CATALOG_IDENTITY_MISSING", "CATALOG_APPROVED_REVISION_MISSING", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE", "CATALOG_ENTRY_IDENTITY_CONFLICT"].includes(message)) return response(message, 422);
     console.error("[catalog] review failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });
     return response("CATALOG_REVIEW_FAILED", 500);
   }

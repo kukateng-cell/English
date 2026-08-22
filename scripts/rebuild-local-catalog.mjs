@@ -52,7 +52,6 @@ function run(command, commandArgs) {
       ...process.env,
       DATABASE_ENVIRONMENT: environment,
       CONFIRM_DATABASE_ENVIRONMENT: environmentConfirmation,
-      LOCAL_CATALOG_BOOTSTRAP: "1",
       CATALOG_FINALIZE: "0",
     },
   });

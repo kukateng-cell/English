@@ -17,7 +17,6 @@ async function main() {
   const result = await prisma.$transaction(
     (tx) => seedCatalog(tx, {
       environment: environment as "development" | "test" | "production",
-      localBootstrap: environment !== "production" && process.env.LOCAL_CATALOG_BOOTSTRAP === "1",
       actor: "scripts/seed-catalog",
       finalize: process.env.CATALOG_FINALIZE !== "0",
     }),

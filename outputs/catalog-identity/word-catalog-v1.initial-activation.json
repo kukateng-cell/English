@@ -1,0 +1,19 @@
+{
+  "manifestVersion": "catalog-initial-activation-v1",
+  "schemaVersion": "word-catalog-v1",
+  "sourceDigest": "6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a",
+  "validatorVersion": "catalog-validator-v1",
+  "normalizationVersion": "catalog-normalization-v1",
+  "selectionRule": "VALIDATOR_PASSED_AND_DIRECTION_ENABLED",
+  "selectionDigests": {
+    "activeSenseKeysSha256": "0ca5e279e332783cb9d5113466510bbaeb40d03fb332fadabc1f23c1e9fbd45f",
+    "draftSenseKeysSha256": "6b665ac9b5f9402234e4130ae0e69a5c8df3d4a63b88eced05a917a7d874d916"
+  },
+  "expected": {
+    "sourceRows": 5641,
+    "validRows": 5576,
+    "activeSenses": 5469,
+    "draftSenses": 107,
+    "validationFailedRows": 65
+  }
+}

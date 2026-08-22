@@ -385,9 +385,6 @@ async function main() {
     (tx) =>
       seedCatalog(tx, {
         environment: databaseEnvironment,
-        localBootstrap:
-          databaseEnvironment !== "production" &&
-          process.env.LOCAL_CATALOG_BOOTSTRAP === "1",
         actor: "prisma/seed",
         finalize: process.env.CATALOG_FINALIZE !== "0",
       }),
@@ -395,7 +392,8 @@ async function main() {
   );
   console.log(
     `Catalog ready: ${catalog.rows} rows, ${catalog.validRows} valid, ` +
-      `${catalog.validationFailed} failed, ${catalog.localEligible} local eligible, ` +
+      `${catalog.validationFailed} failed, ${catalog.active} ACTIVE, ` +
+      `${catalog.draft} DRAFT, ${catalog.retired} RETIRED, ` +
       `${catalog.projections} Word compatibility projections | ` +
       `revision=${catalog.catalogRevisionKey}`,
   );

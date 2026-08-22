@@ -6,7 +6,7 @@ import type { Prisma } from "../../generated/prisma";
 import {
   CATALOG_NORMALIZATION_VERSION,
   CATALOG_VALIDATOR_VERSION,
-  type CatalogEligibilityResult,
+  type CatalogActivationResult,
   type CatalogPrimaryDisposition,
   type CatalogSourceRow,
   buildCatalogImportReport,
@@ -23,6 +23,10 @@ import {
   identityMatchKey,
   type CatalogIdentityManifest,
 } from "./identity";
+import {
+  catalogSenseKeySetDigest,
+  readCatalogInitialActivationManifest,
+} from "./initial-activation";
 
 export const CATALOG_SOURCE_FILES = [
   "outputs/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv",
@@ -41,7 +45,6 @@ export interface CatalogSourceFile {
 export interface CatalogSeedOptions {
   rootDir?: string;
   environment: "development" | "test" | "production";
-  localBootstrap: boolean;
   actor: string;
   /** Rebuild keeps the revision BUILDING until demo data and checks finish. */
   finalize?: boolean;
@@ -52,8 +55,11 @@ export interface CatalogSeedResult {
   rows: number;
   validRows: number;
   validationFailed: number;
-  localEligible: number;
-  draftBlocked: number;
+  activationEligible: number;
+  active: number;
+  draft: number;
+  retired: number;
+  activated: number;
   projections: number;
   primaryMappings: number;
   catalogRevisionKey: string;
@@ -107,13 +113,14 @@ export async function seedCatalog(
   tx: Prisma.TransactionClient,
   options: CatalogSeedOptions,
 ): Promise<CatalogSeedResult> {
-  if (options.environment === "production" && options.localBootstrap) {
-    throw new Error("LOCAL_DEMO_BOOTSTRAP is forbidden in production.");
-  }
   const files = await readCatalogSourceFiles(options.rootDir);
   const sourceDigest = digest(files.map((file) => `${file.relativePath}\0${file.digest}`).join("\n"));
   const root = sourceRoot(options.rootDir);
   const manifest = await readIdentityManifest(root, sourceDigest);
+  const activationManifest = await readCatalogInitialActivationManifest(
+    root,
+    sourceDigest,
+  );
   const allSourceRows = files.flatMap((file) => file.rows);
   const assignments = new Map(manifest.assignments.map((assignment) => [`${assignment.sourceFile}:${assignment.sourceRow}`, assignment]));
   if (assignments.size !== allSourceRows.length) {
@@ -134,7 +141,11 @@ export async function seedCatalog(
   const validations = rows.map((row) => {
     const siblings = (byTerm.get(row.normalizedTerm) ?? []).filter((sibling) => sibling.senseKey !== row.senseKey);
     const validation = validateCatalogRow(row, siblings);
-    if (!isCatalogCategory(row.category)) validation.errors.push(`unknown category: ${row.category}`);
+    if (!isCatalogCategory(row.category)) {
+      validation.errors.push(`unknown category: ${row.category}`);
+      validation.directionEligible = false;
+      validation.eligibility = "DRAFT_BLOCKED";
+    }
     return validation;
   });
   const manifestDispositions: CatalogPrimaryDisposition[] = rows.map((row) => {
@@ -146,6 +157,57 @@ export async function seedCatalog(
         : "CREATED_DRAFT";
   });
   const report = buildCatalogImportReport(rows, validations, "A1-A2-B1-B2", manifestDispositions);
+  const measured = {
+    sourceRows: rows.length,
+    validRows: validations.filter((validation) => validation.errors.length === 0).length,
+    activeSenses: validations.filter(
+      (validation) =>
+        validation.errors.length === 0 &&
+        validation.eligibility === "ACTIVATION_ELIGIBLE",
+    ).length,
+    draftSenses: validations.filter(
+      (validation) =>
+        validation.errors.length === 0 &&
+        validation.eligibility === "DRAFT_BLOCKED",
+    ).length,
+    validationFailedRows: validations.filter(
+      (validation) => validation.errors.length > 0,
+    ).length,
+  };
+  const measuredSelectionDigests = {
+    activeSenseKeysSha256: catalogSenseKeySetDigest(
+      rows.flatMap((row, index) => {
+        const validation = validations[index]!;
+        return validation.errors.length === 0 &&
+          validation.eligibility === "ACTIVATION_ELIGIBLE"
+          ? [row.senseKey]
+          : [];
+      }),
+    ),
+    draftSenseKeysSha256: catalogSenseKeySetDigest(
+      rows.flatMap((row, index) => {
+        const validation = validations[index]!;
+        return validation.errors.length === 0 &&
+          validation.eligibility === "DRAFT_BLOCKED"
+          ? [row.senseKey]
+          : [];
+      }),
+    ),
+  };
+  if (
+    Object.entries(activationManifest.expected).some(
+      ([key, expected]) =>
+        measured[key as keyof typeof measured] !== expected,
+    ) ||
+    measuredSelectionDigests.activeSenseKeysSha256 !==
+      activationManifest.selectionDigests.activeSenseKeysSha256 ||
+    measuredSelectionDigests.draftSenseKeysSha256 !==
+      activationManifest.selectionDigests.draftSenseKeysSha256
+  ) {
+    throw new Error(
+      `Catalog initial activation decision does not match the approved manifest: ${JSON.stringify({ expected: activationManifest.expected, measured, expectedSelectionDigests: activationManifest.selectionDigests, measuredSelectionDigests })}`,
+    );
+  }
   const catalogRevisionKey = `catalog_${sourceDigest.slice(0, 24)}`;
   const catalogRevision = await tx.catalogRevision.upsert({
     where: { revisionKey: catalogRevisionKey },
@@ -155,11 +217,12 @@ export async function seedCatalog(
       taxonomyDigest: digest(JSON.stringify(CATALOG_TAXONOMY_VERSION)),
       validatorVersion: CATALOG_VALIDATOR_VERSION,
       normalizationVersion: CATALOG_NORMALIZATION_VERSION,
-      activationBasis: options.localBootstrap ? "LOCAL_DEMO_BOOTSTRAP" : "DRAFT_IMPORT",
+      activationBasis: "INITIAL_BASELINE_MANIFEST",
       status: "BUILDING",
     },
     update: {
       sourceDigest,
+      activationBasis: "INITIAL_BASELINE_MANIFEST",
       status: "BUILDING",
     },
   });
@@ -184,11 +247,10 @@ export async function seedCatalog(
   });
 
   const importRows: Array<Prisma.CatalogImportRowCreateManyInput> = [];
-  const eligibilityRows: Array<Prisma.CatalogEligibilityCreateManyInput> = [];
   const projectionRows: Array<{ row: NormalizedCatalogRow; revisionId: string }> = [];
   let validRows = 0;
-  let localEligible = 0;
-  let draftBlocked = 0;
+  let activationEligible = 0;
+  let activated = 0;
   let projections = 0;
 
   for (const [index, row] of rows.entries()) {
@@ -201,10 +263,11 @@ export async function seedCatalog(
         : assignment.resolution === "CONFLICT"
           ? "CONFLICT"
           : "CREATED_DRAFT";
-    const eligibility: CatalogEligibilityResult = validation.eligibility;
+    const eligibility: CatalogActivationResult = validation.eligibility;
     if (validation.errors.length === 0) validRows += 1;
-    if (eligibility === "LOCAL_ELIGIBLE" && options.localBootstrap && validation.errors.length === 0) localEligible += 1;
-    else draftBlocked += 1;
+    if (validation.errors.length === 0) {
+      if (eligibility === "ACTIVATION_ELIGIBLE") activationEligible += 1;
+    }
     importRows.push({
       batchId: batch.id,
       sourceFile: row.sourceFile,
@@ -222,7 +285,9 @@ export async function seedCatalog(
     const entry = await tx.catalogEntry.upsert({
       where: { catalogKey: row.catalogKey },
       create: { catalogKey: row.catalogKey, lemma: row.lemma, normalizedLemma: row.normalizedLemma },
-      update: { lemma: row.lemma, normalizedLemma: row.normalizedLemma },
+      // catalogKey identifies a stable headword. Re-importing source CSV must
+      // not silently rewrite that identity after teachers have reviewed it.
+      update: {},
     });
     const existingSense = await tx.wordSense.findUnique({
       where: { senseKey: row.senseKey },
@@ -294,18 +359,27 @@ export async function seedCatalog(
         catalogRevisionId: catalogRevision.id,
       },
       });
-    if (options.localBootstrap && validation.eligibility === "LOCAL_ELIGIBLE") {
-      eligibilityRows.push({
-        senseId: sense.id,
-        senseRevisionId: revision.id,
-        catalogRevisionId: catalogRevision.id,
-        environment: options.environment,
-        basis: "LOCAL_DEMO_BOOTSTRAP",
-        sourceDigest,
-        validatorVersion: CATALOG_VALIDATOR_VERSION,
-        reason: "Development/test fixture eligibility; not teacher approval.",
+    let currentSense = await tx.wordSense.findUniqueOrThrow({
+      where: { id: sense.id },
+      select: { id: true, status: true, approvedRevisionId: true },
+    });
+    if (
+      validation.eligibility === "ACTIVATION_ELIGIBLE" &&
+      currentSense.status === "DRAFT" &&
+      !currentSense.approvedRevisionId
+    ) {
+      currentSense = await tx.wordSense.update({
+        where: { id: sense.id },
+        data: { status: "ACTIVE", approvedRevisionId: revision.id },
+        select: { id: true, status: true, approvedRevisionId: true },
       });
-      projectionRows.push({ row, revisionId: revision.id });
+      activated += 1;
+    }
+    if (currentSense.status === "ACTIVE" && currentSense.approvedRevisionId) {
+      projectionRows.push({
+        row,
+        revisionId: currentSense.approvedRevisionId,
+      });
     }
   }
 
@@ -324,18 +398,18 @@ export async function seedCatalog(
       },
     });
   }
-  await tx.catalogEligibility.deleteMany({ where: { catalogRevisionId: catalogRevision.id, environment: options.environment } });
-  if (eligibilityRows.length > 0) await tx.catalogEligibility.createMany({ data: eligibilityRows, skipDuplicates: true });
+  const removedLegacyEligibility = await tx.catalogEligibility.deleteMany({
+    where: { basis: "LOCAL_DEMO_BOOTSTRAP" },
+  });
 
   const primarySenseKeys = new Set(
     manifest.assignments.filter((assignment) => assignment.legacyPrimary).map((assignment) => assignment.senseKey),
   );
   for (const item of projectionRows) {
     const sense = await tx.wordSense.findUniqueOrThrow({ where: { senseKey: item.row.senseKey } });
-    const revision = await tx.wordSenseRevision.findUniqueOrThrow({ where: { id: item.revisionId } });
-    const projectionRevision = sense.approvedRevisionId
-      ? await tx.wordSenseRevision.findUniqueOrThrow({ where: { id: sense.approvedRevisionId } })
-      : revision;
+    const projectionRevision = await tx.wordSenseRevision.findUniqueOrThrow({
+      where: { id: item.revisionId },
+    });
     const word = await tx.word.upsert({
       where: { senseId: sense.id },
       create: {
@@ -390,16 +464,67 @@ export async function seedCatalog(
     }
   }
 
+  if (activated > 0) {
+    await tx.catalogAuditEvent.create({
+      data: {
+        action: "INITIAL_BASELINE_ACTIVATED",
+        toStatus: "ACTIVE",
+        metadata: json({
+          sourceDigest,
+          manifestVersion: activationManifest.manifestVersion,
+          selectionRule: activationManifest.selectionRule,
+          selectionDigests: activationManifest.selectionDigests,
+          activated,
+        }),
+      },
+    });
+  }
+
+  const seededSenseKeys = rows.flatMap((row, index) => {
+    const validation = validations[index]!;
+    const assignment = assignments.get(`${row.sourceFile}:${row.sourceRow}`)!;
+    return validation.errors.length === 0 &&
+      assignment.resolution !== "MERGE" &&
+      assignment.resolution !== "CONFLICT"
+      ? [row.senseKey]
+      : [];
+  });
+  const currentStatuses = await tx.wordSense.groupBy({
+    by: ["status"],
+    where: { senseKey: { in: seededSenseKeys } },
+    _count: { _all: true },
+  });
+  const currentStatusCount = (status: "ACTIVE" | "DRAFT" | "RETIRED") =>
+    currentStatuses.find((item) => item.status === status)?._count._all ?? 0;
+
   if (options.finalize !== false) await tx.catalogRevision.update({ where: { id: catalogRevision.id }, data: { status: "READY" } });
-  if (options.finalize !== false) await tx.catalogImportBatch.update({ where: { id: batch.id }, data: { status: "READY" } });
-  await tx.catalogImportBatch.update({ where: { id: batch.id }, data: { status: options.finalize === false ? "BUILDING" : "READY", report: json({ ...report, sourceDigest, localBootstrap: options.localBootstrap }) } });
+  await tx.catalogImportBatch.update({
+    where: { id: batch.id },
+    data: {
+      status: options.finalize === false ? "BUILDING" : "READY",
+      report: json({
+        ...report,
+        sourceDigest,
+        initialActivation: {
+          manifestVersion: activationManifest.manifestVersion,
+          selectionRule: activationManifest.selectionRule,
+          selectionDigests: activationManifest.selectionDigests,
+          expected: activationManifest.expected,
+        },
+        removedLegacyEligibilityRows: removedLegacyEligibility.count,
+      }),
+    },
+  });
   return {
     sourceDigest,
     rows: rows.length,
     validRows,
     validationFailed: rows.length - validRows,
-    localEligible,
-    draftBlocked,
+    activationEligible,
+    active: currentStatusCount("ACTIVE"),
+    draft: currentStatusCount("DRAFT"),
+    retired: currentStatusCount("RETIRED"),
+    activated,
     projections,
     primaryMappings: projectionRows.filter((item) => primarySenseKeys.has(item.row.senseKey)).length,
     catalogRevisionKey,

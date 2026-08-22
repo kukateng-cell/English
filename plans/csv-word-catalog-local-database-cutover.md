@@ -1,10 +1,10 @@
 # CSV 詞庫本地資料庫切換及示範資料重建計劃
 
-> 狀態：進行中（Revision 2；兩個獨立 reviewer 已完成，blocking findings 已跟進；Phase 6 destructive local reset 仍待獨立授權）
+> 狀態：進行中（Revision 3 local implementation／verification 已完成；GitHub rerun、browser storage及 production gates deferred）
 >
 > 日期：2026-08-19
 >
-> 修訂：Revision 2（資料模型／migration／reset review + demo／analytics／testing review）
+> 修訂：Revision 3（2026-08-22 取消 test-only 詞庫，改用 digest-bound 正式初始啟用 manifest）
 >
 > 工作 branch：`codex/word-catalog-governance-and-lifecycle`
 >
@@ -12,7 +12,7 @@
 >
 > 範圍：只處理 local development／test 資料庫、A1–B2 CSV 詞庫切換及示範數據重建；本計劃不授權 production deploy 或立即清空資料庫
 >
-> Review 跟進：加入 V1 compatibility、逐表 identity transition、test-only eligibility、真實解鎖 chronology、public answer-data protection 及可執行 phase 次序；未經主代理重現的 reviewer 估算不納入驗收
+> Review 跟進：加入 V1 compatibility、逐表 identity transition、正式 ACTIVE-only runtime、真實解鎖 chronology、public answer-data protection 及可執行 phase 次序；未經主代理重現的 reviewer 估算不納入驗收
 
 ## 1. 背景及問題定義
 
@@ -47,7 +47,7 @@ A1、A2、B1、B2 CSV 則以「一行一個詞義」表示資料，能夠保存�
 - 兩方向均停用的 107 行不能產生 Objective Probe，切換時只可保留作待處理草稿，不能自動變成可學習項目；
 - 5,534 只代表「至少一個出題方向開啟」，並不代表已通過內容驗證或可 ACTIVE；當中 5,332 行暫無 `example_en`，而多義、非字面或易混詞的例句屬條件必填，必須由可重現規則及人工 disposition 判斷，不能單靠方向 flag 推算可啟用數量；
 - 規範共有 25 個合法 category code（包括 fallback `other`），目前四份 CSV 實際使用其中 24 個；
-- 實作後 strict validator 額外封鎖 65 行：60 行有同一方向的 accepted／synonym／antonym 答案碰撞，2 行有中譯英 sibling-sense 正解碰撞，4 行有英譯中 sibling-sense 正解碰撞；因此目前可匯入 5,576 行，development local eligibility 為 5,469 行。呢個係 fail-closed 結果，不把疑似危險干擾項靜默放入題庫；65 行仍保留喺 import report，待內容修訂後再重新產生 digest／manifest；
+- 實作後 strict validator 額外封鎖 65 行：60 行有同一方向的 accepted／synonym／antonym 答案碰撞，2 行有中譯英 sibling-sense 正解碰撞，4 行有英譯中 sibling-sense 正解碰撞；因此目前可匯入 5,576 行，其中 5,469 行已由 digest-bound initial activation manifest 正式設為 ACTIVE。呢個係 fail-closed 結果，不把疑似危險干擾項靜默放入題庫；65 行仍保留喺 import report，待內容修訂後再重新產生 digest／manifest；
 - 四份 CSV exact source digest 為 `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`；checked-in identity manifest 覆蓋 5,641 行，seed 同 rebuild dry-run 都已重新核對；
 - CSV 是受控匯入及版本保存格式；runtime canonical source 仍然是 PostgreSQL，而不是每次 request 即場讀 CSV。
 
@@ -97,19 +97,17 @@ A1、A2、B1、B2 CSV 則以「一行一個詞義」表示資料，能夠保存�
 reset 必須沿用現有 local topology allowlist、development environment marker、dry-run 及明確 confirmation。不得使用 `prisma db push`，
 不得連到非 allowlisted target，亦不得因本計劃獲批准而自動執行。
 
-### 3.4 CSV bootstrap eligibility 規則
+### 3.4 CSV bootstrap 正式啟用規則（Revision 3）
 
-四份 CSV 仍然是 `CREATE_DRAFT`，不能用 local seed 冒充英文老師正式批准。匯入分成 canonical draft 及 test-only eligibility 兩層：
+四份 CSV 仍以 `CREATE_DRAFT` 作匯入動作，但使用者已批准把現有已多輪整理的可用項目作正式初始 baseline，而不是建立另一個測試詞庫：
 
-1. 通過基本 schema／identity validation 的行先按原意建立 DRAFT revision；validation failed 行只進 import report，不能建立可引用 revision；
-2. canonical `catalog_status` 保持 DRAFT；只有通過 blocking validator、至少一個出題方向可用，並列入 exact-file-digest manifest 的 revision，先獲得 environment-scoped `LOCAL_DEMO_BOOTSTRAP` eligibility；
-3. eligibility 紀錄保存 environment、file digest、validator version、revision、system actor、時間及原因；production startup／query 必須 hard-deny 呢種 override；
-4. 107 行兩方向均停用的資料保留為 DRAFT／blocked，不進入學生 queue、單元 denominator 或 current mastery；
-5. 多義、非字面或易混詞欠缺條件性例句、未處理 conflict／warning 或答案安全未通過時，同樣不能取得 local eligibility；
-6. 某一方向 disabled 時只禁止該方向，另一方向仍可按 CSV 設定出題；
-7. `LOCAL_DEMO_BOOTSTRAP` 只係本地測試資格，不會產生人工 approval audit，亦不可以輸出成正式 ACTIVE 詞庫。
-
-5,534 只係 direction-eligible 數量；最終 local-eligible／ACTIVE 數必須由完整 validator、identity resolution 及審核結果產生，計劃不得預設上限。
+1. 通過 schema／identity validation 的行先建立 immutable revision；validation failed 行只進 import report，不能建立可引用 revision；
+2. checked-in initial activation manifest 必須精確綁定 source digest、validator／normalization version、selection rule 及預期數量；不符即 fail closed；
+3. 通過 blocking validator且至少一個方向可用的 5,469 行建立 `ACTIVE + approvedRevisionId`；兩方向均停用的 107 行保留 DRAFT；65 行 validation failed 保留 import issue；
+4. development、test、CI 及未來 production 均只讀同一套 `ACTIVE + approved revision + READY catalog` 規則，不設 environment override；
+5. 某一方向 disabled 時只禁止該方向，另一方向仍可按 CSV 設定出題；
+6. seed 重跑不得覆寫其後老師批准內容、不得重新啟用 RETIRED、不得以缺行自動停用；日後修改仍必須經 DRAFT proposal及四眼審批；
+7. 舊 `CatalogEligibility` table 暫留作 schema compatibility，但不再參與 runtime、seed 或治理 API；刪除要另行批准 contract migration。
 
 ### 3.5 V1 rollback compatibility
 
@@ -165,7 +163,7 @@ legacy Word-only、stale revision、RETIRED 及普通 DRAFT；`ReviewEvent` 同�
 ### 4.3 成功準則
 
 - fresh local DB 可以只靠 migrations、四份 CSV、受控 manifest 及 seed scripts 完整重建；
-- 每個 CSV 原始行都有 primary import disposition（例如 `CREATED_DRAFT`、`MERGED`、`NO_CHANGE`、`CONFLICT`、`VALIDATION_FAILED`）及獨立 eligibility result（`LOCAL_ELIGIBLE`／`DRAFT_BLOCKED`／不適用），不能靜默略過；
+- 每個 CSV 原始行都有 primary import disposition（例如 `CREATED_DRAFT`、`MERGED`、`NO_CHANGE`、`CONFLICT`、`VALIDATION_FAILED`）及獨立 activation result（`ACTIVATION_ELIGIBLE`／`DRAFT_BLOCKED`），不能靜默略過；
 - import reconciliation 可證明輸入 5,641 行全部有 disposition、stable keys 唯一，並清楚記錄同 term 候選係 keep-distinct、merge 定 conflict，沒有靜默丟失；
 - V2 runtime 查詢、題目建立、unit denominator、mastery、排行榜及分析沒有再依賴 legacy `Word`；V1 只可經 compatibility projection 運作；
 - demo fixture 有 A1 → A2 → B1 → B2 的合理差異，班與班、學生與學生排名明顯但不機械一致；
@@ -181,16 +179,17 @@ legacy Word-only、stale revision、RETIRED 及普通 DRAFT；`ReviewEvent` 同�
 A1–B2 CSV
   → parse／normalize／blocking validation
   → checked-in identity assignment + file digest + import report
-  → DRAFT revisions
-  → LOCAL_DEMO_BOOTSTRAP eligibility（development／test only）
-  → current-eligible catalog view
+  → immutable revisions
+  → digest-bound initial activation manifest
+  → 正式 ACTIVE／DRAFT 狀態（所有環境一致）
+  → ACTIVE-only current catalog view
   → accounts／academic year／classes／enrolments
   → deterministic student learning histories
   → post-seed integrity／analytics／UI checks
 ```
 
-本計劃統一使用 `current-eligible sense`：production 只包括正式 ACTIVE sense；development／test 先可額外包括通過
-`LOCAL_DEMO_BOOTSTRAP` override 的 DRAFT revision。Production 必須拒絕 override，兩種 eligibility 亦要在 audit／report 明確分開。
+本計劃統一使用 `current sense`：所有環境只包括正式 ACTIVE、有 approved revision且所屬 catalog revision 為 READY 的 sense。
+DRAFT 只供治理工作區檢視、修訂及審批，不會因為在 development／test 執行而進入學生流程。
 
 ### 5.1 CSV blocking validation
 
@@ -210,8 +209,8 @@ A1–B2 CSV
 - `catalogKey`／`senseKey` 是系統分配的 opaque stable identity，不能由 CSV 行號、匯入順序、整行 content hash、可修改中文解釋、level 或 category 反覆推算；
 - 第一次 bootstrap 產生 checked-in identity assignment manifest，保存 source-row fingerprint、已分配 keys、resolution disposition 及 manifest version；
 - 後續 export／update 必須帶回 stable keys；typo、level、category、例句或干擾項修正保留 sense key，改變核心意思／詞性／詞義邊界先建立新 sense key；
-- DRAFT import 同 local eligibility commit 是兩個獨立 operation；各自使用 operationId＋request digest 冪等，同 operationId 不同 payload 固定回 409；
-- approved pointer／eligibility、audit、CatalogRevision 及 import result 在 Serializable transaction 內提交；retry 不得建立第二份 revision 或第二個 key。
+- DRAFT import 同正式 approval commit 是兩個獨立 operation；各自使用 operationId＋request digest 冪等，同 operationId 不同 payload 固定回 409；
+- approved pointer、audit、CatalogRevision 及 import result 在 Serializable transaction 內提交；retry 不得建立第二份 revision 或第二個 key。
 
 ### 5.3 39 欄資料去向
 
@@ -352,7 +351,7 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 - [ ] 批准 `catalog-taxonomy-v1`、25 個合法 code、每級 unit 次序及 digest；
 - [ ] 凍結 sense identity／stable key lifecycle、accepted-answer／方向規則及逐表 Review transition matrix；
 - [ ] 確認保留 V1 rollback，批准 `LegacyWordSenseMap` compatibility projection；如要退役 V1，必須另行修改產品 contract；
-- [ ] 在上游詞庫治理計劃記錄 `LOCAL_DEMO_BOOTSTRAP` 只屬 environment-scoped 測試資格，不是 production approval；
+- [x] 在上游詞庫治理計劃記錄所有環境共用 digest-bound 正式 ACTIVE／DRAFT baseline，並取消 environment-scoped 詞庫資格；
 - [ ] 更新 Retrieval-first contract：sense identity、curated pool construction version、public answer-data boundary、retire／revision snapshot 及 mixed-identity prohibition。
 
 驗收：上游 blocking contract、輸入 manifest、identity transition、V1 compatibility、eligibility policy 及 unit taxonomy 有書面版本；任何 CSV 改動都會令 digest gate 失敗。
@@ -363,7 +362,7 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 - [ ] 產生逐行 disposition、duplicate／conflict bundle、條件性例句、方向資格及總數 reconciliation；
 - [ ] 為同 term 多 sense、正解排除、5–6 distractors、disabled direction、BOM 及 key collision 建立測試；
 - [ ] 建立只讀 dry-run command，沒有 DB write 亦可完成報告；
-- [ ] 測試 DRAFT import／local eligibility 各自的 operationId＋request-digest 冪等性及 409 conflict；
+- [ ] 測試 DRAFT import／正式 approval 各自的 operationId＋request-digest 冪等性及 409 conflict；
 - [ ] 確認同一輸入重跑會產生 byte-stable manifest／logical-stable result，而且修改非 identity 內容不會換 sense key。
 
 驗收：5,641 行全部有明確結果；沒有 lowest-level-wins、靜默 skip 或自動補造內容。
@@ -373,8 +372,8 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 - [ ] 按上游治理計劃新增 CatalogEntry、WordSense、WordSenseRevision、CatalogRevision 及 import provenance；
 - [ ] 按 3.6 transition matrix 修改 Review／ReviewEvent／stream／obligation／target／snapshot／encounter，加入 partial unique、projection-consistency guard 及 content revision provenance；最終 exact-one contract migration 仍待 V1 退役後另行處理；
 - [ ] 修改 legacy ReviewEvent ledger trigger，只處理 legacy Word Review；sense writer 保留 operationId、CAS、Serializable retry 及 lineage；
-- [ ] 實作 DRAFT import 及 production-hard-deny 的 `LOCAL_DEMO_BOOTSTRAP` eligibility；
-- [ ] 由 current-eligible catalog 建立 read-only `Word` compatibility projection 及 checked-in `LegacyWordSenseMap`；
+- [x] 實作 digest-bound initial activation manifest、正式 ACTIVE／DRAFT seed 及所有環境 ACTIVE-only runtime；
+- [x] 由 current ACTIVE catalog 建立 read-only `Word` compatibility projection 及 checked-in `LegacyWordSenseMap`；
 - [ ] 封鎖 legacy Markdown canonical seed、legacy Word direct write／hard delete；
 - [ ] 保持普通 migration 為 expand-safe，destructive cleanup 不放入一般 deploy migration；
 - [ ] 驗證 fresh migration replay、Prisma Client generation、FK、unique constraint 及 checksum。
@@ -383,7 +382,7 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 
 ### Phase 3 — Runtime reader 及題目建立切換
 
-- [ ] 將 V2 study selection、queue、review、unit、words、stats、leaderboard、teacher analytics 及 export 改為 current-eligible sense read model；
+- [x] 將 V2 study selection、queue、review、unit、words、stats、leaderboard、teacher analytics 及 export 改為 current ACTIVE sense read model；
 - [ ] question builder bump construction version，使用每個 sense、每個方向的 curated distractor pool，保存 immutable sense／content／catalog revision snapshot；
 - [ ] 收窄 `PublicObjectiveQuestion`，未答題 payload 只保留題幹、direction、opaque options 及 construction version；
 - [ ] 對無合法題目或 pool 驗證失敗的 sense fail closed，不計學生答錯；
@@ -426,7 +425,7 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 - [x] 執行完整 schema rebuild；
 - [ ] 重新建立瀏覽器測試登入狀態，清除舊 browser checkpoint／outbox／storage state（本次只重建 DB 帳戶，未操作瀏覽器 storage state）；
 - [x] 執行 post-seed checker、V1 ledger／rollback targeted smoke、V2 sense targeted smoke 及數量 reconciliation；
-- [x] 記錄每種 import disposition、正式 ACTIVE、LOCAL_ELIGIBLE、blocked／failed、compatibility mapping 及 dataset generation。
+- [x] 記錄每種 import disposition、正式 ACTIVE／DRAFT、blocked／failed、compatibility mapping 及 dataset generation。
 
 驗收：所有舊 local data 已被取代，應用只顯示新 CSV 詞庫及新 demo histories。本次指定 local target 已完成；browser storage state 及完整 authenticated browser matrix 仍屬後續驗證。
 
@@ -437,20 +436,20 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 - [x] 在本計劃記錄實際測試、未執行項目、已知限制及後續 production gates；
 - [ ] 只有全部必要驗證通過後，才把狀態改為「已完成」；目前仍有 browser storage／full browser matrix 及 V1 retirement contract gate。
 
-### 本次 Revision 2 實際執行結果
+### Revision 2 實際執行結果（詞庫資格部分已由 Revision 3 取代）
 
 本次已完成並驗證以下 implementation scope：
 
 - CSV parser／normalizer、39 欄 strict validation、prompt 保留空白、方向干擾項及 sibling-sense 答案安全檢查；
 - checked-in opaque identity manifest。manifest 會以既有 source locator／match key 作 authority，新 row 明確分配 opaque key；duplicate term 需要明確 `KEEP_DISTINCT`／`MERGE`／`CONFLICT` resolution，並保存 `legacyPrimary`，不再用 lowest-level-wins；
-- CatalogEntry／WordSense／WordSenseRevision／CatalogRevision／eligibility／import report migration 及 read-only Word compatibility projection；
-- READY／DRAFT／RETIRED current read rule、development/test `LOCAL_DEMO_BOOTSTRAP` eligibility、production hard-deny，以及 stale projection detach；
+- CatalogEntry／WordSense／WordSenseRevision／CatalogRevision／舊 eligibility compatibility table／import report migration 及 read-only Word compatibility projection；
+- READY／DRAFT／RETIRED current read rule及 stale projection detach；當時採用的 environment-scoped eligibility 已由 2026-08-22 Revision 3 取代；
 - Word／sense projection-consistency DB guard（包括 ReviewEvent），防止 matching pair 以外的 mixed identity；V1 physical `wordId` 尚未退役，所以最終 exactly-one contract 留作下一個 contract migration；
 - V2 queue、unit、leaderboard、student／teacher／admin metrics 及 insights 的 current-sense／eligible-event readers；admin Word API 改為 read-only governance boundary；
 - sense-level curated question builder、四個唯一 options 的 snapshot validation 及未答題 public payload answer-data boundary；
 - deterministic A1→A2→B1→B2 demo factory／chronology checker、guarded rebuild orchestrator 及 actual CSV digest lock；本次 full rebuild 已完成並通過 demo checker。
 
-實際 local catalog seed／checker 結果：5,641 行輸入、5,576 行通過 validator、65 行 `VALIDATION_FAILED`、5,469 行 development `LOCAL_ELIGIBLE`、5,469 個 current Word projections；65 行係答案安全碰撞而 fail closed，並非靜默丟失。
+Revision 2 當時 local catalog seed／checker 結果：5,641 行輸入、5,576 行通過 validator、65 行 `VALIDATION_FAILED`、5,469 個可用項目及 5,469 個 current Word projections；Revision 3 將呢 5,469 項正式設為 ACTIVE，107 項維持 DRAFT。
 
 已通過：fresh／interrupted migration replay、migration checksum、Prisma validate／generate、`npx tsc --noEmit`、`npm run lint`、225 個 unit tests、`npm run build`、`npm run test:db`、`npm run test:db:stream-v2`、catalog／demo checker、完整 guarded local rebuild 及其 READY transition。兩個獨立 reviewer（資料模型／migration reviewer 及 demo／analytics／testing reviewer）已完成只讀審查；上述 guards、manifest、strict validator、current predicates、deterministic fixture、snapshot validation 及 admin read model 已按其主要 findings 跟進。
 
@@ -461,7 +460,7 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 | 範圍 | 必要驗證 |
 |---|---|
 | CSV contract | parser／BOM／39 欄、normalization、identity manifest、duplicate、同 term 多 sense、條件性例句、direction、答案唯一性、5–6 distractors |
-| Import | dry-run 無寫入、digest mismatch fail、primary disposition＋eligibility reconciliation、operationId冪等、409 conflict、transaction rollback |
+| Import | dry-run 無寫入、digest／selection-set mismatch fail、primary disposition＋activation reconciliation、operationId冪等、409 conflict、transaction rollback |
 | Migration | projection-consistency guard／partial unique／legacy trigger tests、`npm run test:migration-checksums`、`npm run test:migrations`、`npm run test:migrations:contract`（最終 exact-one contract migration 另行驗證） |
 | Reset guards | dry-run default、兩 URL target 一致、advisory lock、BUILDING／READY／FAILED、錯 target／remote host／production markers／缺 confirmation 全部拒絕 |
 | Study／policy | `npm test`、`npm run test:db`、`npm run test:db:stream-v2`、V1 off smoke、V2 sense、mixed identity、pre-answer payload、snapshot／lineage／idempotency tests |
@@ -473,9 +472,9 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 
 ### Post-seed 必查 invariants
 
-- 輸入 5,641 行 = 所有互斥 primary import dispositions；eligibility 統計另行 reconciliation，兩者都沒有 unexplained delta；
+- 輸入 5,641 行 = 所有互斥 primary import dispositions；activation 統計另行 reconciliation，兩者都沒有 unexplained delta；
 - `catalogKey`／`senseKey` 唯一，approved pointer 只指 immutable approved revision；
-- RETIRED 及沒有 local override 的 DRAFT 不出現在 queue、unit denominator 或 current mastery；production 完全沒有 `LOCAL_DEMO_BOOTSTRAP`；
+- RETIRED 及所有 DRAFT 不出現在 queue、unit denominator 或 current mastery；所有環境只接受 ACTIVE approved sense；
 - enabled direction 的 final options 只有一個 accepted correct answer；
 - 未答題 public payload 不含 canonical answer、accepted answer set 或 `correctOptionId`；
 - Review、ReviewEvent、StudyEncounter、stream、target、snapshot、receipt lineage 完整；
@@ -492,7 +491,7 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 | 直接沿用 Word 導致多義詞丟失 | sense-level schema 先行；inventory gate 禁止 canonical reader 回退 |
 | sense 欄只做 optional，writer 仍混用 word | matching projection-consistency DB guard、partial unique、session read mode、writer／trigger tests；V1 退役後再做 exact-one contract migration |
 | 切走 Word 令 V1 rollback 失效 | checked-in `LegacyWordSenseMap`＋read-only projection＋fresh-reset `off` smoke test |
-| 把全部 CREATE_DRAFT 當已正式批准 | canonical status 保持 DRAFT；exact-digest `LOCAL_DEMO_BOOTSTRAP`；production hard deny；107 個不可出題行 blocked |
+| 未經控制把全部 CREATE_DRAFT 當已正式批准 | exact-digest initial activation manifest 鎖定規則及數量；5,469 ACTIVE、107 DRAFT、65 validation failed；digest 或數量不符即拒絕 seed |
 | Stable key 跟內容改動而漂移 | checked-in identity assignment；更新帶回 keys；material meaning change 先建立新 sense |
 | 新增／停用 sense 令 current／歷史 metric 混亂 | versioned catalog revision＋metric projection matrix＋`catalogRevision`／`asOf` |
 | 只刪 Word 留下 stale events／receipts | full schema rebuild，不做局部 delete |
@@ -521,7 +520,7 @@ current-eligible sense 計算，不能依賴舊 Markdown category 常數。
 
 ### 11.3 觀察
 
-切換後至少核對 catalog dispositions／eligibility、blocked／failed reasons、study queue construction failure、各方向出題比例、public payload、
+切換後至少核對 catalog dispositions／activation、blocked／failed reasons、study queue construction failure、各方向出題比例、public payload、
 V1／V2 smoke、leaderboard 分布、unlock chronology、unit denominator、teacher analytics load 及 fixture checker。任何 unexplained count delta、
 孤兒 lineage、mixed identity、current-eligible sense 無合法題目或 rebuild state 非 `READY` 均視為 blocking failure。
 
@@ -532,7 +531,8 @@ V1／V2 smoke、leaderboard 分布、unlock chronology、unit denominator、teac
 | 2026-08-19 | 不保留舊本地學生或詞庫資料 | 全部為測試資料，映射會增加錯誤 sense mastery 風險 |
 | 2026-08-19 | 採完整 local schema rebuild | 一次清除舊詞 FK、snapshot、session、receipt 及 demo 帳戶，較逐表 delete 完整 |
 | 2026-08-19 | 不把 CSV 壓平到 legacy Word | 會丟失至少 674 個同 term 額外詞義 |
-| 2026-08-19 | Canonical CSV revision 保持 DRAFT；local manifest 只授予 environment-scoped eligibility | 保留治理語義，不把測試 bootstrap 冒充正式教師批准 |
+| 2026-08-19 | Canonical CSV revision 保持 DRAFT；local manifest 只授予 environment-scoped eligibility | 已由 2026-08-22 使用者決定取代 |
+| 2026-08-22 | 所有環境共用 digest-bound 正式初始詞庫：5,469 ACTIVE、107 DRAFT；取消 test-only eligibility | 測試與 production 不應有兩套詞庫語義；其後修改仍走草稿及四眼審批 |
 | 2026-08-19 | 兩方向均停用的 107 行不進 runtime learning | 無法產生合法 Objective Probe，強行啟用會破壞 mastery contract |
 | 2026-08-19 | demo 由 current-eligible sense 及完整 production learning helpers 重建 | 確保 Review、排行榜、統計及題目反映真實產品 contract |
 | 2026-08-19 | 保留 read-only Word compatibility projection | 現行產品仍要求 V1 `off` rollback，不能在本切換默認退役 |
@@ -548,7 +548,7 @@ V1／V2 smoke、leaderboard 分布、unlock chronology、unit denominator、teac
 1. 批准 sense identity、逐表 Review transition、stable key lifecycle 及 material-meaning-change 規則；
 2. 批准保留 V1 rollback 及 `LegacyWordSenseMap` primary-sense compatibility；如要退役 V1，先修改產品 contract；
 3. 批准 accepted-answer／direction／curated-pool／public payload contract 及新 construction version；
-4. 接受 `LOCAL_DEMO_BOOTSTRAP` 只係 development／test eligibility，正式 status 保持 DRAFT，production hard deny；
+4. 接受所有環境只讀 ACTIVE approved sense；現有 baseline 由 exact-digest manifest 正式啟用 5,469 項，107 項保持 DRAFT；
 5. 接受 107 行兩方向均停用及其他未通過條件性內容／conflict 的資料不出現在學生詞庫；
 6. 批准 `catalog-taxonomy-v1`、current／historical metric matrix及 recognition／long-term mastery 兩套門檻；
 7. 確認保留約 18 班／150 名學生的 demo 規模、少量 B2 領先學生及 checked-in quantitative fixture budget；
@@ -556,12 +556,20 @@ V1／V2 smoke、leaderboard 分布、unlock chronology、unit denominator、teac
 
 ## 14. Definition of Done
 
-- [ ] 四份 CSV 經 versioned validator、identity assignment、primary dispositions、eligibility report 及 exact-digest manifest 控制；
+- [x] 四份 CSV 經 versioned validator、identity assignment、primary dispositions、activation report、exact source digest及 ACTIVE／DRAFT set digests控制；
 - [ ] sense-level schema、matching projection-consistency transition、V1 compatibility projection及 trigger／writer guards 完成；最終 exactly-one identity contract migration 尚未完成；
 - [ ] V2 runtime readers、new-version curated question builder、safe public payload及 common metric projection 完成；
 - [ ] 新 guarded local rebuild command 通過正反 guard tests；
 - [ ] 新 demo fixture 及 checker 覆蓋 A1–B2 unlock chronology、recognition／mastery、班／級／校排名及教師分析；
 - [ ] 使用者另行批准並成功完成指定 local DB rebuild；
 - [ ] 所有 post-seed invariants、測試矩陣及 browser smoke 通過；
-- [ ] 實際 import dispositions、ACTIVE／LOCAL_ELIGIBLE／blocked、compatibility mapping、dataset generation、測試結果及未執行項目已記錄；
+- [ ] 實際 import dispositions、ACTIVE／DRAFT／blocked、compatibility mapping、dataset generation、測試結果及未執行項目已記錄；
 - [ ] 沒有 production deploy、production reset 或未獲批准的 destructive contract cleanup。
+
+### Revision 3 實際驗證結果（2026-08-22）
+
+- 正式 baseline manifest 鎖定 5,641 source rows、5,576 valid、5,469 ACTIVE、107 DRAFT、65 validation failed，以及 ACTIVE／DRAFT sense-key set digest；
+- 本地 catalog reseed 冪等完成：5,469 current projections、4,861 legacy primary mappings；因原本 5,469 sense 已正式 ACTIVE，本次 `activated=0`，沒有覆寫 approved pointer；
+- `check:catalog-governance`：ACTIVE missing lineage 0、projection mismatch 0、DRAFT approved pointer 0、obsolete `CatalogEligibility` row 0；
+- GitHub 曾失敗的 `test:db:stream-v2` 已在同一正式 catalog 上重跑通過；233 個 unit tests、lint zero warnings、typecheck及 production build亦通過；
+- workflows 已在 seed 後加入 `check:catalog`／`check:catalog-governance`。本次未獲 commit／push 指示，所以 GitHub 尚未用新 commit rerun；dependency audit advisory 仍係獨立未解項。

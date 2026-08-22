@@ -79,6 +79,11 @@ jobs:
       - name: Seed the card-motion test account and words
         run: npm run seed
 
+      - name: Verify the formal catalog baseline
+        run: |
+          CATALOG_REQUIRE_INITIAL_BASELINE=1 npm run check:catalog
+          npm run check:catalog-governance
+
       - name: Run V2 stream integration and bounded soak
         run: |
           npm run test:db:stream-v2

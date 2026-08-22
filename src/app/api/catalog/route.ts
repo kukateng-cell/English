@@ -5,6 +5,7 @@ import { ROLES } from "@/lib/roles";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { catalogAccess } from "@/lib/catalog/access";
 import {
+  catalogEntryAcceptsLemma,
   parseCatalogGovernancePayload,
   payloadFingerprint,
   payloadFromRevision,
@@ -12,7 +13,6 @@ import {
   type CatalogGovernancePayload,
 } from "@/lib/catalog/governance";
 import { normalizeCatalogRow, normalizeCatalogText } from "@/lib/catalog/csv";
-import { catalogRuntimeEnvironment } from "@/lib/catalog/runtime";
 import { isRetryableTransactionConflict } from "@/lib/transaction-retry";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
@@ -138,7 +138,6 @@ export async function GET() {
 
   try {
     const access = await catalogAccess(auth);
-    const environment = catalogRuntimeEnvironment();
     const batch = await prisma.catalogImportBatch.findFirst({
       where: { status: "READY" },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -184,7 +183,6 @@ export async function GET() {
           select: revisionSelect,
         },
         approvedRevision: { select: revisionSelect },
-        localEligibilities: { where: { environment }, select: { basis: true } },
         changeRequests: {
           where: { status: "PENDING" },
           orderBy: { createdAt: "desc" },
@@ -230,7 +228,7 @@ export async function GET() {
           sourceFile: "governance",
           sourceRow: 0,
           primaryDisposition: "NO_CHANGE",
-          eligibilityResult: sense.status === "ACTIVE" ? "LOCAL_ELIGIBLE" : "DRAFT_BLOCKED",
+          eligibilityResult: sense.status === "ACTIVE" ? "ACTIVATION_ELIGIBLE" : "DRAFT_BLOCKED",
           catalogKey: sense.catalogEntry.catalogKey,
           senseKey: sense.senseKey,
           issues: null,
@@ -359,7 +357,7 @@ export async function POST(req: Request) {
       if (sourceRow && sourceRow.senseKey !== resolvedSenseKey) throw new Error("CATALOG_IDENTITY_MISMATCH");
       if (sourceRow?.changeRequests.length) throw new Error("CATALOG_CHANGE_PENDING");
       const targetSense = resolvedSenseKey
-        ? await tx.wordSense.findUnique({ where: { senseKey: resolvedSenseKey }, include: { catalogEntry: { select: { catalogKey: true } }, revisions: { orderBy: { revision: "desc" }, take: 1 }, approvedRevision: true, changeRequests: { where: { status: "PENDING" }, select: { id: true } } } })
+        ? await tx.wordSense.findUnique({ where: { senseKey: resolvedSenseKey }, include: { catalogEntry: { select: { catalogKey: true, normalizedLemma: true } }, revisions: { orderBy: { revision: "desc" }, take: 1 }, approvedRevision: true, changeRequests: { where: { status: "PENDING" }, select: { id: true } } } })
         : null;
       if (targetSense?.changeRequests.length) throw new Error("CATALOG_CHANGE_PENDING");
       if (kind === "CREATE" && targetSense) throw new Error("CATALOG_ALREADY_EXISTS");
@@ -372,6 +370,9 @@ export async function POST(req: Request) {
       if (kind === "REACTIVATE" && targetSense?.status !== "RETIRED") throw new Error("CATALOG_NOT_RETIRED");
       if (kind === "RETIRE" && targetSense?.status === "RETIRED") throw new Error("CATALOG_ALREADY_RETIRED");
       if (kind === "RETIRE" && (targetSense?.status !== "ACTIVE" || !targetSense.approvedRevisionId)) throw new Error("CATALOG_NOT_ACTIVE");
+      if (kind === "UPDATE" && payload && targetSense && !catalogEntryAcceptsLemma(targetSense.catalogEntry.normalizedLemma, payload.lemma)) {
+        throw new Error("CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE");
+      }
 
       if (kind === "CREATE" && payload) {
         const pendingCreates = await tx.catalogChangeRequest.findMany({ where: { status: "PENDING", kind: "CREATE" }, select: { id: true, senseKey: true, payload: true } });
@@ -392,7 +393,14 @@ export async function POST(req: Request) {
       }
 
       let validationWarnings: string[] = [];
-      const resolvedCatalogKey = sourceRow?.catalogKey ?? targetSense?.catalogEntry.catalogKey ?? `pending-${resolvedSenseKey}`;
+      const matchingEntry = kind === "CREATE" && payload
+        ? await tx.catalogEntry.findFirst({
+          where: { normalizedLemma: normalizeCatalogText(payload.lemma) },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: { catalogKey: true },
+        })
+        : null;
+      const resolvedCatalogKey = sourceRow?.catalogKey ?? targetSense?.catalogEntry.catalogKey ?? matchingEntry?.catalogKey ?? `pending-${resolvedSenseKey}`;
       if (payload) {
         const identity = {
           catalogKey: resolvedCatalogKey,
@@ -478,6 +486,7 @@ export async function POST(req: Request) {
     const message = error instanceof Error ? error.message : "";
     if (isRetryableTransactionConflict(error)) return errorResponse("CATALOG_REQUEST_STALE", 409);
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return errorResponse("CATALOG_REQUEST_STALE", 409);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return errorResponse("CATALOG_IDENTITY_CONFLICT", 409);
     if (message === "IDEMPOTENCY_CONFLICT") return errorResponse("IDEMPOTENCY_CONFLICT", 409);
     if (message === "CATALOG_REVISION_STALE") return errorResponse("CATALOG_REVISION_STALE", 409);
     if (["CATALOG_CHANGE_PENDING", "CATALOG_ALREADY_EXISTS", "CATALOG_ALREADY_RETIRED", "CATALOG_NOT_RETIRED", "CATALOG_NOT_ACTIVE", "CATALOG_SOURCE_ROW_NOT_FOUND", "CATALOG_PENDING_SENSE_CONFLICT", "CATALOG_IDENTITY_MISMATCH"].includes(message)) return errorResponse(message, 409);
@@ -486,7 +495,7 @@ export async function POST(req: Request) {
       try { errors = JSON.parse(message.slice("CATALOG_PAYLOAD_REJECTED:".length)) as string[]; } catch { errors = ["payload rejected"]; }
       return errorResponse("CATALOG_PAYLOAD_REJECTED", 422, { errors });
     }
-    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_INVALID"].includes(message)) return errorResponse(message, 422);
+    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE"].includes(message)) return errorResponse(message, 422);
     console.error("[catalog] request failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });
     return errorResponse("CATALOG_REQUEST_FAILED", 500);
   }

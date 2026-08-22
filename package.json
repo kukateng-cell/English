@@ -36,7 +36,6 @@
     "lint": "eslint",
     "seed": "npx tsx prisma/seed.ts",
     "seed:catalog": "node --import tsx scripts/seed-catalog.ts",
-    "catalog:activate-initial": "node --import tsx scripts/activate-initial-catalog.ts",
     "check:catalog": "node --import tsx scripts/check-catalog-import.ts",
     "check:catalog-governance": "node --import tsx scripts/check-catalog-governance.ts",
     "catalog:identity": "node --import tsx scripts/build-catalog-identity-manifest.ts",

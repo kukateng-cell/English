@@ -76,6 +76,12 @@ test("enabled directions require five or six curated distractors", () => {
   assert.equal(result.eligibility, "DRAFT_BLOCKED");
 });
 
+test("a valid direction-enabled row is eligible for formal initial activation", () => {
+  const result = validateCatalogRow(normalized());
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.eligibility, "ACTIVATION_ELIGIBLE");
+});
+
 test("prompt fields are blocking because prompts are server-owned", () => {
   const row = normalized({ prompt_en: "run", prompt_zh: "跑步" });
   const result = validateCatalogRow(row);

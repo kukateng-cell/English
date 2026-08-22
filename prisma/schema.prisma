@@ -170,6 +170,8 @@ model WordSense {
   objectiveTargets    ObjectiveEvidenceTarget[]
   questionSnapshots   ObjectiveQuestionSnapshot[]
   studyEncounters     StudyEncounter[]
+  // Deprecated expand-window relation. Runtime and seed no longer read or
+  // write environment-scoped catalog eligibility.
   localEligibilities  CatalogEligibility[]
   legacyWordMappings  LegacyWordSenseMap[]
   changeRequests      CatalogChangeRequest[]
@@ -238,6 +240,8 @@ model CatalogRevision {
 }
 
 model CatalogEligibility {
+  // Deprecated physical compatibility table. Removal requires a separately
+  // approved destructive contract migration.
   id                String            @id @default(cuid())
   senseId           String
   senseRevisionId   String

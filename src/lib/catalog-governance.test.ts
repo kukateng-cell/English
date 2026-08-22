@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  catalogEntryAcceptsLemma,
   parseCatalogGovernancePayload,
   payloadFingerprint,
   payloadToSourceRow,
+  resolveExistingCatalogEntryForLemma,
   splitListForEditor,
   parseEditorList,
   validateCatalogGovernancePayload,
@@ -15,7 +17,7 @@ const payload: CatalogGovernancePayload = {
   lemma: "run",
   partOfSpeech: "verb",
   level: "A1",
-  category: "actions",
+  category: "actions-events",
   definitionZh: "跑步",
   acceptedAnswersZh: ["跑步"],
   phoneticIpa: "/rʌn/",
@@ -57,4 +59,32 @@ test("governance parser rejects malformed booleans and preserves null optional f
   assert.equal(parsed.phoneticIpa, null);
   assert.equal(parsed.exampleEn, null);
   assert.equal(parsed.exampleZh, null);
+});
+
+test("governance validation rejects categories outside the controlled taxonomy", () => {
+  const result = validateCatalogGovernancePayload(
+    { ...payload, category: "teacher-invented-category" },
+    { catalogKey: "run", senseKey: "run-a1", sourceFile: "fixture", sourceRow: 1 },
+    1,
+  );
+  assert.ok(result.errors.includes("unknown category: teacher-invented-category"));
+});
+
+test("catalog entry lemma comparison is normalized but does not permit a new headword", () => {
+  assert.equal(catalogEntryAcceptsLemma("run", " RUN "), true);
+  assert.equal(catalogEntryAcceptsLemma("run", "running"), false);
+});
+
+test("new senses reuse one existing headword and reject split identities", () => {
+  const runEntry = { id: "entry-run", catalogKey: "run", normalizedLemma: "run" };
+  assert.equal(resolveExistingCatalogEntryForLemma("run", null, runEntry), runEntry);
+  assert.equal(resolveExistingCatalogEntryForLemma(" RUN ", runEntry, runEntry), runEntry);
+  assert.throws(
+    () => resolveExistingCatalogEntryForLemma("walk", runEntry, null),
+    /CATALOG_ENTRY_IDENTITY_CONFLICT/,
+  );
+  assert.throws(
+    () => resolveExistingCatalogEntryForLemma("run", runEntry, { ...runEntry, id: "split-run", catalogKey: "pending-run" }),
+    /CATALOG_ENTRY_IDENTITY_CONFLICT/,
+  );
 });

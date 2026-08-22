@@ -23,6 +23,9 @@ on:
       - "src/lib/study-*.ts"
       - "src/lib/learning-policy/**"
       - "src/lib/study-stream/**"
+      - "src/lib/catalog/**"
+      - "outputs/catalog-identity/**"
+      - "outputs/*-word-catalog-reference-v1/*.csv"
       - "src/lib/production-config.ts"
       - "src/lib/production-config.test.ts"
       - "src/lib/student-metrics.ts"
@@ -140,6 +143,11 @@ jobs:
 
       - name: Seed the card-motion test account and words
         run: npm run seed
+
+      - name: Verify the formal catalog baseline
+        run: |
+          CATALOG_REQUIRE_INITIAL_BASELINE=1 npm run check:catalog
+          npm run check:catalog-governance
 
       - name: Run V2 stream integration and bounded soak
         run: |

@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區第一階段已完成 local implementation／verification；CSV preview／commit、學習流程 sense-level cutover 及 production rollout 仍未完成）
+> 狀態：進行中（治理工作區及單一正式 ACTIVE／DRAFT baseline 已完成 local implementation／verification；CSV preview／commit 及 production rollout 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -10,7 +10,7 @@
 >
 > 規範文件：[英語詞庫編寫、匯入及質量檢查標準 v1](./artifacts/word-catalog-authoring-standard-v1.md)
 >
-> 範圍：local product design／implementation／verification；不包括 production deploy、真實詞庫啟用或 destructive contract cleanup
+> 範圍：產品設計／implementation／本地及 CI 驗證；不包括 production deploy 或 destructive contract cleanup
 
 ## 1. 背景及問題定義
 
@@ -265,6 +265,15 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 目前無正式 production、現存內容及學生資料都係測試用途，所以 local cutover可以在使用者另行確認後採 protected reset + new seed。
 不過 converter、schema、migration同audit仍要能支援日後production soft lifecycle，唔將一次性可刪資料假設寫入普通 migration。
 
+### 11.3 單一正式初始詞庫（2026-08-22 使用者覆蓋決定）
+
+- development、test、CI 及未來 production 使用完全相同的詞庫生命週期：學生 runtime 只可讀 `ACTIVE`、有 approved revision、且所屬 `CatalogRevision` 為 `READY` 的 sense；
+- 取消 `LOCAL_DEMO_BOOTSTRAP`／environment-scoped DRAFT eligibility。測試帳戶及學習歷史可以是 fixture，但詞庫本身不再有測試版語義；
+- checked-in initial activation manifest 綁定 CSV source digest、validator／normalization version、selection rule 及預期數量，代表現有初始詞庫的明確正式啟用決定；任何 CSV 或規則改動令 digest／數量不符時必須 fail closed，先更新及重新審批 manifest；
+- 現行 digest `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a` 的正式 baseline 為：5,641 source rows、5,576 valid rows、5,469 ACTIVE、107 DRAFT、65 validation failed；
+- seed 只會為 baseline manifest 判定可啟用、目前仍為 DRAFT 且沒有 approved revision 的 sense 建立初始 approved pointer；不覆寫老師其後批准的 revision，不把 RETIRED sense 重新啟用，亦不以 CSV 缺行作停用；
+- 舊 `CatalogEligibility` physical table 暫留作 expand compatibility，runtime、seed、治理 API 及 checker 不再讀寫；刪表須另走 destructive contract migration。
+
 ## 12. 分階段實施
 
 ### Phase 0 — Contract freeze（目前）
@@ -312,9 +321,12 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 - [x] capability teacher/admin review、approve、reject、retire、reactivate；emergency withdraw及post-review history仍待補；
 - [x] server-side authorization、CSRF、revision CAS及catalog／security audit；catalog-specific rate limit仍待補；
 - [x] admin／teacher responsive catalog workspace，支援完整載入、狀態／程度／方向／搜尋篩選及逐條編輯；
+- [x] 2026-08-22 follow-up audit：治理提交必須拒絕未知 taxonomy category、既有 sense 不可令穩定 CatalogEntry lemma 漂移、同 lemma 新 sense 必須重用同一 headword；停用詞義可先修訂但不得被 audit 誤報為 ACTIVE，並以 checker／unit tests 鎖定；
 - [ ] zh-Hant／zh-Hans、theme、keyboard、screen-reader驗收。
 
 ### Phase 5 — CSV preview／commit及 conflict resolution
+
+詳細設計及分階段驗收見 [詞庫 CSV 批量提交及詞條修改歷史界面實施計劃](./word-catalog-bulk-submission-and-history.md)；以下 checklist 保留作上游總覽。
 
 - [ ] upload caps、preview batches、downloadable error report；
 - [ ] database diff、duplicate grouping、explicit dispositions；
@@ -419,6 +431,7 @@ npm run test:e2e:card-motion
 | WC-015 | 一般停用以 snapshot+lease 作 issuance 邊界；嚴重內容另設緊急撤回中性取消 | 待使用者確認 |
 | WC-016 | 新／material change禁止自批；import operation ID綁 request digest並喺commit重查 | 待使用者確認 |
 | WC-017 | activate／retire／reactivate使用全域單調遞增 catalog revision，統計保存 as-of revision | 待使用者確認 |
+| WC-018 | 所有環境共用一個正式詞庫；initial digest-bound manifest 決定 5,469 ACTIVE／107 DRAFT，runtime 不再接受 test-only DRAFT eligibility | 使用者已確認（2026-08-22） |
 
 ## 17. Definition of Done
 
@@ -472,7 +485,27 @@ npm run test:e2e:card-motion
 - 新增 `/admin/words` 及 `/teacher/words` 共用治理工作區：管理員及老師可查看完整 current READY catalog，按狀態、程度、題目方向、搜尋字串篩選；capability teacher／管理員可處理審核 queue，一般老師只可提交草稿。
 - 新增逐條 UPDATE／CREATE／RETIRE／REACTIVATE request API；所有 mutation 經現有 roster CSRF 流程、server-side role／capability、self-review block、current READY batch、identity check、validator 及 revision CAS；批准後才更新 approved revision／Word projection，拒絕不會覆蓋正式內容。
 - current local CSV source digest `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`：5,641 source rows、5,576 valid、65 validation failed；development database 目前 5,469 ACTIVE、107 DRAFT、0 RETIRED。DRAFT 係方向／內容未達到 initial activation gate 的項目，ACTIVE 項目已指向 approved revision。
-- initial activation 僅由 guarded `scripts/activate-initial-catalog.ts` 執行；會核對 development environment、local reset topology、資料庫 target、catalog digest 及 metadata，並且可重複執行。seed 已改為保留 approved lineage，缺行／缺資料／重匯不會自動 RETIRE 或刪除舊 revision；停用及重啟必須使用明確 request。
+- 當時 initial activation 由 guarded `scripts/activate-initial-catalog.ts` 執行；此 local-only 入口已於同日被下述單一正式 baseline 設計取代。seed 保留 approved lineage，缺行／缺資料／重匯不會自動 RETIRE 或刪除舊 revision；停用及重啟必須使用明確 request。
 - read-only `scripts/check-catalog-governance.ts` 已確認 READY batch／revision、sourceData、pending request identity、DRAFT approved pointer、ACTIVE lineage 及 Word projection 全部 invariant 通過。
 - 已執行／通過：`npm test`、`npm run lint`、`npx tsc --noEmit`、`npm run build`、`npm run test:migrations`、`npm run test:migration-checksums`、`npm run check:catalog`、`npm run check:catalog-governance` 及 guarded activation idempotency smoke。建置曾因 sandbox process restriction 失敗，改用獲准權限重跑後通過。
 - 兩個獨立 sub-agent 已完成初次 review；已跟進 CSRF、READY batch scope、standalone CREATE identity、approved／latest revision顯示、REACTIVATE projection、seed stale cleanup、activation target guard、pending queue truncation、modal focus／keyboard、reject note、DRAFT retire guard、pending CREATE exact-sense conflict 及 approval-time duplicate recheck 等問題。其後兩位 reviewer 再獨立確認最新修訂，均報告 blocker／high issue 為 0；非字串 `sourceRowId` 亦已改為 fail closed。未完成項包括 CSV preview／atomic commit、audit history UI、catalog-specific rate limit、full API／browser integration coverage、legacy mapping 及 sense-level learning／統計 cutover。
+
+### 2026-08-22：單一正式 ACTIVE／DRAFT baseline reconciliation
+
+- 移除 runtime、unit progress、治理 API、seed、rebuild 及 production config 的 environment-scoped DRAFT eligibility 分支；development、test、CI 及 production 現時共用 `ACTIVE + approved revision + READY catalog` predicate；
+- 新增 checked-in `word-catalog-v1.initial-activation.json`，同時鎖定 source digest、validator／normalization version、selection rule、5,469 ACTIVE／107 DRAFT／65 failed 數量，以及 ACTIVE／DRAFT sense-key set digest；任何一項漂移均會在 DB write 前 fail closed；
+- seed 會喺 fresh database 正式批准 manifest 選中的 baseline revision，但保留老師其後批准內容及 RETIRED 狀態；舊 local-only activation command 已移除，`CatalogEligibility` 只保留 physical expand compatibility，不再有 runtime／writer，現有 metadata 已清至 0；
+- 本地 reconciliation 結果：5,641 source rows、5,576 senses、5,469 ACTIVE、107 DRAFT、65 validation failed、5,469 current projections；ACTIVE missing lineage 0、projection mismatch 0、DRAFT approved pointer 0、obsolete eligibility 0；
+- 已通過：233 個 `npm test`、`npm run lint -- --max-warnings=0`、`npx tsc --noEmit`、`npm run build`、`npm run seed:catalog` 冪等重跑、`npm run check:catalog`、`npm run check:catalog-governance` 及 `npm run test:db:stream-v2`。build 首次因 sandbox 禁止 Turbopack 建立 process／port 失敗，獲准後同一 build 通過；
+- GitHub workflow 已加入正式 baseline／governance checker，但未 commit／push 前 GitHub 尚未執行新版本。既有 dependency-audit 失敗屬 Prisma 7.9.1 transitive `deepmerge-ts` advisory，與本次詞庫 runtime 修正分開處理。
+
+### 2026-08-22：治理功能 follow-up audit／correctness fixes
+
+- 核對學生 V1／V2 study、單元進度、學生詞庫、dashboard、排行榜及教師分析，所有新題、current denominator 及 operational metrics 均經 `ACTIVE + approved revision + READY catalog` predicate；RETIRED projection 可保留作歷史關聯，但不會再進入 current issuance／排名／統計。
+- 修正治理 validator 未拒絕未知 category：API 提交及批准時均按 `catalog-taxonomy-v1` fail closed，UI 改用 controlled category select；並補齊詞庫 API 錯誤文案，避免 422 被錯誤顯示成改密提示。
+- 將 `CatalogEntry` lemma 視為穩定 headword identity：既有 sense 不可用一般 UPDATE 改 lemma；新增另一 lemma 要 create 新 sense 再 retire 舊 sense。seed 重匯不再覆寫既有 entry lemma。
+- standalone CREATE 會重用相同 normalized lemma 的既有 `CatalogEntry`；批准時再次檢查 pending／existing exact sense，同時處理 catalogKey／lemma 競態衝突，避免同一 headword 被拆成多個 entry。
+- RETIRED sense 現可在保持停用狀態下提交內容修訂；批准 UPDATE 的 audit `toStatus` 會寫實際 RETIRED，而非誤報 ACTIVE，重新啟用仍須獨立 request。
+- governance checker 新增 lemma identity、unknown category 及 duplicate normalized-lemma headword 三項 invariant。本地 seed 冪等重跑結果仍為 5,641 source rows、5,576 senses、5,469 ACTIVE、107 DRAFT、0 RETIRED、5,469 projections；三項新增 invariant 全為 0。
+- 已通過：236 個 `npm test`、`npm run lint -- --max-warnings=0`、`npx tsc --noEmit`、`npm run build`、`npm run check:catalog`、`npm run check:catalog-governance`、`git diff --check` 及 `npm run seed:catalog` 冪等重跑。build／DB 指令首次受 sandbox process／localhost 限制，按項目規則以獲准權限重跑後通過。
+- 仍未完成但沒有喺本次 audit 假裝完成：CSV bulk preview／atomic commit、catalog-specific distributed rate limit、post-review audit history UI、emergency withdrawal、完整 route／browser integration matrix，以及 global catalog lifecycle revision／as-of analytics。

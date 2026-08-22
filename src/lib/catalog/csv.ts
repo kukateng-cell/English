@@ -55,7 +55,9 @@ export type CatalogPrimaryDisposition =
   | "NO_CHANGE"
   | "CONFLICT"
   | "VALIDATION_FAILED";
-export type CatalogEligibilityResult = "LOCAL_ELIGIBLE" | "DRAFT_BLOCKED";
+export type CatalogActivationResult =
+  | "ACTIVATION_ELIGIBLE"
+  | "DRAFT_BLOCKED";
 
 export interface CatalogSourceRow {
   sourceFile: string;
@@ -143,14 +145,14 @@ export interface CatalogRowValidation {
   errors: string[];
   warnings: string[];
   directionEligible: boolean;
-  eligibility: CatalogEligibilityResult;
+  eligibility: CatalogActivationResult;
 }
 
 export interface CatalogImportReport {
   sourceFile: string;
   rows: number;
   primaryDisposition: Record<CatalogPrimaryDisposition, number>;
-  eligibility: Record<CatalogEligibilityResult, number>;
+  eligibility: Record<CatalogActivationResult, number>;
   errors: number;
   warnings: number;
 }
@@ -349,7 +351,9 @@ export function validateCatalogRow(row: NormalizedCatalogRow, siblingRows: reado
     errors,
     warnings,
     directionEligible,
-    eligibility: directionEligible ? "LOCAL_ELIGIBLE" : "DRAFT_BLOCKED",
+    eligibility: directionEligible
+      ? "ACTIVATION_ELIGIBLE"
+      : "DRAFT_BLOCKED",
   };
 }
 
@@ -360,7 +364,10 @@ export function buildCatalogImportReport(
   dispositions: readonly CatalogPrimaryDisposition[] = [],
 ): CatalogImportReport {
   const primaryDisposition: Record<CatalogPrimaryDisposition, number> = { CREATED_DRAFT: 0, MERGED: 0, NO_CHANGE: 0, CONFLICT: 0, VALIDATION_FAILED: 0 };
-  const eligibility: Record<CatalogEligibilityResult, number> = { LOCAL_ELIGIBLE: 0, DRAFT_BLOCKED: 0 };
+  const eligibility: Record<CatalogActivationResult, number> = {
+    ACTIVATION_ELIGIBLE: 0,
+    DRAFT_BLOCKED: 0,
+  };
   for (const [index, validation] of validations.entries()) {
     const disposition = validation.errors.length > 0
       ? "VALIDATION_FAILED"

@@ -7,6 +7,7 @@ import {
   type CatalogLevel,
   type NormalizedCatalogRow,
 } from "./csv";
+import { isCatalogCategory } from "./taxonomy";
 
 export interface CatalogGovernancePayload {
   term: string;
@@ -163,7 +164,37 @@ export function validateCatalogGovernancePayload(
 ): CatalogPayloadValidation {
   const row = normalizeCatalogRow(payloadToSourceRow(payload, identity, revision), 0);
   const result = validateCatalogRow(row, siblings);
-  return { payload, row, errors: result.errors, warnings: result.warnings };
+  const errors = [...result.errors];
+  if (!isCatalogCategory(row.category)) errors.push(`unknown category: ${row.category}`);
+  return { payload, row, errors, warnings: result.warnings };
+}
+
+/** CatalogEntry is the stable headword boundary shared by all of its senses. */
+export function catalogEntryAcceptsLemma(
+  existingNormalizedLemma: string,
+  proposedLemma: string,
+): boolean {
+  return existingNormalizedLemma === normalizeCatalogText(proposedLemma);
+}
+
+export interface CatalogEntryIdentityCandidate {
+  id: string;
+  catalogKey: string;
+  normalizedLemma: string;
+}
+
+export function resolveExistingCatalogEntryForLemma(
+  proposedLemma: string,
+  entryByKey: CatalogEntryIdentityCandidate | null,
+  entryByLemma: CatalogEntryIdentityCandidate | null,
+): CatalogEntryIdentityCandidate | null {
+  if (entryByKey && !catalogEntryAcceptsLemma(entryByKey.normalizedLemma, proposedLemma)) {
+    throw new Error("CATALOG_ENTRY_IDENTITY_CONFLICT");
+  }
+  if (entryByKey && entryByLemma && entryByKey.id !== entryByLemma.id) {
+    throw new Error("CATALOG_ENTRY_IDENTITY_CONFLICT");
+  }
+  return entryByKey ?? entryByLemma;
 }
 
 export function payloadFromRevision(revision: {
