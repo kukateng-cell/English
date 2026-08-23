@@ -1,6 +1,6 @@
 # 詞庫 CSV 批量提交及詞條修改歷史界面實施計劃
 
-> 狀態：本地實作完成（兩個獨立實作 reviewer 均為 BLOCKER 0／HIGH 0；production readiness項目另行處理）
+> 狀態：compact response加固及本地重測完成（response amplification已解決；preview profiling、staging／Vercel及production readiness外部項目另行處理）
 >
 > 日期：2026-08-22
 >
@@ -624,3 +624,37 @@ npm run check:catalog-governance
 - 實作初審再發現CREATE finalize綁定、submitted lineage reparent、request-resolution payload immutability、不同內容來源誤取第一行、DRAFT before diff、錯誤CSV欄位及200組同時mount等blocker／high；已分別用DB trigger／lifecycle guard、immutable submitted DTO、`sourceSetDigest`＋明確來源選擇、latest DRAFT revision、方向欄位映射及每頁20組按需展開跟進；
 - 最終獨立實作re-check：資料／安全 reviewer `BLOCKER 0 / HIGH 0 — APPROVE`；產品／操作 reviewer `BLOCKER 0 / HIGH 0 — APPROVE`。兩位均只讀審核，沒有修改檔案；
 - 本輪已實作schema、新增7個ordinary expand migrations（`20260822020000`至`20260822026000`）、API、UI、DB checker、history backfill／preview cleanup script及文件；未執行production migration／deploy、destructive cleanup或外部UAT。
+
+## 18. Local performance baseline（2026-08-23，已完成）
+
+本輪按使用者指示暫不建立 staging，只喺有明確 non-production marker 嘅本機 PostgreSQL 執行。結果只代表 local service／database baseline，唔冒充 Vercel、託管網絡或 production concurrency evidence。
+
+- [x] 建立可重複、可中斷後清理嘅 performance checker；固定使用唯一 prefix，開始前清理舊 performance fixtures，完成後按外鍵次序移除；
+- [x] 建立 5,000 個已審核 standalone request＋history feed，驗證50-row cursor完整遍歷、無重複／遺漏、response size、first-page／deep-page／search latency及代表性 `EXPLAIN ANALYZE`；
+- [x] 以正式 `word-catalog-v1` 200-row CREATE CSV量度 preview、submit、逐組review及atomic finalize，確認200個child request／result revision、零部分套用並完整清理；
+- [x] 以現有5,469 ACTIVE baseline及真實demo student量度 dashboard／unit progress各50個同步並發工作，記錄成功率、wall time及p50／p95／max；
+- [x] 記錄本機硬件／資料規模、實際結果、瓶頸、未完成嘅 staging／Vercel驗證及是否需要降cap／加index／改query；完整證據見 [`artifacts/word-catalog-local-performance-baseline-2026-08-23.md`](./artifacts/word-catalog-local-performance-baseline-2026-08-23.md)。
+
+實測以資料正確性及資料庫吞吐計全部通過，但整體判定為 `NEEDS_HARDENING`：200-row preview p95 2,628.32 ms；200 次逐組 review response 累計 165.26 MiB；finalize response 879,627 bytes。下一輪優先將 mutation response 改成 compact delta，再重跑同一 checker；staging／Vercel驗證仍未執行。
+
+## 19. Compact mutation response加固（2026-08-23，已完成）
+
+### 決策
+
+- 完整 rows＋groups 只由 preview建立回應及批次detail GET提供；
+- `submit／claim／release／review／finalize／cancel／resolution／request-resolution／transfer` mutation 改用 `catalog-submission-patch-v1`；
+- patch 必須帶 `batchId`、request所用 `baseRevision`、最新 `revision`、可見範圍內嘅批次頂層狀態，以及最多一個有變更嘅group；
+- client只有喺batch ID及base revision同目前畫面一致時先套用；重播已套用patch視為no-op，其他stale／缺少group情況必須重新GET完整批次；
+- mutation patch唔降低server-side expected revision、group revision、payload digest acknowledgement、四眼審核、recent-auth、idempotency或atomic finalize要求。
+
+### Checklist
+
+- [x] 建立共享、可單元測試嘅patch contract及revision-aware client merge；
+- [x] server mutation改用只查批次頂層及單一改動group嘅compact reader；
+- [x] 更新工作區，patch mismatch時fail closed並重新載入；
+- [x] 補充正常套用、重播、stale、錯batch及缺少group regression tests；
+- [x] 更新本機checker量度每個mutation response、200次review累計傳輸及完整資料正確性；
+- [x] 重跑unit／lint／typecheck／治理完整性及兩次本機效能基線，記錄加固前後差異；
+- [x] staging／Vercel及production rollout維持deferred，唔以本機結果代替。
+
+加固後兩次200-row完整重測均通過：submit 433 bytes、claim 430 bytes、單次review平均約3,665 bytes、200次review累計0.70 MiB、finalize 503 bytes；相對加固前review累計165.26 MiB減少約99.58%。完整DB checker維持所有lifecycle／immutability／四眼審核／recent-auth guard通過。Checker唯一剩餘finding係200-row preview p95 2,413.08–2,593.70 ms高於2秒本機advisory threshold。

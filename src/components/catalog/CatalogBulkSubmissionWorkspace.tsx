@@ -6,6 +6,10 @@ import { rosterFetch } from "@/lib/roster-client";
 import { responseErrorMessage } from "@/lib/api-error";
 import RecentAuthDialog from "@/components/auth/RecentAuthDialog";
 import type { CatalogGovernancePayload } from "@/lib/catalog/governance";
+import {
+  applyCatalogSubmissionBatchPatch,
+  type CatalogSubmissionBatchPatch,
+} from "@/lib/catalog/submission-patch";
 
 type Payload = CatalogGovernancePayload;
 
@@ -53,6 +57,9 @@ type Batch = {
   reviewClaimed: boolean;
   expiresAt: string;
   absoluteExpiresAt: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  committedAt: string | null;
   createdAt: string;
   rows: BatchRow[];
   groups: Group[];
@@ -119,6 +126,24 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
     setReviewAcknowledged(new Set());
     setExpandedGroups(new Set());
     setGroupPage(1);
+  }, []);
+
+  const installMutationPatch = useCallback((base: Batch, patch: CatalogSubmissionBatchPatch<Group>): boolean => {
+    const merged = applyCatalogSubmissionBatchPatch(base, patch);
+    if (!merged.ok) return false;
+    setSelected(merged.batch);
+    if (patch.group) {
+      const group = patch.group.value;
+      setResolution((current) => ({ ...current, [group.id]: group.resolution ?? "" }));
+      setNotes((current) => ({ ...current, [group.id]: group.reviewNote ?? group.resolutionReason ?? "" }));
+      setEditedPayloads((current) => ({ ...current, [group.id]: group.finalProposalPayload }));
+      setReviewAcknowledged((current) => {
+        const next = new Set(current);
+        next.delete(group.id);
+        return next;
+      });
+    }
+    return true;
   }, []);
 
   const loadQueues = useCallback(async () => {
@@ -237,7 +262,8 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
         }),
       });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
-      installBatch((await response.json() as { batch: Batch }).batch);
+      const payload = await response.json() as { patch: CatalogSubmissionBatchPatch<Group> };
+      if (!installMutationPatch(selected, payload.patch)) await openBatch(selected.id);
       setMessage(tc("處理方式已儲存。"));
       await loadQueues();
     } catch (cause) { setError(cause instanceof Error ? cause.message : tc("儲存處理方式失敗")); }
@@ -263,8 +289,8 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
         }
       }
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
-      const payload = await response.json() as { batch: Batch };
-      installBatch(payload.batch);
+      const payload = await response.json() as { patch: CatalogSubmissionBatchPatch<Group> };
+      if (!installMutationPatch(selected, payload.patch)) await openBatch(selected.id);
       setPendingFinalizeOperationId(null);
       setMessage(action === "finalize" ? tc("批次已完成。") : tc("批次狀態已更新。"));
       await loadQueues();
@@ -287,7 +313,8 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
         }),
       });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
-      installBatch((await response.json() as { batch: Batch }).batch);
+      const payload = await response.json() as { patch: CatalogSubmissionBatchPatch<Group> };
+      if (!installMutationPatch(selected, payload.patch)) await openBatch(selected.id);
       await loadQueues();
     } catch (cause) { setError(cause instanceof Error ? cause.message : tc("儲存審核失敗")); }
     finally { setBusy(false); }
@@ -305,7 +332,8 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
         body: JSON.stringify({ groupId: group.id, expectedBatchRevision: selected.revision, expectedGroupRevision: group.revision, reason }),
       });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
-      installBatch((await response.json() as { batch: Batch }).batch);
+      const payload = await response.json() as { patch: CatalogSubmissionBatchPatch<Group> };
+      if (!installMutationPatch(selected, payload.patch)) await openBatch(selected.id);
       setMessage(tc("已要求提交者修正；本批次已封存，修正內容須建立新預覽。"));
       await loadQueues();
     } catch (cause) { setError(cause instanceof Error ? cause.message : tc("要求修正失敗")); }

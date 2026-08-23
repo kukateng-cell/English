@@ -13,7 +13,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ batchI
   try {
     const body = await parseJsonObject(req, 128 * 1024);
     const { batchId } = await params;
-    const result = await resolveCatalogSubmissionGroup({
+    const patch = await resolveCatalogSubmissionGroup({
       batchId,
       groupId: typeof body.groupId === "string" ? body.groupId : "",
       actorId: auth.actor.userId,
@@ -27,7 +27,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ batchI
       selectedSourceRowNumber: Number.isInteger(body.selectedSourceRowNumber) ? Number(body.selectedSourceRowNumber) : undefined,
       acknowledgedSourceSetDigest: typeof body.acknowledgedSourceSetDigest === "string" ? body.acknowledgedSourceSetDigest : undefined,
     });
-    return NextResponse.json({ batch: result }, { headers: CATALOG_PRIVATE_HEADERS });
+    return NextResponse.json({ patch }, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) {
     return catalogRouteError(error);
   }

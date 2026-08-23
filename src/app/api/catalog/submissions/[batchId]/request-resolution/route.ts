@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
   try {
     const body = await parseJsonObject(req, 16 * 1024);
     const { batchId } = await params;
-    const batch = await requestCatalogSubmissionResolution({
+    const patch = await requestCatalogSubmissionResolution({
       batchId,
       groupId: typeof body.groupId === "string" ? body.groupId : "",
       actorId: auth.actor.userId,
@@ -20,6 +20,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
       expectedGroupRevision: Number(body.expectedGroupRevision),
       reason: typeof body.reason === "string" ? body.reason.trim() : "",
     });
-    return NextResponse.json({ batch }, { headers: CATALOG_PRIVATE_HEADERS });
+    return NextResponse.json({ patch }, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) { return catalogRouteError(error); }
 }

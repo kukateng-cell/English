@@ -31,6 +31,10 @@ import {
   payloadFromRevision,
 } from "./governance";
 import { bumpCatalogMutationState, reviewCatalogChange } from "./change-application";
+import {
+  CATALOG_SUBMISSION_PATCH_VERSION,
+  type CatalogSubmissionBatchPatch,
+} from "./submission-patch";
 
 type Tx = Prisma.TransactionClient;
 
@@ -328,20 +332,20 @@ export async function createCatalogSubmissionPreview(input: {
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
 }
 
+const proposalGroupInclude = {
+  sourceRows: { orderBy: { rowNumber: "asc" as const }, select: { rowNumber: true, rowDigest: true, rowRole: true, normalizedSourcePayload: true } },
+  changeRequest: { select: { id: true, status: true, revision: true, resultRevisionId: true, beforePayloadSnapshot: true } },
+  authors: { select: { actorUserId: true, contributionKind: true, createdAt: true } },
+  targetSense: { select: { approvedRevision: { select: revisionSelect }, revisions: { orderBy: { revision: "desc" as const }, take: 1, select: revisionSelect } } },
+} as const;
+
 const batchInclude = {
   rows: { orderBy: { rowNumber: "asc" as const } },
-  proposalGroups: {
-    orderBy: { groupNumber: "asc" as const },
-    include: {
-      sourceRows: { orderBy: { rowNumber: "asc" as const }, select: { rowNumber: true, rowDigest: true, rowRole: true, normalizedSourcePayload: true } },
-      changeRequest: { select: { id: true, status: true, revision: true, resultRevisionId: true, beforePayloadSnapshot: true } },
-      authors: { select: { actorUserId: true, contributionKind: true, createdAt: true } },
-      targetSense: { select: { approvedRevision: { select: revisionSelect }, revisions: { orderBy: { revision: "desc" as const }, take: 1, select: revisionSelect } } },
-    },
-  },
+  proposalGroups: { orderBy: { groupNumber: "asc" as const }, include: proposalGroupInclude },
 } as const;
 
 type BatchForDto = Prisma.CatalogSubmissionBatchGetPayload<{ include: typeof batchInclude }>;
+type ProposalGroupForDto = Prisma.CatalogSubmissionProposalGroupGetPayload<{ include: typeof proposalGroupInclude }>;
 
 async function readBatchForDto(tx: Tx, id: string): Promise<BatchForDto> {
   const batch = await tx.catalogSubmissionBatch.findUnique({ where: { id }, include: batchInclude });
@@ -350,6 +354,44 @@ async function readBatchForDto(tx: Tx, id: string): Promise<BatchForDto> {
 }
 
 type SubmissionBatchDtoVisibility = "OWNER" | "REVIEWER";
+
+function submissionProposalGroupDto(group: ProposalGroupForDto, visibility: SubmissionBatchDtoVisibility) {
+  const reviewerView = visibility === "REVIEWER";
+  const requestBefore = group.changeRequest?.beforePayloadSnapshot
+    ? parseCatalogGovernancePayload(group.changeRequest.beforePayloadSnapshot)
+    : null;
+  const targetRevision = group.targetSense?.approvedRevision?.revision === group.baseRevision
+    ? group.targetSense.approvedRevision
+    : group.targetSense?.revisions.find((revision) => revision.revision === group.baseRevision) ?? null;
+  return {
+    id: group.id,
+    groupNumber: group.groupNumber,
+    requestedAction: group.requestedAction,
+    resolution: group.resolution,
+    resolutionReason: group.resolutionReason,
+    targetCatalogKey: group.targetCatalogKey,
+    targetSenseKey: group.targetSenseKey,
+    targetSenseId: group.targetSenseId,
+    baseRevision: group.baseRevision,
+    baseStatus: group.baseStatus,
+    baseProposalPayload: requestBefore ?? (targetRevision ? payloadFromRevision(targetRevision) : null),
+    finalProposalPayload: group.finalProposalPayload,
+    reviewRisk: group.reviewRisk,
+    reviewRiskReason: group.reviewRiskReason,
+    decision: group.decision,
+    reviewNote: group.reviewNote,
+    revision: group.revision,
+    sourceSetDigest: sha256(JSON.stringify(group.sourceRows.map((row) => ({ rowNumber: row.rowNumber, rowDigest: row.rowDigest })).sort((a, b) => a.rowNumber - b.rowNumber))),
+    sourceRows: group.sourceRows,
+    changeRequest: group.changeRequest,
+    ...(reviewerView ? {
+      payloadDigest: group.payloadDigest,
+      reviewedPayloadDigest: group.reviewedPayloadDigest,
+      lastContentAuthorId: group.lastContentAuthorId,
+      authors: group.authors.map((author) => ({ ...author, createdAt: author.createdAt.toISOString() })),
+    } : {}),
+  };
+}
 
 export function submissionBatchDto(batch: BatchForDto, visibility: SubmissionBatchDtoVisibility = "OWNER") {
   const reviewerView = visibility === "REVIEWER";
@@ -396,42 +438,60 @@ export function submissionBatchDto(batch: BatchForDto, visibility: SubmissionBat
       proposalGroupId: row.proposalGroupId,
       rowRole: row.rowRole,
     })),
-    groups: batch.proposalGroups.map((group) => {
-      const requestBefore = group.changeRequest?.beforePayloadSnapshot
-        ? parseCatalogGovernancePayload(group.changeRequest.beforePayloadSnapshot)
-        : null;
-      const targetRevision = group.targetSense?.approvedRevision?.revision === group.baseRevision
-        ? group.targetSense.approvedRevision
-        : group.targetSense?.revisions.find((revision) => revision.revision === group.baseRevision) ?? null;
-      return {
-      id: group.id,
-      groupNumber: group.groupNumber,
-      requestedAction: group.requestedAction,
-      resolution: group.resolution,
-      resolutionReason: group.resolutionReason,
-      targetCatalogKey: group.targetCatalogKey,
-      targetSenseKey: group.targetSenseKey,
-      targetSenseId: group.targetSenseId,
-      baseRevision: group.baseRevision,
-      baseStatus: group.baseStatus,
-      baseProposalPayload: requestBefore ?? (targetRevision ? payloadFromRevision(targetRevision) : null),
-      finalProposalPayload: group.finalProposalPayload,
-      reviewRisk: group.reviewRisk,
-      reviewRiskReason: group.reviewRiskReason,
-      decision: group.decision,
-      reviewNote: group.reviewNote,
-      revision: group.revision,
-      sourceSetDigest: sha256(JSON.stringify(group.sourceRows.map((row) => ({ rowNumber: row.rowNumber, rowDigest: row.rowDigest })).sort((a, b) => a.rowNumber - b.rowNumber))),
-      sourceRows: group.sourceRows,
-      changeRequest: group.changeRequest,
-      ...(reviewerView ? {
-        payloadDigest: group.payloadDigest,
-        reviewedPayloadDigest: group.reviewedPayloadDigest,
-        lastContentAuthorId: group.lastContentAuthorId,
-        authors: group.authors.map((author) => ({ ...author, createdAt: author.createdAt.toISOString() })),
-      } : {}),
-      };
-    }),
+    groups: batch.proposalGroups.map((group) => submissionProposalGroupDto(group, visibility)),
+  };
+}
+
+const mutationBatchSelect = {
+  id: true,
+  status: true,
+  revision: true,
+  resolutionOwnerId: true,
+  reviewerId: true,
+  expiresAt: true,
+  absoluteExpiresAt: true,
+  submittedAt: true,
+  reviewedAt: true,
+  committedAt: true,
+} as const;
+
+async function readBatchMutationPatch(
+  tx: Tx,
+  input: {
+    batchId: string;
+    baseRevision: number;
+    visibility: SubmissionBatchDtoVisibility;
+    group?: { id: string; baseRevision: number };
+  },
+): Promise<CatalogSubmissionBatchPatch<ReturnType<typeof submissionProposalGroupDto>>> {
+  const batch = await tx.catalogSubmissionBatch.findUnique({ where: { id: input.batchId }, select: mutationBatchSelect });
+  const group = input.group
+    ? await tx.catalogSubmissionProposalGroup.findFirst({ where: { id: input.group.id, batchId: input.batchId }, include: proposalGroupInclude })
+    : null;
+  if (!batch) throw new Error("CATALOG_BATCH_NOT_FOUND");
+  if (input.group && !group) throw new Error("CATALOG_GROUP_NOT_FOUND");
+  const reviewerView = input.visibility === "REVIEWER";
+  return {
+    version: CATALOG_SUBMISSION_PATCH_VERSION,
+    batchId: batch.id,
+    baseRevision: input.baseRevision,
+    revision: batch.revision,
+    batch: {
+      status: batch.status,
+      resolutionOwnerId: reviewerView ? batch.resolutionOwnerId : null,
+      reviewerId: reviewerView ? batch.reviewerId : null,
+      resolutionClaimed: Boolean(batch.resolutionOwnerId),
+      reviewClaimed: Boolean(batch.reviewerId),
+      expiresAt: batch.expiresAt.toISOString(),
+      absoluteExpiresAt: batch.absoluteExpiresAt.toISOString(),
+      submittedAt: batch.submittedAt?.toISOString() ?? null,
+      reviewedAt: batch.reviewedAt?.toISOString() ?? null,
+      committedAt: batch.committedAt?.toISOString() ?? null,
+    },
+    group: group && input.group ? {
+      baseRevision: input.group.baseRevision,
+      value: submissionProposalGroupDto(group, input.visibility),
+    } : null,
   };
 }
 
@@ -608,7 +668,12 @@ export async function resolveCatalogSubmissionGroup(input: {
     await tx.catalogAuditEvent.create({
       data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "RESOLUTION_SAVED", metadata: { groupId: group.id, resolution: input.resolution, payloadChanged, materialResolution, sourceSelectionMode: input.sourceSelectionMode ?? null, selectedSourceRowNumber: input.selectedSourceRowNumber ?? null, acknowledgedSourceSetDigest: input.acknowledgedSourceSetDigest ?? null } },
     });
-    return submissionBatchDto(await readBatchForDto(tx, batch.id), input.canReview ? "REVIEWER" : "OWNER");
+    return readBatchMutationPatch(tx, {
+      batchId: batch.id,
+      baseRevision: input.expectedBatchRevision,
+      visibility: input.canReview ? "REVIEWER" : "OWNER",
+      group: { id: group.id, baseRevision: input.expectedGroupRevision },
+    });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
 }
 
@@ -635,7 +700,11 @@ export async function claimCatalogSubmissionBatch(input: { batchId: string; acto
       },
     });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: resolutionMode ? input.release ? "RESOLUTION_RELEASED" : "RESOLUTION_CLAIMED" : input.release ? "REVIEW_RELEASED" : "REVIEW_CLAIMED" } });
-    return submissionBatchDto(await readBatchForDto(tx, batch.id), "REVIEWER");
+    return readBatchMutationPatch(tx, {
+      batchId: batch.id,
+      baseRevision: input.expectedRevision,
+      visibility: "REVIEWER",
+    });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
@@ -654,7 +723,14 @@ export async function submitCatalogSubmissionBatch(input: {
     const fingerprint = sha256(JSON.stringify({ batchId: input.batchId, expectedRevision: input.expectedRevision, reason: input.reason }));
     if (receipt) {
       if (receipt.requestFingerprint !== fingerprint) throw new Error("IDEMPOTENCY_CONFLICT");
-      return { replay: true, batch: submissionBatchDto(await readBatchForDto(tx, receipt.batchId)) };
+      return {
+        replay: true,
+        patch: await readBatchMutationPatch(tx, {
+          batchId: receipt.batchId,
+          baseRevision: input.expectedRevision,
+          visibility: "OWNER",
+        }),
+      };
     }
     await lockAndValidateSubmitter(tx, input.actorId);
     await tx.catalogMutationState.upsert({ where: { id: 1 }, create: { id: 1, revision: 0 }, update: {} });
@@ -729,7 +805,14 @@ export async function submitCatalogSubmissionBatch(input: {
     });
     await tx.catalogHistoryFeedEntry.create({ data: { occurredAt: submittedAt, sourceKind: "BATCH", submissionBatchId: batch.id } });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "BATCH_SUBMITTED", fromStatus: batch.status, toStatus: "SUBMITTED" } });
-    return { replay: false, batch: submissionBatchDto(await readBatchForDto(tx, batch.id)) };
+    return {
+      replay: false,
+      patch: await readBatchMutationPatch(tx, {
+        batchId: batch.id,
+        baseRevision: input.expectedRevision,
+        visibility: "OWNER",
+      }),
+    };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
 }
 
@@ -766,7 +849,15 @@ export async function reviewCatalogSubmissionGroup(input: {
       data: { status: pending ? "REVIEWING" : "REVIEWED", reviewedAt: pending ? null : new Date(), revision: { increment: 1 } },
     });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "REVIEW_PROGRESS_SAVED", metadata: { groupId: group.id, decision: input.decision } } });
-    return { requiresSecondReviewer: false, batch: submissionBatchDto(await readBatchForDto(tx, batch.id), "REVIEWER") };
+    return {
+      requiresSecondReviewer: false,
+      patch: await readBatchMutationPatch(tx, {
+        batchId: batch.id,
+        baseRevision: input.expectedBatchRevision,
+        visibility: "REVIEWER",
+        group: { id: group.id, baseRevision: input.expectedGroupRevision },
+      }),
+    };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
 }
 
@@ -794,7 +885,11 @@ export async function requestCatalogSubmissionResolution(input: {
     if (pendingIds.length) await tx.catalogChangeRequest.updateMany({ where: { id: { in: pendingIds }, status: "PENDING" }, data: { status: "CANCELLED", revision: { increment: 1 } } });
     await tx.catalogSubmissionBatch.update({ where: { id: batch.id }, data: { status: "STALE", reviewerId: null, revision: { increment: 1 } } });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "RESOLUTION_REQUESTED", fromStatus: batch.status, toStatus: "STALE", metadata: { groupId: group.id, reason: input.reason.trim() } } });
-    return submissionBatchDto(await readBatchForDto(tx, batch.id), "REVIEWER");
+    return readBatchMutationPatch(tx, {
+      batchId: batch.id,
+      baseRevision: input.expectedBatchRevision,
+      visibility: "REVIEWER",
+    });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
@@ -816,7 +911,11 @@ export async function transferCatalogSubmissionClaim(input: {
     if (!next || next.status !== "ACTIVE" || (next.role !== "ADMIN" && (next.role !== "TEACHER" || !next.teacherProfile?.canManageWordCatalog))) throw new Error("CATALOG_REVIEW_FORBIDDEN");
     await tx.catalogSubmissionBatch.update({ where: { id: batch.id, revision: input.expectedRevision }, data: { ...(resolutionMode ? { resolutionOwnerId: input.nextReviewerId } : { reviewerId: input.nextReviewerId }), revision: { increment: 1 } } });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "REVIEW_CLAIM_TRANSFERRED", metadata: { nextReviewerId: input.nextReviewerId } } });
-    return submissionBatchDto(await readBatchForDto(tx, batch.id), "REVIEWER");
+    return readBatchMutationPatch(tx, {
+      batchId: batch.id,
+      baseRevision: input.expectedRevision,
+      visibility: "REVIEWER",
+    });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
@@ -843,7 +942,14 @@ export async function finalizeCatalogSubmissionBatch(input: {
     });
     if (receipt) {
       if (receipt.requestFingerprint !== fingerprint) throw new Error("IDEMPOTENCY_CONFLICT");
-      return { replay: true, batch: submissionBatchDto(await readBatchForDto(tx, receipt.batchId), "REVIEWER") };
+      return {
+        replay: true,
+        patch: await readBatchMutationPatch(tx, {
+          batchId: receipt.batchId,
+          baseRevision: input.expectedRevision,
+          visibility: "REVIEWER",
+        }),
+      };
     }
     await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${input.actorId} FOR UPDATE`;
     await tx.$queryRaw`SELECT "id" FROM "RecentAuthGrant" WHERE "id" = ${input.recentAuth.grantId} FOR UPDATE`;
@@ -877,7 +983,14 @@ export async function finalizeCatalogSubmissionBatch(input: {
       await tx.catalogSubmissionBatch.update({ where: { id: batch.id }, data: { status: "STALE", baseMutationRevision: mutationState.revision, revision: { increment: 1 } } });
       await tx.catalogSubmissionOperationReceipt.create({ data: { batchId: batch.id, actorUserId: input.actorId, operationKind: "FINALIZE", operationId: input.operationId, requestFingerprint: fingerprint, outcomeStatus: "STALE", summary: json({ reason: "dependency changed" }) } });
       await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "BATCH_STALE", fromStatus: "FINALIZING", toStatus: "STALE", metadata: { reason: "dependency changed" } } });
-      return { replay: false, batch: submissionBatchDto(await readBatchForDto(tx, batch.id), "REVIEWER") };
+      return {
+        replay: false,
+        patch: await readBatchMutationPatch(tx, {
+          batchId: batch.id,
+          baseRevision: input.expectedRevision,
+          visibility: "REVIEWER",
+        }),
+      };
     }
     const lemmas = [...new Set(batch.proposalGroups.map((group) => parseCatalogGovernancePayload(group.finalProposalPayload).lemma).map(normalizeCatalogText))].sort();
     for (const lemma of lemmas) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`catalog-lemma:${lemma}`}, 0))`;
@@ -907,7 +1020,14 @@ export async function finalizeCatalogSubmissionBatch(input: {
     });
     await tx.catalogHistoryFeedEntry.upsert({ where: { submissionBatchId: batch.id }, create: { occurredAt: committedAt, sourceKind: "BATCH", submissionBatchId: batch.id }, update: {} });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: terminalStatus === "COMMITTED" ? "BATCH_COMMITTED" : "BATCH_REJECTED", fromStatus: "FINALIZING", toStatus: terminalStatus, metadata: { canonicalMutations } } });
-    return { replay: false, batch: submissionBatchDto(await readBatchForDto(tx, batch.id), "REVIEWER") };
+    return {
+      replay: false,
+      patch: await readBatchMutationPatch(tx, {
+        batchId: batch.id,
+        baseRevision: input.expectedRevision,
+        visibility: "REVIEWER",
+      }),
+    };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 60_000 });
 }
 
@@ -917,14 +1037,24 @@ export async function cancelCatalogSubmissionBatch(input: { batchId: string; act
     if (!batch) throw new Error("CATALOG_BATCH_NOT_FOUND");
     if (batch.proposerId !== input.actorId) throw new Error("CATALOG_BATCH_FORBIDDEN");
     if (batch.revision !== input.expectedRevision) throw new Error("CATALOG_BATCH_STALE");
-    if (TERMINAL_STATUSES.includes(batch.status as (typeof TERMINAL_STATUSES)[number])) return submissionBatchDto(await readBatchForDto(tx, batch.id));
+    if (TERMINAL_STATUSES.includes(batch.status as (typeof TERMINAL_STATUSES)[number])) {
+      return readBatchMutationPatch(tx, {
+        batchId: batch.id,
+        baseRevision: input.expectedRevision,
+        visibility: "OWNER",
+      });
+    }
     if (batch.status === "FINALIZING") throw new Error("CATALOG_BATCH_NOT_CANCELLABLE");
     await tx.catalogSubmissionBatch.update({ where: { id: batch.id, revision: input.expectedRevision }, data: { status: "FINALIZING", revision: { increment: 1 } } });
     const requestIds = batch.proposalGroups.flatMap((group) => group.changeRequest?.status === "PENDING" ? [group.changeRequest.id] : []);
     if (requestIds.length) await tx.catalogChangeRequest.updateMany({ where: { id: { in: requestIds }, status: "PENDING" }, data: { status: "CANCELLED", revision: { increment: 1 } } });
     await tx.catalogSubmissionBatch.update({ where: { id: batch.id }, data: { status: "CANCELLED", revision: { increment: 1 } } });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "BATCH_CANCELLED", fromStatus: batch.status, toStatus: "CANCELLED" } });
-    return submissionBatchDto(await readBatchForDto(tx, batch.id));
+    return readBatchMutationPatch(tx, {
+      batchId: batch.id,
+      baseRevision: input.expectedRevision,
+      visibility: "OWNER",
+    });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 

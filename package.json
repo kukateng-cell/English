@@ -39,6 +39,7 @@
     "check:catalog": "node --import tsx scripts/check-catalog-import.ts",
     "check:catalog-governance": "node --import tsx scripts/check-catalog-governance.ts",
     "check:catalog-submission": "node --env-file=.env.local --import tsx scripts/check-catalog-submission.ts",
+    "test:catalog:performance": "node --import tsx scripts/check-catalog-performance.ts",
     "backfill:catalog-history": "node --import tsx scripts/backfill-catalog-history.ts",
     "cleanup:catalog-previews": "node --import tsx scripts/cleanup-catalog-submission-previews.ts",
     "catalog:identity": "node --import tsx scripts/build-catalog-identity-manifest.ts",

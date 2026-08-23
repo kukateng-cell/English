@@ -15,6 +15,11 @@ import {
   type CatalogDatabaseSenseSnapshot,
 } from "./catalog/submission";
 import type { CatalogGovernancePayload } from "./catalog/governance";
+import {
+  applyCatalogSubmissionBatchPatch,
+  CATALOG_SUBMISSION_PATCH_VERSION,
+  type CatalogSubmissionBatchPatch,
+} from "./catalog/submission-patch";
 
 function payload(overrides: Partial<CatalogGovernancePayload> = {}): CatalogGovernancePayload {
   return {
@@ -173,4 +178,77 @@ test("error report maps both distractor directions to exact CSV column ranges", 
   const reverse = describeCatalogBatchError("zh-en distractor collides with canonical answer");
   assert.equal(reverse.field, "distractor_en_1…distractor_en_6");
   assert.equal(reverse.excelColumn, "AD:AI");
+});
+
+type PatchTestGroup = { id: string; revision: number; decision: string; payload: string };
+
+function patchState() {
+  return {
+    status: "REVIEWING",
+    resolutionOwnerId: null,
+    reviewerId: "reviewer-1",
+    resolutionClaimed: false,
+    reviewClaimed: true,
+    expiresAt: "2026-08-24T00:00:00.000Z",
+    absoluteExpiresAt: "2026-08-25T00:00:00.000Z",
+    submittedAt: "2026-08-23T00:00:00.000Z",
+    reviewedAt: null,
+    committedAt: null,
+  };
+}
+
+test("compact submission patch updates one group without replacing full batch data", () => {
+  const rows = [{ id: "row-1" }, { id: "row-2" }];
+  const current = {
+    id: "batch-1",
+    revision: 4,
+    ...patchState(),
+    rows,
+    groups: [
+      { id: "group-1", revision: 2, decision: "PENDING", payload: "one" },
+      { id: "group-2", revision: 3, decision: "PENDING", payload: "two" },
+    ],
+  };
+  const patch: CatalogSubmissionBatchPatch<PatchTestGroup> = {
+    version: CATALOG_SUBMISSION_PATCH_VERSION,
+    batchId: current.id,
+    baseRevision: 4,
+    revision: 5,
+    batch: { ...patchState(), status: "REVIEWED", reviewedAt: "2026-08-23T01:00:00.000Z" },
+    group: {
+      baseRevision: 3,
+      value: { id: "group-2", revision: 4, decision: "APPROVE", payload: "two" },
+    },
+  };
+  const result = applyCatalogSubmissionBatchPatch(current, patch);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.outcome, "APPLIED");
+  assert.equal(result.batch.revision, 5);
+  assert.equal(result.batch.status, "REVIEWED");
+  assert.equal(result.batch.groups[0], current.groups[0]);
+  assert.equal(result.batch.groups[1]!.decision, "APPROVE");
+  assert.equal(result.batch.rows, rows);
+});
+
+test("compact submission patch replays safely and rejects stale or unrelated state", () => {
+  const current = {
+    id: "batch-1",
+    revision: 5,
+    ...patchState(),
+    groups: [{ id: "group-1", revision: 3, decision: "APPROVE", payload: "one" }],
+  };
+  const replay: CatalogSubmissionBatchPatch<PatchTestGroup> = {
+    version: CATALOG_SUBMISSION_PATCH_VERSION,
+    batchId: current.id,
+    baseRevision: 4,
+    revision: 5,
+    batch: patchState(),
+    group: { baseRevision: 2, value: current.groups[0]! },
+  };
+  assert.deepEqual(applyCatalogSubmissionBatchPatch(current, replay), { ok: true, batch: current, outcome: "REPLAY" });
+  assert.deepEqual(applyCatalogSubmissionBatchPatch(current, { ...replay, batchId: "batch-2" }), { ok: false, reason: "BATCH_MISMATCH" });
+  assert.deepEqual(applyCatalogSubmissionBatchPatch({ ...current, revision: 6 }, replay), { ok: false, reason: "REVISION_MISMATCH" });
+  assert.deepEqual(applyCatalogSubmissionBatchPatch({ ...current, revision: 4, groups: [] }, replay), { ok: false, reason: "GROUP_MISSING" });
+  assert.deepEqual(applyCatalogSubmissionBatchPatch({ ...current, revision: 4, groups: [{ ...current.groups[0]!, revision: 1 }] }, replay), { ok: false, reason: "GROUP_REVISION_MISMATCH" });
 });

@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
   try {
     const body = await parseJsonObject(req, 8 * 1024);
     const { batchId } = await params;
-    const batch = await transferCatalogSubmissionClaim({ batchId, actorId: auth.actor.userId, nextReviewerId: typeof body.nextReviewerId === "string" ? body.nextReviewerId : "", expectedRevision: Number(body.expectedRevision) });
-    return NextResponse.json({ batch }, { headers: CATALOG_PRIVATE_HEADERS });
+    const patch = await transferCatalogSubmissionClaim({ batchId, actorId: auth.actor.userId, nextReviewerId: typeof body.nextReviewerId === "string" ? body.nextReviewerId : "", expectedRevision: Number(body.expectedRevision) });
+    return NextResponse.json({ patch }, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) { return catalogRouteError(error); }
 }

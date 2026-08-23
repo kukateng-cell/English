@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
   try {
     const body = await parseJsonObject(req, 8 * 1024);
     const { batchId } = await params;
-    const batch = await claimCatalogSubmissionBatch({ batchId, actorId: auth.actor.userId, expectedRevision: Number(body.expectedRevision), release: false });
-    return NextResponse.json({ batch }, { headers: CATALOG_PRIVATE_HEADERS });
+    const patch = await claimCatalogSubmissionBatch({ batchId, actorId: auth.actor.userId, expectedRevision: Number(body.expectedRevision), release: false });
+    return NextResponse.json({ patch }, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) { return catalogRouteError(error); }
 }

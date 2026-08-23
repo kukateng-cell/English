@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區、單一正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit 及修改歷史已完成 local implementation／verification；production rollout、performance／外部 UAT 及 legacy cleanup 仍未完成）
+> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機full-size效能基線及compact response加固已完成；preview profiling、staging／Vercel、production rollout、外部 UAT 及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -333,7 +333,9 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 - [x] request-digest-bound idempotent atomic draft commit及 preview→commit TOCTOU regression；
 - [x] stale revision、lineage immutability及approval transaction checks；
 - [x] import retention／cleanup dry-run及operational audit；production scheduler仍待配置；
-- [ ] full-size performance測試。
+- [x] 本機 full-size performance baseline：5,000 history、200-row lifecycle及100個學生同步讀取；結果及清理證據見 [`artifacts/word-catalog-local-performance-baseline-2026-08-23.md`](./artifacts/word-catalog-local-performance-baseline-2026-08-23.md)；
+- [x] 完成 compact mutation response加固後重跑兩次本機基線；200次review由165.26 MiB降至0.70 MiB，完整lifecycle correctness不變；
+- [ ] profile／改善200-row preview p95 2.41–2.59秒，並另行執行 staging／Vercel full-size performance驗證。
 
 ### Phase 6 — 現有詞庫轉換及內容補充
 
@@ -517,7 +519,7 @@ npm run test:e2e:card-motion
 - 新增權限裁剪的修改歷史feed、signed cursor／snapshot cutoff、JSON search、batch child pagination、request detail、sense timeline及Public／Owner／Reviewer DTO；一般老師不可讀取其他人未批准內容或技術身份。
 - 新增7個ordinary expand migrations（`20260822020000`至`20260822026000`），包括submission／history模型、request snapshots、batch／child／lineage／terminal DB guards；production feature gates預設關閉，raw CSV不落DB。
 - 本地驗證通過：249個unit tests、lint、typecheck、79-route production build、61個ordinary migration fresh／interrupted replay、2個contract migration regression、checksum、catalog／governance／submission DB check、Review DB regression，以及history backfill／preview cleanup dry-run。
-- 兩個獨立實作reviewer最終均為`BLOCKER 0 / HIGH 0 — APPROVE`。未執行：5,000+ history及200-row Vercel性能測試、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy／scheduler、emergency withdraw及global lifecycle revision／as-of analytics。
+- 兩個獨立實作reviewer最終均為`BLOCKER 0 / HIGH 0 — APPROVE`。5,000+ history及200-row本機性能基線已於2026-08-23完成，但發現完整batch response amplification並待加固；未執行：staging／Vercel性能測試、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy／scheduler、emergency withdraw及global lifecycle revision／as-of analytics。
 
 ### 2026-08-23：跨邊界 correctness／performance 審核跟進（已完成）
 
