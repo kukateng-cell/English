@@ -9,12 +9,15 @@ import {
 } from "./catalog/csv";
 import {
   buildCatalogSubmissionPreview,
+  buildCatalogPreviewDependencyDigests,
+  catalogDependencyDigest,
   classifyCatalogReviewRisk,
   describeCatalogBatchError,
+  deterministicSubmissionProposalGroupId,
   isCanonicalUuid,
   type CatalogDatabaseSenseSnapshot,
 } from "./catalog/submission";
-import type { CatalogGovernancePayload } from "./catalog/governance";
+import { payloadFingerprint, type CatalogGovernancePayload } from "./catalog/governance";
 import {
   applyCatalogSubmissionBatchPatch,
   CATALOG_SUBMISSION_PATCH_VERSION,
@@ -165,6 +168,50 @@ test("idempotency keys require canonical UUID spelling", () => {
   assert.equal(isCanonicalUuid("018f1f5a-7b2f-7cc1-8b35-5bb85b29ad31"), true);
   assert.equal(isCanonicalUuid("018F1F5A-7B2F-7CC1-8B35-5BB85B29AD31"), false);
   assert.equal(isCanonicalUuid("not-a-uuid"), false);
+});
+
+test("bulk preview proposal group identities are deterministic and group-specific", () => {
+  const first = deterministicSubmissionProposalGroupId("batch-1", 1);
+  assert.equal(first, deterministicSubmissionProposalGroupId("batch-1", 1));
+  assert.notEqual(first, deterministicSubmissionProposalGroupId("batch-1", 2));
+  assert.notEqual(first, deterministicSubmissionProposalGroupId("batch-2", 1));
+  assert.match(first, /^cspg_[0-9a-f]{24}$/u);
+});
+
+test("bulk preview dependency digests include deduplicated sibling and pending conflicts", () => {
+  const snapshot: CatalogDatabaseSenseSnapshot = {
+    id: "sense-id",
+    catalogKey: "cat_run",
+    senseKey: "sense_run",
+    status: "ACTIVE",
+    revision: 1,
+    payload: payload(),
+  };
+  const preview = buildCatalogSubmissionPreview([source("CREATE", { definition_zh: "快速跑動" })], [snapshot]);
+  const group = preview.groups[0]!;
+  const pending = {
+    senseId: snapshot.id,
+    senseKey: snapshot.senseKey,
+    normalizedTerm: "run",
+    requestFingerprint: "pending-fingerprint",
+  };
+  const digest = buildCatalogPreviewDependencyDigests([group], [snapshot], [pending, pending]).get(group.groupNumber);
+  assert.equal(digest, catalogDependencyDigest({
+    action: "CREATE",
+    target: null,
+    siblingDigests: [payloadFingerprint(snapshot.payload)],
+    pendingConflictDigests: [pending.requestFingerprint],
+  }));
+
+  const update = buildCatalogSubmissionPreview([source("UPDATE", { definition_zh: "奔跑" })], [snapshot]).groups[0]!;
+  const renamedPending = { ...pending, senseKey: null, normalizedTerm: "renamed", requestFingerprint: "pending-by-sense-id" };
+  const updateDigest = buildCatalogPreviewDependencyDigests([update], [snapshot], [renamedPending]).get(update.groupNumber);
+  assert.equal(updateDigest, catalogDependencyDigest({
+    action: "UPDATE",
+    target: snapshot,
+    siblingDigests: [payloadFingerprint(snapshot.payload)],
+    pendingConflictDigests: [renamedPending.requestFingerprint],
+  }));
 });
 
 test("error report maps both distractor directions to exact CSV column ranges", () => {

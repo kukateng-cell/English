@@ -79,6 +79,10 @@ export interface CatalogPendingChangeSnapshot {
   normalizedTerm: string | null;
 }
 
+export interface CatalogPendingDependencySnapshot extends CatalogPendingChangeSnapshot {
+  requestFingerprint: string;
+}
+
 export interface CatalogSubmissionPreviewRow {
   rowNumber: number;
   rowDigest: string;
@@ -232,6 +236,52 @@ export function catalogDependencyDigest(input: {
     } : null,
     siblingDigests: [...input.siblingDigests].sort(),
     pendingConflictDigests: [...(input.pendingConflictDigests ?? [])].sort(),
+  }));
+}
+
+function addDigest(index: Map<string, Set<string>>, key: string | null, value: string): void {
+  if (!key) return;
+  const values = index.get(key) ?? new Set<string>();
+  values.add(value);
+  index.set(key, values);
+}
+
+export function buildCatalogPreviewDependencyDigests(
+  groups: readonly CatalogSubmissionPreviewGroup[],
+  snapshots: readonly CatalogDatabaseSenseSnapshot[],
+  pendingChanges: readonly CatalogPendingDependencySnapshot[],
+): Map<number, string> {
+  const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const siblingDigestsByTerm = new Map<string, Set<string>>();
+  const siblingDigestsByLemma = new Map<string, Set<string>>();
+  for (const snapshot of snapshots) {
+    const fingerprint = payloadFingerprint(snapshot.payload);
+    addDigest(siblingDigestsByTerm, normalizeCatalogText(snapshot.payload.term), fingerprint);
+    addDigest(siblingDigestsByLemma, normalizeCatalogText(snapshot.payload.lemma), fingerprint);
+  }
+  const pendingDigestsBySense = new Map<string, Set<string>>();
+  const pendingDigestsByTerm = new Map<string, Set<string>>();
+  for (const pending of pendingChanges) {
+    addDigest(pendingDigestsBySense, pending.senseId, pending.requestFingerprint);
+    addDigest(pendingDigestsByTerm, pending.normalizedTerm, pending.requestFingerprint);
+  }
+  return new Map(groups.map((group) => {
+    const normalizedTerm = normalizeCatalogText(group.finalProposalPayload.term);
+    const normalizedLemma = normalizeCatalogText(group.finalProposalPayload.lemma);
+    const siblingDigests = new Set([
+      ...(siblingDigestsByTerm.get(normalizedTerm) ?? []),
+      ...(siblingDigestsByLemma.get(normalizedLemma) ?? []),
+    ]);
+    const pendingConflictDigests = new Set([
+      ...(group.targetSenseId ? pendingDigestsBySense.get(group.targetSenseId) ?? [] : []),
+      ...(pendingDigestsByTerm.get(normalizedTerm) ?? []),
+    ]);
+    return [group.groupNumber, catalogDependencyDigest({
+      action: group.requestedAction,
+      target: group.targetSenseId ? snapshotById.get(group.targetSenseId) ?? null : null,
+      siblingDigests: [...siblingDigests],
+      pendingConflictDigests: [...pendingConflictDigests],
+    })];
   }));
 }
 
@@ -399,6 +449,10 @@ export function isCanonicalUuid(value: string | null): value is string {
 
 export function deterministicBatchRequestOperationId(batchId: string, groupId: string): string {
   return `catalog-batch-${sha256(`${batchId}\u0000${groupId}`).slice(0, 32)}`;
+}
+
+export function deterministicSubmissionProposalGroupId(batchId: string, groupNumber: number): string {
+  return `cspg_${sha256(`${batchId}\u0000${groupNumber}`).slice(0, 24)}`;
 }
 
 export function catalogActorPseudonym(userId: string): { value: string; keyVersion: string } {

@@ -12,17 +12,19 @@ import {
 import {
   catalogActorPseudonym,
   buildCatalogSubmissionPreview,
+  buildCatalogPreviewDependencyDigests,
   catalogDependencyDigest,
   classifyCatalogReviewRisk,
   CATALOG_REVIEW_RISK_VERSION,
   CATALOG_SUBMISSION_VERSIONS,
   deterministicBatchRequestOperationId,
+  deterministicSubmissionProposalGroupId,
   describeCatalogBatchError,
   isCanonicalUuid,
   refreshSubmissionExpiry,
   submissionExpiry,
   type CatalogDatabaseSenseSnapshot,
-  type CatalogPendingChangeSnapshot,
+  type CatalogPendingDependencySnapshot,
   type SubmissionResolution,
 } from "./submission";
 import {
@@ -80,11 +82,11 @@ const revisionSelect = {
   retirementReason: true,
 } as const;
 
-async function databaseSnapshots(rows: readonly CatalogSourceRow[]): Promise<CatalogDatabaseSenseSnapshot[]> {
+async function databaseSnapshots(tx: Tx, rows: readonly CatalogSourceRow[]): Promise<CatalogDatabaseSenseSnapshot[]> {
   const normalizedTerms = [...new Set(rows.map((row) => normalizeCatalogText(row.term)).filter(Boolean))];
   const normalizedLemmas = [...new Set(rows.map((row) => normalizeCatalogText(row.lemma || row.term)).filter(Boolean))];
   const senseKeys = [...new Set(rows.map((row) => row.sense_key.trim()).filter(Boolean))];
-  const senses = await prisma.wordSense.findMany({
+  const senses = await tx.wordSense.findMany({
     where: {
       OR: [
         ...(senseKeys.length ? [{ senseKey: { in: senseKeys } }] : []),
@@ -190,26 +192,6 @@ export async function createCatalogSubmissionPreview(input: {
   if (!isCanonicalUuid(input.operationId)) throw new Error("IDEMPOTENCY_KEY_INVALID");
   if (input.bytes.byteLength > CATALOG_GOVERNANCE_MAX_BYTES) throw new Error("CATALOG_CSV_TOO_LARGE");
   const rows = parseCatalogGovernanceCsv(input.bytes, input.fileName);
-  const snapshots = await databaseSnapshots(rows);
-  const senseKeys = [...new Set(rows.map((row) => row.sense_key.trim()).filter(Boolean))];
-  const normalizedTerms = [...new Set(rows.map((row) => normalizeCatalogText(row.term)).filter(Boolean))];
-  const pendingRows = await prisma.catalogChangeRequest.findMany({
-    where: {
-      status: "PENDING",
-      OR: [
-        ...(senseKeys.length ? [{ senseKey: { in: senseKeys } }] : []),
-        ...(normalizedTerms.length ? [{ afterNormalizedTermSnapshot: { in: normalizedTerms } }] : []),
-      ],
-    },
-    select: { senseId: true, senseKey: true, afterNormalizedTermSnapshot: true },
-  });
-  const pendingChanges: CatalogPendingChangeSnapshot[] = pendingRows.map((row) => ({
-    senseId: row.senseId,
-    senseKey: row.senseKey,
-    normalizedTerm: row.afterNormalizedTermSnapshot,
-  }));
-  const preview = buildCatalogSubmissionPreview(rows, snapshots, pendingChanges);
-  if (preview.summary.invalidRows > 0) preview.status = "NEEDS_RESOLUTION";
   const fileHash = sha256(input.bytes);
   const requestDigest = sha256(JSON.stringify({
     operationId: input.operationId,
@@ -232,6 +214,30 @@ export async function createCatalogSubmissionPreview(input: {
     const ready = await tx.catalogRevision.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
     if (!ready) throw new Error("CATALOG_NOT_READY");
     const mutation = await tx.catalogMutationState.upsert({ where: { id: 1 }, create: { id: 1, revision: 0 }, update: {} });
+    const snapshots = await databaseSnapshots(tx, rows);
+    const snapshotSenseIds = snapshots.map((snapshot) => snapshot.id);
+    const senseKeys = [...new Set(rows.map((row) => row.sense_key.trim()).filter(Boolean))];
+    const normalizedTerms = [...new Set(rows.map((row) => normalizeCatalogText(row.term)).filter(Boolean))];
+    const pendingRows = await tx.catalogChangeRequest.findMany({
+      where: {
+        status: "PENDING",
+        OR: [
+          ...(snapshotSenseIds.length ? [{ senseId: { in: snapshotSenseIds } }] : []),
+          ...(senseKeys.length ? [{ senseKey: { in: senseKeys } }] : []),
+          ...(normalizedTerms.length ? [{ afterNormalizedTermSnapshot: { in: normalizedTerms } }] : []),
+        ],
+      },
+      select: { senseId: true, senseKey: true, afterNormalizedTermSnapshot: true, requestFingerprint: true },
+    });
+    const pendingChanges: CatalogPendingDependencySnapshot[] = pendingRows.map((row) => ({
+      senseId: row.senseId,
+      senseKey: row.senseKey,
+      normalizedTerm: row.afterNormalizedTermSnapshot,
+      requestFingerprint: row.requestFingerprint,
+    }));
+    const preview = buildCatalogSubmissionPreview(rows, snapshots, pendingChanges);
+    if (preview.summary.invalidRows > 0) preview.status = "NEEDS_RESOLUTION";
+    const dependencyDigests = buildCatalogPreviewDependencyDigests(preview.groups, snapshots, pendingChanges);
     const batch = await tx.catalogSubmissionBatch.create({
       data: {
         proposerId: input.actorId,
@@ -254,52 +260,57 @@ export async function createCatalogSubmissionPreview(input: {
       },
     });
     const groupIds = new Map<number, string>();
-    for (const group of preview.groups) {
+    const reusableEntryByLemma = new Map<string, string>();
+    for (const snapshot of snapshots) {
+      const normalizedLemma = normalizeCatalogText(snapshot.payload.lemma);
+      if (!reusableEntryByLemma.has(normalizedLemma)) reusableEntryByLemma.set(normalizedLemma, snapshot.catalogKey);
+    }
+    const groupRows = preview.groups.map((group) => {
+      const id = deterministicSubmissionProposalGroupId(batch.id, group.groupNumber);
+      groupIds.set(group.groupNumber, id);
+      const dependencyDigest = dependencyDigests.get(group.groupNumber);
+      if (!dependencyDigest) throw new Error("CATALOG_BATCH_DEPENDENCY_INVALID");
       const normalizedLemma = normalizeCatalogText(group.finalProposalPayload.lemma);
-      const reusableEntry = snapshots.find((sense) => normalizeCatalogText(sense.payload.lemma) === normalizedLemma);
       const targetCatalogKey = group.requestedAction === "CREATE"
-        ? reusableEntry?.catalogKey ?? createIdentity("cat", normalizedLemma)
+        ? reusableEntryByLemma.get(normalizedLemma) ?? createIdentity("cat", normalizedLemma)
         : group.targetCatalogKey;
       const targetSenseKey = group.requestedAction === "CREATE"
         ? createIdentity("sense", `${group.payloadDigest}\u0000${batch.id}\u0000${group.groupNumber}`)
         : group.targetSenseKey;
-      const created = await tx.catalogSubmissionProposalGroup.create({
-        data: {
-          batchId: batch.id,
-          groupNumber: group.groupNumber,
-          requestedAction: group.requestedAction,
-          resolution: group.resolution,
-          resolutionReason: group.resolutionReason,
-          targetCatalogKey,
-          targetSenseKey,
-          targetSenseId: group.targetSenseId,
-          baseRevision: group.baseRevision,
-          baseStatus: group.baseStatus,
-          dependencyDigest: group.dependencyDigest,
-          finalProposalPayload: json(group.finalProposalPayload),
-          payloadDigest: group.payloadDigest,
-          lastContentAuthorId: input.actorId,
-          reviewRisk: group.reviewRisk,
-          reviewRiskVersion: CATALOG_REVIEW_RISK_VERSION,
-          reviewRiskReason: json(group.reviewRiskReason),
-          actorPseudonym: actor.value,
-          actorKeyVersion: actor.keyVersion,
-        },
-      });
-      const dependencyDigest = await currentGroupDependencyDigest(tx, created);
-      if (dependencyDigest !== created.dependencyDigest) {
-        await tx.catalogSubmissionProposalGroup.update({ where: { id: created.id }, data: { dependencyDigest } });
-      }
-      groupIds.set(group.groupNumber, created.id);
-      await tx.catalogSubmissionProposalAuthor.create({
-        data: {
-          proposalGroupId: created.id,
+      return {
+        id,
+        batchId: batch.id,
+        groupNumber: group.groupNumber,
+        requestedAction: group.requestedAction,
+        resolution: group.resolution,
+        resolutionReason: group.resolutionReason,
+        targetCatalogKey,
+        targetSenseKey,
+        targetSenseId: group.targetSenseId,
+        baseRevision: group.baseRevision,
+        baseStatus: group.baseStatus,
+        dependencyDigest,
+        finalProposalPayload: json(group.finalProposalPayload),
+        payloadDigest: group.payloadDigest,
+        lastContentAuthorId: input.actorId,
+        reviewRisk: group.reviewRisk,
+        reviewRiskVersion: CATALOG_REVIEW_RISK_VERSION,
+        reviewRiskReason: json(group.reviewRiskReason),
+        actorPseudonym: actor.value,
+        actorKeyVersion: actor.keyVersion,
+      };
+    });
+    if (groupRows.length) {
+      await tx.catalogSubmissionProposalGroup.createMany({ data: groupRows });
+      await tx.catalogSubmissionProposalAuthor.createMany({
+        data: preview.groups.map((group) => ({
+          proposalGroupId: groupIds.get(group.groupNumber)!,
           actorUserId: input.actorId,
           payloadDigest: group.payloadDigest,
           contributionKind: "UPLOAD",
           actorPseudonym: actor.value,
           actorKeyVersion: actor.keyVersion,
-        },
+        })),
       });
     }
     await tx.catalogSubmissionRow.createMany({

@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機full-size效能基線及compact response加固已完成；preview profiling、staging／Vercel、production rollout、外部 UAT 及 legacy cleanup 仍未完成）
+> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史及本機full-size效能加固已完成；staging／Vercel、production rollout、外部 UAT 及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -335,7 +335,8 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 - [x] import retention／cleanup dry-run及operational audit；production scheduler仍待配置；
 - [x] 本機 full-size performance baseline：5,000 history、200-row lifecycle及100個學生同步讀取；結果及清理證據見 [`artifacts/word-catalog-local-performance-baseline-2026-08-23.md`](./artifacts/word-catalog-local-performance-baseline-2026-08-23.md)；
 - [x] 完成 compact mutation response加固後重跑兩次本機基線；200次review由165.26 MiB降至0.70 MiB，完整lifecycle correctness不變；
-- [ ] profile／改善200-row preview p95 2.41–2.59秒，並另行執行 staging／Vercel full-size performance驗證。
+- [x] profile／改善本機200-row preview：三次5-run p95降至176.76–183.13 ms，local checker均為`LOCAL_BASELINE_PASS`。
+- [ ] 另行執行 staging／Vercel full-size performance驗證。
 
 ### Phase 6 — 現有詞庫轉換及內容補充
 

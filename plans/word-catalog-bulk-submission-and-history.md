@@ -1,6 +1,6 @@
 # 詞庫 CSV 批量提交及詞條修改歷史界面實施計劃
 
-> 狀態：compact response加固及本地重測完成（response amplification已解決；preview profiling、staging／Vercel及production readiness外部項目另行處理）
+> 狀態：本地效能加固已完成（compact response及200-row preview均通過；staging／Vercel及production readiness外部項目另行處理）
 >
 > 日期：2026-08-22
 >
@@ -658,3 +658,31 @@ npm run check:catalog-governance
 - [x] staging／Vercel及production rollout維持deferred，唔以本機結果代替。
 
 加固後兩次200-row完整重測均通過：submit 433 bytes、claim 430 bytes、單次review平均約3,665 bytes、200次review累計0.70 MiB、finalize 503 bytes；相對加固前review累計165.26 MiB減少約99.58%。完整DB checker維持所有lifecycle／immutability／四眼審核／recent-auth guard通過。Checker唯一剩餘finding係200-row preview p95 2,413.08–2,593.70 ms高於2秒本機advisory threshold。
+
+## 20. 200-row preview效能加固（2026-08-23，已完成）
+
+### 問題及決策
+
+- 現行preview先在transaction外讀取相關詞義及pending requests，建立候選後，再於Serializable transaction內逐組建立proposal group；每組其後各自重查related senses／pending conflicts、視乎結果更新dependency digest，再逐一建立author。200組因此形成數百次串行SQL round trips；
+- 優化唔可以移除authoritative dependency recheck、Serializable transaction、idempotency、完整rows／groups preview response或提交時再次stale檢查；
+- 改為在同一Serializable transaction內一次讀取所有相關senses及pending conflicts，按該一致快照建立preview及最終dependency digests，再以`createMany`批量建立proposal groups及authors；rows原有`createMany`維持不變；
+- proposal group ID由batch ID＋group number產生具碰撞抵抗性嘅opaque deterministic ID，令rows及authors可在批量insert前安全引用；此ID只係內部identity，唔改API／資料模型；
+- checker仍以200行、5次preview p95低於2秒作本機advisory gate，並維持完整lifecycle、資料清理及mutation revision核對。
+
+### Checklist
+
+- [x] 盤點preview query path並確認逐組dependency recheck／insert係主要可消除嘅round-trip來源；
+- [x] 將related sense、pending conflict及dependency digest計算改為transaction內批量快照；
+- [x] 將proposal groups及authors改為批量insert，保留rows關聯、來源lineage及四眼審核資料；
+- [x] 補充dependency digest／批量identity regression測試；
+- [x] 重跑unit、lint、typecheck、catalog submission DB checker及200-row local performance checker；
+- [x] 更新實測前後數字、已知限制及計劃狀態；staging／Vercel仍維持deferred。
+
+### 實測結果及驗證
+
+- 優化前兩次完整重測：200-row preview p95為2,413.08–2,593.70 ms；
+- 優化後三次5-run preview p95分別為182.03、176.76及183.13 ms（p50 170.13、152.60及162.94 ms）；相對前一輪p95約減少92–93%，約快13–15倍；
+- 三次checker均回傳`LOCAL_BASELINE_PASS`及空`findings`；每次完整確認200 approved children、200 result revisions、200 projections、1 batch history及100個學生同步讀取0 failures；
+- preview仍按已批准產品contract回傳完整200 rows／groups，約779–789 KiB；今次改善來自移除數百次串行SQL round trips，唔係刪減老師需要審閱嘅內容；
+- `npm test`通過279個測試；`npm run lint`零警告、`npx tsc --noEmit`、`npm run build`（80 routes）、`check:catalog-submission`及`check:catalog-governance`全部通過；
+- 本地checker仍會在100-way並發路徑顯示`pg` 9前置deprecation warning，但本輪0 failures；managed PostgreSQL／Vercel、production-like Upstash及multi-instance HTTP仍未測試，唔以本機結果冒充production evidence。

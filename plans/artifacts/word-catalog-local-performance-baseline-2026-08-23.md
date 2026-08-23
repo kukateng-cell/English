@@ -2,7 +2,7 @@
 
 ## 結論
 
-本機 PostgreSQL 嘅資料正確性、5,000 筆歷史 cursor 分頁、200 行原子提交，以及學生讀取並發均通過。初次基線判定為 `NEEDS_HARDENING`，原因係批量工作區 API 重複回傳完整 200 組 batch，以及 200 行 preview 超出本機 2 秒 advisory threshold。`catalog-submission-patch-v1` 已於同日完成並重跑兩次基線：response amplification已消除；目前只剩 preview p95 約2.41–2.59秒需要下一輪profile。
+本機 PostgreSQL 嘅資料正確性、5,000 筆歷史 cursor 分頁、200 行原子提交，以及學生讀取並發均通過。初次基線判定為 `NEEDS_HARDENING`，原因係批量工作區 API 重複回傳完整 200 組 batch，以及 200 行 preview 超出本機 2 秒 advisory threshold。`catalog-submission-patch-v1` 先消除response amplification；其後preview改用Serializable transaction內批量依賴快照及批量insert。最終三次完整checker均為`LOCAL_BASELINE_PASS`，200-row preview p95降至176.76–183.13 ms。
 
 本結果只代表 local service／database baseline，唔代表 managed PostgreSQL、Vercel function、Upstash 或多 instance HTTP concurrency。
 
@@ -38,11 +38,11 @@
 
 第一次完整 run 同樣成功，preview p95 為 2,520.40 ms、review 總時間 3,124.02 ms、finalize 3,274.59 ms；證明 preview 超標及完整 lifecycle 時間屬可重現。Exact search 第一次 p95 為 474.97 ms，第二次降至 55.83 ms，暫時唔應以單一 warm-cache 數字宣稱穩定。
 
-## 必須加固
+## 初次基線提出嘅加固項目（歷史）
 
-1. `review`、`claim`、`submit` 同 `finalize` mutation response 改為 compact result，只回 batch revision／status、更新過嘅 group及必要 counters；唔應每次重新序列化完整 rows＋groups；
-2. batch rows／groups 詳情改成按頁或按 group 載入，前端以 revision-aware patch 更新本地狀態；
-3. profile 200-row preview 嘅 query count、validation CPU 同 JSON serialization，將 database work 同 response serialization 分開量度；
+1. [已完成] `review`、`claim`、`submit` 同 `finalize` mutation response改為compact result；
+2. [已完成] mutation前端以revision-aware patch更新本地狀態，完整detail只在初次載入；
+3. [已完成] profile 200-row preview；確認主要問題係transaction內逐組dependency query／insert，改成批量一致快照及`createMany`；
 4. 對 exact search 加 query tracing／cold-cache 重複測試；如果真實 managed DB 仍超標，再評估 `pg_trgm`／搜尋專用 index；
 5. 100-way 並發測試觸發 `pg`「client 正執行 query 時再次 query」deprecation warning。雖然本輪 0 failures，但升級 pg 9 前須驗證 Prisma adapter／pool 路徑。
 
@@ -62,7 +62,21 @@
 | atomic finalize | 3,718.81 ms | 8,814.58／3,894.71 ms | 有單次波動，但兩次均低於30秒門檻 |
 | 200-row preview p95 | 2,628.32 ms | 2,593.70／2,413.08 ms | 仍超出2秒門檻 |
 
-Checker現已把 submit／claim／finalize 8 KiB、單次review p95 16 KiB、200次review累計2 MiB設為compact-response regression gates。兩次加固後完整流程均確認200 approved children、200 result revisions、200 projections、1 batch history及100個學生同步讀取0 failures。整體仍顯示 `NEEDS_HARDENING`，唯一 finding係preview p95高於2秒。
+Checker現已把 submit／claim／finalize 8 KiB、單次review p95 16 KiB、200次review累計2 MiB設為compact-response regression gates。兩次compact-response重測均確認200 approved children、200 result revisions、200 projections、1 batch history及100個學生同步讀取0 failures。當時整體仍顯示`NEEDS_HARDENING`，唯一finding係preview p95高於2秒；以下下一輪結果已取代呢個暫時判定。
+
+## 200-row preview效能加固結果
+
+舊路徑在transaction外先讀資料，再於Serializable transaction內對每個proposal group串行執行group create、related-sense／pending-conflict重查及author create；200組形成數百次SQL round trips。新路徑將所有related senses及pending conflicts一次放入同一transaction快照，為全部groups批量計算最終dependency digests，再批量建立groups及authors。提交時及finalize時嘅authoritative stale recheck完全保留。
+
+| 指標 | 加固前兩次重測 | 加固後第一次 | 加固後第二次 | 最終代碼重測 |
+|---|---:|---:|---:|---:|
+| 200-row preview p50 | 約2.4–2.5秒 | 170.13 ms | 152.60 ms | 162.94 ms |
+| 200-row preview p95 | 2,413.08–2,593.70 ms | 182.03 ms | 176.76 ms | 183.13 ms |
+| 200-row preview mean | 未獨立記錄 | 168.55 ms | 155.47 ms | 166.18 ms |
+| checker status | `NEEDS_HARDENING` | `LOCAL_BASELINE_PASS` | `LOCAL_BASELINE_PASS` | `LOCAL_BASELINE_PASS` |
+| findings | preview超2秒 | 0 | 0 | 0 |
+
+p95約減少92–93%，即約快13–15倍。preview response仍保留完整200 rows／groups，約779–789 KiB；效能提升來自減少資料庫round trips，唔係刪減審閱內容。三次完整run亦維持200 approved children、200 result revisions、200 projections、1 batch history及100個學生同步讀取0 failures。
 
 ## 清理及完整性
 
