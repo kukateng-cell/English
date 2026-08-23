@@ -61,9 +61,10 @@ export async function GET(req: Request) {
     ? [...baseConditions, { OR: [{ term: { gt: cursor.term } }, { term: cursor.term, id: { gt: cursor.id } }] }]
     : baseConditions;
   const pageWhere: Prisma.WordWhereInput = { AND: pageConditions };
-  const [words, total, categoryRows] = await Promise.all([
+  const [words, total, levelRows, categoryRows] = await Promise.all([
     prisma.word.findMany({ where: pageWhere, orderBy: [{ term: "asc" }, { id: "asc" }], take: limitRaw + 1, include: { reviews: { where: { userId: auth.userId }, select: { repetitions: true, interval: true, nextReviewDate: true, lastReviewedAt: true } } } }),
     prisma.word.count({ where: totalWhere }),
+    prisma.word.findMany({ where: visibleWhere, select: { level: true }, distinct: ["level"] }),
     prisma.word.findMany({ where: { AND: [visibleWhere, ...(levelRaw ? [{ level: levelRaw as LevelCode }] : [])] }, select: { category: true }, distinct: ["category"] }),
   ]);
   const hasNext = words.length > limitRaw;
@@ -78,7 +79,7 @@ export async function GET(req: Request) {
     items,
     nextCursor: hasNext && last ? encodeCursor({ term: last.term, id: last.id }) : null,
     total,
-    availableLevels: LEVELS.filter((candidate) => visibleFilters.some((filter) => filter.level === candidate)),
+    availableLevels: LEVELS.filter((candidate) => levelRows.some((row) => row.level === candidate)),
     availableCategories: categoryRows.map((row) => row.category ?? "未分类").sort((a, b) => a.localeCompare(b)),
   });
   response.headers.set("Cache-Control", "private, no-store");
