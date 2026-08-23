@@ -1,12 +1,57 @@
-import { getServerSession } from "next-auth";
+import { getServerSession, type Session } from "next-auth";
 import { authOptions } from "./auth";
 import type { Role } from "@/generated/prisma";
 
+type SessionReader = () => Promise<Session | null>;
+
+export type SafeSessionResult =
+  | { ok: true; session: Session }
+  | { ok: false; status: 401 | 503; message: string };
+
+/**
+ * Keep every server-side session consumer on one failure contract. Invalidated
+ * cookies are ordinary unauthenticated requests; database/auth backend errors
+ * fail closed without escaping route handlers as an unhandled 500.
+ */
+export async function readSessionSafely(
+  readSession: SessionReader = () => getServerSession(authOptions),
+): Promise<SafeSessionResult> {
+  let session: Session | null;
+  try {
+    session = await readSession();
+  } catch (error) {
+    if (error instanceof Error && error.message === "SESSION_INVALIDATED") {
+      return { ok: false, status: 401, message: "Unauthorized" };
+    }
+    console.error("[auth] session check unavailable", {
+      name: error instanceof Error ? error.name : "UnknownError",
+    });
+    return {
+      ok: false,
+      status: 503,
+      message: "认证服务暂时不可用，请稍后重试",
+    };
+  }
+  if (!session?.user) {
+    return { ok: false, status: 401, message: "Unauthorized" };
+  }
+  if (session.user.authUnavailable) {
+    return {
+      ok: false,
+      status: 503,
+      message: "认证服务暂时不可用，请稍后重试",
+    };
+  }
+  return { ok: true, session };
+}
+
 export async function getSessionUserId(): Promise<string | null> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return null;
-  if (session.user.authUnavailable) throw new Error("AUTH_BACKEND_UNAVAILABLE");
-  return (session.user as { id: string }).id;
+  const result = await readSessionSafely();
+  if (!result.ok) {
+    if (result.status === 401) return null;
+    throw new Error("AUTH_BACKEND_UNAVAILABLE");
+  }
+  return (result.session.user as { id: string }).id;
 }
 
 export async function requireAuth(): Promise<string> {
@@ -16,10 +61,12 @@ export async function requireAuth(): Promise<string> {
 }
 
 export async function getSessionRole(): Promise<Role | null> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return null;
-  if (session.user.authUnavailable) throw new Error("AUTH_BACKEND_UNAVAILABLE");
-  return (session.user as { role: Role }).role;
+  const result = await readSessionSafely();
+  if (!result.ok) {
+    if (result.status === 401) return null;
+    throw new Error("AUTH_BACKEND_UNAVAILABLE");
+  }
+  return (result.session.user as { role: Role }).role;
 }
 
 /**
@@ -39,9 +86,12 @@ export async function getCurrentUser(): Promise<{
   name: string | null;
   email: string;
 } | null> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return null;
-  if (session.user.authUnavailable) throw new Error("AUTH_BACKEND_UNAVAILABLE");
+  const result = await readSessionSafely();
+  if (!result.ok) {
+    if (result.status === 401) return null;
+    throw new Error("AUTH_BACKEND_UNAVAILABLE");
+  }
+  const { session } = result;
   return {
     id: (session.user as { id: string }).id,
     role: (session.user as { role: Role }).role,
@@ -63,17 +113,9 @@ export type AuthResult =
 
 /** 要求已登录（任意角色）。 */
 export async function requireUser(): Promise<AuthResult> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return { ok: false, status: 401, message: "Unauthorized" };
-  }
-  if (session.user.authUnavailable) {
-    return {
-      ok: false,
-      status: 503,
-      message: "认证服务暂时不可用，请稍后重试",
-    };
-  }
+  const result = await readSessionSafely();
+  if (!result.ok) return result;
+  const { session } = result;
   const userId = (session.user as { id: string }).id;
   const role = (session.user as { role: Role }).role;
   return {
@@ -86,35 +128,9 @@ export async function requireUser(): Promise<AuthResult> {
 
 /** 要求登录用户属于指定角色之一（用于管理端 / 教师端 API）。 */
 export async function requireRole(...allowed: Role[]): Promise<AuthResult> {
-  let session;
-  try {
-    session = await getServerSession(authOptions);
-  } catch (error) {
-    // An invalidated JWT (for example after a password reset) is an ordinary
-    // unauthenticated request. Other failures are treated as a temporary auth
-    // backend outage rather than escaping the route as an unhandled 500.
-    if (error instanceof Error && error.message === "SESSION_INVALIDATED") {
-      return { ok: false, status: 401, message: "Unauthorized" };
-    }
-    console.error("[auth] role check unavailable", {
-      name: error instanceof Error ? error.name : "UnknownError",
-    });
-    return {
-      ok: false,
-      status: 503,
-      message: "认证服务暂时不可用，请稍后重试",
-    };
-  }
-  if (!session?.user) {
-    return { ok: false, status: 401, message: "Unauthorized" };
-  }
-  if (session.user.authUnavailable) {
-    return {
-      ok: false,
-      status: 503,
-      message: "认证服务暂时不可用，请稍后重试",
-    };
-  }
+  const result = await readSessionSafely();
+  if (!result.ok) return result;
+  const { session } = result;
   const userId = (session.user as { id: string }).id;
   const role = (session.user as { role: Role }).role;
   if (!allowed.includes(role)) {

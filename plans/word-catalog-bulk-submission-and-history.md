@@ -64,7 +64,7 @@
 ### 5.1 CSV 支援範圍
 
 - 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；header 必須包含 39 個精確 `word-catalog-v1` 欄名、每欄恰好一次，不要求上載檔跟 template 列序，但 template／export 固定使用規範標準次序；
-- launch 上限為 5 MiB、200 個 data rows；0 行、超限、重複 header、未知欄、broken quoting、公式／CSV injection 或非支援 schema 一律拒絕；
+- launch 上限為 4 MiB、200 個 data rows；4 MiB 低於 Vercel Functions 4.5 MB request ceiling；0 行、超限、重複 header、未知欄、broken quoting、公式／CSV injection 或非支援 schema 一律拒絕；
 - `CREATE_DRAFT`：`catalog_key`、`sense_key`、`record_revision`、`catalog_status` 必須留空；
 - `UPDATE_DRAFT`：必須由系統匯出，保留 `catalog_key`、`sense_key`、`record_revision` 及只讀 `catalog_status`；lemma 不可越過既有穩定 headword boundary；
 - 同一檔案可以混合 CREATE／UPDATE，但不接受其他 `requested_action`；
@@ -320,7 +320,7 @@ Governance proposal payload 要升級成 versioned完整snapshot，足以重建�
 
 - 保持 bootstrap seed mode 現有 `CREATE_DRAFT`、manifest及 deterministic identity 行為；
 - governance mode 只接受 CREATE／UPDATE contract，system keys 規則按 action 驗證；
-- upload endpoint使用 `text/csv` raw request body及streaming byte counter，在完整buffer／parser allocation前同時檢查可信平台body cap及實際5 MiB上限；不以會先materialize全檔的`formData()`作安全邊界；
+- upload endpoint使用 `text/csv` raw request body及streaming byte counter，在完整buffer／parser allocation前同時檢查可信平台body cap及實際4 MiB上限；不以會先materialize全檔的`formData()`作安全邊界；
 - UTF-8 decoder使用fatal mode，拒絕replacement character、NUL、embedded BOM及規範不容許的control characters；strict parser拒絕unclosed quote、closing quote後雜字及unquoted field中途開quote；
 - formula檢查要field-aware，唔因合法hyphen文字一律誤拒；任何下載CSV仍對所有儲存格做formula neutralization；
 - 共用 NFKC、taxonomy、POS、level、prompt-empty、answer sets、5–6 distractors、sibling-sense、pool diversity及 content digest；
@@ -484,7 +484,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 
 | 範圍 | 必須證明 |
 |---|---|
-| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、39欄名每欄一次兼可換序、malformed quoting、空檔、oversized／偽Content-Length、5 MiB、200 rows、field-aware formula、safe error CSV |
+| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、39欄名每欄一次兼可換序、malformed quoting、空檔、oversized／偽Content-Length、4 MiB、200 rows、field-aware formula、safe error CSV |
 | Action contract | CREATE keys空白；UPDATE keys／revision完整；mixed合法；RETIRE／REACTIVATE拒絕；缺行零副作用 |
 | Content | taxonomy、POS、level、prompt-empty、accepted answers、例句pair、5–6 distractors、pool diversity、sibling collision |
 | Preview | 無 canonical write、disposition總數對數、database diff、duplicate bundle、7日activity／30日absolute expiry、owner isolation、pagination |
@@ -569,7 +569,7 @@ npm run check:catalog-governance
 |---|---|---|
 | CBH-001 | seed `CatalogImportBatch` 與老師 `CatalogSubmissionBatch` 分開 | 已批准並完成本地實作 |
 | CBH-002 | launch只支援CREATE／UPDATE；批量停用／重啟留在逐條流程 | 已批准並完成本地實作 |
-| CBH-003 | launch cap 5 MiB／200 rows；preview採7日activity／30日absolute expiry | 已批准並完成本地實作 |
+| CBH-003 | launch cap 4 MiB／200 rows；preview採7日activity／30日absolute expiry | 已批准並完成本地實作 |
 | CBH-004 | submit原子建立requests；finalize原子套用 reviewer明確批准的subset | 已批准並完成本地實作 |
 | CBH-005 | batch final reviewer不得為uploader或任何material author，review綁payload digest並要求recent auth | 已批准並完成本地實作 |
 | CBH-006 | 一般老師可看全校approved history及自己全部申請；internal未批准內容只供owner／reviewer | 已批准並完成本地實作 |

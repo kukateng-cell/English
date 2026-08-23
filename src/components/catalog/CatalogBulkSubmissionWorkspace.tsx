@@ -330,7 +330,7 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
     <section className="grid gap-4 xl:grid-cols-2">
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <h2 className="font-bold text-[var(--text)]">{tc("CSV 批量提交")}</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">{tc("只接受 UTF-8 CSV、最多 200 行及 5 MiB。CREATE 的系統 key 留空；UPDATE 請先匯出現有詞條。")}</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">{tc("只接受 UTF-8 CSV、最多 200 行及 4 MiB。CREATE 的系統 key 留空；UPDATE 請先匯出現有詞條。")}</p>
         <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-secondary" onClick={() => window.location.assign("/api/catalog/submissions/template")}>{tc("下載 CREATE 模板")}</button><span className="rounded-xl bg-[var(--border-soft)] px-3 py-2 text-xs text-[var(--muted)]">{tc("模板內保留 39 個正式欄名，欄位次序可調整。")}</span></div>
         <label className="mt-4 grid gap-2 text-sm font-semibold text-[var(--text)]">{tc("選擇 CSV 檔案")}<input type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="block w-full rounded-xl border border-[var(--border)] p-3 text-sm" /></label>
         <button type="button" className="ui-button ui-button-primary mt-3" disabled={!file || busy} onClick={() => void upload()}>{busy ? tc("處理中…") : tc("建立安全預覽")}</button>

@@ -3,12 +3,15 @@ import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import type { StudyStreamActionInput } from "../src/lib/study-stream/contracts";
 import { CATALOG_CATEGORIES } from "../src/lib/catalog/taxonomy";
-import { withCurrentCatalogWord } from "../src/lib/catalog/runtime";
+import {
+  currentCatalogWordCtesSql,
+  withCurrentCatalogWord,
+} from "../src/lib/catalog/runtime";
 
 dotenv.config({ path: ".env.local" });
 
 async function main() {
-  const { prisma } = await import("../src/lib/prisma");
+  const { Prisma, prisma } = await import("../src/lib/prisma");
   const { applyReviewEvent } = await import("../src/app/api/study/route");
   const {
     applyStudyStreamAction,
@@ -22,6 +25,7 @@ async function main() {
     digestStudyStreamCredential,
   } = await import("../src/lib/study-stream/contracts");
   const { getStudentDashboard, getStudentLearningMetrics } = await import("../src/lib/student-metrics");
+  const { fetchUnitProgress } = await import("../src/lib/unit-progress-server");
   const { getLeaderboard } = await import("../src/lib/leaderboard");
   const { todayKey } = await import("../src/lib/streak");
   const { authOptions, validateAuthTokenVersion } = await import("../src/lib/auth");
@@ -31,6 +35,11 @@ async function main() {
   let studyDayOnlyUserId: string | null = null;
   const wordIds: string[] = [];
   const cleanupWordIds: string[] = [];
+  const catalogFixtureWordIds: string[] = [];
+  const catalogFixtureSenseIds: string[] = [];
+  const catalogFixtureEntryIds: string[] = [];
+  const catalogFixtureRevisionIds: string[] = [];
+  const catalogFixtureCatalogRevisionIds: string[] = [];
 
   try {
     const user = await prisma.user.create({
@@ -583,11 +592,282 @@ async function main() {
     assert.equal(answeredRemediation.activeKey, null);
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 10);
     assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 16);
+
+    // Exact negative controls prevent a vacuous SQL/Prisma equivalence pass on
+    // a database containing only current words.
+    const readyCatalogRevision = await prisma.catalogRevision.findFirstOrThrow({
+      where: { status: "READY" },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const buildingCatalogRevision = await prisma.catalogRevision.create({
+      data: {
+        revisionKey: `stream-negative-${suffix}`,
+        sourceDigest: `stream-negative-source-${suffix}`,
+        taxonomyDigest: "stream-negative-taxonomy",
+        validatorVersion: "stream-negative-validator",
+        normalizationVersion: "stream-negative-normalization",
+        activationBasis: "INTEGRATION_TEST",
+        status: "BUILDING",
+      },
+    });
+    catalogFixtureCatalogRevisionIds.push(buildingCatalogRevision.id);
+    const negativeEntry = await prisma.catalogEntry.create({
+      data: {
+        catalogKey: `stream-negative-${suffix}`,
+        lemma: `stream-negative-${suffix}`,
+        normalizedLemma: `stream-negative-${suffix}`,
+      },
+    });
+    catalogFixtureEntryIds.push(negativeEntry.id);
+
+    async function createNegativeProjection(input: {
+      label: string;
+      status: "ACTIVE" | "DRAFT" | "RETIRED";
+      approvedCatalogRevisionId: string | null;
+      wordCatalogRevisionId: string;
+    }) {
+      const term = `stream-negative-${input.label}-${suffix}`;
+      const sense = await prisma.wordSense.create({
+        data: {
+          catalogEntryId: negativeEntry.id,
+          senseKey: `stream-negative:${input.label}:${suffix}`,
+          term,
+          normalizedTerm: term,
+          pos: "noun",
+          level: "A1",
+          category: testUnitCategory,
+          status: input.status,
+        },
+      });
+      catalogFixtureSenseIds.push(sense.id);
+      if (input.approvedCatalogRevisionId) {
+        const revision = await prisma.wordSenseRevision.create({
+          data: {
+            senseId: sense.id,
+            revision: 1,
+            term,
+            lemma: term,
+            pos: "noun",
+            level: "A1",
+            category: testUnitCategory,
+            definitionZh: "負面 current catalog 測試",
+            contentDigest: `stream-negative:${input.label}:${suffix}`,
+            catalogRevisionId: input.approvedCatalogRevisionId,
+          },
+        });
+        catalogFixtureRevisionIds.push(revision.id);
+        await prisma.wordSense.update({
+          where: { id: sense.id },
+          data: { approvedRevisionId: revision.id },
+        });
+      }
+      const word = await prisma.word.create({
+        data: {
+          term,
+          definition: "負面 current catalog 測試",
+          level: "A1",
+          category: testUnitCategory,
+          synonyms: [],
+          antonyms: [],
+          senseId: sense.id,
+          senseKey: sense.senseKey,
+          catalogRevisionId: input.wordCatalogRevisionId,
+        },
+      });
+      catalogFixtureWordIds.push(word.id);
+      return word.id;
+    }
+
+    const legacyNullSenseWord = await prisma.word.create({
+      data: {
+        term: `stream-negative-legacy-${suffix}`,
+        definition: "legacy null-sense negative control",
+        level: "A1",
+        category: testUnitCategory,
+        synonyms: [],
+        antonyms: [],
+        catalogRevisionId: readyCatalogRevision.id,
+      },
+    });
+    catalogFixtureWordIds.push(legacyNullSenseWord.id);
+
+    const negativeCurrentWordIds = [
+      legacyNullSenseWord.id,
+      await createNegativeProjection({
+        label: "word-catalog-building",
+        status: "ACTIVE",
+        approvedCatalogRevisionId: readyCatalogRevision.id,
+        wordCatalogRevisionId: buildingCatalogRevision.id,
+      }),
+      await createNegativeProjection({
+        label: "draft-sense",
+        status: "DRAFT",
+        approvedCatalogRevisionId: readyCatalogRevision.id,
+        wordCatalogRevisionId: readyCatalogRevision.id,
+      }),
+      await createNegativeProjection({
+        label: "retired-sense",
+        status: "RETIRED",
+        approvedCatalogRevisionId: readyCatalogRevision.id,
+        wordCatalogRevisionId: readyCatalogRevision.id,
+      }),
+      await createNegativeProjection({
+        label: "missing-approved-revision",
+        status: "ACTIVE",
+        approvedCatalogRevisionId: null,
+        wordCatalogRevisionId: readyCatalogRevision.id,
+      }),
+      await createNegativeProjection({
+        label: "approved-catalog-building",
+        status: "ACTIVE",
+        approvedCatalogRevisionId: buildingCatalogRevision.id,
+        wordCatalogRevisionId: readyCatalogRevision.id,
+      }),
+    ];
+
+    const thresholdWords = await prisma.word.findMany({
+      where: withCurrentCatalogWord({ reviews: { none: { userId: user.id } } }),
+      select: { id: true, senseId: true },
+      orderBy: { id: "asc" },
+      take: 2,
+    });
+    assert.equal(thresholdWords.length, 2);
+    await prisma.review.createMany({
+      data: [
+        {
+          userId: user.id,
+          wordId: thresholdWords[0]!.id,
+          senseId: thresholdWords[0]!.senseId,
+          repetitions: 1,
+          interval: 21,
+          nextReviewDate: new Date(),
+        },
+        {
+          userId: user.id,
+          wordId: thresholdWords[1]!.id,
+          senseId: thresholdWords[1]!.senseId,
+          repetitions: 0,
+          interval: 22,
+          nextReviewDate: new Date(),
+        },
+      ],
+    });
     const metrics = await getStudentLearningMetrics(user.id);
     assert.equal(metrics.reviewEventCount, 1);
     assert.equal(metrics.objectiveRecognitionCount, 1);
     assert.equal(metrics.selfRatedEncounterCount, 10);
     assert.equal(metrics.legacyUnknownEventCount, 0);
+    assert.ok(metrics.learnedCount >= 1, "repetitions=1 must count as learned");
+    assert.ok(metrics.masteredCount >= 1, "interval=22 must count as mastered");
+    const [currentWordsFromPrisma, currentWordsFromSql] = await Promise.all([
+      prisma.word.findMany({
+        where: withCurrentCatalogWord(),
+        select: { id: true },
+        orderBy: { id: "asc" },
+      }),
+      prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        WITH ${currentCatalogWordCtesSql()}
+        SELECT current_words."id"
+        FROM current_words
+        ORDER BY current_words."id" ASC
+      `),
+    ]);
+    assert.deepEqual(
+      currentWordsFromSql.map((word) => word.id),
+      currentWordsFromPrisma.map((word) => word.id),
+      "raw SQL and Prisma current-catalog predicates must select the exact same words",
+    );
+    const prismaCurrentIds = new Set(currentWordsFromPrisma.map((word) => word.id));
+    const sqlCurrentIds = new Set(currentWordsFromSql.map((word) => word.id));
+    for (const negativeWordId of negativeCurrentWordIds) {
+      assert.equal(prismaCurrentIds.has(negativeWordId), false);
+      assert.equal(sqlCurrentIds.has(negativeWordId), false);
+    }
+    for (const level of ["A1", "A2", "B1", "B2"] as const) {
+      const [totalWords, learnedCount, masteredCount] = await Promise.all([
+        prisma.word.count({ where: withCurrentCatalogWord({ level }) }),
+        prisma.review.count({
+          where: {
+            userId: user.id,
+            repetitions: { gte: 1 },
+            word: withCurrentCatalogWord({ level }),
+          },
+        }),
+        prisma.review.count({
+          where: {
+            userId: user.id,
+            interval: { gte: 22 },
+            word: withCurrentCatalogWord({ level }),
+          },
+        }),
+      ]);
+      const aggregate = metrics.library.byLevel.find((row) => row.level === level);
+      assert.deepEqual(
+        aggregate && {
+          totalWords: aggregate.totalWords,
+          learnedCount: aggregate.learnedCount,
+          masteredCount: aggregate.masteredCount,
+        },
+        { totalWords, learnedCount, masteredCount },
+        `${level} database aggregate must match canonical Prisma counts`,
+      );
+    }
+    const unitComparisonNow = new Date();
+    const [unitProgress, canonicalUnitWords] = await Promise.all([
+      fetchUnitProgress(user.id, prisma, unitComparisonNow),
+      prisma.word.findMany({
+        where: withCurrentCatalogWord(),
+        select: {
+          level: true,
+          category: true,
+          reviews: {
+            where: { userId: user.id },
+            select: { repetitions: true, nextReviewDate: true },
+          },
+        },
+      }),
+    ]);
+    const canonicalUnitCounts = new Map<
+      string,
+      { total: number; learned: number; mastered: number; due: number }
+    >();
+    for (const word of canonicalUnitWords) {
+      const key = `${word.level}\u0000${word.category ?? "未分类"}`;
+      const counts = canonicalUnitCounts.get(key) ?? {
+        total: 0,
+        learned: 0,
+        mastered: 0,
+        due: 0,
+      };
+      const review = word.reviews[0];
+      counts.total += 1;
+      if (review) {
+        counts.learned += 1;
+        if (review.repetitions >= 1) counts.mastered += 1;
+        if (review.nextReviewDate <= unitComparisonNow) counts.due += 1;
+      }
+      canonicalUnitCounts.set(key, counts);
+    }
+    const unitRows = unitProgress.flatMap((level) =>
+      level.units.map((unit) => ({ level: level.level, unit })),
+    );
+    assert.equal(unitRows.length, canonicalUnitCounts.size);
+    for (const { level, unit } of unitRows) {
+      assert.deepEqual(
+        {
+          total: unit.total,
+          learned: unit.learned,
+          mastered: unit.mastered,
+          due: unit.due,
+        },
+        canonicalUnitCounts.get(`${level}\u0000${unit.name}`),
+        `${level}/${unit.name} unit aggregate must match canonical Prisma rows`,
+      );
+    }
+    await prisma.review.deleteMany({
+      where: { userId: user.id, wordId: { in: thresholdWords.map((word) => word.id) } },
+    });
     const dashboard = await getStudentDashboard(user.id);
     assert.equal(dashboard.today.objectiveRecognitionCount, 1);
     assert.equal(dashboard.today.selfRatedEncounterCount, 10);
@@ -707,7 +987,32 @@ async function main() {
   } finally {
     if (userId) await prisma.user.delete({ where: { id: userId } });
     if (studyDayOnlyUserId) await prisma.user.delete({ where: { id: studyDayOnlyUserId } });
-    if (cleanupWordIds.length > 0) await prisma.word.deleteMany({ where: { id: { in: cleanupWordIds } } });
+    const disposableWordIds = [...cleanupWordIds, ...catalogFixtureWordIds];
+    if (disposableWordIds.length > 0) {
+      await prisma.word.deleteMany({ where: { id: { in: disposableWordIds } } });
+    }
+    if (catalogFixtureSenseIds.length > 0) {
+      await prisma.wordSense.updateMany({
+        where: { id: { in: catalogFixtureSenseIds } },
+        data: { approvedRevisionId: null },
+      });
+    }
+    if (catalogFixtureRevisionIds.length > 0) {
+      await prisma.wordSenseRevision.deleteMany({
+        where: { id: { in: catalogFixtureRevisionIds } },
+      });
+    }
+    if (catalogFixtureSenseIds.length > 0) {
+      await prisma.wordSense.deleteMany({ where: { id: { in: catalogFixtureSenseIds } } });
+    }
+    if (catalogFixtureEntryIds.length > 0) {
+      await prisma.catalogEntry.deleteMany({ where: { id: { in: catalogFixtureEntryIds } } });
+    }
+    if (catalogFixtureCatalogRevisionIds.length > 0) {
+      await prisma.catalogRevision.deleteMany({
+        where: { id: { in: catalogFixtureCatalogRevisionIds } },
+      });
+    }
     await prisma.$disconnect();
   }
 }

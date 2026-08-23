@@ -65,6 +65,7 @@ export default function WordsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WordItem | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   const updateFilters = (changes: Record<string, string | null>) => {
@@ -84,6 +85,7 @@ export default function WordsPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    loadMoreControllerRef.current?.abort();
     (async () => {
       setLoading(true);
       setError(null);
@@ -106,26 +108,48 @@ export default function WordsPage() {
         if (!controller.signal.aborted) setLoading(false);
       }
     })();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      loadMoreControllerRef.current?.abort();
+    };
   }, [category, level, query, reloadKey, status]);
 
   async function loadMore() {
     if (!cursor || loadingMore) return;
+    const requestKey = latestQueryRef.current;
+    const cursorSnapshot = cursor;
+    loadMoreControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadMoreControllerRef.current = controller;
     setLoadingMore(true);
     try {
-      const params = new URLSearchParams({ limit: "24", cursor });
+      const params = new URLSearchParams({ limit: "24", cursor: cursorSnapshot });
       if (level) params.set("level", level);
       if (category) params.set("category", category);
       if (status !== "all") params.set("status", status);
-      const response = await fetch(`/api/words?${params}`, { cache: "no-store" });
+      const response = await fetch(`/api/words?${params}`, { cache: "no-store", signal: controller.signal });
       const payload = (await response.json().catch(() => null)) as (WordResponse & { error?: string }) | null;
       if (!response.ok || !payload) throw new Error(payload?.error || "暂时无法加载更多词汇");
-      setItems((current) => [...current, ...payload.items]);
+      if (controller.signal.aborted || latestQueryRef.current !== requestKey) return;
+      setItems((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        const uniqueItems = payload.items.filter((item) => {
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        });
+        return [...current, ...uniqueItems];
+      });
       setCursor(payload.nextCursor);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "暂时无法加载更多词汇");
+      if (!controller.signal.aborted && latestQueryRef.current === requestKey) {
+        setError(cause instanceof Error ? cause.message : "暂时无法加载更多词汇");
+      }
     } finally {
-      setLoadingMore(false);
+      if (loadMoreControllerRef.current === controller) {
+        loadMoreControllerRef.current = null;
+        setLoadingMore(false);
+      }
     }
   }
 

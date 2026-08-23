@@ -106,7 +106,7 @@ B1 `run = 經營`。
 | Governance UPDATE | 修改現有詞義內容 | 固定 `UPDATE` | 必須完整保留系統匯出的四項只讀 metadata | 不會；批准及 finalization 後先建立新 approved revision |
 
 日常治理 template 由工作區下載；UPDATE 必須先在工作區選取現有 `sense_key` 再匯出，不能抄另一行或自行編 key。Launch 每檔最多
-200 個 data rows、5 MiB，嚴格 UTF-8，可有一個檔首 BOM。欄名按名稱解析，所以次序可調整，但 39 欄必須各出現一次，不能有未知或
+200 個 data rows、4 MiB，嚴格 UTF-8，可有一個檔首 BOM。欄名按名稱解析，所以次序可調整，但 39 欄必須各出現一次，不能有未知或
 重複欄。空檔、broken quoting、NUL／control character、embedded BOM 及公式開頭會在 preview 前拒絕。
 
 治理上載只支援 `CREATE`／`UPDATE`；停用與重新啟用繼續使用逐條工作流。CSV 缺行永遠不代表停用。相同內容 UPDATE 會標示

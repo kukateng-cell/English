@@ -13,6 +13,39 @@ async function queryAdminDirectory(page: Page, headers: Record<string, string>, 
   });
 }
 
+async function previewRosterFile(
+  page: Page,
+  headers: Record<string, string>,
+  input: {
+    fileName: string;
+    buffer: Buffer;
+    entityType: "STUDENT" | "TEACHER";
+    academicYearId: string;
+    mode: "CREATE_ONLY" | "MERGE";
+    operationId: string;
+    acknowledgeImmediateGlobalCapabilityChange?: boolean;
+  },
+) {
+  const contentType = input.fileName.toLowerCase().endsWith(".csv")
+    ? "text/csv; charset=utf-8"
+    : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  return page.request.post("/api/admin/roster/import/preview", {
+    headers: {
+      ...headers,
+      "Content-Type": contentType,
+      "X-Roster-File-Name": encodeURIComponent(input.fileName),
+      "X-Roster-Entity-Type": input.entityType,
+      "X-Roster-Academic-Year-Id": input.academicYearId,
+      "X-Roster-Mode": input.mode,
+      "X-Roster-Acknowledge-Immediate-Global-Capability-Change": String(
+        input.acknowledgeImmediateGlobalCapabilityChange ?? false,
+      ),
+      "X-Roster-Operation-Id": input.operationId,
+    },
+    data: input.buffer,
+  });
+}
+
 async function measureRosterPerformance<T>(operation: () => Promise<T>): Promise<{ value: T } & RosterPerfMeasurement> {
   const baselineRss = process.memoryUsage().rss;
   let peakRss = baselineRss;
@@ -42,15 +75,13 @@ async function runMeasuredStudentImport(page: Page, headers: Record<string, stri
   const rows = ["accountName,legalName,nickname,grade,classCode,contactEmail"];
   for (let index = 0; index < 500; index += 1) rows.push(`${prefix}${index},规模测试学生${index},规模昵称${index},JUNIOR_1,,`);
   const csv = Buffer.from(rows.join("\n"));
-  const previewMeasurement = await measureRosterPerformance(() => page.request.post("/api/admin/roster/import/preview", {
-    headers,
-    multipart: {
-      file: { name: `${operationPrefix}-500.csv`, mimeType: "text/csv", buffer: csv },
-      entityType: "STUDENT",
-      academicYearId,
-      mode: "CREATE_ONLY",
-      operationId: `${operationPrefix}-preview-${Date.now()}`,
-    },
+  const previewMeasurement = await measureRosterPerformance(() => previewRosterFile(page, headers, {
+    fileName: `${operationPrefix}-500.csv`,
+    buffer: csv,
+    entityType: "STUDENT",
+    academicYearId,
+    mode: "CREATE_ONLY",
+    operationId: `${operationPrefix}-preview-${Date.now()}`,
   }));
   const previewResponse = previewMeasurement.value;
   expect(previewResponse.ok(), await previewResponse.text()).toBeTruthy();
@@ -204,15 +235,13 @@ test("admin roster shell and one-row import remain atomic and disposable", async
     "accountName,legalName,nickname,grade,classCode,contactEmail",
     `${accountName},E2E Disposable Student,测试同学,JUNIOR_1,A,`,
   ].join("\n");
-  const previewResponse = await page.request.post("/api/admin/roster/import/preview", {
-    headers,
-    multipart: {
-      file: { name: "student-roster.csv", mimeType: "text/csv", buffer: Buffer.from(csv) },
-      entityType: "STUDENT",
-      academicYearId: current!.id,
-      mode: "CREATE_ONLY",
-      operationId: `e2e-import-${Date.now()}`,
-    },
+  const previewResponse = await previewRosterFile(page, headers, {
+    fileName: "student-roster.csv",
+    buffer: Buffer.from(csv),
+    entityType: "STUDENT",
+    academicYearId: current!.id,
+    mode: "CREATE_ONLY",
+    operationId: `e2e-import-${Date.now()}`,
   });
   expect(previewResponse.ok()).toBeTruthy();
   const preview = await previewResponse.json() as { batchId: string; operationId?: string; canCommit: boolean; errorCount: number };
@@ -372,10 +401,11 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
       "accountName,legalName,nickname,grade,classCode,contactEmail",
       `${accountName},流程測試學生,流程暱稱,JUNIOR_1,B,`,
     ].join("\n");
-    const importPreviewResponse = await page.request.post("/api/admin/roster/import/preview", {
-      headers: { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
-      multipart: { file: { name: "student-roster.csv", mimeType: "text/csv", buffer: Buffer.from(csv) }, entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `flow-import-${Date.now()}` },
-    });
+    const importPreviewResponse = await previewRosterFile(
+      page,
+      { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
+      { fileName: "student-roster.csv", buffer: Buffer.from(csv), entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `flow-import-${Date.now()}` },
+    );
     expect(importPreviewResponse.ok()).toBeTruthy();
     const importPreview = await importPreviewResponse.json() as { batchId: string; operationId?: string; canCommit: boolean; errorCount: number };
     expect(importPreview.canCommit).toBeTruthy();
@@ -409,10 +439,11 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
         "accountName,legalName,nickname,grade,classCode,contactEmail",
         ...missingSourceGrades.map((grade) => `flowseed${grade.toLowerCase()}${suffix},流程${grade}學生${suffix},流程${grade}暱稱${suffix},${grade},A,`),
       ].join("\n");
-      const missingPreviewResponse = await page.request.post("/api/admin/roster/import/preview", {
-        headers: { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
-        multipart: { file: { name: "rollover-missing-grades.csv", mimeType: "text/csv", buffer: Buffer.from(missingRows) }, entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `flow-missing-grades-${suffix}` },
-      });
+      const missingPreviewResponse = await previewRosterFile(
+        page,
+        { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
+        { fileName: "rollover-missing-grades.csv", buffer: Buffer.from(missingRows), entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `flow-missing-grades-${suffix}` },
+      );
       expect(missingPreviewResponse.ok(), await missingPreviewResponse.text()).toBeTruthy();
       const missingPreview = await missingPreviewResponse.json() as { batchId: string; operationId?: string; errorCount: number };
       expect(missingPreview.errorCount).toBe(0);
@@ -738,10 +769,11 @@ test("admin roster persists explicit rollover dispositions and activates incomin
     `${variantAccounts.leave},離校學生${suffix},離校暱稱${suffix},SENIOR_3,A,`,
     `${variantAccounts.suspended},停權學生${suffix},停權暱稱${suffix},JUNIOR_3,A,`,
   ].join("\n");
-  const sourceImportPreviewResponse = await page.request.post("/api/admin/roster/import/preview", {
-    headers: { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
-    multipart: { file: { name: "rollover-dispositions.csv", mimeType: "text/csv", buffer: Buffer.from(sourceRows) }, entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `rollover-dispositions-${suffix}` },
-  });
+  const sourceImportPreviewResponse = await previewRosterFile(
+    page,
+    { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
+    { fileName: "rollover-dispositions.csv", buffer: Buffer.from(sourceRows), entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `rollover-dispositions-${suffix}` },
+  );
   expect(sourceImportPreviewResponse.ok(), await sourceImportPreviewResponse.text()).toBeTruthy();
   const sourceImportPreview = await sourceImportPreviewResponse.json() as { batchId: string; operationId?: string; errorCount: number };
   expect(sourceImportPreview.errorCount).toBe(0);
@@ -752,10 +784,11 @@ test("admin roster persists explicit rollover dispositions and activates incomin
     "accountName,legalName,nickname,grade,classCode,contactEmail",
     `${variantAccounts.incoming},插班學生${suffix},插班暱稱${suffix},JUNIOR_1,,`,
   ].join("\n");
-  const incomingPreviewResponse = await page.request.post("/api/admin/roster/import/preview", {
-    headers: { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
-    multipart: { file: { name: "rollover-incoming.csv", mimeType: "text/csv", buffer: Buffer.from(incomingCsv) }, entityType: "STUDENT", academicYearId: target.id, mode: "CREATE_ONLY", operationId: `rollover-incoming-${suffix}` },
-  });
+  const incomingPreviewResponse = await previewRosterFile(
+    page,
+    { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
+    { fileName: "rollover-incoming.csv", buffer: Buffer.from(incomingCsv), entityType: "STUDENT", academicYearId: target.id, mode: "CREATE_ONLY", operationId: `rollover-incoming-${suffix}` },
+  );
   expect(incomingPreviewResponse.ok(), await incomingPreviewResponse.text()).toBeTruthy();
   const incomingPreview = await incomingPreviewResponse.json() as { batchId: string; operationId?: string; errorCount: number };
   expect(incomingPreview.errorCount).toBe(0);
@@ -905,10 +938,11 @@ test("admin roster promotion accepts 500 and rejects 501 before staging", async 
   const prefix = `promoscale${Date.now().toString(36)}`;
   const rows = ["accountName,legalName,nickname,grade,classCode,contactEmail"];
   for (let index = 0; index < createCount; index += 1) rows.push(`${prefix}${index},升级规模学生${index},升级规模昵称${index},JUNIOR_1,,`);
-  const importPreviewResponse = await page.request.post("/api/admin/roster/import/preview", {
-    headers: { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
-    multipart: { file: { name: "promotion-scale.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n")) }, entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `promotion-import-${Date.now()}` },
-  });
+  const importPreviewResponse = await previewRosterFile(
+    page,
+    { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
+    { fileName: "promotion-scale.csv", buffer: Buffer.from(rows.join("\n")), entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `promotion-import-${Date.now()}` },
+  );
   expect(importPreviewResponse.ok(), await importPreviewResponse.text()).toBeTruthy();
   const importPreview = await importPreviewResponse.json() as { batchId: string; operationId?: string; rowCount: number; errorCount: number };
   expect(importPreview.rowCount).toBe(createCount);
@@ -930,10 +964,11 @@ test("admin roster promotion accepts 500 and rejects 501 before staging", async 
   expect(promotionCommitResponse.ok(), await promotionCommitResponse.text()).toBeTruthy();
 
   const extraRows = [...rows, `${prefix}${createCount},升级规模额外学生,升级规模额外昵称,JUNIOR_1,,`];
-  const extraPreviewResponse = await page.request.post("/api/admin/roster/import/preview", {
-    headers: { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
-    multipart: { file: { name: "promotion-scale-extra.csv", mimeType: "text/csv", buffer: Buffer.from(["accountName,legalName,nickname,grade,classCode,contactEmail", extraRows.at(-1)].join("\n")) }, entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `promotion-extra-${Date.now()}` },
-  });
+  const extraPreviewResponse = await previewRosterFile(
+    page,
+    { Origin: headers.Origin, "x-csrf-token": headers["x-csrf-token"] },
+    { fileName: "promotion-scale-extra.csv", buffer: Buffer.from(["accountName,legalName,nickname,grade,classCode,contactEmail", extraRows.at(-1)].join("\n")), entityType: "STUDENT", academicYearId: source!.id, mode: "CREATE_ONLY", operationId: `promotion-extra-${Date.now()}` },
+  );
   expect(extraPreviewResponse.ok()).toBeTruthy();
   const extraPreview = await extraPreviewResponse.json() as { batchId: string; operationId?: string };
   const extraCommitResponse = await page.request.post(`/api/admin/roster/import/${extraPreview.batchId}/commit`, { headers, data: { operationId: extraPreview.operationId } });
@@ -1097,15 +1132,13 @@ test("admin roster imports 500 rows and rejects the 501st before staging", async
   const transactionTimes = imports.map((measured) => measured.transactionMs);
   const firstImport = imports[0]!;
   const oversizedRows = [...firstImport.rows, `${firstImport.rows[1]!.split(",")[0]}500,规模测试学生500,规模昵称500,JUNIOR_1,,`];
-  const oversizedResponse = await page.request.post("/api/admin/roster/import/preview", {
-    headers,
-    multipart: {
-      file: { name: "scale-501.csv", mimeType: "text/csv", buffer: Buffer.from(oversizedRows.join("\n")) },
-      entityType: "STUDENT",
-      academicYearId: current!.id,
-      mode: "CREATE_ONLY",
-      operationId: `scale-oversized-${Date.now()}`,
-    },
+  const oversizedResponse = await previewRosterFile(page, headers, {
+    fileName: "scale-501.csv",
+    buffer: Buffer.from(oversizedRows.join("\n")),
+    entityType: "STUDENT",
+    academicYearId: current!.id,
+    mode: "CREATE_ONLY",
+    operationId: `scale-oversized-${Date.now()}`,
   });
   expect(oversizedResponse.status()).toBe(422);
   expect(await oversizedResponse.json()).toMatchObject({ code: "ROSTER_FILE_INVALID" });

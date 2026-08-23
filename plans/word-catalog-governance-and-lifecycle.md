@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區及單一正式 ACTIVE／DRAFT baseline 已完成 local implementation／verification；CSV preview／commit 及 production rollout 仍未完成）
+> 狀態：進行中（治理工作區、單一正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit 及修改歷史已完成 local implementation／verification；production rollout、performance／外部 UAT 及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -512,9 +512,20 @@ npm run test:e2e:card-motion
 
 ### 2026-08-22：CSV批量提交及修改歷史本地實作
 
-- 新增嚴格`word-catalog-v1` governance CSV template／export／streaming preview、5 MiB／200-row上限、安全錯誤報告、database diff、duplicate grouping及明確source row／custom payload選擇；內容不同的來源必須同時確認`sourceSetDigest`，不可默認採用第一行。
+- 新增嚴格`word-catalog-v1` governance CSV template／export／streaming preview、4 MiB／200-row上限、安全錯誤報告、database diff、duplicate grouping及明確source row／custom payload選擇；4 MiB 低於 Vercel Functions 4.5 MB request ceiling；內容不同的來源必須同時確認`sourceSetDigest`，不可默認採用第一行。
 - 新增批次owner／resolver／reviewer流程、claim／transfer、immutable submit、payload-digest審核、material-author separation、recent-auth finalize、Serializable atomic CREATE／UPDATE套用、stale／corrective preview及永久operation receipts。
 - 新增權限裁剪的修改歷史feed、signed cursor／snapshot cutoff、JSON search、batch child pagination、request detail、sense timeline及Public／Owner／Reviewer DTO；一般老師不可讀取其他人未批准內容或技術身份。
 - 新增7個ordinary expand migrations（`20260822020000`至`20260822026000`），包括submission／history模型、request snapshots、batch／child／lineage／terminal DB guards；production feature gates預設關閉，raw CSV不落DB。
 - 本地驗證通過：249個unit tests、lint、typecheck、79-route production build、61個ordinary migration fresh／interrupted replay、2個contract migration regression、checksum、catalog／governance／submission DB check、Review DB regression，以及history backfill／preview cleanup dry-run。
 - 兩個獨立實作reviewer最終均為`BLOCKER 0 / HIGH 0 — APPROVE`。未執行：5,000+ history及200-row Vercel性能測試、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy／scheduler、emergency withdraw及global lifecycle revision／as-of analytics。
+
+### 2026-08-23：跨邊界 correctness／performance 審核跟進（已完成）
+
+外部合併級審核確認詞庫治理交易及權限設計沒有 blocker，但發現學生 current-catalog consumer 的三個跨 helper 問題。本輪只處理本地程式及測試，唔包括 production deploy：
+
+- [x] 由 unit progress 明確產生 unlocked level set，禁止反向分析 Prisma `where` object；A1 部分單元解鎖時必須顯示 A1 已解鎖；
+- [x] 將 A1–B2 total／recognized／long-term mastered 分級統計下推到 PostgreSQL aggregate，禁止每次 insights request 把 5,000+ current words 及全部 student reviews搬入 Node.js；
+- [x] 學生詞表 filter 變更時取消舊 load-more，並以 request key、cursor snapshot及 word ID去重阻止 stale response混入新結果；
+- [x] 補 unit／DB／browser regression，並記錄 query plan／rows returned；aggregate 改用共用 materialized current-catalog CTE，本機 5,469 ACTIVE sense baseline 的 `EXPLAIN ANALYZE` 回傳 4 行、執行 16.880 ms、1,779 shared buffer hits，唔再回傳 5,469 個 word objects；`fetchUnitProgress()` 同樣改用共用 CTE 及 materialized user-review aggregate；DB checker逐一比較 raw SQL／Prisma exact word-ID set及 A1–B2 totals／learned／mastered，另覆蓋 repetitions 0／1、interval 21／22；
+- [x] DB checker加入 null sense、非 READY word catalog、DRAFT／RETIRED sense、缺 approved revision及 BUILDING approved catalog 六類負例，並以固定時間獨立重算每個 level／category 的 total／learned／mastered／due；所有 disposable fixture 建立後立即登記並於 `finally` 按外鍵次序清理；
+- [x] 兩位獨立 reviewer 分別覆核 auth／import data-integrity 與學生統計／效能／current-catalog correctness；最後結果均為 `APPROVE`，`BLOCKER 0 / HIGH 0 / MEDIUM 0 / LOW 0`。本輪最終通過 270 個 unit tests、lint、typecheck、79-route production build、study-stream V2 DB integration，以及 student-shell unlock consistency／stale pagination browser regression。

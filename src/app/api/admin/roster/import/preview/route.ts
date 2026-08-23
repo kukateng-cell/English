@@ -1,9 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma, Prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { hasValidRecentAuthGrant } from "@/lib/recent-auth";
+import { readRecentAuthSafely } from "@/lib/recent-auth";
 import { isSameOriginMutation } from "@/lib/csrf";
 import {
   accountNameError,
@@ -14,7 +14,16 @@ import {
   normalizeLegalName,
 } from "@/lib/identity";
 import { validateNicknameAgainstIdentity } from "@/lib/nickname";
-import { parseRosterFile, type RosterCellRow } from "@/lib/roster-file";
+import {
+  parseRosterFile,
+  rosterSourceRowNumber,
+  type RosterCellRow,
+} from "@/lib/roster-file";
+import {
+  parseRosterUploadMetadata,
+  readRosterUploadBody,
+  RosterUploadError,
+} from "@/lib/roster-upload";
 import { parseClassReference, parseClassCode, parseStudentGrade, parseStudentNumber } from "@/lib/roster-domain";
 import { lockRosterIdentityKeys, lockRosterMutationState } from "@/lib/roster-server";
 import type { StagedRosterRow, StagedStudentRow, StagedTeacherRow } from "@/lib/roster-import-contract";
@@ -102,23 +111,21 @@ export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
   const auth = await requireRole(ROLES.ADMIN);
   if (!auth.ok) return NextResponse.json({ code: auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED" }, { status: auth.status });
-  if (!(await hasValidRecentAuthGrant({ req, userId: auth.userId }))) {
-    return NextResponse.json({ code: "RECENT_AUTH_REQUIRED" }, { status: 401 });
+  const recentAuth = await readRecentAuthSafely({ req, userId: auth.userId });
+  if (!recentAuth.ok) {
+    return NextResponse.json({ code: recentAuth.code }, { status: recentAuth.status });
   }
   try {
-    const form = await req.formData();
-    const file = form.get("file");
-    const entityType = form.get("entityType") === "TEACHER" ? "TEACHER" : "STUDENT";
-    const mergeMode = form.get("mergeMode") === "true" || form.get("mode") === "MERGE";
-    const acknowledgeImmediateGlobalCapabilityChange = form.get("acknowledgeImmediateGlobalCapabilityChange") === "true";
-    const academicYearId = String(form.get("academicYearId") ?? "").trim();
-    const operationId = String(form.get("operationId") ?? randomUUID()).trim();
-    if (!(file instanceof File)) return NextResponse.json({ code: "ROSTER_FILE_REQUIRED" }, { status: 422 });
-    if (!academicYearId) return NextResponse.json({ code: "ACADEMIC_YEAR_REQUIRED" }, { status: 422 });
-    const lowerName = file.name.toLowerCase();
-    const format = lowerName.endsWith(".csv") ? "CSV" : lowerName.endsWith(".xlsx") ? "XLSX" : null;
-    if (!format) return NextResponse.json({ code: "ROSTER_FORMAT_INVALID" }, { status: 422 });
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const upload = parseRosterUploadMetadata(req.headers);
+    const {
+      entityType,
+      academicYearId,
+      operationId,
+      format,
+      acknowledgeImmediateGlobalCapabilityChange,
+    } = upload;
+    const mergeMode = upload.mode === "MERGE";
+    const bytes = await readRosterUploadBody(req);
     const fileHash = createHash("sha256").update(bytes).digest("hex");
     const rows = await parseRosterFile(bytes, format);
     if (!rows.length) return NextResponse.json({ code: "ROSTER_FILE_EMPTY" }, { status: 422 });
@@ -158,8 +165,8 @@ export async function POST(req: Request) {
     }) : [];
     const studentNumberKey = (classId: string | null, classCode: string | null, studentNumber: number) => classId ? `CLASS:${classId}:${studentNumber}` : classCode ? `CLASS_CODE:${classCode}:${studentNumber}` : `UNASSIGNED:${studentNumber}`;
     const existingStudentNumberOwners = new Map(existingStudentNumbers.map((item) => [studentNumberKey(item.classId, item.schoolClass?.classCode ?? null, item.studentNumber!), item.student.user]));
-    const staged: StagedRosterRow[] = rows.map((row, index) => {
-      const rowNumber = index + 2;
+    const staged: StagedRosterRow[] = rows.map((row) => {
+      const rowNumber = rosterSourceRowNumber(row);
       const errors: string[] = [];
       const accountName = normalizeAccountName(field(row, ACCOUNT_HEADERS));
       const accountError = accountNameError(accountName);
@@ -300,12 +307,15 @@ export async function POST(req: Request) {
     const previewRows = staged.slice(0, PREVIEW_PAGE_SIZE);
     return NextResponse.json({ batchId: batch.id, operationId: batch.operationId, academicYearId, entityType, format, rowCount: staged.length, createCount: batch.createdCount, updateCount: batch.updatedCount, errorCount: batch.errorCount, requiresImmediateGlobalCapabilityAck: immediateGlobalCapabilityChange, acknowledgeImmediateGlobalCapabilityChange, canCommit: batch.status === "PREVIEWED" && batch.errorCount === 0 && (!immediateGlobalCapabilityChange || acknowledgeImmediateGlobalCapabilityChange), nextCursor: staged.length > PREVIEW_PAGE_SIZE ? String(PREVIEW_PAGE_SIZE) : null, rows: previewRows }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof RosterUploadError) {
+      return NextResponse.json({ code: error.code }, { status: error.status });
+    }
     const rawCode = error instanceof Error ? error.message : "";
     const code = rawCode === "ROSTER_OPERATION_CONFLICT"
       ? rawCode
       : PREVIEW_VALIDATION_CODES.has(rawCode)
         ? rawCode
-        : /^(档案|名单|栏位|学生证|XLSX|CSV)/u.test(rawCode)
+        : /^(檔案|档案|名單|名单|欄位|栏位|學生證|学生证|XLSX|CSV)/u.test(rawCode)
           ? "ROSTER_FILE_INVALID"
           : "ROSTER_PREVIEW_FAILED";
     return NextResponse.json({ code }, { status: code === "ROSTER_OPERATION_CONFLICT" ? 409 : code === "ROSTER_PREVIEW_FAILED" ? 503 : 422 });

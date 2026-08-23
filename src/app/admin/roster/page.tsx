@@ -48,7 +48,17 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   ROSTER_INPUT_INVALID: "名單格式不正確，請檢查後再試。",
   ROSTER_FILE_REQUIRED: "請選擇名單檔案。",
   ROSTER_FILE_EMPTY: "名單檔案沒有資料。",
+  ROSTER_FILE_TOO_LARGE: "名單檔案不可超過 4 MiB。",
+  ROSTER_FILE_INVALID: "名單檔案內容不正確，請檢查欄位、行數及工作表格式。",
+  ROSTER_FILE_NAME_INVALID: "名單檔案名稱不正確，請重新命名後再試。",
   ROSTER_FORMAT_INVALID: "名單格式不正確，請使用 CSV 或 XLSX。",
+  ROSTER_CONTENT_TYPE_INVALID: "名單檔案類型與副檔名不一致。",
+  ROSTER_CONTENT_ENCODING_UNSUPPORTED: "名單上載不可使用額外壓縮編碼。",
+  ROSTER_CONTENT_LENGTH_INVALID: "名單檔案大小資料不正確，請重新選擇檔案。",
+  ROSTER_ENTITY_TYPE_INVALID: "名單角色不正確，請重新選擇學生或教師名單。",
+  ROSTER_MODE_INVALID: "名單匯入模式不正確，請重新選擇。",
+  ROSTER_ACKNOWLEDGEMENT_INVALID: "名單權限確認資料不正確，請重新預覽。",
+  ROSTER_OPERATION_ID_INVALID: "名單操作識別資料不正確，請重新預覽。",
   ROSTER_HEADER_REQUIRED: "名單缺少必要欄位。",
   ROSTER_HEADER_UNKNOWN: "名單包含無法識別的欄位。",
   EXPORT_TOO_LARGE: "資料太多，暫時不能一次匯出。",
@@ -258,8 +268,22 @@ export default function AdminRosterPage() {
   async function previewImport() {
     const file = fileRef.current?.files?.[0];
     if (!file || !yearId) throw new Error("請選擇學年及 CSV/XLSX 名單");
-    const form = new FormData(); form.set("file", file); form.set("academicYearId", yearId); form.set("entityType", importType); form.set("mode", mergeMode ? "MERGE" : "CREATE_ONLY"); form.set("acknowledgeImmediateGlobalCapabilityChange", String(ackImmediateGlobalReset)); form.set("operationId", crypto.randomUUID());
-    const response = await rosterFetch("/api/admin/roster/import/preview", { method: "POST", body: form });
+    const contentType = file.name.toLowerCase().endsWith(".csv")
+      ? "text/csv; charset=utf-8"
+      : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    const response = await rosterFetch("/api/admin/roster/import/preview", {
+      method: "POST",
+      headers: {
+        "Content-Type": contentType,
+        "X-Roster-File-Name": encodeURIComponent(file.name),
+        "X-Roster-Academic-Year-Id": yearId,
+        "X-Roster-Entity-Type": importType,
+        "X-Roster-Mode": mergeMode ? "MERGE" : "CREATE_ONLY",
+        "X-Roster-Acknowledge-Immediate-Global-Capability-Change": String(ackImmediateGlobalReset),
+        "X-Roster-Operation-Id": crypto.randomUUID(),
+      },
+      body: file,
+    });
     if (!response.ok) throw new Error(await responseMessage(response));
     setImportPreview(await response.json() as ImportPreview); setCredentials(null);
   }

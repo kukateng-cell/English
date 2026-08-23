@@ -16,47 +16,75 @@ import {
   issueRecentAuthGrant,
 } from "@/lib/recent-auth";
 
+type AuthValidationUser = {
+  role: Role;
+  status: "ACTIVE" | "SUSPENDED";
+  tokenVersion: number;
+  credentialRevision: number;
+  mustChangePassword: boolean;
+  accountName: string;
+  legacyName: string | null;
+  studentProfile: { nickname: string } | null;
+  teacherProfile: { legalName: string } | null;
+};
+
+export type AuthValidationStore = {
+  findUser(userId: string): Promise<AuthValidationUser | null>;
+  findCurrentStudentEnrollment(userId: string): Promise<{ id: string } | null>;
+};
+
+const authValidationStore: AuthValidationStore = {
+  findUser: (userId) => prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: true,
+      status: true,
+      tokenVersion: true,
+      credentialRevision: true,
+      mustChangePassword: true,
+      accountName: true,
+      legacyName: true,
+      studentProfile: { select: { nickname: true } },
+      teacherProfile: { select: { legalName: true } },
+    },
+  }),
+  findCurrentStudentEnrollment: (userId) => prisma.studentEnrollment.findFirst({
+    where: { studentId: userId, status: "ACTIVE", academicYear: { status: "CURRENT" } },
+    select: { id: true },
+  }),
+};
+
 /**
  * Revalidate the account-bound claims used by protected routes. Keeping this
  * boundary callable outside the NextAuth callback makes token-version
  * revocation testable without fabricating a login event.
  */
-export async function validateAuthTokenVersion(token: JWT): Promise<JWT> {
+export async function validateAuthTokenVersion(
+  token: JWT,
+  store: AuthValidationStore = authValidationStore,
+): Promise<JWT> {
   const userId = token.id as string | undefined;
   if (!userId) return token;
 
   // Session validity is a security decision: a transient DB failure keeps the
   // cookie but marks it unavailable so protected APIs fail closed with 503.
-  let dbUser;
+  let dbUser: AuthValidationUser | null;
+  let currentEnrollment: { id: string } | null = null;
   try {
-    dbUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        role: true,
-        status: true,
-        tokenVersion: true,
-        credentialRevision: true,
-        mustChangePassword: true,
-        accountName: true,
-        legacyName: true,
-        studentProfile: { select: { nickname: true } },
-        teacherProfile: { select: { legalName: true } },
-      },
-    });
+    dbUser = await store.findUser(userId);
+    if (dbUser?.role === "STUDENT") {
+      currentEnrollment = await store.findCurrentStudentEnrollment(userId);
+    }
   } catch (error) {
-    console.error("[auth] session validation database unavailable", error);
+    console.error("[auth] session validation database unavailable", {
+      name: error instanceof Error ? error.name : "UnknownError",
+    });
     token.authUnavailable = true;
     return token;
   }
   if (!dbUser) throw new Error("SESSION_INVALIDATED");
   if (dbUser.status !== "ACTIVE") throw new Error("SESSION_INVALIDATED");
-  if (dbUser.role === "STUDENT") {
-    const currentEnrollment = await prisma.studentEnrollment.findFirst({
-      where: { studentId: userId, status: "ACTIVE", academicYear: { status: "CURRENT" } },
-      select: { id: true },
-    });
-    if (!currentEnrollment) throw new Error("SESSION_INVALIDATED");
-  }
+  if (dbUser.role === "STUDENT" && !currentEnrollment) throw new Error("SESSION_INVALIDATED");
   if (dbUser.tokenVersion !== token.tokenVersion || dbUser.role !== token.role) {
     throw new Error("SESSION_INVALIDATED");
   }

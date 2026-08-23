@@ -625,7 +625,7 @@ aggregate 及未來 student detail；任何 teacher-to-student Prisma query 必�
   canonical header order 固定；說明 sheet 只能放第二頁；
 - account／學生證一律按字串解析，保留前置零；XLSX template 預設該欄為 text；numeric／formula account cell
   逐行報錯，因為 importer 不可猜回 Excel 已丟失的前置零；CSV 禁止 numeric coercion；
-- 上限：5 MiB、500 data rows、100 columns、單格 4,000 字、解壓後 25 MiB；501 行整批拒絕並提示拆檔；
+- 上限：4 MiB（低於 Vercel Functions 4.5 MB request ceiling）、500 data rows、100 columns、單格 4,000 字、解壓後 25 MiB；501 行整批拒絕並提示拆檔；
 - 空檔、duplicate headers、任何unknown header、duplicate account／email、role collision 明確逐行報錯；server按
   entity type及完整canonical header set推導contract version，不信任client自報template version；
 - 支援既定簡繁 header aliases，但 alias canonicalize 後要再次檢查 duplicate；匯出及模板只使用 canonical headers。
@@ -1155,7 +1155,7 @@ POST       /api/teacher/students/[id]/reset-password
 
 - [x] 鎖定 spreadsheet dependency（`exceljs@4.4.0`），執行 dependency audit 及 malicious workbook spike（`npm ls exceljs --depth=0`、`npm run check:roster-workbook`）。
 - [x] 建立 versioned `student-roster-v1`／`teacher-roster-v2` CSV、XLSX templates及欄位／merge說明。
-- [x] 建立 bounded CSV／XLSX parser、magic、5 MiB、500-row、100-column、cell／inflation limits。
+- [x] 建立 bounded CSV／XLSX parser、magic、4 MiB、500-row、100-column、cell／inflation limits。
 - [x] 拒絕 formula、macro、external link、encrypted／malformed workbook。
 - [x] 建立 canonical multilingual header mapping，但匯出一律使用固定 canonical headers。
 - [x] Numeric XLSX account cell fail closed；CSV／XLSX leading-zero round-trip tests。
@@ -1190,7 +1190,7 @@ POST       /api/teacher/students/[id]/reset-password
 - [x] 建立academic-year activation preview／commit：source、incoming、suspended、graduate／leave outcomes；year/class/enrollment、
   global roster revision、teacher User role/status/revision、profile access revision／rows及active-only view/reset coverage完整snapshot。
 - [x] Activation atomically切換 source/target year及 ACTIVE/ENDED/PLANNED enrollment statuses。
-- [x] 覆蓋 parser 0／1／200／500／501 CSV／XLSX、5 MiB、malicious workbook，以及 shared bulk/promotion 501 selection guard（route＋unit）；完整 rollover fixture 另覆蓋六個年級、repeat／hold、missing-class（unassigned）、incoming、suspended、graduate／leave及持久 transition shape／activation 結果。
+- [x] 覆蓋 parser 0／1／200／500／501 CSV／XLSX、4 MiB、malicious workbook，以及 shared bulk/promotion 501 selection guard（route＋unit）；完整 rollover fixture 另覆蓋六個年級、repeat／hold、missing-class（unassigned）、incoming、suspended、graduate／leave及持久 transition shape／activation 結果。
 - [x] 覆蓋500-row student import success及501-row import pre-staging reject（fresh local Playwright：preview 155/113/102/98ms、commit 21,120/20,838/21,193/21,333ms），promotion 500 success／501 pre-staging `SELECTION_CAP`，以及 explicit REPEAT／HOLD_UNASSIGNED／GRADUATE／LEAVE／incoming／suspended rollover fixture；promotion／activation payload 均通過 PII-negative assertions。
 - [x] Activation另覆蓋5,000／5,001 cap、set-based transaction時間及全校atomicity；fresh isolated Playwright 5,000 fixture atomic commit passed（total 2,763ms、`Server-Timing` transaction 2,745ms），5,001 preview在staging前以`ACTIVATION_SELECTION_CAP` 422 fail closed；不可按500人分批切學年。cold/warm及RSS protocol已於Phase 8完成並低於budget。
 
@@ -1243,7 +1243,7 @@ POST       /api/teacher/students/[id]/reset-password
 - [x] Local a11y gate：axe serious/critical=0、keyboard-only、focus trap/return、live-region summary、錯誤不只靠顏色、
   200% zoom/reflow equivalent、light/dark contrast、zh-Hans/Hant 文案及 Chromium accessibility-tree smoke（標準 admin roster browser matrix 及 shared modal smoke 已通過；完整原生 screen-reader/device matrix仍 deferred）
 - [x] 320px mobile、tablet、desktop、light／dark、zh-Hans／zh-Hant rendered browser matrix（overflow、heading、locale/theme、axe；完整原生 device／reader matrix保持 deferred）
-- [x] 0／1／200／500／501-row CSV、XLSX；5 MiB 邊界及 malicious workbook spike（parser tests 9 passed）；500-row import fresh cold/warm smoke通過（preview 155/113/102/98ms、commit 21,120/20,838/21,193/21,333ms、transaction median 815.25ms、RSS peak 1.13MiB）；activation 5,000 atomic scale通過（total 2,763ms、transaction 2,745ms、RSS 0MiB），5,001 cap route smoke通過；5,000-row export fresh cold/warm通過（preview 249ms、四次 total 190/183/160/157ms、transaction 173/171/148/146ms、RSS peak 63.72MiB）。
+- [x] 0／1／200／500／501-row CSV、XLSX；4 MiB 邊界及 malicious workbook spike（parser tests 9 passed）；500-row import fresh cold/warm smoke通過（preview 155/113/102/98ms、commit 21,120/20,838/21,193/21,333ms、transaction median 815.25ms、RSS peak 1.13MiB）；activation 5,000 atomic scale通過（total 2,763ms、transaction 2,745ms、RSS 0MiB），5,001 cap route smoke通過；5,000-row export fresh cold/warm通過（preview 249ms、四次 total 190/183/160/157ms、transaction 173/171/148/146ms、RSS peak 63.72MiB）。
 - [x] 固定performance fixture／command／測量邊界：同一 fresh-seeded disposable DB；500-row import 以第 1 次 cold、其後 3 次 warm 取 median；5,000-row export 同一 activation fixture 以第 1 次 cold、其後 3 次 warm 取 median；preview 由 request 開始至 response 完成、commit 分別量 total／`Server-Timing` transaction、export 量 response 完成；Playwright worker 每 100ms sample process RSS，以每次 operation baseline 差值計 peak。測試命令為 `npx playwright test --project=admin-roster -g "imports 500 rows|activation completes 5,000|activation rejects 5,001"`，只在 exact-guarded fresh local reset 後執行。
 - [x] 參考本機 budget：500-row preview ≤5s、總 commit ≤90s、DB transaction ≤10s；fresh measured run cold/warm preview 155/113/102/98ms（median 107.5ms）、commit 21,120/20,838/21,193/21,333ms（median 21,156.5ms）、transaction median 815.25ms、RSS peak delta ≤1.13MiB。5,000-row export ≤10s（latest run preview 249ms、total 190/183/160/157ms、transaction 173/171/148/146ms、RSS peak delta 63.72MiB）；5,000-student activation transaction ≤10s（total 2,763ms、transaction 2,745ms、RSS delta 0MiB）；所有 measured peak process memory increase ≤256MiB；未達時降低 cap 而非延長 transaction。
 - [x] Surface-specific evidence scan：`npm run check:roster-pii` 通過（terminal staging／mutation payload、SecurityEvent／receipt
@@ -1286,6 +1286,21 @@ contract cleanup 仍 deferred。
 驗收：audit advisory 仍會令 audit job fail，但不會令 functional-quality job skipped；functional-quality 可獨立提供
 seed、migration、build 及 browser regression 結果。production-only config、production deploy、真實學生資料及
 destructive contract cleanup 仍屬本計劃外／deferred。
+
+### Post-review follow-up：AUTH-02／IMPORT-02 session 邊界及檔案完整性加固（2026-08-23，已完成）
+
+合併級審核發現現有 `requireUser()` 未同 `requireRole()` 共用失效 session／認證後端錯誤邊界，以及名冊 CSV／XLSX parser 有兩個資源及資料完整性缺口。本輪沿用既有角色、recent-auth、staged batch、原子 commit及500-row contract；不改 schema、migration、production設定或名冊產品流程。
+
+- [x] 建立單一 safe session reader，令 `requireUser()`／`requireRole()`／RSC session helpers 對 `SESSION_INVALIDATED` 一致回401語義，其他 auth backend異常一致回503語義；
+- [x] 將學生 CURRENT enrollment revalidation放入同一 DB 容錯範圍；user或enrollment query失敗都只標記`authUnavailable`，不得成為未處理500；
+- [x] 補舊 JWT＋password/token/credential/status/enrollment失效及user／enrollment DB failure regression；
+- [x] 名單 preview recent-auth 使用 typed safe boundary：grant 缺失／過期回401，token或DB backend異常固定回503，兩者有直接unit regression；
+- [x] CSV parser保存原始行號，拒絕多欄；缺少尾欄會補空值並由既有 required／optional field validator判定，錯誤包括 expected／actual及真正 source row；quote只可在欄位開首，closing quote後只接受delimiter／CRLF／EOF，禁止靜默改寫帳號；
+- [x] preview upload由會先materialize multipart body的`formData()`改為raw CSV／XLSX request stream；檔名、entity、year、mode、ack及operation ID使用有長度／enum限制的headers，server邊讀邊執行實際4 MiB cap，`Content-Length`只作額外早期拒絕；4 MiB 明確低於 Vercel Functions 4.5 MB platform ceiling；
+- [x] XLSX在ExcelJS解壓前解析ZIP central directory，限制entry數、單entry／總uncompressed bytes、compression ratio、加密／ZIP64／重複或危險entry；並以bounded raw-deflate實際解壓大小核對宣告值，現有workbook後置row／column／cell檢查繼續保留作第二層；
+- [x] 補宣告／實際解壓不符、hidden payload、異常central directory、CSV多欄／少欄／空行行號及raw streaming size拒絕測試；
+- [x] 跑unit、roster auth、workbook spike、lint、typecheck、build及針對性browser regression；270個unit tests、roster auth、malicious workbook spike、79-route production build、管理員一行CSV preview／commit／cleanup browser smoke均通過；
+- [x] 兩位獨立 reviewer 分別覆核 auth／import data-integrity 與學生統計／效能／current-catalog correctness；最後結果均為 `APPROVE`，`BLOCKER 0 / HIGH 0 / MEDIUM 0 / LOW 0`。
 
 ## 16. 測試矩陣
 

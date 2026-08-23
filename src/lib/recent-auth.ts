@@ -150,6 +150,35 @@ export async function hasValidRecentAuthGrant(input: {
   );
 }
 
+export type SafeRecentAuthResult =
+  | { ok: true }
+  | {
+      ok: false;
+      status: 401 | 503;
+      code: "RECENT_AUTH_REQUIRED" | "AUTH_BACKEND_UNAVAILABLE";
+    };
+
+/**
+ * Route handlers must distinguish an absent/expired grant from a token or
+ * database outage. The checker is injectable so both branches have direct
+ * regression coverage without mocking NextAuth or Prisma internals.
+ */
+export async function readRecentAuthSafely(
+  input: { req: Request; userId: string; now?: Date },
+  check: typeof hasValidRecentAuthGrant = hasValidRecentAuthGrant,
+): Promise<SafeRecentAuthResult> {
+  try {
+    return await check(input)
+      ? { ok: true }
+      : { ok: false, status: 401, code: "RECENT_AUTH_REQUIRED" };
+  } catch (error) {
+    console.error("[auth] recent-auth check unavailable", {
+      name: error instanceof Error ? error.name : "UnknownError",
+    });
+    return { ok: false, status: 503, code: "AUTH_BACKEND_UNAVAILABLE" };
+  }
+}
+
 /**
  * Return the exact session-bound grant snapshot used by sensitive prepare
  * flows. Callers must bind every field returned here into their precondition

@@ -157,7 +157,8 @@ export interface CatalogImportReport {
   warnings: number;
 }
 
-export const CATALOG_GOVERNANCE_MAX_BYTES = 5 * 1024 * 1024;
+// Stay below Vercel Functions' 4.5 MB request-body ceiling.
+export const CATALOG_GOVERNANCE_MAX_BYTES = 4 * 1024 * 1024;
 export const CATALOG_GOVERNANCE_MAX_ROWS = 200;
 export type CatalogValidationMode = "bootstrap" | "governance";
 
@@ -318,7 +319,7 @@ export function parseCatalogCsv(text: string, sourceFile: string): CatalogSource
 
 function governanceText(bytes: Uint8Array, sourceFile: string): string {
   if (bytes.byteLength > CATALOG_GOVERNANCE_MAX_BYTES) {
-    throw new CatalogCsvError("CATALOG_CSV_TOO_LARGE", `${sourceFile}: CSV exceeds 5 MiB`);
+    throw new CatalogCsvError("CATALOG_CSV_TOO_LARGE", `${sourceFile}: CSV exceeds 4 MiB`);
   }
   let text: string;
   try {
