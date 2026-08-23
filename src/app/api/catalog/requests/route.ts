@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { catalogAccess } from "@/lib/catalog/access";
+import { readCatalogWorkspaceVersion } from "@/lib/catalog/workspace-version";
 
 function headers() {
   return { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
@@ -18,8 +19,20 @@ export async function GET(req: Request) {
   try {
     const access = await catalogAccess(auth);
     if (!access.canReview) return response("CATALOG_REVIEW_FORBIDDEN", 403);
-    const requestedStatus = new URL(req.url).searchParams.get("status") ?? "PENDING";
+    const searchParams = new URL(req.url).searchParams;
+    const requestedStatus = searchParams.get("status") ?? "PENDING";
     const status = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"].includes(requestedStatus) ? requestedStatus : "PENDING";
+    if (searchParams.get("view") === "signature") {
+      if (status !== "PENDING") return response("CATALOG_INPUT_INVALID", 422);
+      const version = await readCatalogWorkspaceVersion();
+      return NextResponse.json({
+        signature: version.signature,
+        mutationRevision: version.mutationRevision,
+        count: version.pendingCount,
+        hasMore: version.pendingHasMore,
+      }, { headers: headers() });
+    }
+    const initialVersion = await readCatalogWorkspaceVersion();
     const requests = await prisma.catalogChangeRequest.findMany({
       where: { status: status as "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED", submissionProposalGroupId: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -47,7 +60,9 @@ export async function GET(req: Request) {
       },
     });
     const hasMore = requests.length > 1000;
-    return NextResponse.json({ hasMore, requests: (hasMore ? requests.slice(0, 1000) : requests).map((item) => ({
+    const version = await readCatalogWorkspaceVersion();
+    if (version.signature !== initialVersion.signature) return response("CATALOG_READ_STALE", 409);
+    return NextResponse.json({ hasMore, mutationRevision: version.mutationRevision, signature: version.signature, requests: (hasMore ? requests.slice(0, 1000) : requests).map((item) => ({
       ...item,
       catalogKey: item.catalogKey,
       senseKey: item.senseKey,

@@ -6,7 +6,7 @@
 >
 > 狀態：現行 v1 內容規範；已加入 bootstrap 與日常治理 CSV 模式
 >
-> 日期：2026-08-22
+> 日期：2026-08-24
 >
 > 適用範圍：A1／A2／B1／B2 英語認讀詞庫、批量草稿提交、重複與衝突檢查、審核、啟用及停用
 >
@@ -127,7 +127,7 @@ schema_version,requested_action,catalog_key,sense_key,record_revision,catalog_st
 | 欄目 | 類型 | 誰填寫 | 啟用前要求 | 意義 |
 |---|---|---|---|---|
 | `schema_version` | enum | 團隊／template | 必須 | 固定填 `word-catalog-v1` |
-| `requested_action` | enum | 團隊／老師 | 必須 | Bootstrap 固定 `CREATE_DRAFT`；日常治理只接受 `CREATE` 或 `UPDATE`；停用／重啟及緊急撤回只經授權 UI／API |
+| `requested_action` | enum | 團隊／老師 | 必須 | Bootstrap 固定 `CREATE_DRAFT`；日常治理只接受 `CREATE` 或 `UPDATE`；停用／重啟只經授權 UI／API |
 | `catalog_key` | string | 系統 | 新增留空；更新必須保留 | 同一詞目嘅穩定識別碼；多個 `run` 詞義共用同一 key |
 | `sense_key` | string | 系統 | 新增留空；更新必須保留 | 單一詞義／學習項目嘅穩定識別碼 |
 | `record_revision` | positive integer | 系統 | 更新既有資料時必須 | 防止舊 CSV 覆蓋較新修改 |
@@ -496,8 +496,9 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 - 同儕檢查人核對拼寫、詞性、程度建議、中文自然度、兩方向各 5–6 個干擾項，以及同詞其他 sense 答案零碰撞；
 - 同儕檢查不等於啟用；一般學生團隊提交一律只形成 DRAFT；
 - 有詞庫管理權限嘅英文老師負責最終 level、詞義邊界、問題方向及 ACTIVE 決定；
-- 新詞義、material change、level 變更、一般停用及重新啟用必須由提交者以外嘅授權人批准；系統硬性要求 `approver_actor != proposer_actor`；
-- 純格式、標點或不影響題目正解／程度／分母嘅 typo 修正先可以按政策自批，但仍要保留 before／after revision及理由；
+- 新詞義、material change、level 變更、一般停用及重新啟用由一位提交者以外嘅授權人批准即可；系統硬性要求 `approver_actor != proposer_actor`，不設 quorum、投票或第二次批准；
+- 純格式、標點或 typo 修正亦沿用同一獨立 reviewer 規則，不設自批例外；
+- ADMIN／具 `canManageWordCatalog` capability 嘅老師可填寫理由後立即軟停用 ACTIVE 詞義；呢個係唯一容許同一 actor 建立並完成 request 嘅窄例外，唔適用於新增、內容修改或重新啟用；
 - 所有 ACTIVE 詞義都必須有系統 proposer／審核記錄；只有引用或改編外部內容時先要求來源記錄。
 
 ### 10.4 批量匯入順序
@@ -519,9 +520,9 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 
 系統只保留 `ADMIN`、`TEACHER`、`STUDENT`，不新增「詞庫編輯員」角色：
 
-- `ADMIN`：可以新增、審核、啟用、修改、停用、重新啟用及緊急撤回；
+- `ADMIN`：可以新增、審核、啟用、修改、停用及重新啟用；
 - 一般 `TEACHER`：可以逐個／批量提交新詞草稿、修改建議及停用申請；
-- 具有 `canManageWordCatalog` capability 嘅 `TEACHER`：可以審核、批准、拒絕、停用、重新啟用及緊急撤回；
+- 具有 `canManageWordCatalog` capability 嘅 `TEACHER`：可以審核、批准、拒絕、停用及重新啟用；
 - `STUDENT` app 帳號：沒有詞庫管理權限。參與內容團隊嘅學生透過受控 CSV 及 `contributor_ref` 交件，由老師匯入。
 
 權限必須由 server API 驗證，唔可以只靠頁面隱藏按鈕。
@@ -545,8 +546,9 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 - 改變核心正解、詞義邊界、主要詞性或使用條件屬 identity change，必須由審核人新建 sense、停用舊 sense，唔可靜默改寫歷史；
 - 停用以 sense 為最小單位；只有一個詞目所有 sense 都 RETIRED，整個詞目先視為不可用；
 - 停用不刪除 Review、ReviewEvent、StudyEncounter、question snapshot 或審核記錄；
-- 一般停用以「snapshot 已成功寫入並建立 bounded lease」作 issuance 線性化點；只容許 `issuedAt < retiredAt` 嘅 snapshot 喺原 lease 前完成，retire 交易要取消未有 snapshot 嘅 OPEN target／obligation／item；
-- 如內容有嚴重錯譯、冒犯或安全風險，授權人使用 **緊急撤回**：即時停止新簽發，未完成 snapshot 中性取消、不計錯、不產生 scored ReviewEvent；保留歷史及 audit，記錄原因代碼／詳情／actor／時間／受影響項目，並由另一授權人事後覆核；
+- 一般停用以 current-catalog ACTIVE predicate 作新 issuance 邊界；已成功簽發並仍喺有效 lease 內嘅 immutable snapshot 可按原 contract 完成，停用唔刪除或重寫已發出題目；
+- 不另設「緊急撤回」狀態或第二人事後覆核。嚴重錯譯、冒犯或安全風險由授權人使用同一「立即停用」soft RETIRED 路徑，記錄理由、actor、時間及 audit；之後修正／重新啟用另開新申請；
+- 即時停用遇到既有待審內容修改時仍會生效；該內容申請日後即使獲批准亦只會更新 RETIRED 詞義，不能暗中重新啟用。尚未完成嘅批次會由 mutation／dependency revision gate 重新判定 stale；
 - 重新啟用完全相同詞義使用原 `sense_key` 並保留學習 continuity；如果意思已變，建立新 sense。
 
 ### 11.4 對進度、統計及排行榜嘅口徑
@@ -556,7 +558,7 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 - 新增 ACTIVE 詞義會增加相應 level／category denominator，對學生顯示時應標明詞庫內容已更新；
 - 掌握計算以 sense 為單位。若 UI 顯示數量，應稱「已掌握詞義」；如另顯示唯一英文數量，必須明確稱「詞目數」；
 - 歷史排行榜／指定期間活動不可因停用內容而刪除已發生 ReviewEvent；current mastery 類排行榜則只計 ACTIVE senses；
-- 每次 activate／retire／reactivate／emergency withdrawal 產生單調遞增全域 `catalog_revision`；每份統計及排行榜應保存或回傳 as-of revision／cutoff，避免同一數字喺詞庫更新後無法解釋。
+- 每次 activate／retire／reactivate 保存 request、內容 revision、actor及生效時間；全域 lifecycle revision／as-of 排行榜屬後續可選分析能力，唔係目前詞條審批或立即停用嘅必要步驟。
 
 ## 12. 整批質量報告
 
@@ -633,8 +635,8 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 5. Objective Probe 唔使用 prompt：英譯中顯示 `term`，中譯英顯示 `definition_zh`；兩方向候選池完全獨立；
 6. 多義詞以獨立 sense 處理，同一英文其他 sense 嘅答案禁止成為干擾項；唯一正解要求 final options 唯一，完整可接受答案集合必須同干擾項零碰撞；
 7. 一般老師只提交，具有 account-level capability 嘅老師先可審核／停用；角色仍然只有三種；
-8. 一般停用係可逆 soft retirement；嚴重內容另有緊急撤回，兩者都永不以缺行或 hard delete 表達；
+8. 所有停用都係可逆 soft retirement；具審核權限者可填理由後立即停用，不另設緊急撤回或第二人事後覆核，亦永不以缺行或 hard delete 表達；
 9. CSV 係受控交換格式，PostgreSQL 係 runtime canonical source；
 10. 現有 Markdown 先轉 DRAFT 並產生衝突報告，唔直接當成已審核正式詞庫；
 11. ACTIVE 內容使用 immutable approved revision；草稿、提案及舊 revision 永不原地覆寫；
-12. 新／material change 禁止自批；匯入、題目 issuance、catalog revision 均有明確並發及審計邊界。
+12. 新／material change 禁止自批，一位獨立 reviewer 足夠且第一個終局決定生效；只有具權限者立即 RETIRE 可由同一 actor 完成。匯入、題目 issuance及內容 revision均有明確並發及審計邊界。

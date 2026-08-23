@@ -20,6 +20,19 @@ test("recognizes Prisma and pg-adapter transaction conflicts", () => {
     isRetryableTransactionConflict({ cause: { code: "40001" } }),
     true,
   );
+  assert.equal(isRetryableTransactionConflict({ code: "40P01" }), true);
+  assert.equal(
+    isRetryableTransactionConflict({ cause: { originalCode: "40P01" } }),
+    true,
+  );
+  assert.equal(
+    isRetryableTransactionConflict({ code: "P2010", meta: { code: "40001" } }),
+    true,
+  );
+  assert.equal(
+    isRetryableTransactionConflict({ code: "P2010", meta: { driverAdapterError: { cause: { originalCode: "40P01" } } } }),
+    true,
+  );
 });
 
 test("does not retry unrelated database or application failures", () => {

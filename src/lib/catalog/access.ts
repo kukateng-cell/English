@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { Prisma, prisma } from "@/lib/prisma";
 import type { AuthResult } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 
@@ -19,4 +19,25 @@ export async function catalogAccess(actor: CatalogActor): Promise<{
     canSubmit: true,
     canReview: profile?.canManageWordCatalog === true,
   };
+}
+
+export async function requireCatalogReviewerInTransaction(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<void> {
+  // Keep the authority read and catalog decision in one transaction so a
+  // concurrent suspension or capability revoke cannot race the mutation.
+  await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+  const actor = await tx.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: true,
+      status: true,
+      teacherProfile: { select: { canManageWordCatalog: true } },
+    },
+  });
+  if (!actor || actor.status !== "ACTIVE") throw new Error("CATALOG_REVIEW_FORBIDDEN");
+  if (actor.role !== ROLES.ADMIN && (actor.role !== ROLES.TEACHER || !actor.teacherProfile?.canManageWordCatalog)) {
+    throw new Error("CATALOG_REVIEW_FORBIDDEN");
+  }
 }

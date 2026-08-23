@@ -1,27 +1,31 @@
 /**
  * Prisma's pg driver adapter reports PostgreSQL serialization failures as a
- * DriverAdapterError with SQLSTATE 40001, while other Prisma engines expose
- * the same condition as P2034. Treat both representations identically.
+ * DriverAdapterError with SQLSTATE 40001, while PostgreSQL deadlocks use
+ * 40P01 and other Prisma engines may expose P2034. Treat all retryable
+ * transaction-abort representations identically.
  */
 export function isRetryableTransactionConflict(error: unknown): boolean {
-  let current: unknown = error;
+  const queue: unknown[] = [error];
   const seen = new Set<unknown>();
 
-  for (let depth = 0; depth < 6; depth++) {
+  for (let inspected = 0; queue.length > 0 && inspected < 16; inspected += 1) {
+    const current = queue.shift();
     if (typeof current !== "object" || current === null || seen.has(current)) {
-      return false;
+      continue;
     }
     seen.add(current);
     const value = current as Record<string, unknown>;
     if (
       value.code === "P2034" ||
       value.code === "40001" ||
+      value.code === "40P01" ||
       value.originalCode === "40001" ||
+      value.originalCode === "40P01" ||
       value.kind === "TransactionWriteConflict"
     ) {
       return true;
     }
-    current = value.cause;
+    queue.push(value.cause, value.meta, value.error, value.originalError, value.driverAdapterError);
   }
 
   return false;

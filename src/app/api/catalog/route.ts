@@ -3,7 +3,7 @@ import { Prisma, prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { isSameOriginMutation } from "@/lib/csrf";
-import { catalogAccess } from "@/lib/catalog/access";
+import { catalogAccess, requireCatalogReviewerInTransaction } from "@/lib/catalog/access";
 import { catalogBulkSubmissionEnabled, catalogHistoryEnabled } from "@/lib/catalog/features";
 import {
   catalogEntryAcceptsLemma,
@@ -18,6 +18,13 @@ import { isRetryableTransactionConflict } from "@/lib/transaction-retry";
 import { catalogActorPseudonym } from "@/lib/catalog/submission";
 import { consumeCatalogGovernanceLimit } from "@/lib/catalog-limiter";
 import { getClientIp } from "@/lib/login-limiter";
+import {
+  cancelSupersededStandaloneRetireRequests,
+  ensureCatalogMutationStateLocked,
+  reviewCatalogChange,
+} from "@/lib/catalog/change-application";
+import { parseCatalogExpectedRevision } from "@/lib/catalog/review-policy";
+import { readCatalogWorkspaceVersion } from "@/lib/catalog/workspace-version";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
 const CHANGE_KINDS = ["UPDATE", "CREATE", "RETIRE", "REACTIVATE"] as const;
@@ -145,12 +152,17 @@ export async function GET() {
 
   try {
     const access = await catalogAccess(auth);
+    const initialVersion = await readCatalogWorkspaceVersion();
     const batch = await prisma.catalogImportBatch.findFirst({
       where: { status: "READY" },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: { id: true, sourceDigest: true, status: true, createdAt: true, report: true },
     });
-    if (!batch) return NextResponse.json({ rows: [], counts: { all: 0 }, canReview: access.canReview, actorUserId: auth.userId, bulkEnabled: catalogBulkSubmissionEnabled(), historyEnabled: catalogHistoryEnabled(), batch: null }, { headers: privateHeaders() });
+    if (!batch) {
+      const version = await readCatalogWorkspaceVersion();
+      if (version.signature !== initialVersion.signature) return errorResponse("CATALOG_READ_STALE", 409);
+      return NextResponse.json({ rows: [], counts: { all: 0 }, mutationRevision: version.mutationRevision, workspaceSignature: version.signature, canReview: access.canReview, actorUserId: auth.userId, bulkEnabled: catalogBulkSubmissionEnabled(), historyEnabled: catalogHistoryEnabled(), batch: null }, { headers: privateHeaders() });
+    }
 
     const importRows = await prisma.catalogImportRow.findMany({
       where: { batchId: batch.id },
@@ -298,9 +310,13 @@ export async function GET() {
       if (row.pendingRequest) result.pending = (result.pending ?? 0) + 1;
       return result;
     }, { all: 0 });
+    const version = await readCatalogWorkspaceVersion();
+    if (version.signature !== initialVersion.signature) return errorResponse("CATALOG_READ_STALE", 409);
     return NextResponse.json({
       rows,
       counts,
+      mutationRevision: version.mutationRevision,
+      workspaceSignature: version.signature,
       canReview: access.canReview,
       actorUserId: auth.userId,
       bulkEnabled: catalogBulkSubmissionEnabled(),
@@ -339,9 +355,20 @@ export async function POST(req: Request) {
   if (body.sourceRowId !== undefined && typeof body.sourceRowId !== "string") return errorResponse("CATALOG_INPUT_INVALID", 422);
   const sourceRowId = typeof body.sourceRowId === "string" ? body.sourceRowId.trim() : "";
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (body.immediate !== undefined && typeof body.immediate !== "boolean") return errorResponse("CATALOG_INPUT_INVALID", 422);
+  const immediateRetire = body.immediate === true;
   if (!operationId || operationId.length > 120 || !CHANGE_KINDS.includes(kind as ChangeKind)) return errorResponse("CATALOG_INPUT_INVALID", 422);
+  if (immediateRetire && kind !== "RETIRE") return errorResponse("CATALOG_INPUT_INVALID", 422);
   if ((kind === "RETIRE" || kind === "REACTIVATE") && !senseKey) return errorResponse("CATALOG_SENSE_REQUIRED", 422);
   if (kind === "RETIRE" && reason.length < 3) return errorResponse("CATALOG_REASON_REQUIRED", 422);
+  if (reason.length > 2000) return errorResponse("CATALOG_REASON_INVALID", 422);
+  let expectedRevision: number | null;
+  try {
+    expectedRevision = parseCatalogExpectedRevision(body.expectedRevision, immediateRetire);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "CATALOG_REVISION_INVALID";
+    return errorResponse(code, 422);
+  }
 
   let payload: CatalogGovernancePayload | null = null;
   if (kind === "UPDATE" || kind === "CREATE") {
@@ -351,13 +378,29 @@ export async function POST(req: Request) {
       return errorResponse("CATALOG_PAYLOAD_INVALID", 422, { detail: error instanceof Error ? error.message : "invalid payload" });
     }
   }
-  const requestFingerprint = payloadFingerprint({ operationId, kind, senseKey, sourceRowId, expectedRevision: body.expectedRevision ?? null, payload, reason });
+  const requestFingerprint = payloadFingerprint({
+    operationId,
+    kind,
+    senseKey,
+    sourceRowId,
+    expectedRevision,
+    payload,
+    reason,
+    ...(immediateRetire ? { immediateRetire: true } : {}),
+  });
   try {
     const result = await prisma.$transaction(async (tx) => {
       const existing = await tx.catalogChangeRequest.findUnique({ where: { proposerId_operationId: { proposerId: auth.userId, operationId } }, select: { id: true, requestFingerprint: true, status: true } });
       if (existing) {
         if (existing.requestFingerprint !== requestFingerprint) throw new Error("IDEMPOTENCY_CONFLICT");
-        return { replay: true, requestId: existing.id, status: existing.status };
+        return { replay: true, requestId: existing.id, status: existing.status, immediate: immediateRetire };
+      }
+      if (immediateRetire) {
+        await requireCatalogReviewerInTransaction(tx, auth.userId);
+        // Keep the same lock order as ordinary review: reviewer -> mutation
+        // state -> request/sense. This prevents a direct retirement from
+        // deadlocking with a reviewer deciding an existing RETIRE request.
+        await ensureCatalogMutationStateLocked(tx);
       }
       const batch = await tx.catalogImportBatch.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true } });
       if (!batch) throw new Error("CATALOG_NOT_READY");
@@ -371,11 +414,11 @@ export async function POST(req: Request) {
       const resolvedSenseKey = senseKey || sourceRow?.senseKey || "";
       if (kind === "CREATE" && !resolvedSenseKey) throw new Error("CATALOG_SENSE_REQUIRED");
       if (sourceRow && sourceRow.senseKey !== resolvedSenseKey) throw new Error("CATALOG_IDENTITY_MISMATCH");
-      if (sourceRow?.changeRequests.length) throw new Error("CATALOG_CHANGE_PENDING");
+      if (sourceRow?.changeRequests.length && !immediateRetire) throw new Error("CATALOG_CHANGE_PENDING");
       const targetSense = resolvedSenseKey
-        ? await tx.wordSense.findUnique({ where: { senseKey: resolvedSenseKey }, include: { catalogEntry: { select: { catalogKey: true, normalizedLemma: true } }, revisions: { orderBy: { revision: "desc" }, take: 1 }, approvedRevision: true, changeRequests: { where: { status: "PENDING" }, select: { id: true } } } })
+        ? await tx.wordSense.findUnique({ where: { senseKey: resolvedSenseKey }, include: { catalogEntry: { select: { catalogKey: true, normalizedLemma: true } }, revisions: { orderBy: { revision: "desc" }, take: 1 }, approvedRevision: true, changeRequests: { where: { status: "PENDING" }, select: { id: true, kind: true, submissionProposalGroupId: true } } } })
         : null;
-      if (targetSense?.changeRequests.length) throw new Error("CATALOG_CHANGE_PENDING");
+      if (targetSense?.changeRequests.length && !immediateRetire) throw new Error("CATALOG_CHANGE_PENDING");
       if (kind === "CREATE" && targetSense) throw new Error("CATALOG_ALREADY_EXISTS");
       if (kind !== "CREATE" && !targetSense) throw new Error("CATALOG_SENSE_NOT_FOUND");
       const latest = targetSense?.revisions[0] ?? null;
@@ -383,14 +426,24 @@ export async function POST(req: Request) {
         ? payloadFromRevision((targetSense.approvedRevision ?? latest)!)
         : null;
       const baseRevision = targetSense?.approvedRevision?.revision ?? latest?.revision ?? null;
-      const expectedRevision = body.expectedRevision === undefined || body.expectedRevision === null ? null : Number(body.expectedRevision);
-      if (expectedRevision !== null && (!Number.isInteger(expectedRevision) || expectedRevision < 1)) throw new Error("CATALOG_REVISION_INVALID");
       if (targetSense && expectedRevision !== null && baseRevision !== expectedRevision) throw new Error("CATALOG_REVISION_STALE");
       if (kind === "REACTIVATE" && targetSense?.status !== "RETIRED") throw new Error("CATALOG_NOT_RETIRED");
       if (kind === "RETIRE" && targetSense?.status === "RETIRED") throw new Error("CATALOG_ALREADY_RETIRED");
       if (kind === "RETIRE" && (targetSense?.status !== "ACTIVE" || !targetSense.approvedRevisionId)) throw new Error("CATALOG_NOT_ACTIVE");
       if (kind === "UPDATE" && payload && targetSense && !catalogEntryAcceptsLemma(targetSense.catalogEntry.normalizedLemma, payload.lemma)) {
         throw new Error("CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE");
+      }
+
+      if (immediateRetire && targetSense) {
+        const supersededRetireIds = targetSense.changeRequests
+          .filter((request) => request.kind === "RETIRE" && !request.submissionProposalGroupId)
+          .map((request) => request.id);
+        await cancelSupersededStandaloneRetireRequests(tx, {
+          requestIds: supersededRetireIds,
+          reviewerId: auth.userId,
+          senseId: targetSense.id,
+          baseRevision,
+        });
       }
 
       if (kind === "CREATE" && payload) {
@@ -509,11 +562,30 @@ export async function POST(req: Request) {
           actorPseudonym: catalogActorPseudonym(auth.userId).value,
           actorKeyVersion: catalogActorPseudonym(auth.userId).keyVersion,
         },
-        select: { id: true, status: true, kind: true, createdAt: true },
+        select: { id: true, status: true, kind: true, revision: true, createdAt: true },
       });
       await tx.catalogAuditEvent.create({ data: { requestId: created.id, actorUserId: auth.userId, senseId: targetSense?.id ?? null, action: "SUBMITTED", fromStatus: targetSense?.status ?? null, toStatus: "PENDING", revision: latest?.revision ?? null, metadata: { warnings: validationWarnings } } });
       await tx.catalogHistoryFeedEntry.create({ data: { occurredAt: created.createdAt, sourceKind: "STANDALONE_REQUEST", requestId: created.id } });
-      return { replay: false, requestId: created.id, status: created.status, kind: created.kind, createdAt: created.createdAt.toISOString() };
+      if (immediateRetire) {
+        const reviewed = await reviewCatalogChange(tx, {
+          requestId: created.id,
+          reviewerId: auth.userId,
+          expectedRevision: created.revision,
+          decision: "APPROVE",
+          reviewNote: reason,
+          batchMode: false,
+          reviewMode: "AUTHORIZED_IMMEDIATE_RETIRE",
+        });
+        return {
+          replay: false,
+          requestId: created.id,
+          status: reviewed.request.status,
+          kind: created.kind,
+          createdAt: created.createdAt.toISOString(),
+          immediate: true,
+        };
+      }
+      return { replay: false, requestId: created.id, status: created.status, kind: created.kind, createdAt: created.createdAt.toISOString(), immediate: false };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
     return NextResponse.json(result, { status: result.replay ? 200 : 201, headers: privateHeaders() });
   } catch (error) {
@@ -523,13 +595,14 @@ export async function POST(req: Request) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return errorResponse("CATALOG_IDENTITY_CONFLICT", 409);
     if (message === "IDEMPOTENCY_CONFLICT") return errorResponse("IDEMPOTENCY_CONFLICT", 409);
     if (message === "CATALOG_REVISION_STALE") return errorResponse("CATALOG_REVISION_STALE", 409);
+    if (message === "CATALOG_REVIEW_FORBIDDEN") return errorResponse(message, 403);
     if (["CATALOG_CHANGE_PENDING", "CATALOG_ALREADY_EXISTS", "CATALOG_ALREADY_RETIRED", "CATALOG_NOT_RETIRED", "CATALOG_NOT_ACTIVE", "CATALOG_SOURCE_ROW_NOT_FOUND", "CATALOG_PENDING_SENSE_CONFLICT", "CATALOG_IDENTITY_MISMATCH"].includes(message)) return errorResponse(message, 409);
     if (message.startsWith("CATALOG_PAYLOAD_REJECTED:")) {
       let errors: string[] = [];
       try { errors = JSON.parse(message.slice("CATALOG_PAYLOAD_REJECTED:".length)) as string[]; } catch { errors = ["payload rejected"]; }
       return errorResponse("CATALOG_PAYLOAD_REJECTED", 422, { errors });
     }
-    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE"].includes(message)) return errorResponse(message, 422);
+    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_REQUIRED", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE"].includes(message)) return errorResponse(message, 422);
     console.error("[catalog] request failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });
     return errorResponse("CATALOG_REQUEST_FAILED", 500);
   }

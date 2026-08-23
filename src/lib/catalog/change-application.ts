@@ -13,6 +13,10 @@ import {
   validateCatalogGovernancePayload,
   type CatalogGovernancePayload,
 } from "./governance";
+import {
+  assertCatalogReviewSeparation,
+  type CatalogReviewMode,
+} from "./review-policy";
 
 type Tx = Prisma.TransactionClient;
 
@@ -83,6 +87,7 @@ export interface ReviewCatalogChangeInput {
   decision: "APPROVE" | "REJECT";
   reviewNote: string;
   batchMode: boolean;
+  reviewMode?: CatalogReviewMode;
   incrementMutationState?: boolean;
   createStandaloneHistory?: boolean;
 }
@@ -110,13 +115,59 @@ function summary(request: { id: string; status: string; kind: string; reviewNote
   };
 }
 
-async function ensureMutationStateLocked(tx: Tx): Promise<void> {
+export async function ensureCatalogMutationStateLocked(tx: Tx): Promise<void> {
   await tx.catalogMutationState.upsert({
     where: { id: 1 },
     create: { id: 1, revision: 0 },
     update: {},
   });
   await tx.$queryRaw`SELECT "id" FROM "CatalogMutationState" WHERE "id" = 1 FOR UPDATE`;
+}
+
+/**
+ * Resolve standalone RETIRE proposals that are superseded by an authorized
+ * immediate retirement. Callers must acquire the catalog mutation lock before
+ * invoking this helper so all review paths retain one deterministic lock order.
+ */
+export async function cancelSupersededStandaloneRetireRequests(
+  tx: Tx,
+  input: {
+    requestIds: string[];
+    reviewerId: string;
+    senseId: string;
+    baseRevision: number | null;
+  },
+): Promise<number> {
+  const now = new Date();
+  let cancelledCount = 0;
+  const requestIds = [...new Set(input.requestIds)].sort();
+  for (const requestId of requestIds) {
+    const cancelled = await tx.catalogChangeRequest.updateMany({
+      where: { id: requestId, status: "PENDING" },
+      data: {
+        status: "CANCELLED",
+        reviewerId: input.reviewerId,
+        reviewNote: "由具審核權限人員的即時停用取代",
+        reviewedAt: now,
+        revision: { increment: 1 },
+      },
+    });
+    if (cancelled.count !== 1) continue;
+    cancelledCount += 1;
+    await tx.catalogAuditEvent.create({
+      data: {
+        requestId,
+        actorUserId: input.reviewerId,
+        senseId: input.senseId,
+        action: "CANCELLED",
+        fromStatus: "PENDING",
+        toStatus: "CANCELLED",
+        revision: input.baseRevision,
+        metadata: { reason: "superseded_by_immediate_retire" },
+      },
+    });
+  }
+  return cancelledCount;
 }
 
 async function incrementMutationState(tx: Tx): Promise<void> {
@@ -379,12 +430,19 @@ export async function reviewCatalogChange(
   if (current.status !== "PENDING") {
     return { replay: true, request: summary(current), canonicalMutation: false, resultRevisionId: current.resultRevisionId };
   }
-  if (current.proposerId === input.reviewerId) throw new Error("CATALOG_SELF_REVIEW_FORBIDDEN");
-  if (current.submissionProposalGroup?.lastContentAuthorId === input.reviewerId) throw new Error("CATALOG_SELF_REVIEW_FORBIDDEN");
+  assertCatalogReviewSeparation({
+    mode: input.reviewMode,
+    kind: current.kind,
+    decision: input.decision,
+    batchMode: input.batchMode,
+    proposerId: current.proposerId,
+    reviewerId: input.reviewerId,
+    lastContentAuthorId: current.submissionProposalGroup?.lastContentAuthorId,
+  });
   if (Boolean(current.submissionProposalGroupId) !== input.batchMode) {
     throw new Error(current.submissionProposalGroupId ? "CATALOG_BATCH_REVIEW_REQUIRED" : "CATALOG_REQUEST_NOT_BATCH_CHILD");
   }
-  await ensureMutationStateLocked(tx);
+  await ensureCatalogMutationStateLocked(tx);
   const now = new Date();
   if (input.decision === "REJECT") {
     const updated = await tx.catalogChangeRequest.update({
@@ -462,7 +520,7 @@ export async function reviewCatalogChange(
 }
 
 export async function bumpCatalogMutationState(tx: Tx): Promise<number> {
-  await ensureMutationStateLocked(tx);
+  await ensureCatalogMutationStateLocked(tx);
   const state = await tx.catalogMutationState.update({
     where: { id: 1 },
     data: { revision: { increment: 1 } },

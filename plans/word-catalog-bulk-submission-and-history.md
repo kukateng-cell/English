@@ -51,7 +51,7 @@
 
 - 不把上載 CSV 當成 runtime source；PostgreSQL approved revision 仍是唯一 canonical source；
 - 不覆蓋或改變既有 digest-bound initial baseline manifest；日常 CSV 上載不重跑 seed；
-- 使用者上載 CSV 第一版不支援 `REQUEST_RETIRE`、`REQUEST_REACTIVATE` 或緊急撤回；呢啲高影響 lifecycle 動作繼續使用逐條申請。唯一例外係由已COMMITTED批次產生的system corrective preview，可以為原CREATE group明確建立RETIRE proposal，仍須重新preview及另一人批准；
+- 使用者上載 CSV 第一版不支援 `REQUEST_RETIRE` 或 `REQUEST_REACTIVATE`；呢啲 lifecycle 動作繼續使用逐條工作流。唯一例外係由已COMMITTED批次產生的system corrective preview，可以為原CREATE group明確建立RETIRE proposal，仍須重新preview及由一位未參與內容編寫的獨立 reviewer 批准；
 - 不因 CSV 缺行自動停用、刪除或隱藏任何詞義；
 - 不接受 XLSX、Google Sheet URL、ZIP 或外部字典連線；
 - 不自動生成、改寫、翻譯或補足詞義、例句、音標或干擾項；
@@ -645,7 +645,7 @@ npm run check:catalog-governance
 - `submit／claim／release／review／finalize／cancel／resolution／request-resolution／transfer` mutation 改用 `catalog-submission-patch-v1`；
 - patch 必須帶 `batchId`、request所用 `baseRevision`、最新 `revision`、可見範圍內嘅批次頂層狀態，以及最多一個有變更嘅group；
 - client只有喺batch ID及base revision同目前畫面一致時先套用；重播已套用patch視為no-op，其他stale／缺少group情況必須重新GET完整批次；
-- mutation patch唔降低server-side expected revision、group revision、payload digest acknowledgement、四眼審核、recent-auth、idempotency或atomic finalize要求。
+- mutation patch唔降低server-side expected revision、group revision、payload digest acknowledgement、提交者／內容作者與一位獨立 reviewer 分離、recent-auth、idempotency或atomic finalize要求。
 
 ### Checklist
 
@@ -657,7 +657,7 @@ npm run check:catalog-governance
 - [x] 重跑unit／lint／typecheck／治理完整性及兩次本機效能基線，記錄加固前後差異；
 - [x] staging／Vercel及production rollout維持deferred，唔以本機結果代替。
 
-加固後兩次200-row完整重測均通過：submit 433 bytes、claim 430 bytes、單次review平均約3,665 bytes、200次review累計0.70 MiB、finalize 503 bytes；相對加固前review累計165.26 MiB減少約99.58%。完整DB checker維持所有lifecycle／immutability／四眼審核／recent-auth guard通過。Checker唯一剩餘finding係200-row preview p95 2,413.08–2,593.70 ms高於2秒本機advisory threshold。
+加固後兩次200-row完整重測均通過：submit 433 bytes、claim 430 bytes、單次review平均約3,665 bytes、200次review累計0.70 MiB、finalize 503 bytes；相對加固前review累計165.26 MiB減少約99.58%。完整DB checker維持所有lifecycle／immutability／提交者與一位獨立 reviewer 分離／recent-auth guard通過。Checker唯一剩餘finding係200-row preview p95 2,413.08–2,593.70 ms高於2秒本機advisory threshold。
 
 ## 20. 200-row preview效能加固（2026-08-23，已完成）
 
@@ -673,7 +673,7 @@ npm run check:catalog-governance
 
 - [x] 盤點preview query path並確認逐組dependency recheck／insert係主要可消除嘅round-trip來源；
 - [x] 將related sense、pending conflict及dependency digest計算改為transaction內批量快照；
-- [x] 將proposal groups及authors改為批量insert，保留rows關聯、來源lineage及四眼審核資料；
+- [x] 將proposal groups及authors改為批量insert，保留rows關聯、來源lineage及提交者／內容作者與一位獨立 reviewer 分離資料；
 - [x] 補充dependency digest／批量identity regression測試；
 - [x] 重跑unit、lint、typecheck、catalog submission DB checker及200-row local performance checker；
 - [x] 更新實測前後數字、已知限制及計劃狀態；staging／Vercel仍維持deferred。

@@ -3,8 +3,9 @@ import { Prisma, prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { isSameOriginMutation } from "@/lib/csrf";
-import { catalogAccess } from "@/lib/catalog/access";
+import { catalogAccess, requireCatalogReviewerInTransaction } from "@/lib/catalog/access";
 import { reviewCatalogChange } from "@/lib/catalog/change-application";
+import { catalogRequestTerminalStatus } from "@/lib/catalog/review-policy";
 import { isRetryableTransactionConflict } from "@/lib/transaction-retry";
 import { consumeCatalogGovernanceLimit } from "@/lib/catalog-limiter";
 import { getClientIp } from "@/lib/login-limiter";
@@ -20,6 +21,37 @@ function headers() {
 
 function response(code: string, status: number, extra?: Record<string, unknown>) {
   return NextResponse.json({ code, ...extra }, { status, headers: headers() });
+}
+
+async function resolvedReplay(id: string): Promise<NextResponse | null> {
+  try {
+    const current = await prisma.catalogChangeRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        kind: true,
+        reviewNote: true,
+        reviewedAt: true,
+        resultRevisionId: true,
+      },
+    });
+    if (!current || !catalogRequestTerminalStatus(current.status)) return null;
+    return NextResponse.json({
+      replay: true,
+      request: {
+        id: current.id,
+        status: current.status,
+        kind: current.kind,
+        reviewNote: current.reviewNote,
+        reviewedAt: current.reviewedAt?.toISOString() ?? null,
+      },
+      canonicalMutation: false,
+      resultRevisionId: current.resultRevisionId,
+    }, { headers: headers() });
+  } catch {
+    return null;
+  }
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -60,21 +92,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Lock and re-read authority inside the same serializable transaction so
-      // a concurrent suspension/capability revoke cannot race the decision.
-      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${auth.userId} FOR UPDATE`;
-      const actor = await tx.user.findUnique({
-        where: { id: auth.userId },
-        select: {
-          role: true,
-          status: true,
-          teacherProfile: { select: { canManageWordCatalog: true } },
-        },
-      });
-      if (!actor || actor.status !== "ACTIVE") throw new Error("CATALOG_REVIEW_FORBIDDEN");
-      if (actor.role !== "ADMIN" && (actor.role !== "TEACHER" || !actor.teacherProfile?.canManageWordCatalog)) {
-        throw new Error("CATALOG_REVIEW_FORBIDDEN");
-      }
+      await requireCatalogReviewerInTransaction(tx, auth.userId);
       return reviewCatalogChange(tx, {
         requestId: id,
         reviewerId: auth.userId,
@@ -91,8 +109,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json(result, { headers: headers() });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (isRetryableTransactionConflict(error)) return response("CATALOG_REQUEST_STALE", 409);
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return response("CATALOG_REQUEST_STALE", 409);
+    if (isRetryableTransactionConflict(error)) return await resolvedReplay(id) ?? response("CATALOG_REQUEST_STALE", 409);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return await resolvedReplay(id) ?? response("CATALOG_REQUEST_STALE", 409);
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return response("CATALOG_IDENTITY_CONFLICT", 409);
     if (message === "CATALOG_REQUEST_NOT_FOUND") return response(message, 404);
     if (message === "CATALOG_REVIEW_FORBIDDEN") return response(message, 403);

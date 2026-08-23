@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史及本機full-size效能加固已完成；staging／Vercel、production rollout、外部 UAT 及 legacy cleanup 仍未完成）
+> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機 full-size 效能加固，以及 standalone 單一 reviewer／即時軟停用簡化已完成；staging／Vercel、production rollout、外部 UAT 及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -83,7 +83,7 @@
 - 多義詞每次只簽發一個 sense；同一英文其他 sense 嘅正確中文答案不得出現在該題候選池，final options 必須只有一個可接受答案；
 - 兩人提交同一 `run` 時會進同一 headword conflict bundle，不能 last-write-wins 或產生未察覺 duplicate；
 - 新 CSV keys 可以留空；更新既有資料必須以 stable keys + expected revision CAS；
-- 一般老師不能批准自己嘅 capability 權限或直接啟用／停用；新／material change 提交者不能自批；未授權 URL／API mutation 一律 403；
+- 一般老師不能批准自己嘅 capability 權限或直接啟用／停用；新／material change 提交者不能自批；具詞庫審核權限者可直接軟停用 ACTIVE 詞義，但必須填理由並保存完整 request／audit；未授權 URL／API mutation 一律 403；
 - RETIRED sense 不再出新題，但 ReviewEvent、issued snapshot、歷史 activity 及 audit 全部保留；
 - 新增 ACTIVE sense 不會把同 lemma 已有 mastery 複製過去；
 - current mastery／unit denominator 只計 ACTIVE sense，歷史事件報表保留原 snapshot 並可解釋 catalog revision；
@@ -138,11 +138,11 @@ Sense identity／approved revision 至少要支援：
 - `enableZhToEn`、`distractorsEn[5..6]`；
 - status、immutable content revision、`approvedRevisionId`、`baseApprovedRevisionId`／digest、source reference；
 - created／updated／approved／retired metadata；
-- retirement reason、emergency-withdraw metadata 及 current approved revision provenance；
+- retirement reason、停用 actor／時間及 current approved revision provenance；
 - versioned normalization／繁簡轉換版本，保留原 display value，簡體只係 UI derivative，唔反寫 approved canonical 繁體；
-- 全域 `CatalogRevision` 及每個 activate／retire／reactivate／emergency-withdraw 嘅 effective revision。
+- 全域 `CatalogRevision` 及每個 activate／retire／reactivate 嘅 effective revision。
 
-`CatalogChangeRequest`／`CatalogImportBatch` 類模型要保存 immutable proposal、proposer、peer checker、approver、validator／normalization version、
+`CatalogChangeRequest`／`CatalogImportBatch` 類模型要保存 immutable proposal、proposer、final reviewer、validator／normalization version、
 schema version、file hash、`(actorUserId, operationId)`、request digest、preview expected revisions、逐項 resolution、before／after revision 及 timestamps。
 Audit 不保存學生個人資料或無必要原檔內容。
 
@@ -174,7 +174,7 @@ Audit 不保存學生個人資料或無必要原檔內容。
 | 修改別人草稿／解決 conflict | 是 | 是 | 否 | 否 |
 | 批准／拒絕／啟用 | 是 | 是 | 否 | 否 |
 | 停用／重新啟用 | 是 | 是 | 否 | 否 |
-| 緊急撤回 | 是 | 是 | 否 | 否 |
+| 立即軟停用 ACTIVE 詞義 | 是 | 是 | 否 | 否 |
 | hard delete | 否（正常流程） | 否 | 否 | 否 |
 
 新增 `TeacherProfile.canManageWordCatalog Boolean @default(false)`；ADMIN 由 role 永遠具完整權限。呢個 capability 係全校詞庫權限，
@@ -190,9 +190,12 @@ new proposal → DRAFT → ACTIVE → RETIRED
 
 - 一般老師提交只建立 proposal／DRAFT；
 - ACTIVE sense 嘅修改建立 immutable candidate revision，approved revision pointer 喺批准前保持不變；
-- reviewer approval transaction 內硬性檢查 `approver != proposer`（純非語義 typo 例外）、重跑 current validator、base revision／digest CAS、authorization同 duplicate check，再原子切換 approved pointer；
-- 一般 RETIRED 後禁止新 stream item／target／obligation；「已簽發」定義為 snapshot 同 bounded lease 已成功寫入，只容許 `issuedAt < retiredAt` 項目完成；retire 交易取消未 snapshot 嘅 OPEN work；
-- 嚴重錯譯、冒犯或安全風險使用緊急撤回：未完成 snapshot 中性取消、唔計錯／唔產生 scored event，保留 audit，並要求第二位授權人事後覆核；
+- 一般內容及生命週期申請由一位獨立 reviewer 作最終決定；approval transaction 內硬性檢查 `approver != proposer`、重跑 current validator、base revision／digest CAS、authorization同 duplicate check，再原子切換 approved pointer；不設 quorum、投票或第二次批准；
+- 同一 standalone request 只接受第一個成功寫入嘅 APPROVE／REJECT 終局決定；其他 reviewer 嘅過期操作只回報實際終局狀態並要求重新整理，絕不反轉第一個決定；
+- ADMIN／具 `canManageWordCatalog` capability 嘅老師可對 ACTIVE sense 執行「立即停用」；呢個係唯一容許同一 actor 建立並完成 request 嘅窄例外，只適用 `RETIRE`、必須填理由、仍以 Serializable transaction、revision CAS、soft RETIRED、history及audit留痕；
+- RETIRED 後 current-catalog reader禁止新 stream item／target／obligation；已成功簽發並仍喺有效 lease 內嘅 immutable snapshot按原 contract完成，停用唔重寫已發出題目，亦唔承諾喺同一交易清除所有未 snapshot work；
+- 即時停用唔會被同 sense 嘅待審內容修改阻擋；既有 standalone RETIRE申請會轉為CANCELLED並保留audit，既有UPDATE日後批准仍保持RETIRED，批次由mutation／dependency gate重新判定；
+- 不另設「緊急撤回」狀態、第二人事後覆核 queue 或特殊角色；嚴重錯譯、冒犯或安全風險同樣使用立即軟停用，之後如要修正或重新啟用，另開新申請；
 - material meaning change唔直接改 active sense identity；用新 draft／sense替代並明確 retire舊 sense；
 - 所有 transitions 寫 actor、reason、before／after revision及 audit。
 
@@ -245,7 +248,7 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 - 方向審核 workspace：唯一正解 disposition、disabled reason、逐項 distractor review 及 reviewer sign-off；
 - 生命週期申請 workspace：retire／reactivate 只要求 stable keys、expected revision、reason 及 reviewer result；
 - category dictionary 及 level／core-extension guidance；
-- retire／reactivate confirmation，要求理由並顯示受影響 active reviews／pending work aggregate；另有高警示緊急撤回流程及事後覆核 queue；
+- retire／reactivate confirmation，要求理由並顯示受影響 active reviews／pending work aggregate；具審核權限者嘅立即停用要清楚標示即時生效，唔建立第二人覆核 queue；
 - responsive、zh-Hant／zh-Hans、light／dark、keyboard／screen-reader支援。
 
 ## 11. 現有 Markdown 轉換策略
@@ -309,7 +312,7 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 
 - [ ] bump item construction version；
 - [ ] 改用 sense-level derived stem + exact direction candidate pool；禁止讀取／顯示 prompt 保留欄；
-- [ ] ACTIVE-only issuance、snapshot + lease 線性化、一般 RETIRED／緊急撤回行為及invalid fail-closed；
+- [ ] ACTIVE-only issuance、snapshot + lease 線性化、一般 RETIRED行為及invalid fail-closed；
 - [ ] Review／target／obligation dedupe語義改為 sense；
 - [ ] snapshot／ReviewEvent加入 content provenance；
 - [ ] unit、mastery、leaderboard、teacher analytics口徑更新；
@@ -318,7 +321,8 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 ### Phase 4 — Submission、review及 lifecycle UI/API
 
 - [x] 一般老師 create／update draft、change／retire／reactivate requests及CSV batch submission；
-- [x] capability teacher/admin review、approve、reject、retire、reactivate、批次審核及post-review history；emergency withdraw仍待補；
+- [x] capability teacher/admin review、approve、reject、retire、reactivate、批次審核及post-review history；
+- [x] standalone 單一獨立 reviewer／第一終局決定語義、過期 reviewer UX及 capability 即時軟停用完成並通過回歸；
 - [x] server-side authorization、CSRF、revision CAS、catalog／security audit及catalog-specific limiter；
 - [x] admin／teacher responsive catalog workspace，支援完整載入、狀態／程度／方向／搜尋篩選及逐條編輯；
 - [x] 2026-08-22 follow-up audit：治理提交必須拒絕未知 taxonomy category、既有 sense 不可令穩定 CatalogEntry lemma 漂移、同 lemma 新 sense 必須重用同一 headword；停用詞義可先修訂但不得被 audit 誤報為 ACTIVE，並以 checker／unit tests 鎖定；
@@ -365,8 +369,8 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 | Distractors | 每方向 5–6 個、直接抽三個、無fallback、與完整 answer set 零碰撞、兩方向不交叉、all combinations reachable |
 | Multi-sense options | 同 term多 senses可以顯示同一裸詞；目前／sibling answer sets不得入候選池；final options唯一；disabled direction不被選 |
 | Import | preview無寫入、duplicate grouping、stale revision、request digest、同ID異payload 409、TOCTOU重查、idempotent commit、atomic failure |
-| Authorization | general teacher submit-only；capability teacher review；material change approver≠proposer；student／unauthorized fail closed |
-| Lifecycle | DRAFT/RETIRED無新item；snapshot+lease issuance邊界；一般停用可完成舊lease；緊急撤回中性取消；reactivate continuity；無hard delete |
+| Authorization | general teacher submit-only；capability teacher review；material change approver≠proposer；只限 authorized immediate RETIRE 可同 actor 完成；student／unauthorized fail closed |
+| Lifecycle | DRAFT/RETIRED無新item；snapshot+lease issuance邊界；一般停用可完成舊lease；立即停用soft-only及完整留痕；reactivate continuity；無hard delete |
 | Evidence | first response、Review CAS、operationId、snapshot、ReviewEvent provenance維持 |
 | Metrics | active denominator、historical event retention、word-vs-sense copy、catalog revision可追溯 |
 | Migration | Prisma generate、checksum、fresh replay、legacy read-only boundary、LegacyWordSenseMap、含糊 mastery 不複製、no destructive normal migration |
@@ -396,7 +400,7 @@ npm run test:e2e:card-motion
 | 團隊填表太複雜 | system fields留空、工作包、controlled enums、template、preview report、一般老師只提交 |
 | 兩人製作同一詞 | lemma grouping、exact-sense fingerprint、無last-write-wins、explicit merge disposition |
 | 干擾項語義錯誤 | 5–6 項全由人手選定、完整 answer-set collision、兩方向獨立、同儕＋老師審核、random preview |
-| 停用破壞學生資料 | soft RETIRED、snapshot+lease boundary、緊急撤回中性取消、history／snapshot保留、無hard delete |
+| 停用破壞學生資料 | soft RETIRED、snapshot+lease boundary、history／snapshot保留、無hard delete；立即停用只停止新 issuance |
 | 新詞令進度突然下降 | active denominator＋catalog revision、UI content-update提示、teacher analytics解釋 |
 | 由word轉sense破壞可靠性 | 新 sense tables、legacy Word read-only、人工一對一 mapping先承接 mastery、expand-first、construction version、DB／V2 regression |
 | CSV／草稿覆蓋已批准內容 | immutable revisions、approved pointer、stable keys、base revision／digest CAS、stale conflict、preview先行 |
@@ -431,8 +435,8 @@ npm run test:e2e:card-motion
 | WC-012 | 中文 canonical 顯示答案同 structured accepted answers 分開；兩方向建立 versioned normalized answer set | 待使用者確認 |
 | WC-013 | ACTIVE 內容採 immutable `WordSenseRevision` + approved pointer；proposal 唔原地覆寫 | 待使用者確認 |
 | WC-014 | 新 sense tables同legacy Word物理隔離；只有人工一對一 mapping承接舊 mastery | 待使用者確認 |
-| WC-015 | 一般停用以 snapshot+lease 作 issuance 邊界；嚴重內容另設緊急撤回中性取消 | 待使用者確認 |
-| WC-016 | 新／material change禁止自批；import operation ID綁 request digest並喺commit重查 | 待使用者確認 |
+| WC-015 | 所有停用共用 soft RETIRED；具審核權限者可填理由後立即停用，不另設緊急撤回或第二人事後覆核 | 使用者已確認（2026-08-24） |
+| WC-016 | 一般新／material change禁止自批；一位獨立 reviewer 足夠且第一終局決定勝出；只有 authorized immediate RETIRE 可同 actor 完成；import operation ID綁 request digest並喺commit重查 | 使用者已確認（2026-08-24） |
 | WC-017 | activate／retire／reactivate使用全域單調遞增 catalog revision，統計保存 as-of revision | 待使用者確認 |
 | WC-018 | 所有環境共用一個正式詞庫；initial digest-bound manifest 決定 5,469 ACTIVE／107 DRAFT，runtime 不再接受 test-only DRAFT eligibility | 使用者已確認（2026-08-22） |
 
@@ -511,7 +515,7 @@ npm run test:e2e:card-motion
 - RETIRED sense 現可在保持停用狀態下提交內容修訂；批准 UPDATE 的 audit `toStatus` 會寫實際 RETIRED，而非誤報 ACTIVE，重新啟用仍須獨立 request。
 - governance checker 新增 lemma identity、unknown category 及 duplicate normalized-lemma headword 三項 invariant。本地 seed 冪等重跑結果仍為 5,641 source rows、5,576 senses、5,469 ACTIVE、107 DRAFT、0 RETIRED、5,469 projections；三項新增 invariant 全為 0。
 - 已通過：236 個 `npm test`、`npm run lint -- --max-warnings=0`、`npx tsc --noEmit`、`npm run build`、`npm run check:catalog`、`npm run check:catalog-governance`、`git diff --check` 及 `npm run seed:catalog` 冪等重跑。build／DB 指令首次受 sandbox process／localhost 限制，按項目規則以獲准權限重跑後通過。
-- 仍未完成但沒有喺本次 audit 假裝完成：CSV bulk preview／atomic commit、catalog-specific distributed rate limit、post-review audit history UI、emergency withdrawal、完整 route／browser integration matrix，以及 global catalog lifecycle revision／as-of analytics。
+- 仍未完成但沒有喺本次 audit 假裝完成：CSV bulk preview／atomic commit、catalog-specific distributed rate limit、post-review audit history UI、完整 route／browser integration matrix，以及 global catalog lifecycle revision／as-of analytics。原先規劃的 emergency withdrawal 已於2026-08-24由較簡單的 authorized immediate soft-retire 決策取代。
 
 ### 2026-08-22：CSV批量提交及修改歷史本地實作
 
@@ -520,7 +524,7 @@ npm run test:e2e:card-motion
 - 新增權限裁剪的修改歷史feed、signed cursor／snapshot cutoff、JSON search、batch child pagination、request detail、sense timeline及Public／Owner／Reviewer DTO；一般老師不可讀取其他人未批准內容或技術身份。
 - 新增7個ordinary expand migrations（`20260822020000`至`20260822026000`），包括submission／history模型、request snapshots、batch／child／lineage／terminal DB guards；production feature gates預設關閉，raw CSV不落DB。
 - 本地驗證通過：249個unit tests、lint、typecheck、79-route production build、61個ordinary migration fresh／interrupted replay、2個contract migration regression、checksum、catalog／governance／submission DB check、Review DB regression，以及history backfill／preview cleanup dry-run。
-- 兩個獨立實作reviewer最終均為`BLOCKER 0 / HIGH 0 — APPROVE`。5,000+ history及200-row本機性能基線已於2026-08-23完成，但發現完整batch response amplification並待加固；未執行：staging／Vercel性能測試、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy／scheduler、emergency withdraw及global lifecycle revision／as-of analytics。
+- 兩個獨立實作reviewer最終均為`BLOCKER 0 / HIGH 0 — APPROVE`。5,000+ history及200-row本機性能基線已於2026-08-23完成，但發現完整batch response amplification並待加固；未執行：staging／Vercel性能測試、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy／scheduler及global lifecycle revision／as-of analytics。原先 emergency withdraw 方向其後被簡化決策取代。
 
 ### 2026-08-23：跨邊界 correctness／performance 審核跟進（已完成）
 
@@ -538,3 +542,14 @@ npm run test:e2e:card-motion
 - [x] 主 query key 改變或重新載入時先清除上一個 resolved data、items、cursor及selected detail，禁止新篩選失敗後顯示舊詞；
 - [x] 保留現有 abort／query-key／cursor snapshot／ID去重保護，並確保失敗狀態只顯示 RetryState、唔顯示舊 Load More；
 - [x] A1 成功 → B1 失敗 browser regression通過，確認 B1 URL／chip 下不顯示任何 A1 row、definition或cursor control；同一輪 275 個 unit tests、lint、typecheck及80-route production build均通過。
+
+### 2026-08-24：standalone 審核及停用流程簡化（已完成）
+
+- [x] standalone request 改為一位與提交者獨立、具權限 reviewer 即可批准或拒絕；同一 request 第一個成功寫入嘅終局決定勝出，其他過期操作只重播實際結果，不設投票、quorum、第二人覆核或額外角色；
+- [x] ADMIN／具 `canManageWordCatalog` capability 老師可對 ACTIVE sense 填寫理由後立即 soft RETIRE；同一 actor 建立並批准只限呢個窄例外，一般 CREATE／UPDATE／REACTIVATE 及普通 RETIRE 仍禁止自批；
+- [x] 即時停用保留 approved revision、Word projection、學生歷史及完整 request／audit／history；現有 standalone pending RETIRE 會原子取消並留痕，pending UPDATE 不會被錯誤刪除，而且其後批准仍保持該 sense 為 RETIRED；
+- [x] reviewer、全域 mutation state、request／sense 採一致鎖次序；PostgreSQL `40001`／`40P01`、Prisma `P2034`／`P2010` 及 adapter nested conflict 均納入安全重試識別；
+- [x] DB checker 使用兩個臨時獨立 reviewer 及獨立 client，實測 ordinary APPROVE vs immediate RETIRE，以及 APPROVE vs REJECT；確認 first-terminal-wins、只有一個 retirement／terminal audit、無 500、無 fixture residue，並已接入 CI catalog baseline gate；
+- [x] 治理工作區以 canonical mutation revision 加 standalone pending request identity／revision 建立一致 snapshot signature；完整詞庫與待審 queue 唔同版本時最多重試三次，background polling 可偵測即時停用及 queue-only 終局變更；capability 會喺整個工作區 mount、focus、visibility 及 30 秒週期重新讀取，撤權後所有分頁收起 reviewer controls，server guard 繼續 fail closed；
+- [x] 兩位獨立、平衡、對抗 reviewer 完成兩輪審核；首輪發現鎖次序、跨 endpoint snapshot、polling、locale 及競態 checker coverage 問題並已全部跟進，最終覆核為 `BLOCKER 0 / HIGH 0 / MEDIUM 0`，餘下 capability 跨分頁低風險提示亦已修正；
+- [x] 本輪最終本機驗證包括 285 個 unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、`check:catalog-immediate-retire` 及 `check:catalog-governance`；後者維持 5,469 ACTIVE／107 DRAFT、mutation revision 16，以及所有 lineage／projection／history／terminal-batch invariant 零違規。Staging／production deploy 未獲授權，今輪沒有執行。

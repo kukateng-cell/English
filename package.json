@@ -38,6 +38,7 @@
     "seed:catalog": "node --import tsx scripts/seed-catalog.ts",
     "check:catalog": "node --import tsx scripts/check-catalog-import.ts",
     "check:catalog-governance": "node --import tsx scripts/check-catalog-governance.ts",
+    "check:catalog-immediate-retire": "node --import tsx scripts/check-catalog-immediate-retire.ts",
     "check:catalog-submission": "node --env-file=.env.local --import tsx scripts/check-catalog-submission.ts",
     "test:catalog:performance": "node --import tsx scripts/check-catalog-performance.ts",
     "backfill:catalog-history": "node --import tsx scripts/backfill-catalog-history.ts",
