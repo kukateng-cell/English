@@ -13,6 +13,19 @@ async function authenticatedUserId(page: Page): Promise<string> {
   return userId!;
 }
 
+async function sameOriginMutationHeaders(
+  page: Page,
+): Promise<Record<string, string>> {
+  const response = await page.request.get("/api/auth/csrf");
+  expect(response.ok()).toBe(true);
+  const token = (await response.json() as { csrfToken?: unknown }).csrfToken;
+  expect(typeof token).toBe("string");
+  return {
+    origin: new URL(page.url()).origin,
+    "x-csrf-token": token as string,
+  };
+}
+
 async function installQuizCheckpoint(
   page: Page,
   userId: string,
@@ -2519,6 +2532,7 @@ test("independent browser contexts reconcile a nonce consumed on another device"
 
     const firstOperationId = `device-a-${randomUUID()}`;
     const firstSubmit = await page.request.post("/api/study", {
+      headers: await sameOriginMutationHeaders(page),
       data: {
         wordId,
         quality: 5,

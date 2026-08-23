@@ -8,6 +8,8 @@
  * 处理，因此「已提交但响应丢失」可安全重试。localStorage key 与条目 ownerId
  * 都按用户隔离，公用装置切换账号也不会把 A 的答案写入 B。
  */
+import { rosterFetch } from "@/lib/roster-client";
+
 export interface PendingReview {
   ownerId: string;
   operationId: string;
@@ -486,7 +488,13 @@ async function fetchReviewRequest(
     REVIEW_REQUEST_TIMEOUT_MS,
   );
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    const request = { ...init, signal: controller.signal };
+    // This queue only runs in a browser. Keep the direct-fetch branch for the
+    // pure Node unit harness, which has no document or cookie-authenticated
+    // session; browser traffic must use the shared double-submit CSRF client.
+    return await (typeof document === "undefined"
+      ? fetch(input, request)
+      : rosterFetch(input, request));
   } finally {
     clearTimeout(timeout);
   }
