@@ -154,3 +154,52 @@ test("word pagination ignores a stale page after the student changes filters", a
   await expect(page.getByText("A1 stale page", { exact: true })).toHaveCount(1);
   await expect(page.getByText("A1 current page", { exact: true })).toHaveCount(1);
 });
+
+test("a failed filter request never renders words or pagination from the previous filter", async ({ page }) => {
+  const a1Word = {
+    id: "a1-resolved",
+    term: "A1 resolved word",
+    phonetic: null,
+    pos: "noun",
+    definition: "A1 resolved definition",
+    level: "A1",
+    category: "測試",
+    learned: false,
+    mastered: false,
+    status: "unseen",
+    nextReviewAt: null,
+  };
+  await page.route("**/api/words?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("level") === "B1") {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "B1 request failed" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [a1Word],
+        nextCursor: "a1-next",
+        total: 2,
+        availableLevels: ["A1", "B1"],
+        availableCategories: ["測試"],
+      }),
+    });
+  });
+
+  await page.goto("/words?level=A1");
+  await expect(page.getByText("A1 resolved word", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /加载更多|加載更多/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "B1", exact: true }).click();
+  await expect(page).toHaveURL(/\/words\?level=B1$/);
+  await expect(page.getByText("B1 request failed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /重试|重試/ })).toBeVisible();
+  await expect(page.getByText("A1 resolved word", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("A1 resolved definition", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /加载更多|加載更多/ })).toHaveCount(0);
+});

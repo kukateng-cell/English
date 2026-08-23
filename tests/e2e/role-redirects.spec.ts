@@ -30,6 +30,16 @@ test("unauthenticated root, student pages, and student APIs follow the role cont
   }
 });
 
+test("authentication outage document is a retryable no-store 503", async ({ page }) => {
+  const response = await page.request.get("/auth-unavailable?returnTo=%2Fadmin");
+  expect(response.status()).toBe(503);
+  expect(response.headers()["cache-control"]).toContain("no-store");
+  expect(response.headers()["retry-after"]).toBe("30");
+  const body = await response.text();
+  expect(body).toMatch(/登入服務暫時無法使用|登录服务暂时无法使用/);
+  expect(body).toContain('href="/admin"');
+});
+
 test("teacher and admin fixtures retain role boundaries when seeded credentials are available", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "INITIAL_ADMIN_PASSWORD is required for the real seeded role fixtures.");

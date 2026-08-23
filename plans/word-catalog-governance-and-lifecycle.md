@@ -529,3 +529,9 @@ npm run test:e2e:card-motion
 - [x] 補 unit／DB／browser regression，並記錄 query plan／rows returned；aggregate 改用共用 materialized current-catalog CTE，本機 5,469 ACTIVE sense baseline 的 `EXPLAIN ANALYZE` 回傳 4 行、執行 16.880 ms、1,779 shared buffer hits，唔再回傳 5,469 個 word objects；`fetchUnitProgress()` 同樣改用共用 CTE 及 materialized user-review aggregate；DB checker逐一比較 raw SQL／Prisma exact word-ID set及 A1–B2 totals／learned／mastered，另覆蓋 repetitions 0／1、interval 21／22；
 - [x] DB checker加入 null sense、非 READY word catalog、DRAFT／RETIRED sense、缺 approved revision及 BUILDING approved catalog 六類負例，並以固定時間獨立重算每個 level／category 的 total／learned／mastered／due；所有 disposable fixture 建立後立即登記並於 `finally` 按外鍵次序清理；
 - [x] 兩位獨立 reviewer 分別覆核 auth／import data-integrity 與學生統計／效能／current-catalog correctness；最後結果均為 `APPROVE`，`BLOCKER 0 / HIGH 0 / MEDIUM 0 / LOW 0`。本輪最終通過 270 個 unit tests、lint、typecheck、79-route production build、study-stream V2 DB integration，以及 student-shell unlock consistency／stale pagination browser regression。
+
+### 2026-08-23：學生詞表主篩選失敗狀態跟進（已完成）
+
+- [x] 主 query key 改變或重新載入時先清除上一個 resolved data、items、cursor及selected detail，禁止新篩選失敗後顯示舊詞；
+- [x] 保留現有 abort／query-key／cursor snapshot／ID去重保護，並確保失敗狀態只顯示 RetryState、唔顯示舊 Load More；
+- [x] A1 成功 → B1 失敗 browser regression通過，確認 B1 URL／chip 下不顯示任何 A1 row、definition或cursor control；同一輪 275 個 unit tests、lint、typecheck及80-route production build均通過。

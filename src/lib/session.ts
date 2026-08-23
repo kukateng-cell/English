@@ -45,29 +45,19 @@ export async function readSessionSafely(
   return { ok: true, session };
 }
 
-export async function getSessionUserId(): Promise<string | null> {
-  const result = await readSessionSafely();
-  if (!result.ok) {
-    if (result.status === 401) return null;
-    throw new Error("AUTH_BACKEND_UNAVAILABLE");
-  }
-  return (result.session.user as { id: string }).id;
+export interface CurrentUser {
+  id: string;
+  role: Role;
+  accountName: string;
+  displayName: string;
+  /** Compatibility aliases for existing shell props during the roster migration. */
+  name: string | null;
+  email: string;
 }
 
-export async function requireAuth(): Promise<string> {
-  const userId = await getSessionUserId();
-  if (!userId) throw new Error("Unauthorized");
-  return userId;
-}
-
-export async function getSessionRole(): Promise<Role | null> {
-  const result = await readSessionSafely();
-  if (!result.ok) {
-    if (result.status === 401) return null;
-    throw new Error("AUTH_BACKEND_UNAVAILABLE");
-  }
-  return (result.session.user as { role: Role }).role;
-}
+export type CurrentUserResult =
+  | { ok: true; user: CurrentUser }
+  | { ok: false; status: 401 | 503 };
 
 /**
  * 取得當前登入使用者的 { id, role }，供 RSC / Layout 的「服務端角色守衛」使用。
@@ -77,28 +67,24 @@ export async function getSessionRole(): Promise<Role | null> {
  * 因此角色一定是最新的——即便管理員剛改過角色，也能即時攔下越權訪問。
  * 適合做為 proxy.ts（快取角色）之後的第二道防線。
  */
-export async function getCurrentUser(): Promise<{
-  id: string;
-  role: Role;
-  accountName: string;
-  displayName: string;
-  /** Compatibility aliases for existing shell props during the roster migration. */
-  name: string | null;
-  email: string;
-} | null> {
-  const result = await readSessionSafely();
+export async function getCurrentUser(
+  readSession?: SessionReader,
+): Promise<CurrentUserResult> {
+  const result = await readSessionSafely(readSession);
   if (!result.ok) {
-    if (result.status === 401) return null;
-    throw new Error("AUTH_BACKEND_UNAVAILABLE");
+    return { ok: false, status: result.status };
   }
   const { session } = result;
   return {
-    id: (session.user as { id: string }).id,
-    role: (session.user as { role: Role }).role,
-    accountName: session.user.accountName,
-    displayName: session.user.displayName,
-    name: session.user.displayName ?? null,
-    email: session.user.accountName,
+    ok: true,
+    user: {
+      id: (session.user as { id: string }).id,
+      role: (session.user as { role: Role }).role,
+      accountName: session.user.accountName,
+      displayName: session.user.displayName,
+      name: session.user.displayName ?? null,
+      email: session.user.accountName,
+    },
   };
 }
 

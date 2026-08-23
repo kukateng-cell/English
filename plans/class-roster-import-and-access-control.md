@@ -1,6 +1,6 @@
 # 班級、名冊匯入及教師存取控制實施計劃
 
-> 狀態：已完成（local verification；dependency audit job remains independent and fail-closed；production-only config positive gate 及完整原生 screen-reader/device matrix deferred）
+> 狀態：已完成（local verification，包括 RSC auth outage follow-up；dependency audit job remains independent and fail-closed；production-only config positive gate 及完整原生 screen-reader/device matrix deferred）
 >
 > 修訂：Revision 3（Hume及Bernoulli已對相同最終contract全文PASS）
 >
@@ -1543,3 +1543,10 @@ production contract rollout、缺少 production-only secrets 的 production conf
 - 完整 admin multi-step、student profile、teacher scope／TOCTOU／reset、active V2 suspension API及local-state cleanup flow已由 disposable Playwright 4-test default suite及unit tests驗證；rollover smoke 亦驗證恢復後不重播舊 V1/V2 state，並驗證 teacher reset student 後 must-change-password 導向；新增 explicit rollover fixture 逐項驗證六 grade、repeat／hold／graduate／leave、incoming、suspended、planned target link及activation後 roster；另以fresh disposable DB完成500-row import／501 reject、promotion 500／501 boundary、activation 5,000 atomic／5,001 pre-staging cap smokes；500-row import cold/warm preview 155/113/102/98ms、commit 21,120/20,838/21,193/21,333ms、transaction median 815.25ms、RSS peak 1.13MiB；5,000 activation total 2,763ms／transaction 2,745ms／RSS 0MiB，export preview 249ms、total 190/183/160/157ms、transaction 173/171/148/146ms、RSS peak 63.72MiB；promotion／activation batch payload PII-negative assertion及`check:roster-pii` surface scan亦通過。只未宣稱完整原生 screen-reader／device matrix及production config positive gate；後者仍需production secrets／另行release授權。
 - 2026-08-16 停權／恢復 UI 修正以 focused browser regression 驗證：mobile 學生名冊按鈕可點擊、會送出現有管理員 PATCH、顯示成功訊息、切換「停權／恢復」文字，並以 roster GET 確認 server 狀態為 `SUSPENDED`／`ACTIVE`；本次未重跑與此 UI 無關的完整 rollover／scale suite。
 - 2026-08-17 review follow-up：先以 `npm explain deepmerge-ts`／registry audit 確認 advisory path，沒有修改 Prisma dependency；workflow audit 與 functional job 已分離。曾在 rollover E2E 後遇到未來 current academic year 令 analytics 按 contract fail-closed，已重設 exact local test DB 再驗證，沒有修改 analytics contract。`npm audit` advisory、production config positive gate、production deploy 及完整原生 screen-reader／device matrix仍然保留為 deferred／release follow-up。
+
+### 2026-08-23：Protected RSC auth outage 邊界跟進（已完成）
+
+- [x] 將 RSC current-user reader 改為明確 `401 | 503` result union，移除未使用而會重新拋出 `AUTH_BACKEND_UNAVAILABLE` 嘅 helpers；
+- [x] Admin、Teacher、Student layouts及學生首頁分開處理未登入與認證後端故障，禁止 503 變成一般未處理 application error；
+- [x] 提供同源、allowlisted return target、`no-store`／`Retry-After: 30` 嘅 HTTP 503 故障頁，附 noindex、CSP、明暗模式及簡繁文案；
+- [x] 補 current-user union、return-target／response contract unit regression；本輪通過 275 個 unit tests、lint、typecheck、80-route production build及 HTTP 503 browser smoke。完整 production outage drill及原生裝置矩陣仍屬既有 deferred release gate。

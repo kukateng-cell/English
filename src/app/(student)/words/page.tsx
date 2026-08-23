@@ -86,9 +86,15 @@ export default function WordsPage() {
   useEffect(() => {
     const controller = new AbortController();
     loadMoreControllerRef.current?.abort();
+    loadMoreControllerRef.current = null;
     (async () => {
       setLoading(true);
+      setLoadingMore(false);
       setError(null);
+      setData(null);
+      setItems([]);
+      setCursor(null);
+      setSelected(null);
       const params = new URLSearchParams({ limit: "24" });
       if (level) params.set("level", level);
       if (category) params.set("category", category);

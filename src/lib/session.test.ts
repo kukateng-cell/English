@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Session } from "next-auth";
-import { readSessionSafely } from "./session";
+import { getCurrentUser, readSessionSafely } from "./session";
 
 function session(overrides: Partial<NonNullable<Session["user"]>> = {}): Session {
   return {
@@ -44,4 +44,26 @@ test("safe session reader preserves authenticated sessions and treats a missing 
   const authenticated = session();
   assert.deepEqual(await readSessionSafely(async () => authenticated), { ok: true, session: authenticated });
   assert.deepEqual(await readSessionSafely(async () => null), { ok: false, status: 401, message: "Unauthorized" });
+});
+
+test("RSC current-user reader returns explicit 401 and 503 results without throwing", async (context) => {
+  context.mock.method(console, "error", () => undefined);
+  assert.deepEqual(await getCurrentUser(async () => null), { ok: false, status: 401 });
+  assert.deepEqual(await getCurrentUser(async () => {
+    throw new Error("database unavailable");
+  }), { ok: false, status: 503 });
+});
+
+test("RSC current-user reader projects a safe shell identity", async () => {
+  assert.deepEqual(await getCurrentUser(async () => session()), {
+    ok: true,
+    user: {
+      id: "student-1",
+      role: "STUDENT",
+      accountName: "student-1",
+      displayName: "同學一",
+      name: "同學一",
+      email: "student-1",
+    },
+  });
 });
