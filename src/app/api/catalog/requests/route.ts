@@ -6,6 +6,8 @@ import { catalogAccess } from "@/lib/catalog/access";
 import { readCatalogWorkspaceVersion } from "@/lib/catalog/workspace-version";
 import { catalogGovernancePayloadFromUnknown } from "@/lib/catalog/governance";
 
+const REVIEW_QUEUE_PAGE_SIZE = 50;
+
 function headers() {
   return { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 }
@@ -37,7 +39,7 @@ export async function GET(req: Request) {
     const requests = await prisma.catalogChangeRequest.findMany({
       where: { status: status as "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED", submissionProposalGroupId: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: 1001,
+      take: REVIEW_QUEUE_PAGE_SIZE + 1,
       select: {
         id: true,
         kind: true,
@@ -61,10 +63,10 @@ export async function GET(req: Request) {
         proposer: { select: { teacherProfile: { select: { legalName: true } }, accountName: true } },
       },
     });
-    const hasMore = requests.length > 1000;
+    const hasMore = requests.length > REVIEW_QUEUE_PAGE_SIZE;
     const version = await readCatalogWorkspaceVersion();
     if (version.signature !== initialVersion.signature) return response("CATALOG_READ_STALE", 409);
-    return NextResponse.json({ hasMore, mutationRevision: version.mutationRevision, signature: version.signature, requests: (hasMore ? requests.slice(0, 1000) : requests).map((item) => ({
+    return NextResponse.json({ hasMore, mutationRevision: version.mutationRevision, signature: version.signature, requests: (hasMore ? requests.slice(0, REVIEW_QUEUE_PAGE_SIZE) : requests).map((item) => ({
       ...item,
       payload: catalogGovernancePayloadFromUnknown(item.payload)
         ?? catalogGovernancePayloadFromUnknown(item.afterPayloadSnapshot)

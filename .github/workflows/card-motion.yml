@@ -150,6 +150,7 @@ jobs:
         run: |
           CATALOG_REQUIRE_INITIAL_BASELINE=1 npm run check:catalog
           npm run check:catalog-governance
+          npm run check:catalog-workspace-pagination
           npm run check:catalog-immediate-retire
 
       - name: Run V2 stream integration and bounded soak

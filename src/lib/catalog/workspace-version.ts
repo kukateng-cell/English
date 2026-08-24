@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { prisma } from "@/lib/prisma";
+import { Prisma, prisma } from "@/lib/prisma";
 
 export interface CatalogWorkspaceVersion {
   signature: string;
@@ -10,12 +10,11 @@ export interface CatalogWorkspaceVersion {
 
 export function catalogWorkspaceSignature(
   mutationRevision: number,
-  pending: Array<{ id: string; revision: number }>,
-  pendingHasMore: boolean,
+  pendingDigest: string,
+  pendingCount: number,
 ): string {
   const hash = createHash("sha256");
-  hash.update(`${mutationRevision}:${pendingHasMore ? "1" : "0"}`);
-  for (const request of pending) hash.update(`\0${request.id}:${request.revision}`);
+  hash.update(`${mutationRevision}:${pendingCount}:${pendingDigest}`);
   return hash.digest("hex");
 }
 
@@ -29,17 +28,27 @@ export async function readCatalogWorkspaceVersion(): Promise<CatalogWorkspaceVer
     where: { id: 1 },
     select: { revision: true },
   }))?.revision ?? 0;
-  const pending = await prisma.catalogChangeRequest.findMany({
-    where: { status: "PENDING", submissionProposalGroupId: null },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: 1001,
-    select: { id: true, revision: true },
-  });
-  const pendingHasMore = pending.length > 1000;
+  const pendingState = await prisma.$queryRaw<Array<{ pendingCount: number; pendingDigest: string }>>(Prisma.sql`
+    SELECT
+      COUNT(*)::integer AS "pendingCount",
+      md5(COALESCE(
+        string_agg(
+          request."id" || ':' || request."revision"::text,
+          E'\\x1f'
+          ORDER BY request."createdAt", request."id"
+        ),
+        ''
+      )) AS "pendingDigest"
+    FROM "CatalogChangeRequest" request
+    WHERE request."status"::text = 'PENDING'
+      AND request."submissionProposalGroupId" IS NULL
+  `);
+  const pendingCount = pendingState[0]?.pendingCount ?? 0;
+  const pendingDigest = pendingState[0]?.pendingDigest ?? "";
   return {
-    signature: catalogWorkspaceSignature(mutationRevision, pending, pendingHasMore),
+    signature: catalogWorkspaceSignature(mutationRevision, pendingDigest, pendingCount),
     mutationRevision,
-    pendingCount: Math.min(pending.length, 1000),
-    pendingHasMore,
+    pendingCount,
+    pendingHasMore: pendingCount > 1000,
   };
 }

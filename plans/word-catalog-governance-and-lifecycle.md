@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機 full-size 效能加固、standalone 單一 reviewer／即時軟停用簡化，以及 2026-08-24 老師介面 UAT 修正已完成；staging／Vercel、production rollout及 legacy cleanup 仍未完成）
+> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機 full-size 效能加固、standalone 單一 reviewer／即時軟停用簡化、老師介面 UAT 修正，以及完整詞庫伺服器端分頁／搜尋均已完成本地驗證；staging／Vercel、production rollout及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -324,7 +324,8 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 - [x] capability teacher/admin review、approve、reject、retire、reactivate、批次審核及post-review history；
 - [x] standalone 單一獨立 reviewer／第一終局決定語義、過期 reviewer UX及 capability 即時軟停用完成並通過回歸；
 - [x] server-side authorization、CSRF、revision CAS、catalog／security audit及catalog-specific limiter；
-- [x] admin／teacher responsive catalog workspace，支援完整載入、狀態／程度／方向／搜尋篩選及逐條編輯；
+- [x] admin／teacher responsive catalog workspace，支援狀態／程度／方向／搜尋篩選及逐條編輯；
+- [x] 將完整詞庫由一次傳送 5,000+ rows 改為 server-side filtered cursor pagination：每頁最多 100 條、搜尋／篩選由資料庫執行、cursor 綁定 filters／actor scope／current READY batch／workspace signature，mutation 或 query 改變時 fail-stale 並由 client 重載第一頁；
 - [x] 2026-08-22 follow-up audit：治理提交必須拒絕未知 taxonomy category、既有 sense 不可令穩定 CatalogEntry lemma 漂移、同 lemma 新 sense 必須重用同一 headword；停用詞義可先修訂但不得被 audit 誤報為 ACTIVE，並以 checker／unit tests 鎖定；
 - [x] RETIRE／REACTIVATE request 對 API 及 UI 永遠提供完整、可安全顯示嘅詞條 payload；兼容舊有空 payload request，提交及「查看草稿」不得崩潰；
 - [ ] zh-Hant／zh-Hans、theme、keyboard、screen-reader驗收。
@@ -565,3 +566,15 @@ npm run test:e2e:card-motion
 - [x] 只使用可回收本地 UAT fixture；完成後 friend 已恢復 ACTIVE，兩個帳戶、兩個 request 及相關 history／audit／security fixture 已刪除，catalog mutation revision 已由 18 還原至驗收前 16；治理 checker再次確認 ACTIVE 5,469／DRAFT 107／RETIRED 0／PENDING 0；不執行 production deploy。
 
 本輪實際驗證：289 個 unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、`check:catalog-governance`、`check:catalog-immediate-retire`、`check:catalog-submission`，以及上述兩個隔離瀏覽器 session 嘅老師／審核者流程。
+
+### 2026-08-24：完整詞庫伺服器端分頁及搜尋（已完成本地驗證）
+
+- [x] `/api/catalog` 嚴格接受 `q`、`status`、`level`、`direction`、`limit`、signed `cursor`；拒絕未知／過長／非法 query，cursor 綁定 normalized filters、使用者可見範圍、READY batch 及 workspace signature；
+- [x] 以 PostgreSQL filtered query 統一 baseline import rows、治理新增 senses 及尚未建立 sense 嘅 standalone CREATE；batch child requests 明確排除，資料庫只回傳目前頁面，不再將完整詞庫搬入 Node.js 再篩選；
+- [x] response 提供全域狀態 counts、目前篩選總數、`nextCursor` 及 snapshot identity；零結果仍返回正確 counts；workspace signature 以全部 standalone pending requests 嘅 DB-side deterministic digest 同 exact count 建立，唔受舊 1,001-row cutoff 影響；
+- [x] 工作區搜尋採 300 ms debounce；狀態／程度／方向／搜尋改變時取消／淘汰舊 request、清空舊結果並讀第一頁；搜尋期間保留輸入焦點及 controls，「載入更多」只接受同 query／snapshot response並按 row id 去重；
+- [x] mutation／review 後重載目前 query 第一頁；詳情 modal 以 sense key 獨立重讀；跨頁 CSV 選取硬性限制 200 個 sense keys並提供一鍵清除；pending queue同搜尋讀取解耦，只喺 workspace signature 改變時重讀最多 50 項完整 payload；
+- [x] query／cursor unit regression、真實 PostgreSQL fixture pagination／search／filter／visibility／zero-result／batch-child exclusion完成；額外以 1,002 條 pending fixture證明舊 cutoff後嘅尾部修改必定令 snapshot失效；真實瀏覽器驗證首100／次100、`friend` 9條、DRAFT 172條、搜尋焦點、非法／竄改 cursor 422、320px無水平溢出及 automated WCAG A／AA 0違規；
+- [x] 兩位獨立對抗 reviewer 首輪／複審提出嘅 batch child snapshot、DB regression、foreground/background競態、debounce焦點、pending response amplification、nested test收集、200項選取上限及 1,001-row signature cutoff均已跟進；最終合併前 blocker／high／medium問題為 0。
+
+本輪最終驗證：293 個 unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、`check:catalog-workspace-pagination`、`check:catalog-governance`及上述真實瀏覽器驗收。所有 1,002-row boundary fixtures及臨時 UAT帳戶均已清理；正式 baseline保持 ACTIVE 5,469／DRAFT 107／RETIRED 0／PENDING 0、catalog mutation revision 16。不包括 staging、production deploy或 destructive cleanup。

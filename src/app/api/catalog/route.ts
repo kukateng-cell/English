@@ -25,36 +25,17 @@ import {
 } from "@/lib/catalog/change-application";
 import { parseCatalogExpectedRevision } from "@/lib/catalog/review-policy";
 import { readCatalogWorkspaceVersion } from "@/lib/catalog/workspace-version";
+import {
+  catalogWorkspaceQueryFingerprint,
+  decodeCatalogWorkspaceCursor,
+  encodeCatalogWorkspaceCursor,
+  parseCatalogWorkspaceQuery,
+} from "@/lib/catalog/workspace-query";
+import { readCatalogWorkspacePage } from "@/lib/catalog/workspace-read";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
 const CHANGE_KINDS = ["UPDATE", "CREATE", "RETIRE", "REACTIVATE"] as const;
 type ChangeKind = (typeof CHANGE_KINDS)[number];
-
-const revisionSelect = {
-  id: true,
-  revision: true,
-  term: true,
-  lemma: true,
-  pos: true,
-  level: true,
-  category: true,
-  definitionZh: true,
-  acceptedAnswersZh: true,
-  phoneticIpa: true,
-  exampleEn: true,
-  exampleZh: true,
-  acceptedFormsEn: true,
-  synonymsEn: true,
-  antonymsEn: true,
-  enableEnToZh: true,
-  distractorZh: true,
-  enableZhToEn: true,
-  distractorEn: true,
-  sourceReference: true,
-  contributorRef: true,
-  changeNote: true,
-  retirementReason: true,
-} as const;
 
 function privateHeaders() {
   return {
@@ -73,82 +54,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function booleanValue(value: unknown): boolean {
-  return value === true;
-}
-
-function listValue(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function issueRecord(value: Prisma.JsonValue | null): { errors: string[]; warnings: string[] } {
-  if (!isRecord(value)) return { errors: [], warnings: [] };
-  return {
-    errors: listValue(value.errors),
-    warnings: listValue(value.warnings),
-  };
-}
-
-function summaryPayload(value: unknown): {
-  term: string;
-  lemma: string;
-  definitionZh: string;
-  partOfSpeech: string;
-  level: string;
-  category: string;
-  phoneticIpa: string | null;
-  enableEnToZh: boolean;
-  enableZhToEn: boolean;
-} {
-  const row = isRecord(value) ? value : {};
-  return {
-    term: stringValue(row.term) ?? "",
-    lemma: stringValue(row.lemma) ?? "",
-    definitionZh: stringValue(row.definitionZh) ?? "",
-    partOfSpeech: stringValue(row.pos) ?? stringValue(row.partOfSpeech) ?? "",
-    level: stringValue(row.level) ?? "",
-    category: stringValue(row.category) ?? "",
-    phoneticIpa: stringValue(row.phoneticIpa),
-    enableEnToZh: booleanValue(row.enableEnToZh),
-    enableZhToEn: booleanValue(row.enableZhToEn),
-  };
-}
-
-function changeSummary(request: {
-  id: string;
-  kind: string;
-  status: string;
-  proposerId: string;
-  reviewerId: string | null;
-  baseRevision: number | null;
-  revision: number;
-  reason: string | null;
-  reviewNote: string | null;
-  createdAt: Date;
-  reviewedAt: Date | null;
-}) {
-  return {
-    id: request.id,
-    kind: request.kind,
-    status: request.status,
-    proposerId: request.proposerId,
-    reviewerId: request.reviewerId,
-    baseRevision: request.baseRevision,
-    revision: request.revision,
-    reason: request.reason,
-    reviewNote: request.reviewNote,
-    createdAt: request.createdAt.toISOString(),
-    reviewedAt: request.reviewedAt?.toISOString() ?? null,
-  };
-}
-
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return errorResponse(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 401 ? "AUTH_REQUIRED" : "ROLE_FORBIDDEN", auth.status);
+
+  let query: ReturnType<typeof parseCatalogWorkspaceQuery>;
+  try {
+    query = parseCatalogWorkspaceQuery(new URL(req.url).searchParams);
+  } catch (error) {
+    const code = error instanceof Error && error.message === "CATALOG_CURSOR_INVALID"
+      ? "CATALOG_CURSOR_INVALID"
+      : "CATALOG_QUERY_INVALID";
+    return errorResponse(code, 422);
+  }
 
   try {
     const access = await catalogAccess(auth);
@@ -156,172 +74,76 @@ export async function GET() {
     const batch = await prisma.catalogImportBatch.findFirst({
       where: { status: "READY" },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      select: { id: true, sourceDigest: true, status: true, createdAt: true, report: true },
+      select: { id: true, sourceDigest: true, status: true, createdAt: true },
     });
     if (!batch) {
+      if (query.cursor) return errorResponse("CATALOG_CURSOR_STALE", 409);
       const version = await readCatalogWorkspaceVersion();
       if (version.signature !== initialVersion.signature) return errorResponse("CATALOG_READ_STALE", 409);
-      return NextResponse.json({ rows: [], counts: { all: 0 }, mutationRevision: version.mutationRevision, workspaceSignature: version.signature, canReview: access.canReview, actorUserId: auth.userId, bulkEnabled: catalogBulkSubmissionEnabled(), historyEnabled: catalogHistoryEnabled(), batch: null }, { headers: privateHeaders() });
+      return NextResponse.json({
+        rows: [],
+        counts: { all: 0, ACTIVE: 0, DRAFT: 0, RETIRED: 0, blocked: 0, validationFailed: 0, pending: 0 },
+        filteredTotal: 0,
+        nextCursor: null,
+        mutationRevision: version.mutationRevision,
+        workspaceSignature: version.signature,
+        canReview: access.canReview,
+        actorUserId: auth.userId,
+        bulkEnabled: catalogBulkSubmissionEnabled(),
+        historyEnabled: catalogHistoryEnabled(),
+        batch: null,
+      }, { headers: privateHeaders() });
     }
 
-    const importRows = await prisma.catalogImportRow.findMany({
-      where: { batchId: batch.id },
-      orderBy: [{ sourceFile: "asc" }, { sourceRow: "asc" }],
-      select: {
-        id: true,
-        sourceFile: true,
-        sourceRow: true,
-        primaryDisposition: true,
-        eligibilityResult: true,
-        catalogKey: true,
-        senseKey: true,
-        issues: true,
-        sourceData: true,
-        changeRequests: {
-          where: { status: "PENDING" },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { id: true, kind: true, status: true, proposerId: true, reviewerId: true, baseRevision: true, revision: true, reason: true, reviewNote: true, createdAt: true, reviewedAt: true },
-        },
-      },
+    const scope = access.canReview ? "catalog-reviewer" : `catalog-teacher:${auth.userId}`;
+    const fingerprint = catalogWorkspaceQueryFingerprint(query.filters, query.limit, scope);
+    const cursor = query.cursor ? decodeCatalogWorkspaceCursor(query.cursor) : null;
+    if (query.cursor && !cursor) return errorResponse("CATALOG_CURSOR_INVALID", 422);
+    if (cursor && (cursor.fingerprint !== fingerprint || cursor.batchId !== batch.id)) {
+      return errorResponse("CATALOG_CURSOR_INVALID", 422);
+    }
+    if (cursor && cursor.workspaceSignature !== initialVersion.signature) {
+      return errorResponse("CATALOG_CURSOR_STALE", 409);
+    }
+
+    const offset = cursor?.offset ?? 0;
+    const page = await readCatalogWorkspacePage({
+      batchId: batch.id,
+      filters: query.filters,
+      limit: query.limit,
+      offset,
+      canReview: access.canReview,
+      actorUserId: auth.userId,
     });
-    const senseKeys = importRows.flatMap((row) => row.senseKey ? [row.senseKey] : []);
-    const senses = await prisma.wordSense.findMany({
-      select: {
-        id: true,
-        senseKey: true,
-        catalogEntry: { select: { catalogKey: true } },
-        status: true,
-        term: true,
-        level: true,
-        category: true,
-        approvedRevisionId: true,
-        revisions: {
-          orderBy: { revision: "desc" },
-          take: 1,
-          select: revisionSelect,
-        },
-        approvedRevision: { select: revisionSelect },
-        changeRequests: {
-          where: { status: "PENDING" },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { id: true, kind: true, status: true, proposerId: true, reviewerId: true, baseRevision: true, revision: true, reason: true, reviewNote: true, createdAt: true, reviewedAt: true },
-        },
-      },
-    });
-    const standaloneCreates = await prisma.catalogChangeRequest.findMany({
-      where: {
-        status: "PENDING",
-        kind: "CREATE",
-        senseId: null,
-        sourceImportRowId: null,
-        ...(access.canReview ? {} : { proposerId: auth.userId }),
-      },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: {
-        id: true,
-        kind: true,
-        status: true,
-        proposerId: true,
-        reviewerId: true,
-        baseRevision: true,
-        revision: true,
-        reason: true,
-        reviewNote: true,
-        createdAt: true,
-        reviewedAt: true,
-        catalogKey: true,
-        senseKey: true,
-        payload: true,
-      },
-    });
-    const senseByKey = new Map(senses.map((sense) => [sense.senseKey, sense]));
-    const importedSenseKeys = new Set(senseKeys);
-    const listRows = [
-      ...importRows,
-      ...senses
-        .filter((sense) => !importedSenseKeys.has(sense.senseKey))
-        .map((sense) => ({
-          id: sense.id,
-          sourceFile: "governance",
-          sourceRow: 0,
-          primaryDisposition: "NO_CHANGE",
-          eligibilityResult: sense.status === "ACTIVE" ? "ACTIVATION_ELIGIBLE" : "DRAFT_BLOCKED",
-          catalogKey: sense.catalogEntry.catalogKey,
-          senseKey: sense.senseKey,
-          issues: null,
-          sourceData: null,
-          changeRequests: [],
-        })),
-      ...standaloneCreates.map((request) => ({
-        id: request.id,
-        sourceFile: null,
-        sourceRow: 0,
-        primaryDisposition: "CREATED_DRAFT",
-        eligibilityResult: "DRAFT_BLOCKED",
-        catalogKey: request.catalogKey,
-        senseKey: request.senseKey,
-        issues: { errors: ["PENDING_CREATE"], warnings: [] },
-        sourceData: request.payload,
-        changeRequests: [request],
-      })),
-    ];
-    const rows = listRows.map((sourceRow) => {
-      const sense = sourceRow.senseKey ? senseByKey.get(sourceRow.senseKey) : undefined;
-      const latestRevision = sense?.revisions[0];
-      const revision = sense?.approvedRevision ?? latestRevision;
-      const sourcePayload = isRecord(sourceRow.sourceData) ? sourceRow.sourceData : {};
-      const compact = revision ? summaryPayload(revision) : summaryPayload(sourcePayload);
-      const issue = issueRecord(sourceRow.issues);
-      const pending = sense?.changeRequests[0] ?? sourceRow.changeRequests[0] ?? null;
-      return {
-        id: sourceRow.id,
-        senseKey: sourceRow.senseKey,
-        catalogKey: sourceRow.catalogKey,
-        sourceFile: sourceRow.sourceFile,
-        sourceRow: sourceRow.sourceRow,
-        term: compact.term,
-        lemma: compact.lemma,
-        definitionZh: compact.definitionZh,
-        partOfSpeech: compact.partOfSpeech,
-        level: compact.level,
-        category: compact.category,
-        phoneticIpa: compact.phoneticIpa,
-        enableEnToZh: compact.enableEnToZh,
-        enableZhToEn: compact.enableZhToEn,
-        status: sense?.status ?? "DRAFT",
-        revision: sense?.approvedRevision?.revision ?? latestRevision?.revision ?? null,
-        latestRevision: latestRevision?.revision ?? null,
-        approvedRevisionId: sense?.approvedRevisionId ?? null,
-        primaryDisposition: sourceRow.primaryDisposition,
-        eligibilityResult: sourceRow.eligibilityResult,
-        validationErrors: issue.errors,
-        validationWarnings: issue.warnings,
-        pendingRequest: pending ? changeSummary(pending) : null,
-        hasSense: Boolean(sense),
-      };
-    });
-    const counts = rows.reduce<Record<string, number>>((result, row) => {
-      result.all = (result.all ?? 0) + 1;
-      result[row.status] = (result[row.status] ?? 0) + 1;
-      if (row.primaryDisposition === "VALIDATION_FAILED") result.validationFailed = (result.validationFailed ?? 0) + 1;
-      if (row.eligibilityResult === "DRAFT_BLOCKED") result.blocked = (result.blocked ?? 0) + 1;
-      if (row.pendingRequest) result.pending = (result.pending ?? 0) + 1;
-      return result;
-    }, { all: 0 });
     const version = await readCatalogWorkspaceVersion();
     if (version.signature !== initialVersion.signature) return errorResponse("CATALOG_READ_STALE", 409);
+    const nextOffset = offset + page.rows.length;
+    const nextCursor = nextOffset < page.filteredTotal
+      ? encodeCatalogWorkspaceCursor({
+          offset: nextOffset,
+          fingerprint,
+          workspaceSignature: version.signature,
+          batchId: batch.id,
+        })
+      : null;
+
     return NextResponse.json({
-      rows,
-      counts,
+      rows: page.rows,
+      counts: page.counts,
+      filteredTotal: page.filteredTotal,
+      nextCursor,
       mutationRevision: version.mutationRevision,
       workspaceSignature: version.signature,
       canReview: access.canReview,
       actorUserId: auth.userId,
       bulkEnabled: catalogBulkSubmissionEnabled(),
       historyEnabled: catalogHistoryEnabled(),
-      batch: { id: batch.id, sourceDigest: batch.sourceDigest, status: batch.status, createdAt: batch.createdAt.toISOString(), report: batch.report },
+      batch: {
+        id: batch.id,
+        sourceDigest: batch.sourceDigest,
+        status: batch.status,
+        createdAt: batch.createdAt.toISOString(),
+      },
     }, { headers: privateHeaders() });
   } catch (error) {
     console.error("[catalog] list failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });

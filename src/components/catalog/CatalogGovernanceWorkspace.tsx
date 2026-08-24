@@ -99,6 +99,15 @@ type PendingRequest = {
   proposer: { legalName: string; accountName: string };
 };
 type PendingResponse = { requests: PendingRequest[]; hasMore: boolean; signature: string; mutationRevision: number };
+type CatalogListResponse = {
+  rows: CatalogRow[];
+  counts: Record<string, number>;
+  filteredTotal: number;
+  nextCursor: string | null;
+  canReview: boolean;
+  mutationRevision: number;
+  workspaceSignature: string;
+};
 type ReviewMutationResult = {
   replay: boolean;
   request: { status: string };
@@ -186,6 +195,10 @@ function statusClass(status: CatalogStatus) {
   return "bg-[var(--border-soft)] text-[var(--muted)]";
 }
 
+function isAbortError(value: unknown): boolean {
+  return value instanceof DOMException && value.name === "AbortError";
+}
+
 function CatalogOverviewWorkspace({
   onOpenHistory,
   onReviewAccessChange,
@@ -202,10 +215,14 @@ function CatalogOverviewWorkspace({
   const [status, setStatus] = useState<FilterStatus>("ALL");
   const [level, setLevel] = useState("ALL");
   const [direction, setDirection] = useState("ALL");
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [exportSenseKeys, setExportSenseKeys] = useState<Set<string>>(new Set());
-  const [visibleCount, setVisibleCount] = useState(100);
+  const [filteredTotal, setFilteredTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [catalogInitialized, setCatalogInitialized] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [selected, setSelected] = useState<Detail | null>(null);
@@ -219,23 +236,60 @@ function CatalogOverviewWorkspace({
   const pendingRefreshInFlightRef = useRef(false);
   const pendingBackoffUntilRef = useRef(0);
   const catalogLoadGenerationRef = useRef(0);
+  const catalogLoadAbortRef = useRef<AbortController | null>(null);
+  const catalogForegroundInFlightRef = useRef(false);
+  const catalogLoadMoreGenerationRef = useRef(0);
+  const catalogLoadMoreAbortRef = useRef<AbortController | null>(null);
+  const catalogWorkspaceSignatureRef = useRef("");
+  const catalogQueryKeyRef = useRef("");
   const selectedPendingRequestIdRef = useRef<string | null>(null);
 
+  const catalogQueryKey = useMemo(() => JSON.stringify({ search, status, level, direction }), [direction, level, search, status]);
+  useEffect(() => {
+    catalogQueryKeyRef.current = catalogQueryKey;
+  }, [catalogQueryKey]);
+
+  const catalogUrl = useCallback((cursor?: string | null) => {
+    const params = new URLSearchParams({ status, level, direction, limit: "100" });
+    if (search) params.set("q", search);
+    if (cursor) params.set("cursor", cursor);
+    return `/api/catalog?${params.toString()}`;
+  }, [direction, level, search, status]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput.normalize("NFKC").trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
   const loadCatalog = useCallback(async (options?: { background?: boolean }) => {
+    if (options?.background && catalogForegroundInFlightRef.current) return null;
     const generation = ++catalogLoadGenerationRef.current;
-    if (!options?.background) setLoading(true);
-    if (!options?.background) setError(null);
+    catalogLoadAbortRef.current?.abort();
+    catalogLoadMoreGenerationRef.current += 1;
+    catalogLoadMoreAbortRef.current?.abort();
+    const controller = new AbortController();
+    catalogLoadAbortRef.current = controller;
+    setLoadingMore(false);
+    if (!options?.background) {
+      catalogForegroundInFlightRef.current = true;
+      setLoading(true);
+      setError(null);
+      setRows([]);
+      setFilteredTotal(0);
+      setNextCursor(null);
+    }
     try {
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const response = await fetch("/api/catalog", { cache: "no-store" });
+        const response = await fetch(catalogUrl(), { cache: "no-store", signal: controller.signal });
         if (response.status === 409 && attempt < 2) continue;
         if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
-        const payload = await response.json() as { rows: CatalogRow[]; counts: Record<string, number>; canReview: boolean; mutationRevision: number; workspaceSignature: string };
-        let reviewPayload: PendingResponse = { requests: [], hasMore: false, signature: "", mutationRevision: payload.mutationRevision };
+        const payload = await response.json() as CatalogListResponse;
+        let reviewPayload: PendingResponse | null = null;
         let effectiveCanReview = payload.canReview;
-        if (effectiveCanReview) {
-          const reviewResponse = await fetch("/api/catalog/requests?status=PENDING", { cache: "no-store" });
+        if (effectiveCanReview && pendingSignatureRef.current !== payload.workspaceSignature) {
+          const reviewResponse = await fetch("/api/catalog/requests?status=PENDING", { cache: "no-store", signal: controller.signal });
           if (reviewResponse.status === 403) {
+            if (attempt < 2) continue;
             effectiveCanReview = false;
           } else {
             if (reviewResponse.status === 409 && attempt < 2) continue;
@@ -257,33 +311,89 @@ function CatalogOverviewWorkspace({
         if (generation !== catalogLoadGenerationRef.current) return null;
         setRows(payload.rows);
         setCounts(payload.counts);
+        setFilteredTotal(payload.filteredTotal);
+        setNextCursor(payload.nextCursor);
+        catalogWorkspaceSignatureRef.current = payload.workspaceSignature;
+        setCatalogInitialized(true);
         setCanReview(effectiveCanReview);
         onReviewAccessChange(effectiveCanReview);
-        if (effectiveCanReview) {
+        if (effectiveCanReview && reviewPayload) {
           setPending(reviewPayload.requests);
           setPendingHasMore(reviewPayload.hasMore);
           pendingSignatureRef.current = reviewPayload.signature;
-        } else {
+        } else if (!effectiveCanReview) {
           setPending([]);
           setPendingHasMore(false);
           pendingSignatureRef.current = "";
         }
-        return { rows: payload.rows, pending: reviewPayload.requests };
+        return { rows: payload.rows, pending: reviewPayload?.requests ?? null };
       }
       throw new Error(tc("词库刚刚有更新，请重新载入。"));
     } catch (cause) {
-      if (generation !== catalogLoadGenerationRef.current) return null;
+      if (generation !== catalogLoadGenerationRef.current || isAbortError(cause)) return null;
       setError(cause instanceof Error ? cause.message : tc(networkErrorMessage(cause)));
       return null;
     } finally {
-      if (generation === catalogLoadGenerationRef.current && !options?.background) setLoading(false);
+      if (catalogLoadAbortRef.current === controller) catalogLoadAbortRef.current = null;
+      if (generation === catalogLoadGenerationRef.current && !options?.background) {
+        catalogForegroundInFlightRef.current = false;
+        setLoading(false);
+      }
     }
-  }, [onReviewAccessChange, tc]);
+  }, [catalogUrl, onReviewAccessChange, tc]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadCatalog(); }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      catalogLoadGenerationRef.current += 1;
+      catalogLoadAbortRef.current?.abort();
+      catalogLoadMoreGenerationRef.current += 1;
+      catalogLoadMoreAbortRef.current?.abort();
+    };
   }, [loadCatalog]);
+
+  const loadMore = useCallback(async () => {
+    const cursor = nextCursor;
+    if (!cursor || loadingMore) return;
+    const generation = ++catalogLoadMoreGenerationRef.current;
+    catalogLoadMoreAbortRef.current?.abort();
+    const controller = new AbortController();
+    catalogLoadMoreAbortRef.current = controller;
+    const requestQueryKey = catalogQueryKey;
+    const requestSignature = catalogWorkspaceSignatureRef.current;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const response = await fetch(catalogUrl(cursor), { cache: "no-store", signal: controller.signal });
+      if (response.status === 409 || response.status === 422) {
+        if (generation !== catalogLoadMoreGenerationRef.current || requestQueryKey !== catalogQueryKeyRef.current) return;
+        setMessage(tc("词库刚刚有更新，列表已由第一页重新载入。"));
+        await loadCatalog();
+        return;
+      }
+      if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+      const payload = await response.json() as CatalogListResponse;
+      if (
+        generation !== catalogLoadMoreGenerationRef.current
+        || requestQueryKey !== catalogQueryKeyRef.current
+        || payload.workspaceSignature !== requestSignature
+      ) return;
+      setRows((current) => {
+        const ids = new Set(current.map((row) => row.id));
+        return [...current, ...payload.rows.filter((row) => !ids.has(row.id))];
+      });
+      setCounts(payload.counts);
+      setFilteredTotal(payload.filteredTotal);
+      setNextCursor(payload.nextCursor);
+    } catch (cause) {
+      if (generation !== catalogLoadMoreGenerationRef.current || isAbortError(cause)) return;
+      setError(cause instanceof Error ? cause.message : tc(networkErrorMessage(cause)));
+    } finally {
+      if (catalogLoadMoreAbortRef.current === controller) catalogLoadMoreAbortRef.current = null;
+      if (generation === catalogLoadMoreGenerationRef.current) setLoadingMore(false);
+    }
+  }, [catalogQueryKey, catalogUrl, loadCatalog, loadingMore, nextCursor, tc]);
 
   useEffect(() => {
     selectedPendingRequestIdRef.current = selected?.pendingRequest?.id ?? null;
@@ -314,7 +424,7 @@ function CatalogOverviewWorkspace({
       if (payload.signature === pendingSignatureRef.current) return;
       const previouslySelectedRequestId = selectedPendingRequestIdRef.current;
       const loaded = await loadCatalog({ background: true });
-      if (!loaded || !previouslySelectedRequestId) return;
+      if (!loaded?.pending || !previouslySelectedRequestId) return;
       const pendingIds = new Set(loaded.pending.map((request) => request.id));
       if (!pendingIds.has(previouslySelectedRequestId)) {
         setSelected((current) => current?.pendingRequest?.id === previouslySelectedRequestId ? null : current);
@@ -371,23 +481,10 @@ function CatalogOverviewWorkspace({
     return () => { window.clearTimeout(focusTimer); document.removeEventListener("keydown", handleKeyDown); previous?.focus(); };
   }, [selected]);
 
-  const filtered = useMemo(() => {
-    const query = search.normalize("NFKC").toLocaleLowerCase();
-    return rows.filter((row) => {
-      const matchesStatus = status === "ALL" || (status === "BLOCKED" ? row.eligibilityResult === "DRAFT_BLOCKED" : status === "VALIDATION_FAILED" ? row.primaryDisposition === "VALIDATION_FAILED" : status === "PENDING" ? Boolean(row.pendingRequest) : row.status === status);
-      const matchesLevel = level === "ALL" || row.level === level;
-      const matchesDirection = direction === "ALL" || (direction === "EN_ZH" ? row.enableEnToZh : row.enableZhToEn);
-      const matchesSearch = !query || `${row.term} ${row.lemma} ${row.definitionZh} ${row.senseKey ?? ""} ${row.catalogKey ?? ""} ${row.category} ${row.phoneticIpa ?? ""}`.toLocaleLowerCase().includes(query);
-      return matchesStatus && matchesLevel && matchesDirection && matchesSearch;
-    });
-  }, [direction, level, rows, search, status]);
-  const visibleRows = filtered.slice(0, visibleCount);
-
-  async function openDetail(row: CatalogRow) {
-    if (!row.senseKey) return;
+  async function openDetailBySenseKey(senseKey: string) {
     setError(null);
     try {
-      const response = await fetch(`/api/catalog/${encodeURIComponent(row.senseKey)}`, { cache: "no-store" });
+      const response = await fetch(`/api/catalog/${encodeURIComponent(senseKey)}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const detail = await response.json() as Detail;
       const currentPayload = detail.payload ? normalizeCatalogPayload(detail.payload) : null;
@@ -401,6 +498,10 @@ function CatalogOverviewWorkspace({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc("讀取詞條失敗"));
     }
+  }
+
+  async function openDetail(row: CatalogRow) {
+    if (row.senseKey) await openDetailBySenseKey(row.senseKey);
   }
 
   function updateForm<K extends keyof CatalogPayload>(key: K, value: CatalogPayload[K]) {
@@ -434,8 +535,7 @@ function CatalogOverviewWorkspace({
         : tc("已提交草稿，等待一位有权限的老师或管理员审核。"));
       const refreshedCatalog = await loadCatalog();
       if (kind === "CREATE" || immediate) { setSelected(null); return; }
-      const refreshed = refreshedCatalog?.rows.find((row) => row.senseKey === selected.senseKey);
-      if (refreshed) await openDetail(refreshed);
+      if (refreshedCatalog) await openDetailBySenseKey(selected.senseKey);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc("提交詞庫修改失敗"));
     } finally { setSaving(false); }
@@ -461,6 +561,19 @@ function CatalogOverviewWorkspace({
       setMessage(tc("已匯出所選詞條；請保留系統欄位後修改內容。"));
     } catch (cause) { setError(cause instanceof Error ? cause.message : tc("匯出詞條失敗")); }
     finally { setSaving(false); }
+  }
+
+  function toggleExportSelection(senseKey: string, checked: boolean) {
+    if (checked && !exportSenseKeys.has(senseKey) && exportSenseKeys.size >= 200) {
+      setMessage(tc("每次最多選取 200 個詞條；請先匯出或清除全部選取。"));
+      return;
+    }
+    setExportSenseKeys((current) => {
+      const next = new Set(current);
+      if (checked) next.add(senseKey);
+      else next.delete(senseKey);
+      return next;
+    });
   }
 
   async function reviewRequest(request: PendingRequest, decision: "APPROVE" | "REJECT") {
@@ -489,13 +602,13 @@ function CatalogOverviewWorkspace({
     } finally { setSaving(false); }
   }
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" /></div>;
-  if (error && rows.length === 0) return <ErrorBanner message={error} onRetry={() => void loadCatalog()} />;
+  if (!catalogInitialized && loading) return <div role="status" aria-label={tc("正在載入完整詞庫")} className="flex items-center justify-center gap-3 py-20 text-sm text-[var(--muted)]"><div aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />{tc("正在載入完整詞庫…")}</div>;
+  if (!catalogInitialized && error) return <ErrorBanner message={error} onRetry={() => void loadCatalog()} />;
 
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)]">{tc("詞庫治理工作區")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc("管理员及老师可以查看全部词条；一般修改由一位有权限人员审核，具权限者可即时停用。")}</p></div>
-      <div className="flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-primary" onClick={startCreate}>{tc("新增詞條")}</button><button type="button" className="ui-button ui-button-secondary" disabled={saving || exportSenseKeys.size === 0 || exportSenseKeys.size > 200} onClick={() => void exportSelectedUpdates()}>{tc("匯出所選作 CSV 更新")} ({exportSenseKeys.size})</button></div>
+      <div className="flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-primary" onClick={startCreate}>{tc("新增詞條")}</button><button type="button" className="ui-button ui-button-secondary" disabled={saving || exportSenseKeys.size === 0} onClick={() => void exportSelectedUpdates()}>{tc("匯出所選作 CSV 更新")} ({exportSenseKeys.size}/200)</button>{exportSenseKeys.size ? <button type="button" className="ui-button ui-button-quiet" disabled={saving} onClick={() => setExportSenseKeys(new Set())}>{tc("清除全部選取")}</button> : null}</div>
       <div className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)]">{tc("完整詞庫")}：{counts.all ?? rows.length} {tc("條")}</div>
     </div>
     {error ? <ErrorBanner message={error} onRetry={() => void loadCatalog()} /> : null}
@@ -504,16 +617,16 @@ function CatalogOverviewWorkspace({
       {(["all", "ACTIVE", "DRAFT", "RETIRED", "blocked", "validationFailed", "pending"] as const).map((key) => <div key={key} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"><p className="text-xs text-[var(--muted)]">{key === "all" ? tc("全部") : key === "ACTIVE" ? tc("已啟用") : key === "DRAFT" ? tc("草稿") : key === "RETIRED" ? tc("已停用") : key === "blocked" ? tc("方向被阻擋") : key === "validationFailed" ? tc("驗證失敗") : tc("等待審核")}</p><p className="mt-1 text-xl font-bold text-[var(--text)]">{counts[key] ?? 0}</p></div>)}
     </div>
     <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 md:grid-cols-[minmax(0,1fr)_150px_170px_190px]">
-      <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("搜尋詞條、釋義或 key")}<input aria-label={tc("搜尋詞條、釋義或 key")} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+      <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("搜尋詞條、釋義或 key")}<input aria-label={tc("搜尋詞條、釋義或 key")} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} /></label>
       <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("狀態")}<select className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={status} onChange={(event) => setStatus(event.target.value as FilterStatus)}>{(["ALL", "ACTIVE", "DRAFT", "RETIRED", "BLOCKED", "VALIDATION_FAILED", "PENDING"] as FilterStatus[]).map((item) => <option key={item} value={item}>{statusLabel(item, tc)}</option>)}</select></label>
       <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("程度")}<select className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={level} onChange={(event) => setLevel(event.target.value)}><option value="ALL">{tc("全部程度")}</option>{["A1", "A2", "B1", "B2"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("出題方向")}<select className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={direction} onChange={(event) => setDirection(event.target.value)}><option value="ALL">{tc("全部方向")}</option><option value="EN_ZH">{tc("英譯中可用")}</option><option value="ZH_EN">{tc("中譯英可用")}</option></select></label>
     </div>
     {canReview ? <section className="rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-[var(--text)]">{tc("待審核草稿")}</h2><p className="mt-1 text-xs text-[var(--muted)]">{tc("批准前會重新檢查版本、答案安全及干擾項；不能批准自己提交的修改。")}</p></div><span className="rounded-full bg-[var(--surface)] px-3 py-1 text-xs text-[var(--primary)]">{pending.length} {tc("項")}</span></div>{pendingHasMore ? <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-xs text-[var(--warning)]">{tc("待審核項目超過目前顯示上限，請先處理現有項目。")}</p> : null}{pending.length ? <div className="mt-3 grid gap-2 lg:grid-cols-2">{pending.map((request) => <article key={request.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[var(--text)]">{request.sense?.term ?? request.payload.term ?? tc("新詞義")}</p><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{request.senseKey ?? request.sourceImportRow?.senseKey ?? tc("尚未建立 sense key")} · {request.kind} · {request.proposer.legalName || request.proposer.accountName} · r{request.baseRevision ?? 0}</p></div><span className="rounded-full bg-[var(--warning-bg)] px-2 py-1 text-[10px] text-[var(--warning)]">{tc("待審核")}</span></div><p className="mt-2 line-clamp-2 text-sm text-[var(--text)]">{request.payload.definitionZh}</p><textarea className="mt-3 min-h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 text-xs text-[var(--text)]" placeholder={tc("審核備註（拒絕時必填）")} value={reviewNotes[request.id] ?? ""} onChange={(event) => setReviewNotes((current) => ({ ...current, [request.id]: event.target.value }))} aria-label={tc("審核備註")} /><div className="mt-2 flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => { setForm(request.payload); setReviewNote(reviewNotes[request.id] ?? ""); setSelected({ id: request.sourceImportRow?.id ?? null, senseKey: request.sense?.senseKey ?? request.senseKey ?? request.sourceImportRow?.senseKey ?? "", catalogKey: request.sourceImportRow?.catalogKey ?? request.catalogKey ?? null, sourceFile: request.sourceImportRow?.sourceFile ?? null, sourceRow: request.sourceImportRow?.sourceRow ?? null, status: request.baseStatus ?? "DRAFT", revision: request.baseRevision, latestRevision: request.baseRevision, approvedRevisionId: null, primaryDisposition: request.sourceImportRow?.primaryDisposition ?? "", eligibilityResult: request.sourceImportRow?.eligibilityResult ?? null, hasSense: Boolean(request.sense), issues: null, payload: request.payload, pendingRequest: { id: request.id, kind: request.kind, status: request.status, revision: request.revision, payload: request.payload, reason: request.reason, proposerId: request.proposerId, createdAt: request.createdAt } }); }}>{tc("查看草稿")}</button><button type="button" className="ui-button ui-button-primary ui-button-small" disabled={saving} onClick={() => void reviewRequest(request, "APPROVE")}>{tc("批准")}</button><button type="button" className="ui-button ui-button-danger ui-button-small" disabled={saving} onClick={() => void reviewRequest(request, "REJECT")}>{tc("拒絕")}</button></div></article>)}</div> : <p className="mt-3 text-sm text-[var(--muted)]">{tc("目前沒有等待審核的草稿。")}</p>}</section> : null}
-    <p className="text-sm text-[var(--muted)]">{tc("目前篩選")}: {filtered.length} / {rows.length} {tc("條；目前顯示")} {visibleRows.length}</p>
-    <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"><summary className="cursor-pointer text-sm font-semibold text-[var(--text)]">{tc("快速查看目前詞義的修改歷史")}</summary><div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">{visibleRows.filter((row) => row.senseKey).map((row) => <button type="button" key={`history-${row.id}`} className="ui-button ui-button-quiet ui-button-small" onClick={() => onOpenHistory(row.senseKey!)}>{row.term || row.senseKey}</button>)}</div></details>
-    <div className="space-y-2">{visibleRows.map((row) => <article key={row.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[minmax(180px,1.1fr)_minmax(220px,1.6fr)_100px_150px_auto] lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="break-words text-[17px] text-[var(--text)]">{row.term || tc("未完成詞條")}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(row.status)}`}>{statusLabel(row.status, tc)}</span></div><p className="mt-1 break-all text-[11px] text-[var(--muted)]">{row.senseKey ?? tc("尚未建立 sense key")}</p></div><div className="min-w-0"><p className="line-clamp-2 text-sm text-[var(--text)]">{row.definitionZh || tc("尚未填寫中文釋義")}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.partOfSpeech || "—"} · {row.level || "—"} · {tc(row.category || "other")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.enableEnToZh ? tc("英譯中") : tc("英譯中停用")}</p><p>{row.enableZhToEn ? tc("中譯英") : tc("中譯英停用")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.primaryDisposition === "VALIDATION_FAILED" ? tc("需修訂 validator 問題") : row.eligibilityResult === "DRAFT_BLOCKED" ? tc("出題方向未就緒") : row.approvedRevisionId ? `${tc("已批准 revision")} ${row.revision ?? "—"}` : tc("未批准")}</p><p>{row.pendingRequest ? tc("已有待審核修改") : row.sourceFile ? `${row.sourceFile}:${row.sourceRow}` : tc("治理草稿")}</p></div><div className="flex flex-wrap gap-2 lg:justify-end">{row.senseKey ? <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]"><input type="checkbox" checked={exportSenseKeys.has(row.senseKey)} disabled={Boolean(row.pendingRequest)} onChange={(event) => setExportSenseKeys((current) => { const next = new Set(current); if (event.target.checked) next.add(row.senseKey!); else next.delete(row.senseKey!); return next; })} />{tc("選取匯出")}</label> : null}<button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => void openDetail(row)}>{tc("查看／修改")}</button>{row.validationErrors.length ? <span className="rounded-full bg-[var(--danger-bg)] px-2 py-1 text-[10px] text-[var(--danger)]">{row.validationErrors.length} {tc("個問題")}</span> : null}</div></div></article>)}</div>
-    {visibleRows.length < filtered.length ? <button type="button" className="ui-button ui-button-secondary mx-auto block" onClick={() => setVisibleCount((count) => count + 100)}>{tc("再顯示 100 條")}</button> : null}
+    <p className="text-sm text-[var(--muted)]" role="status" aria-live="polite">{loading ? tc("正在更新詞庫結果…") : <>{tc("目前篩選")}: {filteredTotal} / {counts.all ?? 0} {tc("條；已載入")} {rows.length}</>}</p>
+    <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"><summary className="cursor-pointer text-sm font-semibold text-[var(--text)]">{tc("快速查看目前詞義的修改歷史")}</summary><div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">{rows.filter((row) => row.senseKey).map((row) => <button type="button" key={`history-${row.id}`} className="ui-button ui-button-quiet ui-button-small" onClick={() => onOpenHistory(row.senseKey!)}>{row.term || row.senseKey}</button>)}</div></details>
+    <div aria-busy={loading || loadingMore}>{loading ? <p role="status" className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">{tc("正在更新詞庫結果…")}</p> : rows.length ? <div className="space-y-2">{rows.map((row) => <article key={row.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[minmax(180px,1.1fr)_minmax(220px,1.6fr)_100px_150px_auto] lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="break-words text-[17px] text-[var(--text)]">{row.term || tc("未完成詞條")}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(row.status)}`}>{statusLabel(row.status, tc)}</span></div><p className="mt-1 break-all text-[11px] text-[var(--muted)]">{row.senseKey ?? tc("尚未建立 sense key")}</p></div><div className="min-w-0"><p className="line-clamp-2 text-sm text-[var(--text)]">{row.definitionZh || tc("尚未填寫中文釋義")}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.partOfSpeech || "—"} · {row.level || "—"} · {tc(row.category || "other")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.enableEnToZh ? tc("英譯中") : tc("英譯中停用")}</p><p>{row.enableZhToEn ? tc("中譯英") : tc("中譯英停用")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.primaryDisposition === "VALIDATION_FAILED" ? tc("需修訂 validator 問題") : row.eligibilityResult === "DRAFT_BLOCKED" ? tc("出題方向未就緒") : row.approvedRevisionId ? `${tc("已批准 revision")} ${row.revision ?? "—"}` : tc("未批准")}</p><p>{row.pendingRequest ? tc("已有待審核修改") : row.sourceFile ? `${row.sourceFile}:${row.sourceRow}` : tc("治理草稿")}</p></div><div className="flex flex-wrap gap-2 lg:justify-end">{row.senseKey ? <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]"><input type="checkbox" checked={exportSenseKeys.has(row.senseKey)} disabled={Boolean(row.pendingRequest) || (!exportSenseKeys.has(row.senseKey) && exportSenseKeys.size >= 200)} onChange={(event) => toggleExportSelection(row.senseKey!, event.target.checked)} />{tc("選取匯出")}</label> : null}<button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => void openDetail(row)}>{tc("查看／修改")}</button>{row.validationErrors.length ? <span className="rounded-full bg-[var(--danger-bg)] px-2 py-1 text-[10px] text-[var(--danger)]">{row.validationErrors.length} {tc("個問題")}</span> : null}</div></div></article>)}</div> : <p className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">{tc("目前篩選沒有詞條。")}</p>}</div>
+    {nextCursor ? <button type="button" className="ui-button ui-button-secondary mx-auto block" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? tc("載入中…") : tc("載入更多（最多 100 條）")}</button> : null}
     {selected ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="catalog-dialog-title"><section ref={dialogRef} tabIndex={-1} className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-t-3xl bg-[var(--surface)] p-5 shadow-2xl sm:rounded-3xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-[var(--muted)]">{selected.senseKey}</p><h2 id="catalog-dialog-title" className="mt-1 text-xl font-bold text-[var(--text)]">{form.term || tc("詞條內容")}</h2><p className="mt-1 text-xs text-[var(--muted)]">{statusLabel(selected.status, tc)} · {selected.revision === null ? tc("未有 revision") : `revision ${selected.revision}`}</p></div><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => setSelected(null)} aria-label={tc("關閉") as string}>×</button></div><div className="mt-4 grid gap-3 md:grid-cols-2"><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文詞") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.term} onChange={(event) => updateForm("term", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Lemma") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)] disabled:cursor-not-allowed disabled:bg-[var(--border-soft)]" value={form.lemma} disabled={selected.hasSense} onChange={(event) => updateForm("lemma", event.target.value)} />{selected.hasSense ? <small className="font-normal text-[var(--muted)]">{tc("Lemma 屬於穩定詞頭身份；如要改成另一個詞頭，請新增詞義並停用舊詞義。")}</small> : null}</label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("詞性") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.partOfSpeech} onChange={(event) => updateForm("partOfSpeech", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("程度") }<select className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.level} onChange={(event) => updateForm("level", event.target.value as CatalogPayload["level"])}>{["A1", "A2", "B1", "B2"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Category") }<select className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.category} onChange={(event) => updateForm("category", event.target.value)}>{CATALOG_CATEGORIES.includes(form.category as (typeof CATALOG_CATEGORIES)[number]) ? null : <option value={form.category}>{form.category} ({tc("無效，請重新選擇")})</option>}{CATALOG_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("音標") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.phoneticIpa ?? ""} onChange={(event) => updateForm("phoneticIpa", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("中文釋義") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.definitionZh} onChange={(event) => updateForm("definitionZh", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("例句英文") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.exampleEn ?? ""} onChange={(event) => updateForm("exampleEn", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("例句中文") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.exampleZh ?? ""} onChange={(event) => updateForm("exampleZh", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("中文正確答案（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.acceptedAnswersZh)} onChange={(event) => updateForm("acceptedAnswersZh", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文正確形式（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.acceptedFormsEn)} onChange={(event) => updateForm("acceptedFormsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文近義詞（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.synonymsEn)} onChange={(event) => updateForm("synonymsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文反義詞（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={listText(form.antonymsEn)} onChange={(event) => updateForm("antonymsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("英譯中干擾項（用 | 分隔；5–6 個）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.distractorZh)} onChange={(event) => updateForm("distractorZh", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("中譯英干擾項（用 | 分隔；5–6 個）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.distractorEn)} onChange={(event) => updateForm("distractorEn", parseList(event.target.value))} /></label></div><div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-[var(--border)] p-3 text-sm text-[var(--text)]"><label className="flex items-center gap-2"><input type="checkbox" checked={form.enableEnToZh} onChange={(event) => updateForm("enableEnToZh", event.target.checked)} />{tc("啟用英譯中")}</label><label className="flex items-center gap-2"><input type="checkbox" checked={form.enableZhToEn} onChange={(event) => updateForm("enableZhToEn", event.target.checked)} />{tc("啟用中譯英")}</label></div><label className="mt-4 grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("修改／停用理由") }<textarea className="min-h-16 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={reason} onChange={(event) => setReason(event.target.value)} placeholder={tc("簡單說明修改原因，停用時必須填寫。")} /></label>{selected.status === "ACTIVE" && canReview ? <p className="mt-2 text-xs text-[var(--danger)]">{tc("按下「立即停用」并确认后会即时生效；学生历史及审核记录会保留。")}</p> : null}{selected.pendingRequest ? <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]">{tc(canReview && selected.status === "ACTIVE" ? "已有待审核修改；即时停用仍会生效，现有内容申请不会自动重新启用这个词义。" : "此词条已有待审核版本，请先完成该审核。")}</p> : null}<div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4"><button type="button" className="ui-button ui-button-quiet" onClick={() => setSelected(null)}>{tc("取消")}</button>{selected.status === "RETIRED" ? <><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange("UPDATE")}>{saving ? tc("提交中…") : tc("提交內容修改草稿")}</button><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange("REACTIVATE")}>{tc("提交重新啟用申請")}</button></> : <><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange(selected.hasSense === false ? "CREATE" : "UPDATE")}>{saving ? tc("提交中…") : tc("提交草稿")}</button>{selected.status === "ACTIVE" ? <button type="button" className="ui-button ui-button-danger" disabled={saving || (!canReview && Boolean(selected.pendingRequest))} onClick={() => void submitChange("RETIRE")}>{tc(canReview ? "立即停用" : "提交停用申请")}</button> : null}</>}</div></section></div> : null}
   </div>;
 }
