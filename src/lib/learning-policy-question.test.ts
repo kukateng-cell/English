@@ -86,3 +86,42 @@ test("sense-level construction uses only the row's curated pool and enabled dire
   assert.ok(snapshot.options.every((option) => option.text === "跑步" || sense.curatedDistractorsZh?.includes(option.text)));
   assert.ok(!snapshot.options.some((option) => option.text === "經營"));
 });
+
+test("teacher preview can request an enabled direction without changing default construction", () => {
+  const sense: QuestionWord = {
+    id: "book-sense",
+    senseId: "sense-book",
+    term: "book",
+    definition: "書本",
+    enableEnToZh: true,
+    enableZhToEn: true,
+    curatedDistractorsZh: ["鉛筆", "桌子", "窗戶", "書包", "尺子"],
+    curatedDistractorsEn: ["pen", "desk", "window", "bag", "ruler"],
+  };
+  const defaultQuestion = buildObjectiveQuestion(sense, [sense], "unchanged-default-seed");
+  const englishToChinese = buildObjectiveQuestion(sense, [sense], "preview-seed", { direction: "en-zh" });
+  const chineseToEnglish = buildObjectiveQuestion(sense, [sense], "preview-seed", { direction: "zh-en" });
+
+  assert.ok(defaultQuestion);
+  assert.ok(englishToChinese);
+  assert.ok(chineseToEnglish);
+  assert.equal(englishToChinese.direction, "en-zh");
+  assert.equal(englishToChinese.prompt, "book");
+  assert.equal(chineseToEnglish.direction, "zh-en");
+  assert.equal(chineseToEnglish.prompt, "書本");
+});
+
+test("teacher preview fails closed when requesting a disabled direction", () => {
+  const sense: QuestionWord = {
+    id: "run-a1",
+    senseId: "sense-run-a1",
+    term: "run",
+    definition: "跑步",
+    enableEnToZh: true,
+    enableZhToEn: false,
+    curatedDistractorsZh: ["行走", "跳躍", "游泳", "站立", "坐下"],
+    curatedDistractorsEn: ["walk", "jump", "swim", "stand", "sit"],
+  };
+
+  assert.equal(buildObjectiveQuestion(sense, [sense], "preview-seed", { direction: "zh-en" }), null);
+});

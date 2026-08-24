@@ -43,6 +43,11 @@ export interface PublicObjectiveQuestion {
   itemConstructionVersion: typeof OBJECTIVE_ITEM_CONSTRUCTION_VERSION;
 }
 
+export interface ObjectiveQuestionBuildOptions {
+  /** Teacher preview only. Production callers omit this to keep seeded choice. */
+  direction?: QuestionDirection;
+}
+
 const OPTION_COUNT = 4;
 const DISTRACTOR_COUNT = OPTION_COUNT - 1;
 
@@ -128,12 +133,15 @@ export function buildObjectiveQuestion(
   word: QuestionWord,
   source: readonly QuestionWord[],
   seed: string,
+  buildOptions: ObjectiveQuestionBuildOptions = {},
 ): ObjectiveQuestionSnapshotData | null {
   if (!isQuizzable(word) || seed.trim().length === 0) return null;
 
   const directions = allowedDirections(word);
   if (directions.length === 0) return null;
-  const direction = directions[digest(`${seed}\0direction`).charCodeAt(0) % directions.length]!;
+  if (buildOptions.direction && !directions.includes(buildOptions.direction)) return null;
+  const direction = buildOptions.direction
+    ?? directions[digest(`${seed}\0direction`).charCodeAt(0) % directions.length]!;
   const answerText = direction === "en-zh" ? word.definition : word.term;
   const targetTerm = normalizeQuestionText(word.term);
   const targetDefinition = normalizeQuestionText(word.definition);

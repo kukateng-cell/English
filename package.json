@@ -42,6 +42,7 @@
     "check:catalog-workspace-pagination": "node --import tsx scripts/check-catalog-workspace-pagination.ts",
     "check:catalog-immediate-retire": "node --import tsx scripts/check-catalog-immediate-retire.ts",
     "check:catalog-submission": "DOTENV_CONFIG_PATH=.env.local node --require dotenv/config --import tsx scripts/check-catalog-submission.ts",
+    "check:catalog-teacher-workflow": "node --import tsx scripts/check-catalog-teacher-workflow.ts",
     "test:catalog:performance": "node --import tsx scripts/check-catalog-performance.ts",
     "backfill:catalog-history": "node --import tsx scripts/backfill-catalog-history.ts",
     "cleanup:catalog-previews": "node --import tsx scripts/cleanup-catalog-submission-previews.ts",

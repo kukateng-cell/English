@@ -59,6 +59,8 @@ const requestSelect = {
   baseRevision: true,
   proposedRevision: true,
   resultRevisionId: true,
+  supersedesRequestId: true,
+  supersededBy: { select: { id: true } },
   payload: true,
   beforePayloadSnapshot: true,
   afterPayloadSnapshot: true,
@@ -120,6 +122,8 @@ function requestDto(request: Prisma.CatalogChangeRequestGetPayload<{ select: typ
     baseRevision: request.baseRevision,
     proposedRevision: request.proposedRevision,
     resultRevisionId: request.resultRevisionId,
+    retryOfRequestId: request.supersedesRequestId,
+    successorRequestId: request.supersededBy?.id ?? null,
     before: {
       term: request.beforeTermSnapshot,
       definitionZh: request.beforeDefinitionSnapshot,
@@ -197,6 +201,8 @@ function feedDto(entry: FeedEntry, actorId: string, canReview: boolean) {
         committedAt: batch.committedAt?.toISOString() ?? null,
         visibility,
         groupCount: batch._count.proposalGroups,
+        correctiveOfBatchId: batch.supersedesBatchId,
+        retryOfBatchId: batch.retryOfBatchId,
         ...(visibility === "REVIEWER" ? {
           proposerId: batch.proposerId,
           reviewerId: batch.reviewerId,

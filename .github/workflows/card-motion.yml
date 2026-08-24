@@ -158,6 +158,7 @@ jobs:
           npm run check:catalog-workspace-pagination
           npm run check:catalog-immediate-retire
           npm run check:catalog-submission
+          npm run check:catalog-teacher-workflow
 
       - name: Run V2 stream integration and bounded soak
         run: |

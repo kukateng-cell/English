@@ -84,7 +84,7 @@ export function catalogRouteError(error: unknown): NextResponse {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return catalogResponse("CATALOG_REQUEST_STALE", 409);
   if (error instanceof SyntaxError) return catalogResponse("CATALOG_INPUT_INVALID", 422);
   if (code === "CATALOG_HISTORY_FORBIDDEN") return catalogResponse("CATALOG_HISTORY_NOT_FOUND", 404);
-  if (code === "CATALOG_BATCH_NOT_FOUND" || code === "CATALOG_GROUP_NOT_FOUND" || code === "CATALOG_REQUEST_NOT_FOUND" || code === "CATALOG_HISTORY_NOT_FOUND") return catalogResponse(code, 404);
+  if (code === "CATALOG_BATCH_NOT_FOUND" || code === "CATALOG_GROUP_NOT_FOUND" || code === "CATALOG_REQUEST_NOT_FOUND" || code === "CATALOG_HISTORY_NOT_FOUND" || code === "CATALOG_FEEDBACK_NOT_FOUND" || code === "CATALOG_SENSE_NOT_FOUND") return catalogResponse(code, 404);
   if (code.endsWith("_FORBIDDEN") || code === "CATALOG_SELF_REVIEW_FORBIDDEN") return catalogResponse(code, 403);
   if (code === "RECENT_AUTH_REQUIRED") return catalogResponse(code, 401);
   if (code.includes("TOO_LARGE")) return catalogResponse(code, 413);
@@ -92,7 +92,7 @@ export function catalogRouteError(error: unknown): NextResponse {
   if (code.startsWith("CATALOG_CSV_") || code.endsWith("_INVALID") || code.endsWith("_REQUIRED") || code === "CATALOG_BATCH_HAS_ERRORS" || code === "CATALOG_BATCH_NEEDS_RESOLUTION" || code === "CATALOG_BATCH_EMPTY") {
     return catalogResponse(code, 422, error instanceof CatalogCsvError ? { message: error.message } : undefined);
   }
-  if (code === "IDEMPOTENCY_CONFLICT" || code === "CATALOG_SUBMITTED_PAYLOAD_IMMUTABLE" || code.includes("STALE") || code.includes("NOT_EDITABLE") || code.includes("NOT_SUBMITTABLE") || code.includes("NOT_REVIEWABLE") || code.includes("NOT_FINALIZABLE") || code.includes("NOT_CANCELLABLE") || code.includes("INCOMPLETE") || code.includes("ALREADY_CLAIMED") || code.includes("CLAIM_REQUIRED") || code === "CATALOG_BATCH_REVIEW_REQUIRED" || code === "CATALOG_EXPORT_SELECTION_PENDING") {
+  if (code === "IDEMPOTENCY_CONFLICT" || code === "CATALOG_SUBMITTED_PAYLOAD_IMMUTABLE" || code.includes("STALE") || code.includes("NOT_EDITABLE") || code.includes("NOT_SUBMITTABLE") || code.includes("NOT_REVIEWABLE") || code.includes("NOT_RETRYABLE") || code.includes("NOT_FINALIZABLE") || code.includes("NOT_CANCELLABLE") || code.includes("INCOMPLETE") || code.includes("ALREADY_CLAIMED") || code.includes("ALREADY_SUPERSEDED") || code.includes("CLAIM_REQUIRED") || code === "CATALOG_BATCH_REVIEW_REQUIRED" || code === "CATALOG_EXPORT_SELECTION_PENDING") {
     return catalogResponse(code, 409);
   }
   if (code === "CATALOG_NOT_READY") return catalogResponse(code, 503);

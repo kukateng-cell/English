@@ -8,6 +8,7 @@ import BrandLockup from "@/components/brand/BrandLockup";
 import AccountControls from "@/components/student/AccountControls";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import type { Role } from "@/lib/roles";
+import CatalogWorkBadge, { useCatalogWorkBadgeCount } from "@/components/catalog/CatalogWorkBadge";
 
 type WorkspaceItem = { href: string; label: string; icon: IconName };
 
@@ -41,6 +42,7 @@ export default function WorkspaceShell({
   const items = ITEMS[role];
   const homeHref = role === "admin" ? "/admin" : "/teacher";
   const roleTitle = role === "admin" ? "管理工作台" : "教师工作台";
+  const catalogWorkCount = useCatalogWorkBadgeCount();
   const isActivePath = (href: string) => {
     if (role === "teacher" && href === "/teacher/roster" && (pathname === "/teacher/roster" || pathname.startsWith("/teacher/roster/") || pathname === "/teacher/progress" || pathname.startsWith("/teacher/progress/"))) return true;
     return href === homeHref ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
@@ -54,7 +56,7 @@ export default function WorkspaceShell({
         <nav className="workspace-nav" aria-label={tc("工作区导航") as string}>
           {items.map((item) => {
             const active = isActivePath(item.href);
-            return <Link key={item.href} href={item.href} className={active ? "workspace-nav-link is-active" : "workspace-nav-link"} aria-current={active ? "page" : undefined}><Icon name={item.icon} size={19} /><span>{tc(item.label)}</span></Link>;
+            return <Link key={item.href} href={item.href} className={active ? "workspace-nav-link is-active" : "workspace-nav-link"} aria-current={active ? "page" : undefined}><Icon name={item.icon} size={19} /><span>{tc(item.label)}</span>{item.href.endsWith("/words") ? <CatalogWorkBadge count={catalogWorkCount} /> : null}</Link>;
           })}
         </nav>
         <AccountControls user={user} compact homeHref={homeHref} homeLabel={role === "admin" ? "回到管理台" : "回到教师台"} />
@@ -68,7 +70,7 @@ export default function WorkspaceShell({
         <nav className="workspace-mobile-nav" aria-label={tc("工作区导航") as string}>
           {items.map((item) => {
             const active = isActivePath(item.href);
-            return <Link key={item.href} href={item.href} className={active ? "workspace-mobile-nav-link is-active" : "workspace-mobile-nav-link"} aria-current={active ? "page" : undefined}>{tc(item.label)}</Link>;
+            return <Link key={item.href} href={item.href} className={active ? "workspace-mobile-nav-link is-active" : "workspace-mobile-nav-link"} aria-current={active ? "page" : undefined}>{tc(item.label)}{item.href.endsWith("/words") ? <CatalogWorkBadge count={catalogWorkCount} /> : null}</Link>;
           })}
         </nav>
         <main id="workspace-main" className="workspace-main" tabIndex={-1}>{children}</main>

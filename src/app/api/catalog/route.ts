@@ -177,6 +177,8 @@ export async function POST(req: Request) {
   if (body.sourceRowId !== undefined && typeof body.sourceRowId !== "string") return errorResponse("CATALOG_INPUT_INVALID", 422);
   const sourceRowId = typeof body.sourceRowId === "string" ? body.sourceRowId.trim() : "";
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  const supersedesRequestId = typeof body.supersedesRequestId === "string" ? body.supersedesRequestId.trim() : "";
+  if (body.supersedesRequestId !== undefined && typeof body.supersedesRequestId !== "string") return errorResponse("CATALOG_INPUT_INVALID", 422);
   if (body.immediate !== undefined && typeof body.immediate !== "boolean") return errorResponse("CATALOG_INPUT_INVALID", 422);
   const immediateRetire = body.immediate === true;
   if (!operationId || operationId.length > 120 || !CHANGE_KINDS.includes(kind as ChangeKind)) return errorResponse("CATALOG_INPUT_INVALID", 422);
@@ -208,6 +210,7 @@ export async function POST(req: Request) {
     expectedRevision,
     payload,
     reason,
+    supersedesRequestId,
     ...(immediateRetire ? { immediateRetire: true } : {}),
   });
   try {
@@ -216,6 +219,30 @@ export async function POST(req: Request) {
       if (existing) {
         if (existing.requestFingerprint !== requestFingerprint) throw new Error("IDEMPOTENCY_CONFLICT");
         return { replay: true, requestId: existing.id, status: existing.status, immediate: immediateRetire };
+      }
+      const retrySource = supersedesRequestId
+        ? await tx.catalogChangeRequest.findUnique({
+            where: { id: supersedesRequestId },
+            select: {
+              id: true,
+              proposerId: true,
+              kind: true,
+              status: true,
+              senseKey: true,
+              sourceImportRowId: true,
+              submissionProposalGroupId: true,
+              supersededBy: { select: { id: true } },
+            },
+          })
+        : null;
+      if (supersedesRequestId) {
+        if (!retrySource) throw new Error("CATALOG_REQUEST_NOT_FOUND");
+        if (retrySource.proposerId !== auth.userId || retrySource.submissionProposalGroupId) throw new Error("CATALOG_REQUEST_RETRY_FORBIDDEN");
+        if (retrySource.status !== "REJECTED") throw new Error("CATALOG_REQUEST_NOT_RETRYABLE");
+        if (retrySource.supersededBy) throw new Error("CATALOG_REQUEST_ALREADY_SUPERSEDED");
+        if (retrySource.kind !== kind || (retrySource.senseKey ?? "") !== senseKey || (retrySource.sourceImportRowId ?? "") !== sourceRowId) {
+          throw new Error("CATALOG_REQUEST_RETRY_MISMATCH");
+        }
       }
       if (immediateRetire) {
         await requireCatalogReviewerInTransaction(tx, auth.userId);
@@ -364,6 +391,7 @@ export async function POST(req: Request) {
           senseKey: resolvedSenseKey,
           senseId: targetSense?.id ?? null,
           sourceImportRowId: sourceRow?.id ?? null,
+          supersedesRequestId: retrySource?.id ?? null,
           proposerId: auth.userId,
           baseRevision,
           baseStatus: targetSense?.status ?? "DRAFT",
@@ -412,13 +440,35 @@ export async function POST(req: Request) {
     return NextResponse.json(result, { status: result.replay ? 200 : 201, headers: privateHeaders() });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (isRetryableTransactionConflict(error)) return errorResponse("CATALOG_REQUEST_STALE", 409);
+    if (
+      isRetryableTransactionConflict(error)
+      || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+    ) {
+      const existing = await prisma.catalogChangeRequest.findUnique({
+        where: { proposerId_operationId: { proposerId: auth.userId, operationId } },
+        select: { id: true, requestFingerprint: true, status: true },
+      });
+      if (existing) {
+        if (existing.requestFingerprint !== requestFingerprint) return errorResponse("IDEMPOTENCY_CONFLICT", 409);
+        return NextResponse.json({
+          replay: true,
+          requestId: existing.id,
+          status: existing.status,
+          immediate: immediateRetire,
+        }, { headers: privateHeaders() });
+      }
+      if (isRetryableTransactionConflict(error)) return errorResponse("CATALOG_REQUEST_STALE", 409);
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return errorResponse("CATALOG_REQUEST_STALE", 409);
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return errorResponse("CATALOG_IDENTITY_CONFLICT", 409);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return errorResponse(supersedesRequestId ? "CATALOG_REQUEST_ALREADY_SUPERSEDED" : "CATALOG_IDENTITY_CONFLICT", 409);
+    }
     if (message === "IDEMPOTENCY_CONFLICT") return errorResponse("IDEMPOTENCY_CONFLICT", 409);
     if (message === "CATALOG_REVISION_STALE") return errorResponse("CATALOG_REVISION_STALE", 409);
     if (message === "CATALOG_REVIEW_FORBIDDEN") return errorResponse(message, 403);
-    if (["CATALOG_CHANGE_PENDING", "CATALOG_ALREADY_EXISTS", "CATALOG_ALREADY_RETIRED", "CATALOG_NOT_RETIRED", "CATALOG_NOT_ACTIVE", "CATALOG_SOURCE_ROW_NOT_FOUND", "CATALOG_PENDING_SENSE_CONFLICT", "CATALOG_IDENTITY_MISMATCH"].includes(message)) return errorResponse(message, 409);
+    if (["CATALOG_CHANGE_PENDING", "CATALOG_ALREADY_EXISTS", "CATALOG_ALREADY_RETIRED", "CATALOG_NOT_RETIRED", "CATALOG_NOT_ACTIVE", "CATALOG_SOURCE_ROW_NOT_FOUND", "CATALOG_PENDING_SENSE_CONFLICT", "CATALOG_IDENTITY_MISMATCH", "CATALOG_REQUEST_NOT_RETRYABLE", "CATALOG_REQUEST_ALREADY_SUPERSEDED", "CATALOG_REQUEST_RETRY_MISMATCH"].includes(message)) return errorResponse(message, 409);
+    if (message === "CATALOG_REQUEST_RETRY_FORBIDDEN") return errorResponse(message, 403);
+    if (message === "CATALOG_REQUEST_NOT_FOUND") return errorResponse(message, 404);
     if (message.startsWith("CATALOG_PAYLOAD_REJECTED:")) {
       let errors: string[] = [];
       try { errors = JSON.parse(message.slice("CATALOG_PAYLOAD_REJECTED:".length)) as string[]; } catch { errors = ["payload rejected"]; }

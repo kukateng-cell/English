@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { Prisma, prisma } from "@/lib/prisma";
 import {
   CATALOG_GOVERNANCE_MAX_BYTES,
+  CATALOG_GOVERNANCE_HEADERS,
   CatalogCsvError,
+  catalogRowsToCsv,
   normalizeCatalogText,
   parseCatalogGovernanceCsv,
   safeCatalogDownloadName,
@@ -31,6 +33,7 @@ import {
   parseCatalogGovernancePayload,
   payloadFingerprint,
   payloadFromRevision,
+  payloadToSourceRow,
 } from "./governance";
 import { bumpCatalogMutationState, reviewCatalogChange } from "./change-application";
 import {
@@ -207,6 +210,7 @@ export async function createCatalogSubmissionPreview(input: {
   operationId: string;
   fileName: string;
   bytes: Uint8Array;
+  retrySourceBatchId?: string;
 }) {
   if (!isCanonicalUuid(input.operationId)) throw new Error("IDEMPOTENCY_KEY_INVALID");
   if (input.bytes.byteLength > CATALOG_GOVERNANCE_MAX_BYTES) throw new Error("CATALOG_CSV_TOO_LARGE");
@@ -216,12 +220,14 @@ export async function createCatalogSubmissionPreview(input: {
     operationId: input.operationId,
     fileName: input.fileName,
     fileHash,
+    retrySourceBatchId: input.retrySourceBatchId ?? null,
     versions: CATALOG_SUBMISSION_VERSIONS,
   }));
   const actor = catalogActorPseudonym(input.actorId);
   const expiry = submissionExpiry();
 
-  return prisma.$transaction(async (tx) => {
+  try {
+    return await prisma.$transaction(async (tx) => {
     const existing = await tx.catalogSubmissionBatch.findUnique({
       where: { proposerId_operationId: { proposerId: input.actorId, operationId: input.operationId } },
       select: { id: true, requestDigest: true },
@@ -229,6 +235,25 @@ export async function createCatalogSubmissionPreview(input: {
     if (existing) {
       if (existing.requestDigest !== requestDigest) throw new Error("IDEMPOTENCY_CONFLICT");
       return { replay: true, batch: submissionBatchDto(await readBatchForDto(tx, existing.id)) };
+    }
+    if (input.retrySourceBatchId) {
+      const retrySource = await tx.catalogSubmissionBatch.findUnique({
+        where: { id: input.retrySourceBatchId },
+        select: {
+          proposerId: true,
+          resolutionOwnerId: true,
+          status: true,
+          retriedBy: { select: { id: true } },
+        },
+      });
+      if (!retrySource) throw new Error("CATALOG_BATCH_NOT_FOUND");
+      if (retrySource.proposerId !== input.actorId && retrySource.resolutionOwnerId !== input.actorId) {
+        throw new Error("CATALOG_BATCH_FORBIDDEN");
+      }
+      if (retrySource.status !== "STALE" && retrySource.status !== "REJECTED") {
+        throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
+      }
+      if (retrySource.retriedBy) throw new Error("CATALOG_BATCH_ALREADY_SUPERSEDED");
     }
     const ready = await tx.catalogRevision.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
     if (!ready) throw new Error("CATALOG_NOT_READY");
@@ -273,6 +298,7 @@ export async function createCatalogSubmissionPreview(input: {
         status: preview.status,
         rowCount: rows.length,
         summary: json(preview.summary),
+        retryOfBatchId: input.retrySourceBatchId ?? null,
         ...expiry,
         actorPseudonym: actor.value,
         actorKeyVersion: actor.keyVersion,
@@ -354,12 +380,115 @@ export async function createCatalogSubmissionPreview(input: {
         submissionBatchId: batch.id,
         action: "BATCH_PREVIEWED",
         toStatus: preview.status,
-        metadata: json(preview.summary),
+        metadata: json({ ...preview.summary, ...(input.retrySourceBatchId ? { retrySourceBatchId: input.retrySourceBatchId } : {}) }),
       },
     });
     const created = await readBatchForDto(tx, batch.id);
     return { replay: false, batch: submissionBatchDto(created) };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
+  } catch (error) {
+    if (
+      isRetryableTransactionConflict(error)
+      || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+    ) {
+      const existing = await prisma.catalogSubmissionBatch.findUnique({
+        where: { proposerId_operationId: { proposerId: input.actorId, operationId: input.operationId } },
+        select: { id: true, requestDigest: true },
+      });
+      if (existing) {
+        if (existing.requestDigest !== requestDigest) throw new Error("IDEMPOTENCY_CONFLICT");
+        const replayBatch = await prisma.$transaction((tx) => readBatchForDto(tx, existing.id));
+        return { replay: true, batch: submissionBatchDto(replayBatch) };
+      }
+      if (input.retrySourceBatchId) {
+        const source = await prisma.catalogSubmissionBatch.findUnique({
+          where: { id: input.retrySourceBatchId },
+          select: { retriedBy: { select: { id: true } } },
+        });
+        if (source?.retriedBy) throw new Error("CATALOG_BATCH_ALREADY_SUPERSEDED");
+      }
+    }
+    throw error;
+  }
+}
+
+export async function createRetryCatalogSubmissionPreview(input: {
+  sourceBatchId: string;
+  actorId: string;
+  operationId: string;
+}) {
+  const source = await prisma.catalogSubmissionBatch.findUnique({
+    where: { id: input.sourceBatchId },
+    select: {
+      id: true,
+      proposerId: true,
+      resolutionOwnerId: true,
+      status: true,
+      fileName: true,
+      proposalGroups: {
+        orderBy: { groupNumber: "asc" },
+        select: {
+          groupNumber: true,
+          requestedAction: true,
+          targetCatalogKey: true,
+          targetSenseKey: true,
+          finalProposalPayload: true,
+          targetSense: {
+            select: {
+              status: true,
+              catalogEntry: { select: { catalogKey: true } },
+              approvedRevision: { select: revisionSelect },
+              revisions: { orderBy: { revision: "desc" }, take: 1, select: revisionSelect },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!source) throw new Error("CATALOG_BATCH_NOT_FOUND");
+  if (source.proposerId !== input.actorId && source.resolutionOwnerId !== input.actorId) {
+    throw new Error("CATALOG_BATCH_FORBIDDEN");
+  }
+  if (source.status !== "STALE" && source.status !== "REJECTED") {
+    throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
+  }
+  if (!source.proposalGroups.length) throw new Error("CATALOG_BATCH_EMPTY");
+
+  const rows: CatalogSourceRow[] = source.proposalGroups.map((group) => {
+    if (group.requestedAction !== "CREATE" && group.requestedAction !== "UPDATE") {
+      throw new Error("CATALOG_BATCH_RETRY_STALE");
+    }
+    const payload = parseCatalogGovernancePayload(group.finalProposalPayload);
+    const currentRevision = group.targetSense?.approvedRevision ?? group.targetSense?.revisions[0] ?? null;
+    if (group.requestedAction !== "CREATE" && !currentRevision) {
+      throw new Error("CATALOG_BATCH_RETRY_STALE");
+    }
+    const catalogKey = group.targetSense?.catalogEntry.catalogKey
+      ?? group.targetCatalogKey
+      ?? `retry-${source.id}`;
+    const senseKey = group.targetSenseKey ?? `retry-${source.id}-${group.groupNumber}`;
+    const row = {
+      ...payloadToSourceRow(payload, {
+        catalogKey,
+        senseKey,
+        sourceFile: `retry-${source.fileName}`,
+        sourceRow: group.groupNumber + 1,
+      }, currentRevision?.revision ?? 0),
+      requested_action: group.requestedAction,
+      catalog_status: group.targetSense?.status ?? "DRAFT",
+    };
+    return group.requestedAction === "CREATE"
+      ? { ...row, catalog_key: "", sense_key: "", record_revision: "", catalog_status: "" }
+      : row;
+  });
+  const csv = catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS);
+  return createCatalogSubmissionPreview({
+    actorId: input.actorId,
+    operationId: input.operationId,
+    fileName: `retry-${source.fileName}`.slice(0, 120),
+    bytes: new TextEncoder().encode(csv),
+    retrySourceBatchId: source.id,
+  });
 }
 
 const proposalGroupInclude = {
@@ -438,6 +567,7 @@ export function submissionBatchDto(batch: BatchForDto, visibility: SubmissionBat
     resolutionClaimed: Boolean(batch.resolutionOwnerId),
     reviewClaimed: Boolean(batch.reviewerId),
     supersedesBatchId: batch.supersedesBatchId,
+    retryOfBatchId: batch.retryOfBatchId,
     ...(reviewerView ? {
       operationId: batch.operationId,
       fileHash: batch.fileHash,

@@ -6,8 +6,10 @@ import { CATALOG_GOVERNANCE_HEADERS, catalogRowsToCsv, type CatalogSourceRow } f
 import { revisionContentDigest, type CatalogGovernancePayload } from "../src/lib/catalog/governance";
 import {
   claimCatalogSubmissionBatch,
+  cancelCatalogSubmissionBatch,
   createCorrectiveCatalogSubmissionPreview,
   createCatalogSubmissionPreview,
+  createRetryCatalogSubmissionPreview,
   finalizeCatalogSubmissionBatch,
   getCatalogSubmissionBatch,
   requestCatalogSubmissionResolution,
@@ -30,8 +32,10 @@ const catalogKey = `check_catalog_${suffix}`;
 const senseKey = `check_sense_${suffix}`;
 let batchId: string | null = null;
 let correctiveBatchId: string | null = null;
+let secondCorrectiveBatchId: string | null = null;
 let createBatchId: string | null = null;
 let resolutionBatchId: string | null = null;
+let retryBatchId: string | null = null;
 let duplicateBatchId: string | null = null;
 let draftBatchId: string | null = null;
 let claimRecoveryBatchId: string | null = null;
@@ -111,7 +115,7 @@ async function cleanupSenseFixture(cleanupSenseId: string, force = false) {
 
 async function cleanupStaleFixtures() {
   const staleBatches = await prisma.catalogSubmissionBatch.findMany({
-    where: { fileName: { in: ["catalog-governance-check.csv", "corrective-catalog-governance-check.csv"] } },
+    where: { fileName: { in: ["catalog-governance-check.csv", "corrective-catalog-governance-check.csv", "retry-catalog-governance-check.csv"] } },
     select: { id: true },
   });
   for (const stale of staleBatches) await cleanupBatchFixture(stale.id);
@@ -122,7 +126,7 @@ async function cleanupStaleFixtures() {
 }
 
 async function cleanup() {
-  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, correctiveBatchId, duplicateBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
+  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
     await cleanupBatchFixture(cleanupBatchId);
   }
   if (senseId) {
@@ -276,6 +280,14 @@ async function main() {
   if (corrective.batch.status !== "PREVIEW" || corrective.batch.supersedesBatchId !== batchId || corrective.batch.groups[0]?.requestedAction !== "UPDATE") throw new Error("corrective preview contract failed");
   const correctivePayload = corrective.batch.groups[0]?.finalProposalPayload as { definitionZh?: string } | undefined;
   if (correctivePayload?.definitionZh !== basePayload.definitionZh) throw new Error("corrective preview did not restore the previous payload");
+  await cancelCatalogSubmissionBatch({
+    batchId: corrective.batch.id,
+    actorId: reviewer.id,
+    expectedRevision: corrective.batch.revision,
+  });
+  const secondCorrective = await createCorrectiveCatalogSubmissionPreview({ sourceBatchId: batchId, actorId: reviewer.id, operationId: randomUUID() });
+  secondCorrectiveBatchId = secondCorrective.batch.id;
+  if (secondCorrective.batch.supersedesBatchId !== batchId) throw new Error("cancelled corrective preview permanently blocked a later corrective preview");
 
   const createPayload: CatalogGovernancePayload = { ...basePayload, term: `checkcreate${suffix}`, lemma: `checkcreate${suffix}`, definitionZh: "新增測試詞", acceptedAnswersZh: ["新增測試詞"], exampleEn: "This is a newly created catalog check word.", exampleZh: "這是一個新增詞庫檢查詞。" };
   const createPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(createPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
@@ -312,6 +324,33 @@ async function main() {
   const resolutionStale = await requestCatalogSubmissionResolution({ batchId: resolutionBatchId, groupId: resolutionClaimed.groups[0]!.id, actorId: reviewer.id, expectedBatchRevision: resolutionClaimed.revision, expectedGroupRevision: resolutionClaimed.groups[0]!.revision, reason: "needs content correction" });
   const resolutionStaleBatch = await getCatalogSubmissionBatch({ batchId: resolutionBatchId, actorId: reviewer.id, canReview: true });
   if (resolutionStale.batch.status !== "STALE" || resolutionStaleBatch.groups[0]!.resolution !== resolutionClaimed.groups[0]!.resolution) throw new Error("request-resolution did not preserve submitted payload and stale the batch");
+  const retryOperationId = randomUUID();
+  const retryResults = await Promise.all([
+    createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: retryOperationId }),
+    createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: retryOperationId }),
+  ]);
+  const retryPreview = retryResults[0]!;
+  if (retryResults.filter((result) => result.replay).length !== 1 || retryResults[0]!.batch.id !== retryResults[1]!.batch.id) {
+    throw new Error("concurrent retry idempotency did not replay the committed successor");
+  }
+  retryBatchId = retryPreview.batch.id;
+  if (retryPreview.batch.status !== "PREVIEW" || retryPreview.batch.retryOfBatchId !== resolutionBatchId || retryPreview.batch.groups.length !== resolutionStaleBatch.groups.length) {
+    throw new Error(`request-resolution retry preview did not preserve immutable lineage: ${JSON.stringify({ status: retryPreview.batch.status, retryOfBatchId: retryPreview.batch.retryOfBatchId, expectedBatchId: resolutionBatchId, groups: retryPreview.batch.groups.length, expectedGroups: resolutionStaleBatch.groups.length, rows: retryPreview.batch.rows })}`);
+  }
+  if ((retryPreview.batch.groups[0]?.finalProposalPayload as { definitionZh?: string } | undefined)?.definitionZh !== resolutionPayload.definitionZh) {
+    throw new Error("request-resolution retry preview did not preserve the proposed payload");
+  }
+  const staleSourceStillActionable = await prisma.catalogSubmissionBatch.count({
+    where: { id: resolutionBatchId, status: { in: ["STALE", "REJECTED"] }, retriedBy: null },
+  });
+  if (staleSourceStillActionable !== 0) throw new Error("retried source remained actionable after successor creation");
+  let duplicateRetryBlocked = false;
+  try {
+    await createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: randomUUID() });
+  } catch (error) {
+    duplicateRetryBlocked = error instanceof Error && error.message === "CATALOG_BATCH_ALREADY_SUPERSEDED";
+  }
+  if (!duplicateRetryBlocked) throw new Error("request-resolution source accepted more than one retry successor");
 
   const duplicateBase: CatalogGovernancePayload = { ...basePayload, term: `checkduplicate${suffix}`, lemma: `checkduplicate${suffix}`, definitionZh: "重複來源測試詞", acceptedAnswersZh: ["重複來源測試詞"], exampleEn: "This is source row two.", exampleZh: "這是來源第二行。" };
   const duplicateAlternative: CatalogGovernancePayload = { ...duplicateBase, exampleEn: "This is source row three.", exampleZh: "這是來源第三行。" };
@@ -502,7 +541,7 @@ async function main() {
     throw new Error("transfer/takeover race selected an unexpected reviewer");
   }
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryBlocked, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

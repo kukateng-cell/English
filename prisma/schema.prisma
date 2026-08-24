@@ -58,6 +58,8 @@ model User {
   catalogProposalGroupsDecided      CatalogSubmissionProposalGroup[]    @relation("CatalogProposalDecider")
   catalogProposalAuthors            CatalogSubmissionProposalAuthor[]   @relation("CatalogProposalAuthorActor")
   catalogSubmissionReceipts         CatalogSubmissionOperationReceipt[] @relation("CatalogSubmissionReceiptActor")
+  catalogFeedbackReported           CatalogFeedback[]                   @relation("CatalogFeedbackReporter")
+  catalogFeedbackResolved           CatalogFeedback[]                   @relation("CatalogFeedbackResolver")
   studyDays                         StudyDay[]
   achievements                      UserAchievement[]
   studentProfile                    StudentProfile?
@@ -135,6 +137,24 @@ enum CatalogChangeStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+enum CatalogFeedbackKind {
+  DEFINITION
+  LEVEL
+  PART_OF_SPEECH
+  PHONETIC
+  EXAMPLE
+  DISTRACTOR
+  INAPPROPRIATE_WORD
+  MISSING_WORD
+  OTHER
+}
+
+enum CatalogFeedbackStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
 }
 
 enum CatalogSubmissionStatus {
@@ -244,6 +264,7 @@ model WordSense {
   changeRequests           CatalogChangeRequest[]
   auditEvents              CatalogAuditEvent[]
   submissionProposalGroups CatalogSubmissionProposalGroup[]
+  feedback                 CatalogFeedback[]
 
   @@index([normalizedTerm])
   @@index([level, status])
@@ -385,6 +406,7 @@ model CatalogChangeRequest {
   sourceImportRowId            String?
   submissionProposalGroupId    String?                         @unique
   resultRevisionId             String?
+  supersedesRequestId          String?                         @unique
   proposerId                   String
   reviewerId                   String?
   baseRevision                 Int?
@@ -415,6 +437,8 @@ model CatalogChangeRequest {
   sourceImportRow              CatalogImportRow?               @relation(fields: [sourceImportRowId], references: [id], onDelete: Restrict)
   submissionProposalGroup      CatalogSubmissionProposalGroup? @relation(fields: [submissionProposalGroupId], references: [id], onDelete: Restrict)
   resultRevision               WordSenseRevision?              @relation("CatalogChangeResultRevision", fields: [resultRevisionId], references: [id], onDelete: SetNull)
+  supersedesRequest            CatalogChangeRequest?           @relation("CatalogChangeRequestSupersession", fields: [supersedesRequestId], references: [id], onDelete: SetNull)
+  supersededBy                 CatalogChangeRequest?           @relation("CatalogChangeRequestSupersession")
   proposer                     User                            @relation("CatalogChangeRequestProposer", fields: [proposerId], references: [id], onDelete: Restrict)
   reviewer                     User?                           @relation("CatalogChangeRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   auditEvents                  CatalogAuditEvent[]
@@ -432,6 +456,38 @@ model CatalogChangeRequest {
   @@index([afterNormalizedTermSnapshot, createdAt, id])
   @@index([proposerId, createdAt, id])
   @@index([reviewerId, createdAt, id])
+}
+
+// A low-friction teacher report. Feedback is deliberately non-executable:
+// resolving it never changes a WordSense or its approved revision.
+model CatalogFeedback {
+  id             String                @id @default(cuid())
+  operationId    String
+  requestFingerprint String
+  reporterId     String
+  resolverId     String?
+  senseId        String?
+  senseKey       String?
+  termSnapshot   String?
+  baseRevision   Int?
+  kind           CatalogFeedbackKind
+  status         CatalogFeedbackStatus @default(OPEN)
+  message        String
+  suggestedValue String?
+  resolutionNote String?
+  revision       Int                   @default(0)
+  resolvedAt     DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  reporter       User                  @relation("CatalogFeedbackReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  resolver       User?                 @relation("CatalogFeedbackResolver", fields: [resolverId], references: [id], onDelete: SetNull)
+  sense          WordSense?            @relation(fields: [senseId], references: [id], onDelete: SetNull)
+
+  @@unique([reporterId, operationId])
+  @@index([status, createdAt, id])
+  @@index([reporterId, status, createdAt, id])
+  @@index([senseId, status, createdAt, id])
+  @@index([resolverId, resolvedAt, id])
 }
 
 model CatalogAuditEvent {
@@ -487,6 +543,7 @@ model CatalogSubmissionBatch {
   lastActivityAt         DateTime                            @default(now())
   contentPurgedAt        DateTime?
   supersedesBatchId      String?
+  retryOfBatchId         String?                             @unique
   actorPseudonym         String?
   actorKeyVersion        String?
   createdAt              DateTime                            @default(now())
@@ -498,6 +555,8 @@ model CatalogSubmissionBatch {
   readyCatalogRevision   CatalogRevision?                    @relation(fields: [readyCatalogRevisionId], references: [id], onDelete: SetNull)
   supersedesBatch        CatalogSubmissionBatch?             @relation("CatalogSubmissionSupersession", fields: [supersedesBatchId], references: [id], onDelete: SetNull)
   supersededBy           CatalogSubmissionBatch[]            @relation("CatalogSubmissionSupersession")
+  retryOfBatch           CatalogSubmissionBatch?             @relation("CatalogSubmissionRetry", fields: [retryOfBatchId], references: [id], onDelete: SetNull)
+  retriedBy              CatalogSubmissionBatch?             @relation("CatalogSubmissionRetry")
   rows                   CatalogSubmissionRow[]
   proposalGroups         CatalogSubmissionProposalGroup[]
   receipts               CatalogSubmissionOperationReceipt[]
