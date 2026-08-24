@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import { rosterFetch } from "@/lib/roster-client";
 import { responseErrorMessage } from "@/lib/api-error";
+import { parseCatalogExportKeys } from "@/lib/catalog/workspace-selection";
 import RecentAuthDialog from "@/components/auth/RecentAuthDialog";
 import type { CatalogGovernancePayload } from "@/lib/catalog/governance";
 import {
@@ -100,6 +101,7 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
   const [selected, setSelected] = useState<Batch | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [exportKeys, setExportKeys] = useState("");
+  const [exportKeysError, setExportKeysError] = useState<string | null>(null);
   const [resolution, setResolution] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [editedPayloads, setEditedPayloads] = useState<Record<string, Payload>>({});
@@ -227,15 +229,23 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
   }
 
   async function exportSelected() {
-    const senseKeys = exportKeys.split(/[\n,]+/u).map((value) => value.trim()).filter(Boolean);
-    if (!senseKeys.length) return;
-    setBusy(true); setError(null);
+    const parsed = parseCatalogExportKeys(exportKeys);
+    if (!parsed.ok) {
+      setExportKeysError(tc(parsed.issue === "TOO_MANY"
+        ? "每次最多匯出 200 個 sense key。"
+        : parsed.issue === "DUPLICATE"
+          ? "sense key 不可重複；請移除重複項目。"
+          : "請先輸入至少一個 sense key。"));
+      return;
+    }
+    const senseKeys = parsed.senseKeys;
+    setBusy(true); setExportKeysError(null);
     try {
       const response = await rosterFetch("/api/catalog/submissions/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senseKeys }) });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const url = URL.createObjectURL(await response.blob());
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = "catalog-update.csv"; anchor.click(); URL.revokeObjectURL(url);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : tc("匯出失敗")); }
+    } catch (cause) { setExportKeysError(cause instanceof Error ? cause.message : tc("匯出失敗")); }
     finally { setBusy(false); }
   }
 
@@ -367,7 +377,8 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <h2 className="font-bold text-[var(--text)]">{tc("匯出現有詞條作 UPDATE")}</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">{tc("輸入最多 200 個 sense key，每行一個；系統會連同 revision 及狀態匯出。")}</p>
-        <textarea className="mt-3 min-h-28 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--text)]" value={exportKeys} onChange={(event) => setExportKeys(event.target.value)} placeholder="sense_…" />
+        <label className="mt-3 grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Sense keys（每行一個）")}<textarea className="min-h-28 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm font-normal text-[var(--text)]" value={exportKeys} onChange={(event) => { setExportKeys(event.target.value); setExportKeysError(null); }} placeholder="sense_…" aria-invalid={Boolean(exportKeysError)} aria-describedby={exportKeysError ? "catalog-export-keys-error" : undefined} /></label>
+        {exportKeysError ? <p id="catalog-export-keys-error" role="alert" className="mt-2 text-sm text-[var(--danger)]">{exportKeysError}</p> : null}
         <button type="button" className="ui-button ui-button-secondary mt-3" disabled={busy || !exportKeys.trim()} onClick={() => void exportSelected()}>{tc("匯出 UPDATE CSV")}</button>
       </div>
     </section>

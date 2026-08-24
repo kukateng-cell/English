@@ -5,6 +5,7 @@ import { CATALOG_GOVERNANCE_HEADERS, catalogRowsToCsv } from "@/lib/catalog/csv"
 import { payloadFromRevision, payloadToSourceRow } from "@/lib/catalog/governance";
 import { catalogBulkSubmissionEnabled } from "@/lib/catalog/features";
 import { catalogRouteError, catalogResponse, CATALOG_PRIVATE_HEADERS, parseJsonObject, requireCatalogActor } from "@/lib/catalog/api";
+import { allCatalogExportSensesHaveRevision, parseCatalogExportKeyArray } from "@/lib/catalog/workspace-selection";
 
 const revisionSelect = {
   revision: true, term: true, lemma: true, pos: true, level: true, category: true,
@@ -21,13 +22,16 @@ export async function POST(req: Request) {
   if (!catalogBulkSubmissionEnabled()) return NextResponse.json({ code: "CATALOG_BULK_DISABLED" }, { status: 404, headers: CATALOG_PRIVATE_HEADERS });
   try {
     const body = await parseJsonObject(req, 32 * 1024);
-    const senseKeys = Array.isArray(body.senseKeys) ? body.senseKeys.filter((value): value is string => typeof value === "string" && value.length > 0) : [];
-    if (!senseKeys.length || senseKeys.length > 200 || new Set(senseKeys).size !== senseKeys.length) return catalogResponse("CATALOG_EXPORT_SELECTION_INVALID", 422);
+    const senseKeys = parseCatalogExportKeyArray(body.senseKeys);
+    if (!senseKeys) return catalogResponse("CATALOG_EXPORT_SELECTION_INVALID", 422);
     const senses = await prisma.wordSense.findMany({
       where: { senseKey: { in: senseKeys } },
       include: { catalogEntry: { select: { catalogKey: true } }, approvedRevision: { select: revisionSelect }, revisions: { orderBy: { revision: "desc" }, take: 1, select: revisionSelect } },
     });
     if (senses.length !== senseKeys.length) return catalogResponse("CATALOG_EXPORT_SELECTION_STALE", 409);
+    if (!allCatalogExportSensesHaveRevision(senses)) {
+      return catalogResponse("CATALOG_EXPORT_SELECTION_STALE", 409);
+    }
     const pending = await prisma.catalogChangeRequest.count({
       where: { status: "PENDING", senseId: { in: senses.map((sense) => sense.id) } },
     });
@@ -36,7 +40,7 @@ export async function POST(req: Request) {
     const csvRows = senseKeys.map((senseKey) => {
       const sense = byKey.get(senseKey)!;
       const revision = sense.approvedRevision ?? sense.revisions[0];
-      if (!revision) throw new Error("CATALOG_APPROVED_REVISION_MISSING");
+      if (!revision) throw new Error("CATALOG_EXPORT_SELECTION_STALE");
       const row = payloadToSourceRow(payloadFromRevision(revision), {
         catalogKey: sense.catalogEntry.catalogKey,
         senseKey: sense.senseKey,

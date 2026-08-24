@@ -578,3 +578,13 @@ npm run test:e2e:card-motion
 - [x] 兩位獨立對抗 reviewer 首輪／複審提出嘅 batch child snapshot、DB regression、foreground/background競態、debounce焦點、pending response amplification、nested test收集、200項選取上限及 1,001-row signature cutoff均已跟進；最終合併前 blocker／high／medium問題為 0。
 
 本輪最終驗證：293 個 unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、`check:catalog-workspace-pagination`、`check:catalog-governance`及上述真實瀏覽器驗收。所有 1,002-row boundary fixtures及臨時 UAT帳戶均已清理；正式 baseline保持 ACTIVE 5,469／DRAFT 107／RETIRED 0／PENDING 0、catalog mutation revision 16。不包括 staging、production deploy或 destructive cleanup。
+
+### 2026-08-24：代表性老師端完整驗收及 200-row 匯出修正（已完成）
+
+- [x] 以兩個隔離瀏覽器 session 分別登入一般老師及具詞庫審核權限老師，完成 standalone CREATE → 獨立批准 → ACTIVE，以及 UPDATE CSV 匯出 → preview → submit → claim → review → atomic finalize → `COMMITTED`；一般老師重新載入後可見終局狀態；
+- [x] 修改歷史同時顯示及搜尋 standalone request、batch group、before／after、理由及審核備註；一行無效 CSV 正確標示第 2 行 J 欄 `level`，錯誤報告可下載，未提交 preview 可取消；
+- [x] 實際跨兩頁選取 200 條時發現 import-only DRAFT row 雖有預留 sense key、但未有 governed `WordSense`／revision，畫面仍錯誤容許加入 UPDATE selection，令 endpoint 回 `CATALOG_EXPORT_SELECTION_STALE`；UI 現只容許已有 governed sense 嘅 row 進入 UPDATE 匯出，並對 import-only 草稿顯示可讀提示，引導老師先用「查看／修改」建立詞義版本；
+- [x] regression helper／unit test固定以上 eligibility；以 200 條 ACTIVE row 重跑後下載成功，正式 parser確認 200 行、200 個不重複 sense key、全部 `UPDATE`，本地 route log為 200、約 118 ms；
+- [x] 320／768／1,440 px viewport 均無水平溢出，另完成 320 px 實際視覺檢查；今次係代表性 browser UAT，唔取代完整 screen-reader／原生裝置矩陣；
+- [x] 所有 UAT fixture已按精確 ID 清理：兩個帳戶、兩個 submission batch、一個 sense／projection／revisions及相關 request／history／audit／receipt；mutation revision只在仍為18時還原至16。`check:catalog-governance`再次確認 ACTIVE 5,469／DRAFT 107／RETIRED 0及所有治理 invariant通過，另以精確 fixture cleanup 核對確認 PENDING 0。
+- [x] 兩路最終對抗審核跟進咗 import-only 提示、無 key row 錯誤操作入口、手動 key 輸入 accessibility／錯誤恢復、malformed array 部分接受、1／200／201／duplicate 邊界及 missing-revision fail-closed；最終兩位 reviewer 均為 `APPROVE`，Blocker／High／Medium 0。最終本機驗證包括 302 個 unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`及治理 checker。

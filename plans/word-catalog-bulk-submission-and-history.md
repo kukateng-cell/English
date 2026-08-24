@@ -613,8 +613,8 @@ npm run check:catalog-governance
 
 - history backfill及preview cleanup均提供獨立script；cleanup預設dry-run，production scheduler仍未配置；
 - local feature gates預設開啟方便驗證；production必須明確開啟history及bulk，而且production config禁止只開bulk不開history；
-- 詞庫總覽client只render首100行並可逐次再顯示100行，避免5,576張卡同時進DOM；整個current catalog仍會載入client memory，server pagination留作後續性能改善；
-- 未執行5,000+ history專用performance fixture、200-row Vercel p95／lock-wait量度、代表性老師UAT、完整screen-reader／原生裝置矩陣、production migration／deploy及觀察。
+- 詞庫總覽已改為 server-side filtered signed-cursor pagination，每次最多讀取及 render 100 行；搜尋／狀態／程度／方向由 PostgreSQL 執行，client唔再先載入完整 current catalog；
+- 5,000+ history及200-row local performance fixture、代表性兩帳戶老師UAT已完成；仍未執行200-row Vercel p95／lock-wait量度、完整screen-reader／原生裝置矩陣、production migration／deploy及觀察。
 
 ## 17. 計劃審核紀錄（2026-08-22）
 
@@ -687,3 +687,11 @@ npm run check:catalog-governance
 - preview仍按已批准產品contract回傳完整200 rows／groups，約779–789 KiB；今次改善來自移除數百次串行SQL round trips，唔係刪減老師需要審閱嘅內容；
 - `npm test`通過279個測試；`npm run lint`零警告、`npx tsc --noEmit`、`npm run build`（80 routes）、`check:catalog-submission`及`check:catalog-governance`全部通過；
 - 本地checker仍會在100-way並發路徑顯示`pg` 9前置deprecation warning，但本輪0 failures；managed PostgreSQL／Vercel、production-like Upstash及multi-instance HTTP仍未測試，唔以本機結果冒充production evidence。
+
+## 21. 代表性老師端批量／歷史驗收（2026-08-24，已完成）
+
+- 一般老師同獨立 reviewer 以兩個隔離登入 session 完成 standalone CREATE approval，以及1-row UPDATE batch嘅 preview、submit、claim、review、atomic finalize及 owner終局重讀；批次正確進入`COMMITTED`；
+- history可按內容搜尋並同時還原 standalone及batch timeline；無效level fixture正確輸出第2行J欄錯誤CSV，取消preview不會修改正式詞庫；
+- 首次實際選取200行揭示UI把只有baseline sense key、尚未建立`WordSense`／revision嘅import-only DRAFT row錯當成可匯出UPDATE target，導致409 stale；畫面現以共享純函數排除呢類row，並有eligibility、輸入邊界及server fail-closed regression；
+- 修正後跨兩個100-row page選取200個ACTIVE sense，下載成功；正式CSV parser確認200行、200個不重複sense key、全部為UPDATE；320／768／1,440 px無水平溢出；
+- fixture及瀏覽器輸出已清理，治理baseline恢復ACTIVE 5,469／DRAFT 107／mutation revision 16。完整screen-reader／原生裝置、managed PostgreSQL／Vercel及production rollout仍屬deferred。
