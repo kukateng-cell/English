@@ -14,6 +14,7 @@ import {
   resolveCatalogSubmissionGroup,
   reviewCatalogSubmissionGroup,
   submitCatalogSubmissionBatch,
+  transferCatalogSubmissionClaim,
 } from "../src/lib/catalog/submission-server";
 
 dotenv.config({ path: ".env.local", override: true });
@@ -463,7 +464,45 @@ async function main() {
     throw new Error("conflicted proposal author takeover audit metadata is missing");
   }
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  const transferRaceBase = await prisma.catalogSubmissionBatch.update({
+    where: { id: authorClaimRecoveryBatchId },
+    data: { reviewerId: reviewer.id, status: "REVIEWING", revision: { increment: 1 } },
+    select: { revision: true },
+  });
+  const transferTakeoverRace = await Promise.allSettled([
+    transferCatalogSubmissionClaim({
+      batchId: authorClaimRecoveryBatchId,
+      actorId: reviewer.id,
+      nextReviewerId: unclaimedReviewer.id,
+      expectedRevision: transferRaceBase.revision,
+    }),
+    claimCatalogSubmissionBatch({
+      batchId: authorClaimRecoveryBatchId,
+      actorId: unclaimedReviewer.id,
+      expectedRevision: transferRaceBase.revision,
+      release: false,
+    }),
+  ]);
+  const transferTakeoverSuccesses = transferTakeoverRace.filter((result) => result.status === "fulfilled");
+  const transferTakeoverErrors = transferTakeoverRace.flatMap((result) => result.status === "rejected"
+    ? [result.reason instanceof Error ? result.reason.message : String(result.reason)]
+    : []);
+  if (
+    transferTakeoverSuccesses.length !== 1
+    || transferTakeoverErrors.length !== 1
+    || transferTakeoverErrors[0] !== "CATALOG_BATCH_STALE"
+  ) {
+    throw new Error(`transfer/takeover race did not converge through revision CAS: ${JSON.stringify(transferTakeoverErrors)}`);
+  }
+  const transferRaceWinner = await prisma.catalogSubmissionBatch.findUniqueOrThrow({
+    where: { id: authorClaimRecoveryBatchId },
+    select: { reviewerId: true },
+  });
+  if (transferRaceWinner.reviewerId !== unclaimedReviewer.id) {
+    throw new Error("transfer/takeover race selected an unexpected reviewer");
+  }
+
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

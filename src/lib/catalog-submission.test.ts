@@ -138,7 +138,22 @@ test("governance CSV accepts the clean 34-field teacher format and defaults omit
   }
 });
 
-test("governance CSV rejects unknown or missing clean-format headers", () => {
+test("governance CSV rejects the same 34 headers when two template columns are moved", () => {
+  const row = source("CREATE");
+  const reordered = [...CATALOG_GOVERNANCE_HEADERS];
+  [reordered[6], reordered[7]] = [reordered[7]!, reordered[6]!];
+  assert.throws(
+    () => parseCatalogGovernanceCsv(
+      new TextEncoder().encode(catalogRowsToCsv([row], reordered)),
+      "reordered.csv",
+    ),
+    (error: unknown) => error instanceof CatalogCsvError
+      && error.code === "CATALOG_CSV_HEADER_INVALID"
+      && error.message.includes("names and order"),
+  );
+});
+
+test("governance CSV rejects unknown, missing or extra clean-format headers", () => {
   const row = source("CREATE");
   const missing = CATALOG_GOVERNANCE_HEADERS.filter((header) => header !== "definition_zh");
   assert.throws(
@@ -151,11 +166,16 @@ test("governance CSV rejects unknown or missing clean-format headers", () => {
     () => parseCatalogGovernanceCsv(new TextEncoder().encode(csvWithUnknown), "unknown.csv"),
     (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_HEADER_INVALID",
   );
+  const extra = [...CATALOG_GOVERNANCE_HEADERS, CATALOG_HEADERS[13]!];
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(catalogRowsToCsv([row], extra)), "extra.csv"),
+    (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_HEADER_INVALID",
+  );
 });
 
 test("governance CSV rejects duplicate headers, unsafe formulas and unclosed quotes", () => {
   const row = source("CREATE");
-  const duplicate = [...CATALOG_HEADERS];
+  const duplicate = [...CATALOG_GOVERNANCE_HEADERS];
   duplicate[1] = duplicate[0]!;
   assert.throws(() => parseCatalogGovernanceCsv(new TextEncoder().encode(`${duplicate.join(",")}\n`), "duplicate.csv"), (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_HEADER_DUPLICATE");
   const normal = new TextDecoder().decode(bytes([row]));
@@ -345,6 +365,10 @@ test("bulk preview dependency digests include deduplicated sibling and pending c
 });
 
 test("error report maps both distractor directions to exact CSV column ranges", () => {
+  assert.equal(CATALOG_GOVERNANCE_HEADERS.indexOf("distractor_zh_1") + 1, 21);
+  assert.equal(CATALOG_GOVERNANCE_HEADERS.indexOf("distractor_zh_6") + 1, 26);
+  assert.equal(CATALOG_GOVERNANCE_HEADERS.indexOf("distractor_en_1") + 1, 28);
+  assert.equal(CATALOG_GOVERNANCE_HEADERS.indexOf("distractor_en_6") + 1, 33);
   assert.deepEqual(describeCatalogBatchError("en-zh requires 5 or 6 distractors"), {
     field: "distractor_zh_1…distractor_zh_6",
     excelColumn: "U:Z",

@@ -32,11 +32,20 @@ export async function requireCatalogReviewerInTransaction(
   }
 }
 
-export async function catalogReviewerHasAuthorityInTransaction(
+export async function lockCatalogReviewUsers(
+  tx: Prisma.TransactionClient,
+  userIds: ReadonlyArray<string | null | undefined>,
+): Promise<void> {
+  const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))].sort();
+  for (const id of ids) {
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${id} FOR UPDATE`;
+  }
+}
+
+export async function catalogReviewerHasAuthorityAfterLock(
   tx: Prisma.TransactionClient,
   userId: string,
 ): Promise<boolean> {
-  await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
   const actor = await tx.user.findUnique({
     where: { id: userId },
     select: {
@@ -48,4 +57,12 @@ export async function catalogReviewerHasAuthorityInTransaction(
   if (!actor || actor.status !== "ACTIVE") return false;
   return actor.role === ROLES.ADMIN
     || (actor.role === ROLES.TEACHER && actor.teacherProfile?.canManageWordCatalog === true);
+}
+
+export async function catalogReviewerHasAuthorityInTransaction(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<boolean> {
+  await lockCatalogReviewUsers(tx, [userId]);
+  return catalogReviewerHasAuthorityAfterLock(tx, userId);
 }

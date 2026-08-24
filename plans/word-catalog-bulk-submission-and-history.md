@@ -63,7 +63,7 @@
 
 ### 5.1 CSV 支援範圍
 
-- 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；老師 template／export／upload 固定使用 34 個精確 `word-catalog-v1` governance 欄名，每個欄名恰好一次、可換序，未知、重複或完整39欄bootstrap檔一律拒絕；完整39欄只由受控bootstrap／migration工具讀取，唔進入普通老師endpoint；
+- 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；老師 template／export／upload 固定使用 34 個精確 `word-catalog-v1` governance 欄名及模板原有次序，每個欄名恰好一次，換序、未知、重複或完整39欄bootstrap檔一律拒絕；完整39欄只由受控bootstrap／migration工具讀取，唔進入普通老師endpoint；
 - launch 上限為 4 MiB、200 個 data rows；4 MiB 低於 Vercel Functions 4.5 MB request ceiling；0 行、超限、重複 header、未知欄、broken quoting、公式／CSV injection 或非支援 schema 一律拒絕；
 - `CREATE`：`catalog_key`、`sense_key`、`record_revision`、`catalog_status` 必須留空；
 - `UPDATE`：必須由系統匯出，保留 `catalog_key`、`sense_key`、`record_revision` 及只讀 `catalog_status`；lemma 不可越過既有穩定 headword boundary；
@@ -415,7 +415,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 
 ### Phase 1 — Pure parser、diff及 conflict engine
 
-- [x] 將 CSV parser 分成共用 parse／normalize及 mode-aware action validation，按header名稱讀取且保持 seed tests不變；
+- [x] 將 CSV parser 分成共用 parse／normalize及 mode-aware action validation；bootstrap及老師governance各自要求對應固定header次序，並保持 seed tests不變；
 - [x] 加入streaming byte／row cap、fatal UTF-8、NUL／control、embedded BOM、field-aware formula、safe filename、duplicate header及 strict quoting checks；
 - [x] 實作 row／file／database dispositions、headword conflict bundles及 explicit resolution validation；
 - [x] 實作 canonical request digest、row digest、before／after diff及 set-aware array diff；
@@ -485,7 +485,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 
 | 範圍 | 必須證明 |
 |---|---|
-| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、精確34欄view每欄一次兼可換序、普通endpoint拒絕完整39欄、malformed quoting、physical source line、空檔、oversized／偽Content-Length、4 MiB、200 rows、field-aware formula、safe error CSV |
+| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、精確34欄view每欄一次兼固定模板次序、普通endpoint拒絕換序／完整39欄、malformed quoting、physical source line、空檔、oversized／偽Content-Length、4 MiB、200 rows、field-aware formula、safe error CSV |
 | Action contract | CREATE keys空白；UPDATE keys／revision完整；mixed合法；RETIRE／REACTIVATE拒絕；缺行零副作用 |
 | Content | taxonomy、POS、level、prompt-empty、accepted answers、例句pair、5–6 distractors、pool diversity、sibling collision |
 | Preview | 無 canonical write、disposition總數對數、database diff、duplicate bundle、7日activity／30日absolute expiry、owner isolation、pagination |
@@ -744,3 +744,34 @@ npm run check:catalog-governance
 - 複審再確認mutating E2E／DB checker曾分別使用runtime及migration URL；三者現一律使用網站實際`DATABASE_URL`、強制持久non-production environment marker，並停止回撥monotonic revision。其後Low項亦補上精確quote opening line、visible definition assertion及兩個reviewer真正同時競爭失效claim；
 - 本輪最終通過309個unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、production config regression、`check:catalog-governance`、`check:catalog-immediate-retire`、`check:catalog-submission`及完整catalog workspace Playwright lifecycle；
 - browser／DB fixture已按精確ID清理；`CatalogMutationState.revision`保持monotonic，唔再為測試回撥。Staging、managed Vercel實際執行、production migration／deploy及destructive cleanup仍未執行，需另行授權。
+
+## 24. Reviewer claim、feature flag及CSV次序加固（2026-08-24，已完成）
+
+固定基線 `a7973c8` 的後續審核指出：claim／transfer 對同一批次鎖定多名 reviewer 時可能按相反 User 次序等待；UI只隱藏工作區 tab，未同步隱藏詞庫匯出、歷史及 corrective preview入口；governance parser容許34欄換序，但錯誤報告沿用標準模板Excel欄號。本輪修正上述三項，不改schema、migration、審批人數、學生runtime或production狀態。
+
+### 交易及介面決策
+
+- reviewer User lock 必須去重並按ID排序；但不採用審核建議的「batch先於User」次序，因為既有finalize／submit全域次序係User／recent-auth／mutation state先於batch。claim／transfer會先作無鎖batch快照以收集actor／current owner／next reviewer，按固定次序鎖User，再鎖batch並authoritative reread及檢查revision，避免修正局部競態後引入跨finalize新死鎖；
+- authority helper拆成「排序鎖User」及「已鎖後檢查authority」；claim／transfer同一transaction內不得重複取得同一User `FOR UPDATE`；
+- `bulkEnabled`／`historyEnabled`由頂層傳入總覽／歷史子元件；flag關閉時相應tab、CSV匯出、逐詞歷史及corrective preview入口一律隱藏，現時tab失效即返回完整詞庫；server route仍維持既有fail-closed gate；
+- 普通老師governance CSV固定34欄名稱及次序，換序、缺欄、多欄、重複欄全部拒絕；完整39欄仍只供受控bootstrap parser。固定次序令錯誤報告Excel欄號同老師模板一致。
+
+### Checklist
+
+- [x] 新增排序User lock及after-lock authority helpers，claim／transfer採同一全域相容鎖次序；
+- [x] 補實際PostgreSQL transfer A→B 對 B takeover並發回歸，證明一個成功、另一個`CATALOG_BATCH_STALE`且沒有deadlock；
+- [x] 將feature flags傳入總覽／歷史元件，完整隱藏三類入口並處理現時tab失效；
+- [x] 補`bulk=0/history=0`、`bulk=0/history=1`、`bulk=1/history=1`三種browser UI回歸；
+- [x] governance CSV parser固定34欄次序，更新介面說明及標準／換序／缺多重複欄測試；
+- [x] 驗證錯誤報告Excel欄號仍對應固定模板實際位置；
+- [x] 執行unit、lint、typecheck、build、catalog submission DB checker、catalog workspace Playwright及`git diff --check`；
+- [x] 完成程式／測試差異審核，記錄未執行項目及已知限制，然後恢復計劃狀態為已完成。
+
+### 實際驗證及自審跟進
+
+- 311個unit tests、zero-warning lint、TypeScript及80-route production build全部通過；
+- `check:catalog-submission`以真實本機PostgreSQL完成，`transferTakeoverRace=true`，並保留既有submission／corrective／stale invariants；
+- catalog workspace Playwright 4/4通過，包括三種feature-flag矩陣及原有一人審批、草稿私隱、CSV round-trip完整流程；
+- 自審發現catalog list同access polling可能以不同完成次序覆蓋flags；現改為只由專用access endpoint提供頂層reviewer／feature狀態，並以generation guard忽略舊access回應。catalog list只管理自己嘅queue狀態，唔再覆蓋頂層flags；bulk由開啟轉為關閉時亦會重置總覽選取狀態；
+- `git diff --check`通過，文件內已移除「34欄可以換序」的舊contract。既有本機`pg`會提示同一client並發query將於pg 9移除；目前不影響檢查結果，升級pg前應再整理checker連線使用方式；
+- 本輪沒有schema／migration改動，亦沒有執行staging、managed Vercel或production deploy；相關發布工作仍須另行授權及驗收。

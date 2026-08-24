@@ -369,7 +369,7 @@ function dangerousFormula(value: string): boolean {
   return /^-\d/u.test(trimmed);
 }
 
-/** Strict, header-name based parser for teacher governance uploads. */
+/** Strict, fixed-template parser for teacher governance uploads. */
 export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string): CatalogSourceRow[] {
   const records = strictCsvRecords(governanceText(bytes, sourceFile), sourceFile);
   const header = records[0]?.values.map((value) => clean(value));
@@ -377,13 +377,11 @@ export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string)
   if (new Set(header).size !== header.length) {
     throw new CatalogCsvError("CATALOG_CSV_HEADER_DUPLICATE", `${sourceFile}: duplicate header`);
   }
-  const allowed = new Set<string>(CATALOG_GOVERNANCE_HEADERS);
   if (
     header.length !== CATALOG_GOVERNANCE_HEADERS.length
-    || header.some((value) => !allowed.has(value))
-    || CATALOG_GOVERNANCE_HEADERS.some((value) => !header.includes(value))
+    || header.some((value, index) => value !== CATALOG_GOVERNANCE_HEADERS[index])
   ) {
-    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: header names must match the 34-field teacher word-catalog-v1 format`);
+    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: header names and order must match the 34-field teacher template`);
   }
   const rows = records.slice(1).flatMap(({ values, sourceLine }) => {
     if (values.length === 1 && clean(values[0]) === "") return [];

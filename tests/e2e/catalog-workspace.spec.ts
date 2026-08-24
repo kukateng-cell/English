@@ -111,6 +111,133 @@ async function cleanupFixture(input: {
   }
 }
 
+async function installCatalogFeatureAccessMock(
+  page: Page,
+  initial: { bulkEnabled: boolean; historyEnabled: boolean },
+) {
+  let flags = initial;
+  await page.route("**/api/catalog/access", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        canReview: true,
+        actorUserId: "catalog-feature-reviewer",
+        ...flags,
+      }),
+    });
+  });
+  return async (next: { bulkEnabled: boolean; historyEnabled: boolean }) => {
+    flags = next;
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  };
+}
+
+async function installCommittedHistoryMock(page: Page) {
+  const occurredAt = "2026-08-24T04:00:00.000Z";
+  await page.route("**/api/catalog/history?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          feedEntryId: "feature-flags-entry",
+          sourceKind: "BATCH",
+          occurredAt,
+          batch: {
+            id: "feature-flags-batch",
+            fileName: "feature-flags.csv",
+            status: "COMMITTED",
+            rowCount: 1,
+            groupCount: 1,
+            visibility: "REVIEWER",
+            createdAt: occurredAt,
+            submittedAt: occurredAt,
+            reviewedAt: occurredAt,
+            committedAt: occurredAt,
+            proposerName: "提交老師",
+            reviewerName: "審核老師",
+            finalizerName: "審核老師",
+          },
+        }],
+        nextCursor: null,
+      }),
+    });
+  });
+  await page.route("**/api/catalog/history/batches/feature-flags-batch?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], nextCursor: null }),
+    });
+  });
+}
+
+test("catalog feature flags hide bulk, history and corrective entry points when both are disabled", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await reviewer.page.goto("/admin/words");
+    await expect(reviewer.page.getByRole("heading", { name: /詞庫治理工作區|词库治理工作区/ })).toBeVisible();
+    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /匯出所選作 CSV 更新|汇出所选作 CSV 更新/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /查看歷史|查看历史/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /建立反向修正預覽|建立反向修正预览/ })).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("catalog feature flags allow history without bulk or corrective preview", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: true });
+    await installCommittedHistoryMock(reviewer.page);
+    await reviewer.page.goto("/admin/words");
+    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /匯出所選作 CSV 更新|汇出所选作 CSV 更新/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /查看歷史|查看历史/ }).first()).toBeVisible();
+    await reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ }).click();
+    const entry = reviewer.page.locator("article").filter({ hasText: "feature-flags.csv" });
+    await expect(entry).toBeVisible();
+    await entry.getByRole("button").first().click();
+    await expect(reviewer.page.getByRole("button", { name: /建立反向修正預覽|建立反向修正预览/ })).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("catalog feature flags expose all entry points and return to catalog after runtime disable", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  try {
+    const updateFlags = await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: true, historyEnabled: true });
+    await installCommittedHistoryMock(reviewer.page);
+    await reviewer.page.goto("/admin/words");
+    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toBeVisible();
+    await expect(reviewer.page.getByRole("button", { name: /匯出所選作 CSV 更新|汇出所选作 CSV 更新/ })).toBeVisible();
+    await expect(reviewer.page.getByRole("button", { name: /查看歷史|查看历史/ }).first()).toBeVisible();
+    await reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ }).click();
+    const entry = reviewer.page.locator("article").filter({ hasText: "feature-flags.csv" });
+    await expect(entry).toBeVisible();
+    await entry.getByRole("button").first().click();
+    await expect(reviewer.page.getByRole("button", { name: /建立反向修正預覽|建立反向修正预览/ })).toBeVisible();
+
+    await updateFlags({ bulkEnabled: false, historyEnabled: false });
+    await expect(reviewer.page.getByRole("heading", { name: /詞庫治理工作區|词库治理工作区/ })).toBeVisible();
+    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ })).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
 test("catalog workspace keeps drafts private and completes one-reviewer lifecycle with a clean CSV round-trip", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   const connectionString = process.env.DATABASE_URL;

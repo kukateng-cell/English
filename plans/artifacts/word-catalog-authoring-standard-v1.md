@@ -86,7 +86,7 @@ B1 `run = 經營`。
 ### 4.1 檔案級規則
 
 - 檔案格式必須係 CSV，編碼為 UTF-8；為兼容 Excel，可以包含 UTF-8 BOM；
-- 第一行必須係相應模式指定嘅英文欄名，不可自行翻譯、合併、改名或加入同名欄；
+- 第一行必須係相應模式指定嘅英文欄名及固定次序，不可自行翻譯、合併、改名、移動或加入同名欄；
 - 每一行只可以代表一個詞義；不可用合併儲存格、顏色、批註或公式表達必要資料；
 - CSV 內含逗號、雙引號或換行嘅值必須按標準 CSV 規則加雙引號；欄內雙引號以 `""` 表示；
 - Boolean 只接受大寫 `TRUE` 或 `FALSE`；程度只接受 `A1`、`A2`、`B1`、`B2`；
@@ -106,8 +106,8 @@ B1 `run = 經營`。
 | Governance UPDATE | 修改現有詞義內容 | 固定 `UPDATE` | 必須完整保留系統匯出的四項只讀 metadata | 不會；批准及 finalization 後先建立新 approved revision |
 
 日常治理 template 由工作區下載；UPDATE 必須先在工作區選取現有 `sense_key` 再匯出，不能抄另一行或自行編 key。Launch 每檔最多
-200 個 data rows、4 MiB，嚴格 UTF-8，可有一個檔首 BOM。老師工作區下載／匯出使用 34 欄乾淨 view；欄名按名稱解析，所以次序可
-調整，但34欄必須各出現一次，不能有未知或重複欄。普通governance upload只接受精確34欄；完整39欄只可交由受控bootstrap／migration
+200 個 data rows、4 MiB，嚴格 UTF-8，可有一個檔首 BOM。老師工作區下載／匯出使用 34 欄乾淨 view；34欄必須各出現一次並保持
+模板原有次序，不能移動、加入未知欄或重複欄。普通governance upload只接受精確34欄；完整39欄只可交由受控bootstrap／migration
 工具處理，老師endpoint固定拒絕。空檔、broken quoting、NUL／control character、embedded BOM及公式開頭會在preview前拒絕。
 
 治理上載只支援 `CREATE`／`UPDATE`；停用與重新啟用繼續使用逐條工作流。CSV 缺行永遠不代表停用。相同內容 UPDATE 會標示
@@ -120,8 +120,8 @@ approved revision 或學生 runtime；整批提交及最後套用各自保持原
 schema_version,requested_action,catalog_key,sense_key,record_revision,catalog_status,term,lemma,part_of_speech,level,category,definition_zh,accepted_answers_zh,prompt_en,prompt_zh,phonetic_ipa,example_en,example_zh,accepted_forms_en,synonyms_en,antonyms_en,enable_en_to_zh,distractor_zh_1,distractor_zh_2,distractor_zh_3,distractor_zh_4,distractor_zh_5,distractor_zh_6,enable_zh_to_en,distractor_en_1,distractor_en_2,distractor_en_3,distractor_en_4,distractor_en_5,distractor_en_6,source_reference,contributor_ref,change_note,retirement_reason
 ```
 
-欄目次序主要方便人手工作及標準 template；匯入器應按欄名讀取，唔應只按列位置讀取。未知欄目必須在 preview 報告，不能
-靜默忽略。
+欄目次序係正式template contract；受控bootstrap parser同老師governance parser均要求各自模板嘅完整固定次序。未知、缺少、
+重複或移動欄目必須拒絕，不能靜默忽略或以另一欄位置繼續處理。
 
 Bootstrap canonical CSV及受控migration工具繼續使用以上39欄；舊governance CSV必須先由受控轉換工具轉成34欄，唔可以直接上載老師endpoint。老師工作區嘅CREATE template同UPDATE export使用以下
 34 欄乾淨 view，避免要求老師處理永遠留空或由系統 audit 取代嘅欄：
