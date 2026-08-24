@@ -1,6 +1,6 @@
 # 詞庫 CSV 批量提交及詞條修改歷史界面實施計劃
 
-> 狀態：本地效能加固已完成（compact response及200-row preview均通過；staging／Vercel及production readiness外部項目另行處理）
+> 狀態：本地效能加固及 2026-08-24 老師介面 UAT 修正已完成（staging／Vercel及production readiness外部項目另行處理）
 >
 > 日期：2026-08-22
 >
@@ -63,10 +63,10 @@
 
 ### 5.1 CSV 支援範圍
 
-- 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；header 必須包含 39 個精確 `word-catalog-v1` 欄名、每欄恰好一次，不要求上載檔跟 template 列序，但 template／export 固定使用規範標準次序；
+- 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；老師 template／export 固定使用 34 個精確 `word-catalog-v1` governance 欄名，parser 亦向後兼容完整 39 欄舊檔；所選格式每個欄名恰好一次、可換序，未知或重複欄一律拒絕；
 - launch 上限為 4 MiB、200 個 data rows；4 MiB 低於 Vercel Functions 4.5 MB request ceiling；0 行、超限、重複 header、未知欄、broken quoting、公式／CSV injection 或非支援 schema 一律拒絕；
-- `CREATE_DRAFT`：`catalog_key`、`sense_key`、`record_revision`、`catalog_status` 必須留空；
-- `UPDATE_DRAFT`：必須由系統匯出，保留 `catalog_key`、`sense_key`、`record_revision` 及只讀 `catalog_status`；lemma 不可越過既有穩定 headword boundary；
+- `CREATE`：`catalog_key`、`sense_key`、`record_revision`、`catalog_status` 必須留空；
+- `UPDATE`：必須由系統匯出，保留 `catalog_key`、`sense_key`、`record_revision` 及只讀 `catalog_status`；lemma 不可越過既有穩定 headword boundary；
 - 同一檔案可以混合 CREATE／UPDATE，但不接受其他 `requested_action`；
 - launch cap 只服務日常治理，不取代 5,641 行 initial bootstrap。性能測試通過後可以調高 cap，但不得犧牲單批原子性；
 - CREATE template 預填 `schema_version`／`requested_action`、保留 system／reserved 欄並附獨立繁簡說明、POS／category 對照及一行示例；示例不混入可上載資料；
@@ -295,9 +295,9 @@ Review decision 屬於 final proposal group，值為 `PENDING | APPROVE | REJECT
 - cleanup 使用batch revision CAS／row lock，與submit、resolution及clone並發時fail closed；
 - log 只記 batch id、counts、duration、error code及 hash prefix，不記完整 term、definition、檔案內容或老師備註。
 
-### 7.4 Versioned proposal payload及39欄去向
+### 7.4 Versioned proposal payload及34／39欄去向
 
-Governance proposal payload 要升級成 versioned完整snapshot，足以重建實際批准內容及來源：
+Governance proposal payload 係 versioned完整snapshot，足以重建實際批准內容。老師 34 欄 view 省略 prompt 及暫不要求嘅 provenance／change-note；舊 39 欄仍可讀，省略欄由 parser 安全補空：
 
 | CSV 欄位 | Proposal／批准去向 |
 |---|---|
@@ -458,7 +458,8 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 - [x] 將治理 workspace 拆成可維護的 catalog／bulk／history components，保持 admin／teacher共用；
 - [x] 完成 upload wizard、summary、row filters、before／after、duplicate bundle、resolution editor、error download及receipt；
 - [x] 完成 reviewer batch queue、save progress、final confirmation、recent-auth recovery及stale UX；
-- [ ] template guidance、欄名＋Excel列＋修正方法、category／POS對照及代表性非技術老師10行UAT完成；
+- [x] 老師 template／UPDATE export 使用 34 欄乾淨 view，舊 39 欄 compatibility upload仍可讀；template guidance、欄名次序、Excel干擾項列及 parser regression 已更新；
+- [ ] category／POS對照及代表性非技術老師10行CSV試填 UAT；
 - [ ] 320px mobile卡片／detail、768px tablet compact table、1280px desktop table均無頁面水平溢出；狀態非純顏色、native semantics、focus、keyboard、screen-reader async announcement、繁簡及light／dark驗收；
 - [x] 詞庫列表分批render；批次group每頁20項並按需展開完整diff／editor，避免200組同時mount。
 
@@ -484,7 +485,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 
 | 範圍 | 必須證明 |
 |---|---|
-| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、39欄名每欄一次兼可換序、malformed quoting、空檔、oversized／偽Content-Length、4 MiB、200 rows、field-aware formula、safe error CSV |
+| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、34欄乾淨 view／舊39欄 compatibility 每欄一次兼可換序、malformed quoting、空檔、oversized／偽Content-Length、4 MiB、200 rows、field-aware formula、safe error CSV |
 | Action contract | CREATE keys空白；UPDATE keys／revision完整；mixed合法；RETIRE／REACTIVATE拒絕；缺行零副作用 |
 | Content | taxonomy、POS、level、prompt-empty、accepted answers、例句pair、5–6 distractors、pool diversity、sibling collision |
 | Preview | 無 canonical write、disposition總數對數、database diff、duplicate bundle、7日activity／30日absolute expiry、owner isolation、pagination |

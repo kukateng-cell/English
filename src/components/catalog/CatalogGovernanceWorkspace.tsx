@@ -132,8 +132,47 @@ function parseList(value: string) {
   return value.split("|").map((item) => item.normalize("NFKC").trim()).filter(Boolean);
 }
 
-function listText(value: string[]) {
-  return value.join(" | ");
+function listText(value: readonly string[] | null | undefined) {
+  return (value ?? []).join(" | ");
+}
+
+function normalizeCatalogPayload(value: unknown, fallback: CatalogPayload = EMPTY_PAYLOAD): CatalogPayload {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const text = (key: keyof CatalogPayload) => typeof source[key] === "string" ? source[key] as string : fallback[key] as string;
+  const nullableText = (key: "phoneticIpa" | "exampleEn" | "exampleZh" | "sourceReference" | "contributorRef" | "changeNote" | "retirementReason") => {
+    const item = source[key];
+    return typeof item === "string" ? item : item === null ? null : fallback[key];
+  };
+  const list = (key: "acceptedAnswersZh" | "acceptedFormsEn" | "synonymsEn" | "antonymsEn" | "distractorZh" | "distractorEn") => {
+    const item = source[key];
+    return Array.isArray(item) ? item.filter((entry): entry is string => typeof entry === "string") : [...fallback[key]];
+  };
+  const level = source.level === "A1" || source.level === "A2" || source.level === "B1" || source.level === "B2"
+    ? source.level
+    : fallback.level;
+  return {
+    term: text("term"),
+    lemma: text("lemma"),
+    partOfSpeech: text("partOfSpeech"),
+    level,
+    category: text("category"),
+    definitionZh: text("definitionZh"),
+    acceptedAnswersZh: list("acceptedAnswersZh"),
+    phoneticIpa: nullableText("phoneticIpa"),
+    exampleEn: nullableText("exampleEn"),
+    exampleZh: nullableText("exampleZh"),
+    acceptedFormsEn: list("acceptedFormsEn"),
+    synonymsEn: list("synonymsEn"),
+    antonymsEn: list("antonymsEn"),
+    enableEnToZh: typeof source.enableEnToZh === "boolean" ? source.enableEnToZh : fallback.enableEnToZh,
+    distractorZh: list("distractorZh"),
+    enableZhToEn: typeof source.enableZhToEn === "boolean" ? source.enableZhToEn : fallback.enableZhToEn,
+    distractorEn: list("distractorEn"),
+    sourceReference: nullableText("sourceReference"),
+    contributorRef: nullableText("contributorRef"),
+    changeNote: nullableText("changeNote"),
+    retirementReason: nullableText("retirementReason"),
+  };
 }
 
 function statusLabel(status: FilterStatus, tc: (value: string) => string) {
@@ -201,7 +240,14 @@ function CatalogOverviewWorkspace({
           } else {
             if (reviewResponse.status === 409 && attempt < 2) continue;
             if (!reviewResponse.ok) throw new Error(await responseErrorMessage(reviewResponse, tc));
-            reviewPayload = await reviewResponse.json() as PendingResponse;
+            const rawReviewPayload = await reviewResponse.json() as PendingResponse;
+            reviewPayload = {
+              ...rawReviewPayload,
+              requests: rawReviewPayload.requests.map((request) => ({
+                ...request,
+                payload: normalizeCatalogPayload(request.payload),
+              })),
+            };
             if (reviewPayload.signature !== payload.workspaceSignature) {
               if (attempt < 2) continue;
               throw new Error(tc("词库刚刚有更新，请重新载入。"));
@@ -344,8 +390,12 @@ function CatalogOverviewWorkspace({
       const response = await fetch(`/api/catalog/${encodeURIComponent(row.senseKey)}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const detail = await response.json() as Detail;
-      setSelected(detail);
-      setForm(detail.pendingRequest?.payload ?? detail.payload ?? EMPTY_PAYLOAD);
+      const currentPayload = detail.payload ? normalizeCatalogPayload(detail.payload) : null;
+      const pendingRequest = detail.pendingRequest
+        ? { ...detail.pendingRequest, payload: normalizeCatalogPayload(detail.pendingRequest.payload, currentPayload ?? EMPTY_PAYLOAD) }
+        : null;
+      setSelected({ ...detail, payload: currentPayload, pendingRequest });
+      setForm(pendingRequest?.payload ?? currentPayload ?? EMPTY_PAYLOAD);
       setReason("");
       setReviewNote("");
     } catch (cause) {

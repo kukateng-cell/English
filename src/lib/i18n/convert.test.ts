@@ -11,6 +11,14 @@ test("Traditional conversion preserves English, phonetic text, levels and catego
   assert.equal(convertText(source, "zh-Hans"), source);
 });
 
+test("Simplified conversion also normalizes Traditional source literals", () => {
+  assert.equal(
+    convertText("完整詞庫與詞庫治理工作區 · 等待審核", "zh-Hans"),
+    "完整词库与词库治理工作区 · 等待审核",
+  );
+  assert.equal(convertText("完整词库与词库治理工作区", "zh-Hans"), "完整词库与词库治理工作区");
+});
+
 test("server conversion follows the locale cookie without changing non-Chinese data", () => {
   assert.equal(convertForServer("学习 A1 · Common Verbs", "locale=zh-Hant"), "學習 A1 · Common Verbs");
   assert.equal(convertForServer("学习 A1 · Common Verbs", "locale=zh-Hans"), "学习 A1 · Common Verbs");

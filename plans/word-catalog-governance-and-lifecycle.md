@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機 full-size 效能加固，以及 standalone 單一 reviewer／即時軟停用簡化已完成；staging／Vercel、production rollout、外部 UAT 及 legacy cleanup 仍未完成）
+> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機 full-size 效能加固、standalone 單一 reviewer／即時軟停用簡化，以及 2026-08-24 老師介面 UAT 修正已完成；staging／Vercel、production rollout及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -326,6 +326,7 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 - [x] server-side authorization、CSRF、revision CAS、catalog／security audit及catalog-specific limiter；
 - [x] admin／teacher responsive catalog workspace，支援完整載入、狀態／程度／方向／搜尋篩選及逐條編輯；
 - [x] 2026-08-22 follow-up audit：治理提交必須拒絕未知 taxonomy category、既有 sense 不可令穩定 CatalogEntry lemma 漂移、同 lemma 新 sense 必須重用同一 headword；停用詞義可先修訂但不得被 audit 誤報為 ACTIVE，並以 checker／unit tests 鎖定；
+- [x] RETIRE／REACTIVATE request 對 API 及 UI 永遠提供完整、可安全顯示嘅詞條 payload；兼容舊有空 payload request，提交及「查看草稿」不得崩潰；
 - [ ] zh-Hant／zh-Hans、theme、keyboard、screen-reader驗收。
 
 ### Phase 5 — CSV preview／commit及 conflict resolution
@@ -553,3 +554,14 @@ npm run test:e2e:card-motion
 - [x] 治理工作區以 canonical mutation revision 加 standalone pending request identity／revision 建立一致 snapshot signature；完整詞庫與待審 queue 唔同版本時最多重試三次，background polling 可偵測即時停用及 queue-only 終局變更；capability 會喺整個工作區 mount、focus、visibility 及 30 秒週期重新讀取，撤權後所有分頁收起 reviewer controls，server guard 繼續 fail closed；
 - [x] 兩位獨立、平衡、對抗 reviewer 完成兩輪審核；首輪發現鎖次序、跨 endpoint snapshot、polling、locale 及競態 checker coverage 問題並已全部跟進，最終覆核為 `BLOCKER 0 / HIGH 0 / MEDIUM 0`，餘下 capability 跨分頁低風險提示亦已修正；
 - [x] 本輪最終本機驗證包括 285 個 unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、`check:catalog-immediate-retire` 及 `check:catalog-governance`；後者維持 5,469 ACTIVE／107 DRAFT、mutation revision 16，以及所有 lineage／projection／history／terminal-batch invariant 零違規。Staging／production deploy 未獲授權，今輪沒有執行。
+
+### 2026-08-24：老師介面實際 UAT 修正（已完成）
+
+- [x] 修正 standalone RETIRE／REACTIVATE 將 `{}` 當完整 proposal payload 回傳，導致提交成功或 reviewer「查看草稿」後對缺少陣列執行 `.join()` 崩潰；新 request 寫入完整 current payload，reader 對舊資料使用 after snapshot／approved payload fallback，client 再作完整 shape normalization；
+- [x] 修正 320px workspace mobile header 帳戶選單向 viewport 上方展開、不可觸控主題／語言／登出，以及工作臺標題逐字換行；
+- [x] 簡繁顯示層同時容忍簡體或繁體來源字面量：zh-Hans 統一轉簡、zh-Hant 統一轉繁，避免詞庫工作區混合兩套字形；
+- [x] 老師 governance template／UPDATE export 改用 34 欄乾淨 view，省略 `prompt_en`、`prompt_zh`、`source_reference`、`contributor_ref`、`change_note`；parser 仍接受舊 39 欄檔案並將省略欄安全補空；
+- [x] CSV 批量頁補唯一可見 `h1`；真實瀏覽器重驗 lifecycle submit／查看草稿／approve、320px 無水平溢出、簡體顯示、34 欄 template，以及開啟流動版帳戶選單時 automated WCAG A／AA；額外修正語言按鈕欠缺 `menuitemradio` semantics 後 axe 違規為 0；
+- [x] 只使用可回收本地 UAT fixture；完成後 friend 已恢復 ACTIVE，兩個帳戶、兩個 request 及相關 history／audit／security fixture 已刪除，catalog mutation revision 已由 18 還原至驗收前 16；治理 checker再次確認 ACTIVE 5,469／DRAFT 107／RETIRED 0／PENDING 0；不執行 production deploy。
+
+本輪實際驗證：289 個 unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、`check:catalog-governance`、`check:catalog-immediate-retire`、`check:catalog-submission`，以及上述兩個隔離瀏覽器 session 嘅老師／審核者流程。

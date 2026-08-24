@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CATALOG_GOVERNANCE_HEADERS,
+  CATALOG_GOVERNANCE_OMITTED_HEADERS,
   CATALOG_HEADERS,
   CatalogCsvError,
   catalogRowsToCsv,
@@ -103,7 +105,7 @@ function bytes(rows: CatalogSourceRow[]): Uint8Array {
   return new TextEncoder().encode(catalogRowsToCsv(rows));
 }
 
-test("governance CSV accepts the 39 headers in any unique order", () => {
+test("governance CSV accepts the legacy 39 headers in any unique order", () => {
   const row = source("CREATE");
   const reversed = [...CATALOG_HEADERS].reverse();
   const csv = `${reversed.join(",")}\r\n${reversed.map((header) => row[header]).join(",")}\r\n`;
@@ -111,6 +113,43 @@ test("governance CSV accepts the 39 headers in any unique order", () => {
   assert.equal(parsed.length, 1);
   assert.equal(parsed[0]!.term, "run");
   assert.equal(parsed[0]!.requested_action, "CREATE");
+});
+
+test("governance CSV accepts the clean 34-field teacher format and defaults omitted metadata", () => {
+  const row = source("CREATE", {
+    prompt_en: "must not be imported",
+    prompt_zh: "不得匯入",
+    source_reference: "internal-only",
+    contributor_ref: "internal-only",
+    change_note: "internal-only",
+  });
+  const csv = catalogRowsToCsv([row], CATALOG_GOVERNANCE_HEADERS);
+  const parsed = parseCatalogGovernanceCsv(new TextEncoder().encode(csv), "clean.csv");
+  assert.equal(CATALOG_GOVERNANCE_HEADERS.length, 34);
+  assert.deepEqual(
+    CATALOG_GOVERNANCE_OMITTED_HEADERS,
+    ["prompt_en", "prompt_zh", "source_reference", "contributor_ref", "change_note"],
+  );
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0]!.term, "run");
+  for (const header of CATALOG_GOVERNANCE_OMITTED_HEADERS) {
+    assert.equal(parsed[0]![header], "");
+  }
+});
+
+test("governance CSV rejects unknown or missing clean-format headers", () => {
+  const row = source("CREATE");
+  const missing = CATALOG_GOVERNANCE_HEADERS.filter((header) => header !== "definition_zh");
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(catalogRowsToCsv([row], missing)), "missing.csv"),
+    (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_HEADER_INVALID",
+  );
+  const csvWithUnknown = catalogRowsToCsv([row], CATALOG_GOVERNANCE_HEADERS)
+    .replace("schema_version", "teacher_note");
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(csvWithUnknown), "unknown.csv"),
+    (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_HEADER_INVALID",
+  );
 });
 
 test("governance CSV rejects duplicate headers, unsafe formulas and unclosed quotes", () => {
@@ -217,14 +256,14 @@ test("bulk preview dependency digests include deduplicated sibling and pending c
 test("error report maps both distractor directions to exact CSV column ranges", () => {
   assert.deepEqual(describeCatalogBatchError("en-zh requires 5 or 6 distractors"), {
     field: "distractor_zh_1…distractor_zh_6",
-    excelColumn: "W:AB",
+    excelColumn: "U:Z",
     code: "CATALOG_ROW_EN_ZH_REQUIRES_5_OR_6_DISTRACTORS",
     message: "干擾項不符合題目安全或數量規則。",
-    fix: "檢查 distractor_zh_1…distractor_zh_6（Excel W:AB），確保有 5–6 個不重複、非正確答案的干擾項。",
+    fix: "檢查 distractor_zh_1…distractor_zh_6（Excel U:Z），確保有 5–6 個不重複、非正確答案的干擾項。",
   });
   const reverse = describeCatalogBatchError("zh-en distractor collides with canonical answer");
   assert.equal(reverse.field, "distractor_en_1…distractor_en_6");
-  assert.equal(reverse.excelColumn, "AD:AI");
+  assert.equal(reverse.excelColumn, "AB:AG");
 });
 
 type PatchTestGroup = { id: string; revision: number; decision: string; payload: string };

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isSameOriginMutation } from "@/lib/csrf";
-import { catalogRowsToCsv } from "@/lib/catalog/csv";
+import { CATALOG_GOVERNANCE_HEADERS, catalogRowsToCsv } from "@/lib/catalog/csv";
 import { payloadFromRevision, payloadToSourceRow } from "@/lib/catalog/governance";
 import { catalogBulkSubmissionEnabled } from "@/lib/catalog/features";
 import { catalogRouteError, catalogResponse, CATALOG_PRIVATE_HEADERS, parseJsonObject, requireCatalogActor } from "@/lib/catalog/api";
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       }, revision.revision);
       return { ...row, requested_action: "UPDATE", catalog_status: sense.status, retirement_reason: "" };
     });
-    return new NextResponse(catalogRowsToCsv(csvRows), {
+    return new NextResponse(catalogRowsToCsv(csvRows, CATALOG_GOVERNANCE_HEADERS), {
       headers: {
         ...CATALOG_PRIVATE_HEADERS,
         "Content-Type": "text/csv; charset=utf-8",

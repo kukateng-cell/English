@@ -91,7 +91,7 @@ export default function AccountControls({
             <span>{tc(theme === "dark" ? "切换到浅色模式" : "切换到深色模式")}</span>
           </button>
           <div className="account-locale" role="group" aria-label={tc("语言") as string}>
-            {LOCALES.map((nextLocale) => <button key={nextLocale} type="button" className={nextLocale === locale ? "account-locale-option is-active" : "account-locale-option"} onClick={() => setLocale(nextLocale)}>{tc(LOCALE_LABELS[nextLocale])}</button>)}
+            {LOCALES.map((nextLocale) => <button key={nextLocale} type="button" role="menuitemradio" aria-checked={nextLocale === locale} className={nextLocale === locale ? "account-locale-option is-active" : "account-locale-option"} onClick={() => setLocale(nextLocale)}>{tc(LOCALE_LABELS[nextLocale])}</button>)}
           </div>
           <button type="button" role="menuitem" className="account-menu-item account-menu-danger" onClick={() => signOut({ callbackUrl: "/login" })}>
             <Icon name="logout" size={18} /><span>{tc("退出登录")}</span>

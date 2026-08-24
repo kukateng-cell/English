@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { catalogAccess } from "@/lib/catalog/access";
 import { readCatalogWorkspaceVersion } from "@/lib/catalog/workspace-version";
+import { catalogGovernancePayloadFromUnknown } from "@/lib/catalog/governance";
 
 function headers() {
   return { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
         baseStatus: true,
         revision: true,
         payload: true,
+        afterPayloadSnapshot: true,
         reason: true,
         reviewNote: true,
         createdAt: true,
@@ -64,6 +66,9 @@ export async function GET(req: Request) {
     if (version.signature !== initialVersion.signature) return response("CATALOG_READ_STALE", 409);
     return NextResponse.json({ hasMore, mutationRevision: version.mutationRevision, signature: version.signature, requests: (hasMore ? requests.slice(0, 1000) : requests).map((item) => ({
       ...item,
+      payload: catalogGovernancePayloadFromUnknown(item.payload)
+        ?? catalogGovernancePayloadFromUnknown(item.afterPayloadSnapshot)
+        ?? item.payload,
       catalogKey: item.catalogKey,
       senseKey: item.senseKey,
       createdAt: item.createdAt.toISOString(),

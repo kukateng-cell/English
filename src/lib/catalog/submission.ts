@@ -3,6 +3,7 @@ import {
   CATALOG_NORMALIZATION_VERSION,
   CATALOG_SCHEMA_VERSION,
   CATALOG_VALIDATOR_VERSION,
+  CATALOG_GOVERNANCE_HEADERS,
   CATALOG_HEADERS,
   normalizeCatalogRow,
   normalizeCatalogText,
@@ -24,7 +25,7 @@ export const CATALOG_PREVIEW_ABSOLUTE_DAYS = 30;
 export type CatalogBatchErrorDescriptor = { field: string; excelColumn: string; code: string; message: string; fix: string };
 
 function excelColumnForCatalogField(field: string): string {
-  let index = CATALOG_HEADERS.indexOf(field as (typeof CATALOG_HEADERS)[number]) + 1;
+  let index = CATALOG_GOVERNANCE_HEADERS.indexOf(field as (typeof CATALOG_HEADERS)[number]) + 1;
   if (index <= 0) return "";
   let output = "";
   while (index > 0) {
@@ -36,10 +37,11 @@ function excelColumnForCatalogField(field: string): string {
 }
 
 export function describeCatalogBatchError(detail: string): CatalogBatchErrorDescriptor {
+  const range = (first: string, last: string) => `${excelColumnForCatalogField(first)}:${excelColumnForCatalogField(last)}`;
   const directional = detail.startsWith("en-zh ")
-    ? { field: "distractor_zh_1…distractor_zh_6", excelColumn: "W:AB" }
+    ? { field: "distractor_zh_1…distractor_zh_6", excelColumn: range("distractor_zh_1", "distractor_zh_6") }
     : detail.startsWith("zh-en ")
-      ? { field: "distractor_en_1…distractor_en_6", excelColumn: "AD:AI" }
+      ? { field: "distractor_en_1…distractor_en_6", excelColumn: range("distractor_en_1", "distractor_en_6") }
       : null;
   const fieldAliases: Record<string, string> = {
     partOfSpeech: "part_of_speech", definitionZh: "definition_zh", acceptedAnswersZh: "accepted_answers_zh",

@@ -47,6 +47,17 @@ export const CATALOG_HEADERS = [
 ] as const;
 
 export type CatalogHeader = (typeof CATALOG_HEADERS)[number];
+export const CATALOG_GOVERNANCE_OMITTED_HEADERS = [
+  "prompt_en",
+  "prompt_zh",
+  "source_reference",
+  "contributor_ref",
+  "change_note",
+] as const satisfies readonly CatalogHeader[];
+const CATALOG_GOVERNANCE_OMITTED_HEADER_SET = new Set<CatalogHeader>(CATALOG_GOVERNANCE_OMITTED_HEADERS);
+export const CATALOG_GOVERNANCE_HEADERS: readonly CatalogHeader[] = CATALOG_HEADERS.filter(
+  (header) => !CATALOG_GOVERNANCE_OMITTED_HEADER_SET.has(header),
+);
 export type CatalogLevel = "A1" | "A2" | "B1" | "B2";
 export type CatalogDirection = "en-zh" | "zh-en";
 export type CatalogPrimaryDisposition =
@@ -348,14 +359,12 @@ function dangerousFormula(value: string): boolean {
 export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string): CatalogSourceRow[] {
   const records = strictCsvRecords(governanceText(bytes, sourceFile), sourceFile);
   const header = records[0]?.map((value) => clean(value));
-  if (!header || header.length !== CATALOG_HEADERS.length) {
-    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: expected ${CATALOG_HEADERS.length} headers`);
-  }
+  if (!header?.length) throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: CSV header is required`);
   if (new Set(header).size !== header.length) {
     throw new CatalogCsvError("CATALOG_CSV_HEADER_DUPLICATE", `${sourceFile}: duplicate header`);
   }
-  const required = new Set<string>(CATALOG_HEADERS);
-  if (header.some((value) => !required.has(value)) || CATALOG_HEADERS.some((value) => !header.includes(value))) {
+  const allowed = new Set<string>(CATALOG_HEADERS);
+  if (header.some((value) => !allowed.has(value)) || CATALOG_GOVERNANCE_HEADERS.some((value) => !header.includes(value))) {
     throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: header names must match word-catalog-v1`);
   }
   const rows = records.slice(1).flatMap((values, index) => {
@@ -363,7 +372,10 @@ export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string)
     if (values.length !== header.length) {
       throw new CatalogCsvError("CATALOG_CSV_COLUMN_COUNT_INVALID", `${sourceFile}: row ${index + 2} has ${values.length} columns; expected ${header.length}`);
     }
-    const record = Object.fromEntries(header.map((key, keyIndex) => [key, values[keyIndex] ?? ""])) as unknown as CatalogSourceRow;
+    const record = Object.assign(
+      Object.fromEntries(CATALOG_HEADERS.map((key) => [key, ""])),
+      Object.fromEntries(header.map((key, keyIndex) => [key, values[keyIndex] ?? ""])),
+    ) as unknown as CatalogSourceRow;
     for (const key of CATALOG_HEADERS) {
       if (dangerousFormula(record[key])) {
         throw new CatalogCsvError("CATALOG_CSV_FORMULA_INVALID", `${sourceFile}: row ${index + 2} field ${key} begins with a spreadsheet formula marker`);
@@ -548,10 +560,13 @@ export function neutralizeCsvCell(value: unknown): string {
   return /[",\r\n]/u.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
-export function catalogRowsToCsv(rows: readonly Partial<Record<CatalogHeader, unknown>>[]): string {
-  const lines = [CATALOG_HEADERS.map(neutralizeCsvCell).join(",")];
+export function catalogRowsToCsv(
+  rows: readonly Partial<Record<CatalogHeader, unknown>>[],
+  headers: readonly CatalogHeader[] = CATALOG_HEADERS,
+): string {
+  const lines = [headers.map(neutralizeCsvCell).join(",")];
   for (const row of rows) {
-    lines.push(CATALOG_HEADERS.map((header) => neutralizeCsvCell(row[header])).join(","));
+    lines.push(headers.map((header) => neutralizeCsvCell(row[header])).join(","));
   }
   return `\uFEFF${lines.join("\r\n")}\r\n`;
 }

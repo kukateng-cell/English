@@ -2,9 +2,8 @@
  * 语言/地区配置（集中管理）。
  *
  * 设计要点：
- * - 唯一的「真实」内容来源是「简体中文」（源代码字面量 + DB 里的单词释义/单元名）。
- *   这是历史既成事实，避免大规模重写。
- * - zh-Hant 不是另一套独立文案，而是把简体在「显示层」即时转换成繁体
+ * - 歷史程式碼包含簡體及繁體字面量，DB 內容則沿用其規範來源。
+ * - zh-Hant／zh-Hans 不是兩套獨立文案，而是在「顯示層」統一轉換
  *   （见 convert.ts 的 convertText / convertForServer）。因此 UI 文案、单词释义、单元/分类名、
  *   按钮提示、错误讯息全部统一走 tc() 转换，做到「集中管理、零散页面不再各自硬写繁简两版」。
  * - 预设语言为「繁体中文（zh-Hant）」，符合需求：新使用者首次开启即看到繁体。
@@ -41,8 +40,8 @@ export function normalizeLocale(s: string | null | undefined): Locale {
 }
 
 /**
- * 站点标题 / 描述（简体为唯一来源，与全站文案策略一致）。
- * 显示层依当前语言经 convertText 即时转繁：
+ * 站点标题 / 描述（保存一份来源，与全站文案策略一致）。
+ * 显示层依当前语言经 convertText 即时转换：
  * - 服务端：layout 的 generateMetadata 读取 cookie 生成 <title>；
  * - 客户端：LocaleProvider 在切换语言时同步 document.title。
  * 这样「网页标题」也跟随语言选择，不再恒为简体。

@@ -1,8 +1,8 @@
 /**
  * 简繁转换（集中式原语）。
  *
- * 整个站点的「真实文案」皆以简体中文存在（源代码字面量 + DB 单词释义/单元名）。
- * 本模块提供在「显示层」把简体即时转成繁体的能力，供 LocaleProvider 的 tc() 调用。
+ * 站点历史代码同时存在简体及繁体字面量，DB 内容则以规范来源保存。
+ * 本模块在显示层统一转换到目标字形，供 LocaleProvider 的 tc() 调用。
  *
  * 为什么不用「两套独立文案」？
  * - 文案量大（按钮/提示/错误/释义/单元名…），维护两套易脱节、易混用。
@@ -10,8 +10,8 @@
  * - opencc-js 的 S2T（简→繁）转换对常见中文准确度足够，且为纯 JS、可在浏览器运行。
  *
  * 策略：
- * - zh-Hans：原样返回（来源即简体）。
- * - zh-Hant：跑简→繁转换（含词汇校正 TWPhrases / HKPhrases 的「一字多译」修正）。
+ * - zh-Hans：统一跑繁→简，已经是简体的内容保持不变。
+ * - zh-Hant：统一跑简→繁转换（含词汇校正 TWPhrases 的「一字多译」修正）。
  *
  * 转换器在首次调用时惰性初始化（opencc-js 的 Converter 需加载字典数据）。
  * 在 SSR（Node）与客户端浏览器都能用——opencc-js 侦测到环境自行选择加载方式。
@@ -23,6 +23,8 @@ import type { Locale } from "./config";
 // 使用 s2t（含台湾常用词校正）以贴近需求里 zh-Hant 的预期。
 let hantConverter: ((s: string) => string) | null = null;
 let hantInitFailed = false;
+let hansConverter: ((s: string) => string) | null = null;
+let hansInitFailed = false;
 
 /**
  * 取得「简→繁」转换函数。失败时回退为「不转换」（确保站点永远可用）。
@@ -45,16 +47,30 @@ function getHantConverter(): (s: string) => string {
   }
 }
 
+function getHansConverter(): (s: string) => string {
+  if (hansConverter) return hansConverter;
+  if (hansInitFailed) return (s) => s;
+  try {
+    const converter = OpenCC.Converter({ from: "hk", to: "cn" });
+    hansConverter = converter;
+    return converter;
+  } catch (e) {
+    console.warn("[i18n] opencc-js 繁简转换初始化失败，回退为不转换：", e);
+    hansInitFailed = true;
+    return (s) => s;
+  }
+}
+
 /**
- * 把「简体文本」依目标语言转换后返回。
- * - locale === "zh-Hans" → 原样（来源即简体）。
+ * 把来源文本依目标语言转换后返回。
+ * - locale === "zh-Hans" → 繁→简；已经是简体的内容保持不变。
  * - locale === "zh-Hant" → 简→繁转换。
  *
  * 这是给 tc() 用的低层函数；组件层请用 useLocale().tc。
  */
 export function convertText(text: string, locale: Locale): string {
   if (!text) return text;
-  if (locale === "zh-Hans") return text;
+  if (locale === "zh-Hans") return getHansConverter()(text);
   return getHantConverter()(text);
 }
 

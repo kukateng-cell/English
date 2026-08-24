@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   catalogEntryAcceptsLemma,
+  catalogGovernancePayloadFromUnknown,
   parseCatalogGovernancePayload,
   payloadFingerprint,
   payloadToSourceRow,
@@ -62,6 +63,12 @@ test("governance parser rejects malformed booleans and preserves null optional f
   assert.equal(parsed.phoneticIpa, null);
   assert.equal(parsed.exampleEn, null);
   assert.equal(parsed.exampleZh, null);
+});
+
+test("safe governance payload parsing rejects legacy empty lifecycle payloads", () => {
+  assert.deepEqual(catalogGovernancePayloadFromUnknown(payload), payload);
+  assert.equal(catalogGovernancePayloadFromUnknown({}), null);
+  assert.equal(catalogGovernancePayloadFromUnknown(null), null);
 });
 
 test("governance validation rejects categories outside the controlled taxonomy", () => {

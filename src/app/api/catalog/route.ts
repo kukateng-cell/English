@@ -545,7 +545,7 @@ export async function POST(req: Request) {
           proposerId: auth.userId,
           baseRevision,
           baseStatus: targetSense?.status ?? "DRAFT",
-          payload: (payload ?? {}) as unknown as Prisma.InputJsonValue,
+          payload: (payload ?? beforePayload ?? {}) as unknown as Prisma.InputJsonValue,
           beforePayloadSnapshot: beforePayload ? beforePayload as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
           afterPayloadSnapshot: (payload ?? beforePayload ?? {}) as unknown as Prisma.InputJsonValue,
           reason: reason || null,

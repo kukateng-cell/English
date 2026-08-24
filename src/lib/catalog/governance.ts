@@ -116,6 +116,14 @@ export function parseCatalogGovernancePayload(value: unknown): CatalogGovernance
   return payload;
 }
 
+export function catalogGovernancePayloadFromUnknown(value: unknown): CatalogGovernancePayload | null {
+  try {
+    return parseCatalogGovernancePayload(value);
+  } catch {
+    return null;
+  }
+}
+
 export function payloadToSourceRow(payload: CatalogGovernancePayload, identity: CatalogIdentityInput, revision: number): CatalogSourceRow {
   return {
     sourceFile: identity.sourceFile,
