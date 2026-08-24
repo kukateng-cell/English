@@ -1,5 +1,9 @@
 import { Prisma, prisma } from "@/lib/prisma";
 import type { CatalogWorkspaceFilters } from "@/lib/catalog/workspace-query";
+import {
+  catalogPendingRequestForActor,
+  type CatalogPendingSummary,
+} from "@/lib/catalog/pending-visibility";
 
 export interface CatalogWorkspaceListRow {
   id: string;
@@ -24,7 +28,8 @@ export interface CatalogWorkspaceListRow {
   eligibilityResult: string | null;
   validationErrors: string[];
   validationWarnings: string[];
-  pendingRequest: {
+  pendingRequest: CatalogPendingSummary | {
+    restricted?: false;
     id: string;
     kind: string;
     status: string;
@@ -94,11 +99,15 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-function normalizePendingRequest(value: unknown): CatalogWorkspaceListRow["pendingRequest"] {
+function normalizePendingRequest(
+  value: unknown,
+  actorUserId: string,
+  canReview: boolean,
+): CatalogWorkspaceListRow["pendingRequest"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (typeof row.id !== "string" || typeof row.kind !== "string" || typeof row.status !== "string" || typeof row.proposerId !== "string" || typeof row.revision !== "number" || typeof row.createdAt !== "string") return null;
-  return {
+  return catalogPendingRequestForActor({
     id: row.id,
     kind: row.kind,
     status: row.status,
@@ -110,10 +119,14 @@ function normalizePendingRequest(value: unknown): CatalogWorkspaceListRow["pendi
     reviewNote: nullableString(row.reviewNote),
     createdAt: row.createdAt,
     reviewedAt: nullableString(row.reviewedAt),
-  };
+  }, actorUserId, canReview);
 }
 
-function normalizeRows(value: unknown): CatalogWorkspaceListRow[] {
+function normalizeRows(
+  value: unknown,
+  actorUserId: string,
+  canReview: boolean,
+): CatalogWorkspaceListRow[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
@@ -144,7 +157,7 @@ function normalizeRows(value: unknown): CatalogWorkspaceListRow[] {
       eligibilityResult: nullableString(row.eligibilityResult),
       validationErrors: stringList(row.validationErrors),
       validationWarnings: stringList(row.validationWarnings),
-      pendingRequest: normalizePendingRequest(row.pendingRequest),
+      pendingRequest: normalizePendingRequest(row.pendingRequest, actorUserId, canReview),
       hasSense: row.hasSense === true,
     }];
   });
@@ -341,7 +354,7 @@ export async function readCatalogWorkspacePage(input: {
   const row = result[0];
   if (!row) throw new Error("CATALOG_WORKSPACE_QUERY_EMPTY");
   return {
-    rows: normalizeRows(row.rows),
+    rows: normalizeRows(row.rows, input.actorUserId, input.canReview),
     filteredTotal: row.filteredTotal,
     counts: {
       all: row.allCount,

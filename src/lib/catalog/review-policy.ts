@@ -39,11 +39,17 @@ export function catalogRequestTerminalStatus(status: string): "APPROVED" | "REJE
   return status === "APPROVED" || status === "REJECTED" || status === "CANCELLED" ? status : null;
 }
 
-export function parseCatalogExpectedRevision(value: unknown, required: boolean): number | null {
-  if (value === undefined || value === null) {
-    if (required) throw new Error("CATALOG_REVISION_REQUIRED");
+export type CatalogRevisionOperation = "CREATE" | "UPDATE" | "RETIRE" | "REACTIVATE";
+
+export function parseCatalogExpectedRevision(
+  value: unknown,
+  operation: CatalogRevisionOperation,
+): number | null {
+  if (operation === "CREATE") {
+    if (value !== undefined && value !== null) throw new Error("CATALOG_REVISION_NOT_ALLOWED");
     return null;
   }
+  if (value === undefined || value === null) throw new Error("CATALOG_REVISION_REQUIRED");
   const revision = Number(value);
   if (!Number.isInteger(revision) || revision < 1) throw new Error("CATALOG_REVISION_INVALID");
   return revision;

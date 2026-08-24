@@ -452,7 +452,7 @@ async function runBulkMeasurements(
   runId: string,
   onCommitted: () => void,
 ) {
-  const { catalogRowsToCsv } = await import("../src/lib/catalog/csv");
+  const { CATALOG_GOVERNANCE_HEADERS, catalogRowsToCsv } = await import("../src/lib/catalog/csv");
   const {
     claimCatalogSubmissionBatch,
     createCatalogSubmissionPreview,
@@ -466,7 +466,7 @@ async function runBulkMeasurements(
   const previewResponseBytes: number[] = [];
   for (let run = 0; run < PREVIEW_RUNS; run += 1) {
     const rows = Array.from({ length: BULK_ROWS }, (_, index) => sourceRow(payloadForRow(`${runId}p${run}`, index), index + 2));
-    const bytes = new TextEncoder().encode(catalogRowsToCsv(rows));
+    const bytes = new TextEncoder().encode(catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS));
     let previewBatchId: string | null = null;
     try {
       const measured = await withPeakRss(() => timed(() => createCatalogSubmissionPreview({
@@ -487,7 +487,7 @@ async function runBulkMeasurements(
   }
 
   const rows = Array.from({ length: BULK_ROWS }, (_, index) => sourceRow(payloadForRow(`${runId}f`, index), index + 2));
-  const bytes = new TextEncoder().encode(catalogRowsToCsv(rows));
+  const bytes = new TextEncoder().encode(catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS));
   let batchId: string | null = null;
   let lifecycleResult: Record<string, unknown> | null = null;
   try {

@@ -12,6 +12,7 @@ import {
 import {
   buildCatalogSubmissionPreview,
   buildCatalogPreviewDependencyDigests,
+  catalogActorPseudonym,
   catalogDependencyDigest,
   classifyCatalogReviewRisk,
   describeCatalogBatchError,
@@ -102,17 +103,17 @@ function source(action: "CREATE" | "UPDATE", overrides: Partial<CatalogSourceRow
 }
 
 function bytes(rows: CatalogSourceRow[]): Uint8Array {
-  return new TextEncoder().encode(catalogRowsToCsv(rows));
+  return new TextEncoder().encode(catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS));
 }
 
-test("governance CSV accepts the legacy 39 headers in any unique order", () => {
+test("teacher governance CSV rejects the legacy 39-field format", () => {
   const row = source("CREATE");
   const reversed = [...CATALOG_HEADERS].reverse();
   const csv = `${reversed.join(",")}\r\n${reversed.map((header) => row[header]).join(",")}\r\n`;
-  const parsed = parseCatalogGovernanceCsv(new TextEncoder().encode(csv), "fixture.csv");
-  assert.equal(parsed.length, 1);
-  assert.equal(parsed[0]!.term, "run");
-  assert.equal(parsed[0]!.requested_action, "CREATE");
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(csv), "fixture.csv"),
+    (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_HEADER_INVALID",
+  );
 });
 
 test("governance CSV accepts the clean 34-field teacher format and defaults omitted metadata", () => {
@@ -159,7 +160,41 @@ test("governance CSV rejects duplicate headers, unsafe formulas and unclosed quo
   assert.throws(() => parseCatalogGovernanceCsv(new TextEncoder().encode(`${duplicate.join(",")}\n`), "duplicate.csv"), (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_HEADER_DUPLICATE");
   const normal = new TextDecoder().decode(bytes([row]));
   assert.throws(() => parseCatalogGovernanceCsv(new TextEncoder().encode(normal.replace(",run,run,", ",=HYPERLINK(x),run,")), "formula.csv"), (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_FORMULA_INVALID");
-  assert.throws(() => parseCatalogGovernanceCsv(new TextEncoder().encode(`${CATALOG_HEADERS.join(",")}\n"broken`), "quote.csv"), (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_QUOTING_INVALID");
+  assert.throws(() => parseCatalogGovernanceCsv(new TextEncoder().encode(`${CATALOG_GOVERNANCE_HEADERS.join(",")}\n"broken`), "quote.csv"), (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_QUOTING_INVALID");
+});
+
+test("governance CSV reports the physical source line after a multiline quoted field", () => {
+  const first = source("CREATE", { definition_zh: "第一行\n第二行" });
+  const valid = catalogRowsToCsv([first], CATALOG_GOVERNANCE_HEADERS);
+  const malformed = `${valid}too,few\r\n`;
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(malformed), "multiline.csv"),
+    (error: unknown) => error instanceof CatalogCsvError
+      && error.code === "CATALOG_CSV_COLUMN_COUNT_INVALID"
+      && error.message.includes("row 4"),
+  );
+});
+
+test("governance CSV quoting errors retain physical source lines", () => {
+  const header = CATALOG_GOVERNANCE_HEADERS.join(",");
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(`${header}\nword,"first\nsecond"x`), "closing.csv"),
+    (error: unknown) => error instanceof CatalogCsvError
+      && error.code === "CATALOG_CSV_QUOTING_INVALID"
+      && error.message.includes("row 3"),
+  );
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(`${header}\nword,"first\nsecond`), "unclosed.csv"),
+    (error: unknown) => error instanceof CatalogCsvError
+      && error.code === "CATALOG_CSV_QUOTING_INVALID"
+      && error.message.includes("row 2"),
+  );
+  assert.throws(
+    () => parseCatalogGovernanceCsv(new TextEncoder().encode(`${header}\n"first\nfield",second,"third\nfourth`), "later-unclosed.csv"),
+    (error: unknown) => error instanceof CatalogCsvError
+      && error.code === "CATALOG_CSV_QUOTING_INVALID"
+      && error.message.includes("row 3"),
+  );
 });
 
 test("preview groups exact duplicate rows but keeps invalid action metadata visible", () => {
@@ -197,6 +232,36 @@ test("UPDATE preview excludes no-op rows and blocks a target with a pending requ
   assert.ok(pending.rows[0]!.errors.includes("UPDATE target already has a pending request"));
 });
 
+test("34-field UPDATE round-trip preserves server-managed provenance", () => {
+  const currentPayload = payload({
+    sourceReference: "school-dictionary-v1",
+    contributorRef: "teacher-123",
+    changeNote: "initial approval note",
+    retirementReason: "historical lifecycle note",
+  });
+  const snapshot: CatalogDatabaseSenseSnapshot = {
+    id: "sense-id",
+    catalogKey: "cat_run",
+    senseKey: "sense_run",
+    status: "ACTIVE",
+    revision: 1,
+    payload: currentPayload,
+  };
+  const untouched = buildCatalogSubmissionPreview([source("UPDATE")], [snapshot]);
+  assert.equal(untouched.rows[0]!.primaryDisposition, "NO_CHANGE");
+  assert.equal(untouched.groups.length, 0);
+
+  const changed = buildCatalogSubmissionPreview(
+    [source("UPDATE", { definition_zh: "奔跑" })],
+    [snapshot],
+  );
+  assert.equal(changed.groups[0]!.finalProposalPayload.definitionZh, "奔跑");
+  assert.equal(changed.groups[0]!.finalProposalPayload.sourceReference, currentPayload.sourceReference);
+  assert.equal(changed.groups[0]!.finalProposalPayload.contributorRef, currentPayload.contributorRef);
+  assert.equal(changed.groups[0]!.finalProposalPayload.changeNote, currentPayload.changeNote);
+  assert.equal(changed.groups[0]!.finalProposalPayload.retirementReason, currentPayload.retirementReason);
+});
+
 test("risk policy treats learning content as material and provenance-only edits as low risk", () => {
   const before = payload();
   assert.equal(classifyCatalogReviewRisk(before, { ...before, sourceReference: "dictionary" }).risk, "LOW_RISK_METADATA");
@@ -207,6 +272,32 @@ test("idempotency keys require canonical UUID spelling", () => {
   assert.equal(isCanonicalUuid("018f1f5a-7b2f-7cc1-8b35-5bb85b29ad31"), true);
   assert.equal(isCanonicalUuid("018F1F5A-7B2F-7CC1-8B35-5BB85B29AD31"), false);
   assert.equal(isCanonicalUuid("not-a-uuid"), false);
+});
+
+test("catalog audit pseudonyms use the stable security audit keyring", () => {
+  const previous = {
+    auditSecret: process.env.SECURITY_AUDIT_HMAC_SECRET,
+    auditKeyId: process.env.SECURITY_AUDIT_HMAC_KEY_ID,
+    nextAuth: process.env.NEXTAUTH_SECRET,
+  };
+  try {
+    process.env.SECURITY_AUDIT_HMAC_SECRET = "stable-catalog-audit-secret-12345678901234567890";
+    process.env.SECURITY_AUDIT_HMAC_KEY_ID = "audit-2026-v2";
+    process.env.NEXTAUTH_SECRET = "jwt-secret-one";
+    const first = catalogActorPseudonym("teacher-123");
+    process.env.NEXTAUTH_SECRET = "jwt-secret-two";
+    const second = catalogActorPseudonym("teacher-123");
+    assert.deepEqual(second, first);
+    assert.equal(first.keyVersion, "audit-2026-v2");
+    assert.match(first.value, /^catalog-actor-v1:[0-9a-f]{64}$/u);
+  } finally {
+    if (previous.auditSecret === undefined) delete process.env.SECURITY_AUDIT_HMAC_SECRET;
+    else process.env.SECURITY_AUDIT_HMAC_SECRET = previous.auditSecret;
+    if (previous.auditKeyId === undefined) delete process.env.SECURITY_AUDIT_HMAC_KEY_ID;
+    else process.env.SECURITY_AUDIT_HMAC_KEY_ID = previous.auditKeyId;
+    if (previous.nextAuth === undefined) delete process.env.NEXTAUTH_SECRET;
+    else process.env.NEXTAUTH_SECRET = previous.nextAuth;
+  }
 });
 
 test("bulk preview proposal group identities are deterministic and group-specific", () => {

@@ -1,4 +1,5 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
+import { auditKeyVersion, hashSecurityAuditValue } from "@/lib/security-events";
 import {
   CATALOG_NORMALIZATION_VERSION,
   CATALOG_SCHEMA_VERSION,
@@ -174,6 +175,26 @@ export function catalogProposalPayload(row: NormalizedCatalogRow): CatalogGovern
   };
 }
 
+/**
+ * Teacher CSV deliberately omits server-managed provenance. UPDATE proposals
+ * therefore inherit those fields from the current revision instead of
+ * interpreting an absent column as a destructive clear.
+ */
+export function catalogSubmissionProposalPayload(
+  row: NormalizedCatalogRow,
+  target: CatalogDatabaseSenseSnapshot | null,
+): CatalogGovernancePayload {
+  const proposed = catalogProposalPayload(row);
+  if (row.requestedAction !== "UPDATE" || !target) return proposed;
+  return {
+    ...proposed,
+    sourceReference: target.payload.sourceReference,
+    contributorRef: target.payload.contributorRef,
+    changeNote: target.payload.changeNote,
+    retirementReason: target.payload.retirementReason,
+  };
+}
+
 function canonicalArray(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
   return [...value].map(String).sort((a, b) => a.localeCompare(b, "en"));
@@ -313,7 +334,7 @@ export function buildCatalogSubmissionPreview(
         if (pendingChanges.some((pending) => pending.senseId === target?.id || pending.senseKey === target?.senseKey)) errors.push("UPDATE target already has a pending request");
       }
     }
-    const proposedPayload = catalogProposalPayload(row);
+    const proposedPayload = catalogSubmissionProposalPayload(row, target);
     const noChange = action === "UPDATE" && Boolean(target) && payloadFingerprint(target!.payload) === payloadFingerprint(proposedPayload);
     return { row, action, errors, warnings: validation.warnings, payload: proposedPayload, noChange };
   });
@@ -458,10 +479,9 @@ export function deterministicSubmissionProposalGroupId(batchId: string, groupNum
 }
 
 export function catalogActorPseudonym(userId: string): { value: string; keyVersion: string } {
-  const secret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? "development-only-catalog-audit-secret";
   return {
-    value: createHmac("sha256", secret).update(`catalog-actor\u0000${userId}`, "utf8").digest("hex"),
-    keyVersion: "catalog-audit-hmac-v1",
+    value: `catalog-actor-v1:${hashSecurityAuditValue(`catalog-actor-v1:${userId}`)}`,
+    keyVersion: auditKeyVersion(),
   };
 }
 

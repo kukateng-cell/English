@@ -84,6 +84,8 @@ jobs:
           CATALOG_REQUIRE_INITIAL_BASELINE=1 npm run check:catalog
           npm run check:catalog-governance
           npm run check:catalog-workspace-pagination
+          npm run check:catalog-immediate-retire
+          npm run check:catalog-submission
 
       - name: Run V2 stream integration and bounded soak
         run: |
@@ -101,6 +103,9 @@ jobs:
 
       - name: Verify student accessibility and fidelity regression
         run: npm run test:e2e:student-qa
+
+      - name: Verify catalog workspace lifecycle and privacy regression
+        run: npm run test:e2e:catalog-workspace
 
   migrate-and-deploy:
     name: Migrate database, then trigger Vercel
@@ -135,7 +140,18 @@ jobs:
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SECURITY_AUDIT_HMAC_SECRET: ${{ secrets.SECURITY_AUDIT_HMAC_SECRET }}
+          SECURITY_AUDIT_HMAC_KEY_ID: ${{ secrets.SECURITY_AUDIT_HMAC_KEY_ID }}
           SECURITY_AUDIT_HASH_SECRET: ${{ secrets.SECURITY_AUDIT_HASH_SECRET }}
+          SECURITY_AUDIT_HASH_KEY_ID: ${{ secrets.SECURITY_AUDIT_HASH_KEY_ID }}
+          TEACHER_RESET_PRECONDITION_KEY_CURRENT: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_CURRENT }}
+          TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID }}
+          TEACHER_RESET_PRECONDITION_KEY_PREVIOUS: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_PREVIOUS }}
+          TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID }}
+          PASSWORD_RESET_PRECONDITION_KEY_CURRENT: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_CURRENT }}
+          PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID }}
+          PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS }}
+          PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID }}
           STUDY_OPERATION_ID_COMPAT_UNTIL: ${{ secrets.STUDY_OPERATION_ID_COMPAT_UNTIL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -145,7 +161,8 @@ jobs:
           test -n "$UPSTASH_REDIS_REST_URL" || { echo "::error::Missing production UPSTASH_REDIS_REST_URL"; exit 1; }
           test -n "$UPSTASH_REDIS_REST_TOKEN" || { echo "::error::Missing production UPSTASH_REDIS_REST_TOKEN"; exit 1; }
           test -n "$CRON_SECRET" || { echo "::error::Missing production CRON_SECRET"; exit 1; }
-          test -n "$SECURITY_AUDIT_HASH_SECRET" || { echo "::error::Missing SECURITY_AUDIT_HASH_SECRET"; exit 1; }
+          test -n "$SECURITY_AUDIT_HMAC_SECRET" || test -n "$SECURITY_AUDIT_HASH_SECRET" || { echo "::error::Missing SECURITY_AUDIT_HMAC_SECRET"; exit 1; }
+          test -n "$SECURITY_AUDIT_HMAC_KEY_ID" || test -n "$SECURITY_AUDIT_HASH_KEY_ID" || { echo "::error::Missing SECURITY_AUDIT_HMAC_KEY_ID"; exit 1; }
           test -n "$VERCEL_TOKEN" || { echo "::error::Missing VERCEL_TOKEN"; exit 1; }
           test -n "$VERCEL_ORG_ID" || { echo "::error::Missing VERCEL_ORG_ID"; exit 1; }
           test -n "$VERCEL_PROJECT_ID" || { echo "::error::Missing VERCEL_PROJECT_ID"; exit 1; }
@@ -159,6 +176,22 @@ jobs:
           npx tsc --noEmit
           npm run build
 
+      - name: Link Vercel project and pull production runtime configuration
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel link --yes --project="$VERCEL_PROJECT_ID" --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN"
+          npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID"
+
+      - name: Verify actual Vercel production runtime configuration
+        env:
+          NODE_ENV: production
+          VERCEL_ENV: production
+          DOTENV_CONFIG_PATH: .vercel/.env.production.local
+        run: node --require dotenv/config --import tsx scripts/check-production-config.ts
+
       - name: Apply production migrations
         env:
           MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
@@ -169,6 +202,4 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          npx vercel link --yes --project="$VERCEL_PROJECT_ID" --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN"
-          npx vercel deploy --prod --yes --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --meta githubCommitSha="$GITHUB_SHA"
+        run: npx vercel deploy --prod --yes --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --meta githubCommitSha="$GITHUB_SHA"

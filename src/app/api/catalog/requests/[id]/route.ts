@@ -125,7 +125,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     if ([
       "CATALOG_NO_ENABLED_DIRECTION", "CATALOG_NOT_READY", "CATALOG_SENSE_NOT_FOUND",
-      "CATALOG_IDENTITY_MISSING", "CATALOG_APPROVED_REVISION_MISSING",
+      "CATALOG_IDENTITY_MISSING", "CATALOG_APPROVED_REVISION_MISSING", "CATALOG_APPROVED_REVISION_NOT_READY",
       "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE", "CATALOG_ENTRY_IDENTITY_CONFLICT",
     ].includes(message)) return response(message, 422);
     console.error("[catalog] review failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });

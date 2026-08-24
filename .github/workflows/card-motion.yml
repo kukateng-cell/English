@@ -13,8 +13,13 @@ on:
       - "src/app/api/study/**"
       - "src/app/api/words/**"
       - "src/app/api/auth/**"
+      - "src/app/api/catalog/**"
       - "src/app/login/**"
+      - "src/app/auth-unavailable/**"
+      - "src/app/admin/**"
+      - "src/app/teacher/**"
       - "src/components/WordCard.tsx"
+      - "src/components/catalog/**"
       - "src/components/study-stream/**"
       - "src/app/test/word-card-motion/**"
       - "src/lib/auth.ts"
@@ -152,6 +157,7 @@ jobs:
           npm run check:catalog-governance
           npm run check:catalog-workspace-pagination
           npm run check:catalog-immediate-retire
+          npm run check:catalog-submission
 
       - name: Run V2 stream integration and bounded soak
         run: |
@@ -169,6 +175,9 @@ jobs:
 
       - name: Verify student accessibility and fidelity regression
         run: npm run test:e2e:student-qa
+
+      - name: Verify catalog workspace lifecycle and privacy regression
+        run: npm run test:e2e:catalog-workspace
 
       - name: Upload Playwright failure artifacts
         if: failure()

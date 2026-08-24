@@ -12,8 +12,12 @@ import {
 import { isRetryableTransactionConflict, waitForTransactionRetry } from "../src/lib/transaction-retry";
 
 dotenv.config({ path: ".env.local", override: true });
-const connectionString = process.env.MIGRATE_URL;
-if (!connectionString) throw new Error("MIGRATE_URL is required.");
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is required.");
+const environment = process.env.DATABASE_ENVIRONMENT;
+if (!environment || environment === "production" || process.env.CONFIRM_DATABASE_ENVIRONMENT !== environment) {
+  throw new Error("check:catalog-immediate-retire requires matching non-production DATABASE_ENVIRONMENT and CONFIRM_DATABASE_ENVIRONMENT");
+}
 
 function createClient() {
   return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -37,6 +41,10 @@ async function runWithTransactionRetry<T>(run: () => Promise<T>): Promise<T> {
 }
 
 async function main() {
+  const metadata = await prisma.databaseMetadata.findUnique({ where: { key: "environment" }, select: { value: true } });
+  if (metadata?.value !== environment) {
+    throw new Error("DatabaseMetadata.environment does not match DATABASE_ENVIRONMENT");
+  }
   let verified = false;
   let rollbackRequestId = "";
   let rollbackSenseId = "";
@@ -67,9 +75,10 @@ async function main() {
         select: {
           id: true,
           senseKey: true,
+          normalizedTerm: true,
           status: true,
           approvedRevisionId: true,
-          approvedRevision: { select: { revision: true } },
+          approvedRevision: true,
           catalogEntry: { select: { catalogKey: true } },
           wordProjection: { select: { id: true } },
         },
@@ -138,6 +147,138 @@ async function main() {
       assert.deepEqual(decidedRequest, { status: "APPROVED", proposerId: actor.id, reviewerId: actor.id, reviewNote: reason });
       assert.deepEqual(retiredAudit, { actorUserId: actor.id, toStatus: "RETIRED" });
       assert.deepEqual(history, { sourceKind: "STANDALONE_REQUEST" });
+
+      const reactivateOperationId = randomUUID();
+      const reactivateRequest = await tx.catalogChangeRequest.create({
+        data: {
+          operationId: reactivateOperationId,
+          requestFingerprint: `reactivate-validation-check:${reactivateOperationId}`,
+          kind: "REACTIVATE",
+          catalogKey: sense.catalogEntry.catalogKey,
+          senseKey: sense.senseKey,
+          senseId: sense.id,
+          proposerId: unauthorizedTeacher.id,
+          baseRevision: sense.approvedRevision.revision,
+          baseStatus: "RETIRED",
+          payload: {},
+          reason: "本機重新啟用現行規則回歸檢查",
+        },
+        select: { id: true, revision: true },
+      });
+
+      await tx.wordSenseRevision.update({
+        where: { id: sense.approvedRevisionId },
+        data: { category: "__invalid_reactivation_category__" },
+      });
+      await assert.rejects(
+        () => reviewCatalogChange(tx, {
+          requestId: reactivateRequest.id,
+          reviewerId: actor.id,
+          expectedRevision: reactivateRequest.revision,
+          decision: "APPROVE",
+          reviewNote: "invalid taxonomy must block reactivation",
+          batchMode: false,
+        }),
+        /CATALOG_PAYLOAD_REJECTED/,
+      );
+      await tx.wordSenseRevision.update({
+        where: { id: sense.approvedRevisionId },
+        data: { category: sense.approvedRevision.category, enableEnToZh: false, enableZhToEn: false },
+      });
+      await assert.rejects(
+        () => reviewCatalogChange(tx, {
+          requestId: reactivateRequest.id,
+          reviewerId: actor.id,
+          expectedRevision: reactivateRequest.revision,
+          decision: "APPROVE",
+          reviewNote: "disabled directions must block reactivation",
+          batchMode: false,
+        }),
+        /CATALOG_NO_ENABLED_DIRECTION/,
+      );
+      await tx.wordSenseRevision.update({
+        where: { id: sense.approvedRevisionId },
+        data: {
+          enableEnToZh: sense.approvedRevision.enableEnToZh,
+          enableZhToEn: sense.approvedRevision.enableZhToEn,
+        },
+      });
+
+      const duplicateCandidate = await tx.wordSense.findFirst({
+        where: {
+          id: { not: sense.id },
+          status: "ACTIVE",
+          approvedRevisionId: { not: null },
+        },
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          normalizedTerm: true,
+          approvedRevisionId: true,
+          approvedRevision: {
+            select: {
+              term: true,
+              lemma: true,
+              definitionZh: true,
+              acceptedAnswersZh: true,
+              acceptedFormsEn: true,
+              synonymsEn: true,
+              antonymsEn: true,
+              pos: true,
+            },
+          },
+        },
+      });
+      if (!duplicateCandidate?.approvedRevisionId || !duplicateCandidate.approvedRevision) {
+        throw new Error("No duplicate candidate exists for REACTIVATE validation.");
+      }
+      await tx.wordSense.update({
+        where: { id: duplicateCandidate.id },
+        data: { normalizedTerm: sense.normalizedTerm },
+      });
+      await tx.wordSenseRevision.update({
+        where: { id: duplicateCandidate.approvedRevisionId },
+        data: {
+          term: sense.approvedRevision.term,
+          lemma: sense.approvedRevision.lemma,
+          definitionZh: sense.approvedRevision.definitionZh,
+          acceptedAnswersZh: sense.approvedRevision.acceptedAnswersZh,
+          acceptedFormsEn: sense.approvedRevision.acceptedFormsEn,
+          synonymsEn: sense.approvedRevision.synonymsEn,
+          antonymsEn: sense.approvedRevision.antonymsEn,
+          pos: sense.approvedRevision.pos,
+        },
+      });
+      await assert.rejects(
+        () => reviewCatalogChange(tx, {
+          requestId: reactivateRequest.id,
+          reviewerId: actor.id,
+          expectedRevision: reactivateRequest.revision,
+          decision: "APPROVE",
+          reviewNote: "duplicate sense must block reactivation",
+          batchMode: false,
+        }),
+        /CATALOG_ALREADY_EXISTS/,
+      );
+      await tx.wordSense.update({
+        where: { id: duplicateCandidate.id },
+        data: { normalizedTerm: duplicateCandidate.normalizedTerm },
+      });
+      await tx.wordSenseRevision.update({
+        where: { id: duplicateCandidate.approvedRevisionId },
+        data: duplicateCandidate.approvedRevision,
+      });
+
+      const reactivated = await reviewCatalogChange(tx, {
+        requestId: reactivateRequest.id,
+        reviewerId: actor.id,
+        expectedRevision: reactivateRequest.revision,
+        decision: "APPROVE",
+        reviewNote: "current reactivation checks passed",
+        batchMode: false,
+      });
+      assert.equal(reactivated.request.status, "APPROVED");
+      assert.equal((await tx.wordSense.findUniqueOrThrow({ where: { id: sense.id }, select: { status: true } })).status, "ACTIVE");
 
       const replay = await reviewCatalogChange(tx, {
         requestId: request.id,
@@ -347,7 +488,6 @@ async function main() {
       await tx.catalogAuditEvent.deleteMany({ where: { requestId: { in: cleanupRequestIds } } });
       await tx.catalogChangeRequest.deleteMany({ where: { id: { in: cleanupRequestIds } } });
       await tx.wordSense.update({ where: { id: raceSense.id }, data: { status: "ACTIVE" } });
-      await tx.catalogMutationState.update({ where: { id: 1 }, data: { revision: raceMutationRevision.revision } });
     });
   }
   assert.equal(await prisma.catalogChangeRequest.count({ where: { id: raceRequest.id } }), 0);
@@ -357,9 +497,8 @@ async function main() {
     await prisma.wordSense.findUniqueOrThrow({ where: { id: raceSense.id }, select: { status: true, approvedRevisionId: true, wordProjection: { select: { id: true } } } }),
     { status: "ACTIVE", approvedRevisionId: raceSense.approvedRevisionId, wordProjection: raceSense.wordProjection },
   );
-  assert.equal((await prisma.catalogMutationState.findUniqueOrThrow({ where: { id: 1 }, select: { revision: true } })).revision, raceMutationRevision.revision);
+  assert.ok((await prisma.catalogMutationState.findUniqueOrThrow({ where: { id: 1 }, select: { revision: true } })).revision >= raceMutationRevision.revision + 1);
 
-  const oppositeMutationRevision = raceMutationRevision.revision;
   const oppositeOperationId = randomUUID();
   const oppositeRequest = await prisma.catalogChangeRequest.create({
     data: {
@@ -420,7 +559,6 @@ async function main() {
       await tx.catalogAuditEvent.deleteMany({ where: { requestId: oppositeRequest.id } });
       await tx.catalogChangeRequest.deleteMany({ where: { id: oppositeRequest.id } });
       await tx.wordSense.update({ where: { id: raceSense.id }, data: { status: "ACTIVE" } });
-      await tx.catalogMutationState.update({ where: { id: 1 }, data: { revision: oppositeMutationRevision } });
     });
   }
   assert.equal(await prisma.catalogChangeRequest.count({ where: { id: oppositeRequest.id } }), 0);
@@ -432,6 +570,7 @@ async function main() {
     "reviewer authority rechecked inside transaction",
     "authorized immediate RETIRE reaches APPROVED and RETIRED atomically",
     "approved revision, projection, history and audit are preserved",
+    "REACTIVATE re-runs current taxonomy, enabled-direction and duplicate-sense checks before restoring ACTIVE",
     "a later competing decision replays the first terminal result",
     "rollback is re-read outside the transaction with zero request, audit or history residue",
     "two independent reviewers race ordinary approval against immediate retirement without deadlock or duplicate retirement audit",

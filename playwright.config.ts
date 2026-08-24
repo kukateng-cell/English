@@ -112,6 +112,11 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "catalog-workspace",
+      testMatch: /catalog-workspace\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "locale-chromium",
       testMatch: /locale\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },

@@ -221,12 +221,20 @@ function csvRecords(text: string): string[][] {
   return records;
 }
 
-function strictCsvRecords(text: string, sourceFile: string): string[][] {
-  const records: string[][] = [];
+type StrictCsvRecord = {
+  values: string[];
+  sourceLine: number;
+};
+
+function strictCsvRecords(text: string, sourceFile: string): StrictCsvRecord[] {
+  const records: StrictCsvRecord[] = [];
   let record: string[] = [];
   let field = "";
   let quoted = false;
   let closedQuote = false;
+  let physicalLine = 1;
+  let recordSourceLine = 1;
+  let quoteSourceLine = 1;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -241,6 +249,7 @@ function strictCsvRecords(text: string, sourceFile: string): string[][] {
         }
       } else {
         field += char;
+        if (char === "\n") physicalLine += 1;
       }
       continue;
     }
@@ -251,34 +260,39 @@ function strictCsvRecords(text: string, sourceFile: string): string[][] {
         closedQuote = false;
       } else if (char === "\n") {
         record.push(field.replace(/\r$/u, ""));
-        records.push(record);
+        records.push({ values: record, sourceLine: recordSourceLine });
         record = [];
         field = "";
         closedQuote = false;
+        physicalLine += 1;
+        recordSourceLine = physicalLine;
       } else if (char !== "\r") {
-        throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: unexpected character after closing quote`);
+        throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: unexpected character after closing quote on row ${physicalLine}`);
       }
       continue;
     }
     if (char === '"') {
-      if (field.length > 0) throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: quote inside an unquoted field`);
+      if (field.length > 0) throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: quote inside an unquoted field on row ${physicalLine}`);
       quoted = true;
+      quoteSourceLine = physicalLine;
     } else if (char === ",") {
       record.push(field);
       field = "";
     } else if (char === "\n") {
       record.push(field.replace(/\r$/u, ""));
-      records.push(record);
+      records.push({ values: record, sourceLine: recordSourceLine });
       record = [];
       field = "";
+      physicalLine += 1;
+      recordSourceLine = physicalLine;
     } else {
       field += char;
     }
   }
-  if (quoted) throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: unclosed quoted field`);
+  if (quoted) throw new CatalogCsvError("CATALOG_CSV_QUOTING_INVALID", `${sourceFile}: unclosed quoted field opened on row ${quoteSourceLine}`);
   if (field.length > 0 || record.length > 0 || closedQuote) {
     record.push(field.replace(/\r$/u, ""));
-    records.push(record);
+    records.push({ values: record, sourceLine: recordSourceLine });
   }
   return records;
 }
@@ -358,19 +372,23 @@ function dangerousFormula(value: string): boolean {
 /** Strict, header-name based parser for teacher governance uploads. */
 export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string): CatalogSourceRow[] {
   const records = strictCsvRecords(governanceText(bytes, sourceFile), sourceFile);
-  const header = records[0]?.map((value) => clean(value));
+  const header = records[0]?.values.map((value) => clean(value));
   if (!header?.length) throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: CSV header is required`);
   if (new Set(header).size !== header.length) {
     throw new CatalogCsvError("CATALOG_CSV_HEADER_DUPLICATE", `${sourceFile}: duplicate header`);
   }
-  const allowed = new Set<string>(CATALOG_HEADERS);
-  if (header.some((value) => !allowed.has(value)) || CATALOG_GOVERNANCE_HEADERS.some((value) => !header.includes(value))) {
-    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: header names must match word-catalog-v1`);
+  const allowed = new Set<string>(CATALOG_GOVERNANCE_HEADERS);
+  if (
+    header.length !== CATALOG_GOVERNANCE_HEADERS.length
+    || header.some((value) => !allowed.has(value))
+    || CATALOG_GOVERNANCE_HEADERS.some((value) => !header.includes(value))
+  ) {
+    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: header names must match the 34-field teacher word-catalog-v1 format`);
   }
-  const rows = records.slice(1).flatMap((values, index) => {
+  const rows = records.slice(1).flatMap(({ values, sourceLine }) => {
     if (values.length === 1 && clean(values[0]) === "") return [];
     if (values.length !== header.length) {
-      throw new CatalogCsvError("CATALOG_CSV_COLUMN_COUNT_INVALID", `${sourceFile}: row ${index + 2} has ${values.length} columns; expected ${header.length}`);
+      throw new CatalogCsvError("CATALOG_CSV_COLUMN_COUNT_INVALID", `${sourceFile}: row ${sourceLine} has ${values.length} columns; expected ${header.length}`);
     }
     const record = Object.assign(
       Object.fromEntries(CATALOG_HEADERS.map((key) => [key, ""])),
@@ -378,10 +396,10 @@ export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string)
     ) as unknown as CatalogSourceRow;
     for (const key of CATALOG_HEADERS) {
       if (dangerousFormula(record[key])) {
-        throw new CatalogCsvError("CATALOG_CSV_FORMULA_INVALID", `${sourceFile}: row ${index + 2} field ${key} begins with a spreadsheet formula marker`);
+        throw new CatalogCsvError("CATALOG_CSV_FORMULA_INVALID", `${sourceFile}: row ${sourceLine} field ${key} begins with a spreadsheet formula marker`);
       }
     }
-    return [{ ...record, sourceFile, sourceRow: index + 2 }];
+    return [{ ...record, sourceFile, sourceRow: sourceLine }];
   });
   if (rows.length === 0) throw new CatalogCsvError("CATALOG_CSV_EMPTY", `${sourceFile}: CSV has no data rows`);
   if (rows.length > CATALOG_GOVERNANCE_MAX_ROWS) {

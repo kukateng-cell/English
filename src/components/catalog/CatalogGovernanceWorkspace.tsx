@@ -12,6 +12,7 @@ import CatalogHistoryWorkspace from "@/components/catalog/CatalogHistoryWorkspac
 
 type CatalogStatus = "DRAFT" | "ACTIVE" | "RETIRED";
 type FilterStatus = "ALL" | CatalogStatus | "BLOCKED" | "VALIDATION_FAILED" | "PENDING";
+type RestrictedPendingRequest = { restricted: true; kind: string; status: string };
 type CatalogPayload = {
   term: string;
   lemma: string;
@@ -58,7 +59,7 @@ type CatalogRow = {
   eligibilityResult: string | null;
   validationErrors: string[];
   validationWarnings: string[];
-  pendingRequest: { id: string; kind: string; status: string; proposerId: string; baseRevision: number | null; createdAt: string } | null;
+  pendingRequest: RestrictedPendingRequest | { restricted?: false; id: string; kind: string; status: string; proposerId: string; baseRevision: number | null; createdAt: string } | null;
   hasSense: boolean;
 };
 type Detail = {
@@ -76,7 +77,7 @@ type Detail = {
   hasSense: boolean;
   issues: { errors?: string[]; warnings?: string[] } | null;
   payload: CatalogPayload | null;
-  pendingRequest: { id: string; kind: string; status: string; revision: number; payload: CatalogPayload; reason: string | null; proposerId: string; createdAt: string } | null;
+  pendingRequest: RestrictedPendingRequest | { restricted?: false; id: string; kind: string; status: string; revision: number; payload: CatalogPayload; reason: string | null; proposerId: string; createdAt: string } | null;
 };
 type PendingRequest = {
   id: string;
@@ -144,6 +145,14 @@ function parseList(value: string) {
 
 function listText(value: readonly string[] | null | undefined) {
   return (value ?? []).join(" | ");
+}
+
+function visiblePendingRequestId(value: Detail["pendingRequest"]): string | null {
+  return value && "id" in value ? value.id : null;
+}
+
+function visiblePendingRequestPayload(value: Detail["pendingRequest"]): CatalogPayload | null {
+  return value && "payload" in value ? value.payload : null;
 }
 
 function normalizeCatalogPayload(value: unknown, fallback: CatalogPayload = EMPTY_PAYLOAD): CatalogPayload {
@@ -397,8 +406,8 @@ function CatalogOverviewWorkspace({
   }, [catalogQueryKey, catalogUrl, loadCatalog, loadingMore, nextCursor, tc]);
 
   useEffect(() => {
-    selectedPendingRequestIdRef.current = selected?.pendingRequest?.id ?? null;
-  }, [selected?.pendingRequest?.id]);
+    selectedPendingRequestIdRef.current = visiblePendingRequestId(selected?.pendingRequest ?? null);
+  }, [selected?.pendingRequest]);
 
   const refreshPending = useCallback(async () => {
     if (!canReview || saving || pendingRefreshInFlightRef.current || document.visibilityState === "hidden" || Date.now() < pendingBackoffUntilRef.current) return;
@@ -428,7 +437,7 @@ function CatalogOverviewWorkspace({
       if (!loaded?.pending || !previouslySelectedRequestId) return;
       const pendingIds = new Set(loaded.pending.map((request) => request.id));
       if (!pendingIds.has(previouslySelectedRequestId)) {
-        setSelected((current) => current?.pendingRequest?.id === previouslySelectedRequestId ? null : current);
+        setSelected((current) => visiblePendingRequestId(current?.pendingRequest ?? null) === previouslySelectedRequestId ? null : current);
         setMessage(tc("这项申请已经处理，画面已更新。"));
       }
     } finally {
@@ -489,11 +498,11 @@ function CatalogOverviewWorkspace({
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const detail = await response.json() as Detail;
       const currentPayload = detail.payload ? normalizeCatalogPayload(detail.payload) : null;
-      const pendingRequest = detail.pendingRequest
+      const pendingRequest = detail.pendingRequest && "payload" in detail.pendingRequest
         ? { ...detail.pendingRequest, payload: normalizeCatalogPayload(detail.pendingRequest.payload, currentPayload ?? EMPTY_PAYLOAD) }
-        : null;
+        : detail.pendingRequest;
       setSelected({ ...detail, payload: currentPayload, pendingRequest });
-      setForm(pendingRequest?.payload ?? currentPayload ?? EMPTY_PAYLOAD);
+      setForm(visiblePendingRequestPayload(pendingRequest) ?? currentPayload ?? EMPTY_PAYLOAD);
       setReason("");
       setReviewNote("");
     } catch (cause) {
@@ -507,7 +516,7 @@ function CatalogOverviewWorkspace({
 
   function openSelectedHistory() {
     if (!selected?.senseKey) return;
-    const savedPayload = selected.pendingRequest?.payload ?? selected.payload ?? EMPTY_PAYLOAD;
+    const savedPayload = visiblePendingRequestPayload(selected.pendingRequest) ?? selected.payload ?? EMPTY_PAYLOAD;
     const hasUnsavedInput = JSON.stringify(form) !== JSON.stringify(savedPayload)
       || reason.trim().length > 0
       || reviewNote.trim().length > 0;
@@ -525,22 +534,22 @@ function CatalogOverviewWorkspace({
     if (!selected || !selected.senseKey) return;
     const immediate = kind === "RETIRE" && canReview;
     const trimmedReason = reason.trim();
-    if (kind === "RETIRE" && trimmedReason.length < 3) {
-      setError(tc("停用词义前必须填写至少三个字的理由。"));
+    if ((kind === "RETIRE" || kind === "REACTIVATE") && trimmedReason.length < 3) {
+      setError(tc("停用或重新啟用詞義前必須填寫至少三個字的理由。"));
       return;
     }
     if (trimmedReason.length > 2000) {
-      setError(tc("修改或停用理由不可超过 2,000 字。"));
+      setError(tc("修改、停用或重新啟用理由不可超過 2,000 字。"));
       return;
     }
-    if (immediate && selected.revision === null) {
-      setError(tc("词义版本已经改变，请重新载入后再停用。"));
+    if (kind !== "CREATE" && selected.revision === null) {
+      setError(tc("詞義版本已經改變，請重新載入後再操作。"));
       return;
     }
     if (immediate && !window.confirm(tc("这个词义会立即停止出现在新学习题目；学生历史会保留。确定停用？"))) return;
     setSaving(true); setError(null); setMessage(null);
     try {
-      const response = await rosterFetch("/api/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId: window.crypto.randomUUID(), kind, senseKey: selected.senseKey, sourceRowId: selected.sourceFile && selected.sourceFile !== "governance" ? selected.id : undefined, expectedRevision: selected.revision, payload: kind === "UPDATE" || kind === "CREATE" ? form : undefined, reason: trimmedReason || undefined, immediate }) });
+      const response = await rosterFetch("/api/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId: window.crypto.randomUUID(), kind, senseKey: selected.senseKey, sourceRowId: selected.sourceFile && selected.sourceFile !== "governance" ? selected.id : undefined, expectedRevision: kind === "CREATE" ? undefined : selected.revision, payload: kind === "UPDATE" || kind === "CREATE" ? form : undefined, reason: trimmedReason || undefined, immediate }) });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const result = await response.json() as { status: string; immediate?: boolean };
       setMessage(result.immediate && result.status === "APPROVED"
@@ -592,7 +601,7 @@ function CatalogOverviewWorkspace({
   async function reviewRequest(request: PendingRequest, decision: "APPROVE" | "REJECT") {
     setSaving(true); setError(null); setMessage(null);
     try {
-      const note = reviewNotes[request.id] ?? (selected?.pendingRequest?.id === request.id ? reviewNote : "");
+      const note = reviewNotes[request.id] ?? (visiblePendingRequestId(selected?.pendingRequest ?? null) === request.id ? reviewNote : "");
       const response = await rosterFetch(`/api/catalog/requests/${encodeURIComponent(request.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, expectedRevision: request.revision, reviewNote: note.trim() }) });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const result = await response.json() as ReviewMutationResult;
@@ -609,7 +618,7 @@ function CatalogOverviewWorkspace({
       setReviewNote("");
       setReviewNotes((current) => { const next = { ...current }; delete next[request.id]; return next; });
       await loadCatalog();
-      if (selected?.pendingRequest?.id === request.id) setSelected(null);
+      if (visiblePendingRequestId(selected?.pendingRequest ?? null) === request.id) setSelected(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc("審核詞庫修改失敗"));
     } finally { setSaving(false); }

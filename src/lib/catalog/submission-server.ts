@@ -34,6 +34,10 @@ import {
 } from "./governance";
 import { bumpCatalogMutationState, reviewCatalogChange } from "./change-application";
 import {
+  catalogReviewerHasAuthorityInTransaction,
+  requireCatalogReviewerInTransaction,
+} from "./access";
+import {
   CATALOG_SUBMISSION_PATCH_VERSION,
   type CatalogSubmissionBatchPatch,
 } from "./submission-patch";
@@ -586,8 +590,10 @@ export async function resolveCatalogSubmissionGroup(input: {
     if (!batch) throw new Error("CATALOG_BATCH_NOT_FOUND");
     if (!PREVIEW_STATUSES.includes(batch.status as (typeof PREVIEW_STATUSES)[number])) throw new Error("CATALOG_BATCH_NOT_EDITABLE");
     if (batch.revision !== input.expectedBatchRevision) throw new Error("CATALOG_BATCH_STALE");
+    const actingAsReviewer = batch.proposerId !== input.actorId;
+    if (actingAsReviewer) await requireCatalogReviewerInTransaction(tx, input.actorId);
     if (batch.resolutionOwnerId && batch.resolutionOwnerId !== input.actorId) throw new Error("CATALOG_BATCH_ALREADY_CLAIMED");
-    if (batch.proposerId !== input.actorId && !(input.canReview && (batch.resolutionOwnerId === input.actorId || batch.reviewerId === input.actorId))) throw new Error("CATALOG_BATCH_FORBIDDEN");
+    if (actingAsReviewer && batch.resolutionOwnerId !== input.actorId && batch.reviewerId !== input.actorId) throw new Error("CATALOG_BATCH_FORBIDDEN");
     const group = await tx.catalogSubmissionProposalGroup.findFirst({
       where: { id: input.groupId, batchId: batch.id },
       include: { sourceRows: { select: { rowNumber: true, rowDigest: true, normalizedSourcePayload: true } } },
@@ -682,7 +688,7 @@ export async function resolveCatalogSubmissionGroup(input: {
     return readBatchMutationPatch(tx, {
       batchId: batch.id,
       baseRevision: input.expectedBatchRevision,
-      visibility: input.canReview ? "REVIEWER" : "OWNER",
+      visibility: actingAsReviewer ? "REVIEWER" : "OWNER",
       group: { id: group.id, baseRevision: input.expectedGroupRevision },
     });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
@@ -690,16 +696,32 @@ export async function resolveCatalogSubmissionGroup(input: {
 
 export async function claimCatalogSubmissionBatch(input: { batchId: string; actorId: string; expectedRevision: number; release: boolean }) {
   return prisma.$transaction(async (tx) => {
+    await requireCatalogReviewerInTransaction(tx, input.actorId);
     const batch = await tx.catalogSubmissionBatch.findUnique({ where: { id: input.batchId } });
     if (!batch) throw new Error("CATALOG_BATCH_NOT_FOUND");
     if (!CLAIMABLE_STATUSES.includes(batch.status as (typeof CLAIMABLE_STATUSES)[number])) throw new Error("CATALOG_BATCH_NOT_REVIEWABLE");
     if (batch.revision !== input.expectedRevision) throw new Error("CATALOG_BATCH_STALE");
     if (batch.proposerId === input.actorId) throw new Error("CATALOG_SELF_REVIEW_FORBIDDEN");
     const resolutionMode = batch.status === "NEEDS_RESOLUTION";
+    const actorAuthoredProposal = !resolutionMode && Boolean(await tx.catalogSubmissionProposalAuthor.findFirst({
+      where: { actorUserId: input.actorId, proposalGroup: { batchId: batch.id } },
+      select: { id: true },
+    }));
+    if (actorAuthoredProposal) throw new Error("CATALOG_SELF_REVIEW_FORBIDDEN");
     const currentOwner = resolutionMode ? batch.resolutionOwnerId : batch.reviewerId;
+    const currentOwnerHasConflict = !resolutionMode && Boolean(currentOwner) && (
+      batch.proposerId === currentOwner
+      || Boolean(await tx.catalogSubmissionProposalAuthor.findFirst({
+        where: { actorUserId: currentOwner!, proposalGroup: { batchId: batch.id } },
+        select: { id: true },
+      }))
+    );
+    const invalidOwnerCanBeReplaced = !input.release
+      && Boolean(currentOwner && currentOwner !== input.actorId)
+      && (currentOwnerHasConflict || !await catalogReviewerHasAuthorityInTransaction(tx, currentOwner!));
     if (input.release) {
       if (currentOwner !== input.actorId) throw new Error("CATALOG_REVIEW_CLAIM_FORBIDDEN");
-    } else if (currentOwner && currentOwner !== input.actorId) {
+    } else if (currentOwner && currentOwner !== input.actorId && !invalidOwnerCanBeReplaced) {
       throw new Error("CATALOG_BATCH_ALREADY_CLAIMED");
     }
     await tx.catalogSubmissionBatch.update({
@@ -710,7 +732,12 @@ export async function claimCatalogSubmissionBatch(input: { batchId: string; acto
         status: input.release || resolutionMode ? batch.status : batch.status === "SUBMITTED" ? "REVIEWING" : batch.status,
       },
     });
-    await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: resolutionMode ? input.release ? "RESOLUTION_RELEASED" : "RESOLUTION_CLAIMED" : input.release ? "REVIEW_RELEASED" : "REVIEW_CLAIMED" } });
+    await tx.catalogAuditEvent.create({ data: {
+      actorUserId: input.actorId,
+      submissionBatchId: batch.id,
+      action: resolutionMode ? input.release ? "RESOLUTION_RELEASED" : "RESOLUTION_CLAIMED" : input.release ? "REVIEW_RELEASED" : "REVIEW_CLAIMED",
+      metadata: invalidOwnerCanBeReplaced ? { replacedInvalidClaim: true } : undefined,
+    } });
     return readBatchMutationPatch(tx, {
       batchId: batch.id,
       baseRevision: input.expectedRevision,
@@ -838,6 +865,7 @@ export async function reviewCatalogSubmissionGroup(input: {
   acknowledgedPayloadDigest?: string;
 }) {
   return prisma.$transaction(async (tx) => {
+    await requireCatalogReviewerInTransaction(tx, input.actorId);
     const batch = await tx.catalogSubmissionBatch.findUnique({ where: { id: input.batchId } });
     if (!batch) throw new Error("CATALOG_BATCH_NOT_FOUND");
     if (!REVIEW_STATUSES.includes(batch.status as (typeof REVIEW_STATUSES)[number])) throw new Error("CATALOG_BATCH_NOT_REVIEWABLE");
@@ -882,6 +910,7 @@ export async function requestCatalogSubmissionResolution(input: {
 }) {
   if (input.reason.trim().length < 3 || input.reason.length > 1000) throw new Error("CATALOG_RESOLUTION_REASON_REQUIRED");
   return prisma.$transaction(async (tx) => {
+    await requireCatalogReviewerInTransaction(tx, input.actorId);
     await tx.$queryRaw`SELECT "id" FROM "CatalogSubmissionBatch" WHERE "id" = ${input.batchId} FOR UPDATE`;
     const batch = await tx.catalogSubmissionBatch.findUnique({ where: { id: input.batchId }, include: { proposalGroups: { include: { changeRequest: true } } } });
     if (!batch) throw new Error("CATALOG_BATCH_NOT_FOUND");
@@ -911,6 +940,7 @@ export async function transferCatalogSubmissionClaim(input: {
   expectedRevision: number;
 }) {
   return prisma.$transaction(async (tx) => {
+    await requireCatalogReviewerInTransaction(tx, input.actorId);
     const batch = await tx.catalogSubmissionBatch.findUnique({ where: { id: input.batchId }, include: { proposalGroups: { include: { authors: true } } } });
     if (!batch) throw new Error("CATALOG_BATCH_NOT_FOUND");
     if (!CLAIMABLE_STATUSES.includes(batch.status as (typeof CLAIMABLE_STATUSES)[number])) throw new Error("CATALOG_BATCH_NOT_REVIEWABLE");
@@ -918,8 +948,7 @@ export async function transferCatalogSubmissionClaim(input: {
     const resolutionMode = batch.status === "NEEDS_RESOLUTION";
     if ((resolutionMode ? batch.resolutionOwnerId : batch.reviewerId) !== input.actorId) throw new Error("CATALOG_REVIEW_CLAIM_FORBIDDEN");
     if (batch.proposerId === input.nextReviewerId || batch.proposalGroups.some((group) => group.authors.some((author) => author.actorUserId === input.nextReviewerId))) throw new Error("CATALOG_SELF_REVIEW_FORBIDDEN");
-    const next = await tx.user.findUnique({ where: { id: input.nextReviewerId }, include: { teacherProfile: true } });
-    if (!next || next.status !== "ACTIVE" || (next.role !== "ADMIN" && (next.role !== "TEACHER" || !next.teacherProfile?.canManageWordCatalog))) throw new Error("CATALOG_REVIEW_FORBIDDEN");
+    if (!await catalogReviewerHasAuthorityInTransaction(tx, input.nextReviewerId)) throw new Error("CATALOG_REVIEW_FORBIDDEN");
     await tx.catalogSubmissionBatch.update({ where: { id: batch.id, revision: input.expectedRevision }, data: { ...(resolutionMode ? { resolutionOwnerId: input.nextReviewerId } : { reviewerId: input.nextReviewerId }), revision: { increment: 1 } } });
     await tx.catalogAuditEvent.create({ data: { actorUserId: input.actorId, submissionBatchId: batch.id, action: "REVIEW_CLAIM_TRANSFERRED", metadata: { nextReviewerId: input.nextReviewerId } } });
     return readBatchMutationPatch(tx, {

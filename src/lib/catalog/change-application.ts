@@ -62,7 +62,11 @@ const requestInclude = {
     include: {
       catalogEntry: true,
       revisions: { orderBy: { revision: "desc" as const }, take: 1 },
-      approvedRevision: true,
+      approvedRevision: {
+        include: {
+          catalogRevision: { select: { status: true } },
+        },
+      },
     },
   },
   sourceImportRow: true,
@@ -225,15 +229,25 @@ export async function validateAndPlanCatalogChange(
     sourceRow: request.sourceImportRow?.sourceRow ?? 0,
   };
   if (!identity.catalogKey || !identity.senseKey) throw new Error("CATALOG_IDENTITY_MISSING");
-  if (request.kind === "RETIRE" || request.kind === "REACTIVATE") {
+  if (request.kind === "RETIRE") {
     return { request, payload: null, latestRevision: latest, catalogRevisionId: catalogRevision.id, identity, validationWarnings: [] };
   }
 
   let payload: CatalogGovernancePayload;
-  try {
-    payload = parseCatalogGovernancePayload(request.payload);
-  } catch (error) {
-    throw new Error(`CATALOG_PAYLOAD_REJECTED:${error instanceof Error ? error.message : "invalid payload"}`);
+  if (request.kind === "REACTIVATE") {
+    if (!request.sense || request.sense.status !== "RETIRED" || !request.sense.approvedRevision) {
+      throw new Error("CATALOG_NOT_RETIRED");
+    }
+    if (request.sense.approvedRevision.catalogRevision?.status !== "READY") {
+      throw new Error("CATALOG_APPROVED_REVISION_NOT_READY");
+    }
+    payload = payloadFromRevision(request.sense.approvedRevision);
+  } else {
+    try {
+      payload = parseCatalogGovernancePayload(request.payload);
+    } catch (error) {
+      throw new Error(`CATALOG_PAYLOAD_REJECTED:${error instanceof Error ? error.message : "invalid payload"}`);
+    }
   }
   if (request.kind === "UPDATE" && request.sense && !catalogEntryAcceptsLemma(request.sense.catalogEntry.normalizedLemma, payload.lemma)) {
     throw new Error("CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE");
@@ -263,6 +277,22 @@ export async function validateAndPlanCatalogChange(
   const validation = validateCatalogGovernancePayload(payload, identity, (latest?.revision ?? 0) + 1, siblingRows);
   if (validation.errors.length) throw new Error(`CATALOG_PAYLOAD_REJECTED:${JSON.stringify(validation.errors)}`);
   if (!payload.enableEnToZh && !payload.enableZhToEn) throw new Error("CATALOG_NO_ENABLED_DIRECTION");
+  if (request.kind === "REACTIVATE") {
+    const duplicateCandidates = await tx.wordSense.findMany({
+      where: {
+        status: "ACTIVE",
+        senseKey: { not: request.sense!.senseKey },
+        OR: [
+          { normalizedTerm: normalizeCatalogText(payload.term) },
+          { catalogEntry: { normalizedLemma: normalizeCatalogText(payload.lemma) } },
+        ],
+      },
+      include: { approvedRevision: true, revisions: { orderBy: { revision: "desc" }, take: 1 } },
+    });
+    if (duplicateCandidates.some((candidate) => sameSense(payload, candidate.approvedRevision ?? candidate.revisions[0]))) {
+      throw new Error("CATALOG_ALREADY_EXISTS");
+    }
+  }
   if (request.kind === "CREATE") {
     const pendingCreates = await tx.catalogChangeRequest.findMany({
       where: { status: "PENDING", kind: "CREATE", id: { not: requestId } },

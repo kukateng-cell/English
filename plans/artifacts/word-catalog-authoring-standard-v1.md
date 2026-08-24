@@ -107,14 +107,14 @@ B1 `run = 經營`。
 
 日常治理 template 由工作區下載；UPDATE 必須先在工作區選取現有 `sense_key` 再匯出，不能抄另一行或自行編 key。Launch 每檔最多
 200 個 data rows、4 MiB，嚴格 UTF-8，可有一個檔首 BOM。老師工作區下載／匯出使用 34 欄乾淨 view；欄名按名稱解析，所以次序可
-調整，但 34 欄必須各出現一次，不能有未知或重複欄。為兼容已產生嘅舊檔，governance upload 仍接受完整 39 欄版本；省略嘅五個
-compatibility 欄一律按空值處理。空檔、broken quoting、NUL／control character、embedded BOM 及公式開頭會在 preview 前拒絕。
+調整，但34欄必須各出現一次，不能有未知或重複欄。普通governance upload只接受精確34欄；完整39欄只可交由受控bootstrap／migration
+工具處理，老師endpoint固定拒絕。空檔、broken quoting、NUL／control character、embedded BOM及公式開頭會在preview前拒絕。
 
 治理上載只支援 `CREATE`／`UPDATE`；停用與重新啟用繼續使用逐條工作流。CSV 缺行永遠不代表停用。相同內容 UPDATE 會標示
 `NO_CHANGE` 並排除；已有待審申請、stale revision、identity 衝突或 validation error 會阻擋提交。Preview 不會改 `WordSense`、
 approved revision 或學生 runtime；整批提交及最後套用各自保持原子性，批次內批准／拒絕決定及歷史永久保存。
 
-### 4.2 完整 39 欄 compatibility 次序
+### 4.2 完整39欄bootstrap次序
 
 ```text
 schema_version,requested_action,catalog_key,sense_key,record_revision,catalog_status,term,lemma,part_of_speech,level,category,definition_zh,accepted_answers_zh,prompt_en,prompt_zh,phonetic_ipa,example_en,example_zh,accepted_forms_en,synonyms_en,antonyms_en,enable_en_to_zh,distractor_zh_1,distractor_zh_2,distractor_zh_3,distractor_zh_4,distractor_zh_5,distractor_zh_6,enable_zh_to_en,distractor_en_1,distractor_en_2,distractor_en_3,distractor_en_4,distractor_en_5,distractor_en_6,source_reference,contributor_ref,change_note,retirement_reason
@@ -123,16 +123,16 @@ schema_version,requested_action,catalog_key,sense_key,record_revision,catalog_st
 欄目次序主要方便人手工作及標準 template；匯入器應按欄名讀取，唔應只按列位置讀取。未知欄目必須在 preview 報告，不能
 靜默忽略。
 
-Bootstrap canonical CSV 及已存在嘅舊 governance CSV 繼續使用以上 39 欄。老師工作區嘅 CREATE template 同 UPDATE export 改用以下
+Bootstrap canonical CSV及受控migration工具繼續使用以上39欄；舊governance CSV必須先由受控轉換工具轉成34欄，唔可以直接上載老師endpoint。老師工作區嘅CREATE template同UPDATE export使用以下
 34 欄乾淨 view，避免要求老師處理永遠留空或由系統 audit 取代嘅欄：
 
 ```text
 schema_version,requested_action,catalog_key,sense_key,record_revision,catalog_status,term,lemma,part_of_speech,level,category,definition_zh,accepted_answers_zh,phonetic_ipa,example_en,example_zh,accepted_forms_en,synonyms_en,antonyms_en,enable_en_to_zh,distractor_zh_1,distractor_zh_2,distractor_zh_3,distractor_zh_4,distractor_zh_5,distractor_zh_6,enable_zh_to_en,distractor_en_1,distractor_en_2,distractor_en_3,distractor_en_4,distractor_en_5,distractor_en_6,retirement_reason
 ```
 
-乾淨 view 省略 `prompt_en`、`prompt_zh`、`source_reference`、`contributor_ref`、`change_note`。省略不代表刪除資料模型：舊 39 欄檔案仍可
-上載；新 34 欄檔案會由匯入器將呢五欄補成空值。正式提交者、批次、理由及審核紀錄繼續由登入 actor、batch note、change request 同
-audit 保存，唔再要求老師喺 CSV 重複填寫。
+乾淨view省略 `prompt_en`、`prompt_zh`、`source_reference`、`contributor_ref`、`change_note`。省略不代表刪除資料模型：UPDATE會以目前
+approved／latest revision為底，只覆蓋34欄可編輯內容，因此三個provenance／change-note欄會原值保留，prompt則繼續維持server-owned空值；
+CREATE的隱藏欄由server預設或獨立流程處理。正式提交者、批次、理由及審核紀錄由登入actor、batch note、change request同audit保存。
 
 ## 5. 欄目總表
 
@@ -342,7 +342,7 @@ colour|color
 - 只有直接引用或改編外部材料時，`source_reference` 先係條件必須；最多 240 字元，使用 `school-material:<code>`、
   `textbook:<code>:<unit>`、`licensed:<code>` 或 `public-domain:<reference>` 等可追溯代碼，唔填網址或籠統「網上」；
 - `contributor_ref` 最多 40 字元，只可用統籌人分配嘅字母、數字、`-`、`_`，不可用真名、學號或電郵；正式系統以登入 actor 及 import batch audit 為準；
-- `change_note` 喺 `CREATE_DRAFT` 可以留空；修改 approved 內容時，理由由受控 change request／audit UI 收集；老師 34 欄 CSV view 不會匯出此欄，舊 39 欄檔案即使帶有內容亦唔可取代正式 audit 理由；
+- `change_note` 喺 `CREATE_DRAFT` 可以留空；修改 approved 內容時，理由由受控 change request／audit UI 收集；老師34欄CSV view不會匯出此欄，UPDATE會保留目前revision值；普通老師endpoint唔接受39欄內容，任何受控migration值亦唔可取代正式audit理由；
 - `retirement_reason` 最少 10、最多 500 字元，必須指出不適合原因及一般／緊急處理建議；
 - 匯入器可以保存登入 actor 身份作 audit，但 CSV 本身不可承載個人資料。
 
@@ -616,7 +616,7 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 
 ## 14. 規範版本及變更控制
 
-- `word-catalog-v1` 凍結後，bootstrap 39 欄 contract、enum、canonical language、每行語義或干擾項數量嘅 breaking change 必須建立新 schema version；governance 34 欄係同一 v1 嘅向後相容 teacher view，parser仍接受舊39欄；
+- `word-catalog-v1` 凍結後，bootstrap 39欄contract、governance 34欄teacher view、enum、canonical language、每行語義或干擾項數量嘅breaking change必須建立新schema version；兩個輸入邊界分開，普通governance parser固定拒絕39欄；
 - 增加 optional 欄亦要先更新本規範、template、validator、import preview 及 export；
 - 匯入器必須拒絕未知 major version，不能按「大概相似」猜測欄目；
 - 每次 ACTIVE 內容變更保存 record revision、actor、理由及時間；

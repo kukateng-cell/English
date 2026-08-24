@@ -4,6 +4,7 @@ import {
   describeBackendFailure,
   isProductionRuntime,
   legacyOperationIdCompatibilityEndsAt,
+  passwordResetPreconditionConfigurationErrors,
   productionConfigurationErrors,
   requiresDistributedRateLimitBackend,
   teacherResetPreconditionConfigurationErrors,
@@ -129,4 +130,24 @@ test("teacher reset keyring validation is independent from production-only gates
     TEACHER_RESET_PRECONDITION_KEY_PREVIOUS: Buffer.alloc(32, 2).toString("base64url"),
     TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID: "previous-v1",
   }), []);
+});
+
+test("production reset keyrings accept required current pairs and optional previous pairs", () => {
+  const current = Buffer.alloc(32, 3).toString("base64url");
+  const previous = Buffer.alloc(32, 4).toString("base64url");
+  assert.deepEqual(passwordResetPreconditionConfigurationErrors({
+    PASSWORD_RESET_PRECONDITION_KEY_CURRENT: current,
+    PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID: "password-current-v1",
+  }), []);
+  assert.deepEqual(passwordResetPreconditionConfigurationErrors({
+    PASSWORD_RESET_PRECONDITION_KEY_CURRENT: current,
+    PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID: "password-current-v1",
+    PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS: previous,
+    PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID: "password-previous-v1",
+  }), []);
+  assert.ok(passwordResetPreconditionConfigurationErrors({
+    PASSWORD_RESET_PRECONDITION_KEY_CURRENT: current,
+    PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID: "password-current-v1",
+    PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS: previous,
+  }).some((error) => error.includes("configured together")));
 });

@@ -182,11 +182,11 @@ export async function POST(req: Request) {
   if (!operationId || operationId.length > 120 || !CHANGE_KINDS.includes(kind as ChangeKind)) return errorResponse("CATALOG_INPUT_INVALID", 422);
   if (immediateRetire && kind !== "RETIRE") return errorResponse("CATALOG_INPUT_INVALID", 422);
   if ((kind === "RETIRE" || kind === "REACTIVATE") && !senseKey) return errorResponse("CATALOG_SENSE_REQUIRED", 422);
-  if (kind === "RETIRE" && reason.length < 3) return errorResponse("CATALOG_REASON_REQUIRED", 422);
+  if ((kind === "RETIRE" || kind === "REACTIVATE") && reason.length < 3) return errorResponse("CATALOG_REASON_REQUIRED", 422);
   if (reason.length > 2000) return errorResponse("CATALOG_REASON_INVALID", 422);
   let expectedRevision: number | null;
   try {
-    expectedRevision = parseCatalogExpectedRevision(body.expectedRevision, immediateRetire);
+    expectedRevision = parseCatalogExpectedRevision(body.expectedRevision, kind as ChangeKind);
   } catch (error) {
     const code = error instanceof Error ? error.message : "CATALOG_REVISION_INVALID";
     return errorResponse(code, 422);

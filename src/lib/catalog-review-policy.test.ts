@@ -59,11 +59,15 @@ test("terminal catalog request status exposes the first resolved outcome", () =>
   assert.equal(catalogRequestTerminalStatus("CANCELLED"), "CANCELLED");
 });
 
-test("immediate retirement requires an explicit positive expected revision", () => {
-  assert.equal(parseCatalogExpectedRevision(3, true), 3);
-  assert.equal(parseCatalogExpectedRevision("4", true), 4);
-  assert.equal(parseCatalogExpectedRevision(undefined, false), null);
-  assert.throws(() => parseCatalogExpectedRevision(undefined, true), /CATALOG_REVISION_REQUIRED/);
-  assert.throws(() => parseCatalogExpectedRevision(0, true), /CATALOG_REVISION_INVALID/);
-  assert.throws(() => parseCatalogExpectedRevision("revision-one", true), /CATALOG_REVISION_INVALID/);
+test("existing-sense changes require a positive revision and CREATE forbids one", () => {
+  for (const operation of ["UPDATE", "RETIRE", "REACTIVATE"] as const) {
+    assert.equal(parseCatalogExpectedRevision(3, operation), 3);
+    assert.equal(parseCatalogExpectedRevision("4", operation), 4);
+    assert.throws(() => parseCatalogExpectedRevision(undefined, operation), /CATALOG_REVISION_REQUIRED/);
+    assert.throws(() => parseCatalogExpectedRevision(0, operation), /CATALOG_REVISION_INVALID/);
+    assert.throws(() => parseCatalogExpectedRevision("revision-one", operation), /CATALOG_REVISION_INVALID/);
+  }
+  assert.equal(parseCatalogExpectedRevision(undefined, "CREATE"), null);
+  assert.equal(parseCatalogExpectedRevision(null, "CREATE"), null);
+  assert.throws(() => parseCatalogExpectedRevision(1, "CREATE"), /CATALOG_REVISION_NOT_ALLOWED/);
 });

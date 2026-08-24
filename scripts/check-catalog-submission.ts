@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma";
-import { catalogRowsToCsv, type CatalogSourceRow } from "../src/lib/catalog/csv";
+import { CATALOG_GOVERNANCE_HEADERS, catalogRowsToCsv, type CatalogSourceRow } from "../src/lib/catalog/csv";
 import { revisionContentDigest, type CatalogGovernancePayload } from "../src/lib/catalog/governance";
 import {
   claimCatalogSubmissionBatch,
@@ -17,12 +17,12 @@ import {
 } from "../src/lib/catalog/submission-server";
 
 dotenv.config({ path: ".env.local", override: true });
-if (!process.env.MIGRATE_URL) throw new Error("MIGRATE_URL is required");
+if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
 const environment = process.env.DATABASE_ENVIRONMENT;
 if (!environment || environment === "production" || process.env.CONFIRM_DATABASE_ENVIRONMENT !== environment) {
   throw new Error("check:catalog-submission requires matching non-production DATABASE_ENVIRONMENT and CONFIRM_DATABASE_ENVIRONMENT");
 }
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.MIGRATE_URL }) });
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 
 const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 const catalogKey = `check_catalog_${suffix}`;
@@ -33,12 +33,12 @@ let createBatchId: string | null = null;
 let resolutionBatchId: string | null = null;
 let duplicateBatchId: string | null = null;
 let draftBatchId: string | null = null;
+let claimRecoveryBatchId: string | null = null;
+let authorClaimRecoveryBatchId: string | null = null;
 let senseId: string | null = null;
 let createSenseId: string | null = null;
 const grantIds: string[] = [];
 const temporaryActorIds: string[] = [];
-let mutationRevisionBefore: number | null = null;
-let committedMutationIncrements = 0;
 
 const basePayload: CatalogGovernancePayload = {
   term: `checkword${suffix}`,
@@ -121,7 +121,7 @@ async function cleanupStaleFixtures() {
 }
 
 async function cleanup() {
-  for (const cleanupBatchId of [correctiveBatchId, duplicateBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
+  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, correctiveBatchId, duplicateBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
     await cleanupBatchFixture(cleanupBatchId);
   }
   if (senseId) {
@@ -130,28 +130,19 @@ async function cleanup() {
   if (createSenseId) await cleanupSenseFixture(createSenseId, true);
   if (grantIds.length) await prisma.recentAuthGrant.deleteMany({ where: { id: { in: grantIds } } });
   if (temporaryActorIds.length) await prisma.user.deleteMany({ where: { id: { in: temporaryActorIds } } });
-  if (mutationRevisionBefore !== null && committedMutationIncrements > 0) {
-    const expectedRevision = mutationRevisionBefore + committedMutationIncrements;
-    await prisma.$executeRaw`
-      UPDATE "CatalogMutationState"
-      SET "revision" = ${mutationRevisionBefore}, "updatedAt" = NOW()
-      WHERE "id" = 1 AND "revision" = ${expectedRevision}
-    `;
-  }
 }
 
 async function main() {
   const metadata = await prisma.databaseMetadata.findUnique({ where: { key: "environment" }, select: { value: true } });
-  if (metadata && metadata.value !== environment) throw new Error("DatabaseMetadata.environment does not match DATABASE_ENVIRONMENT");
+  if (metadata?.value !== environment) throw new Error("DatabaseMetadata.environment does not match DATABASE_ENVIRONMENT");
   await cleanupStaleFixtures();
-  mutationRevisionBefore = (await prisma.catalogMutationState.findUnique({ where: { id: 1 }, select: { revision: true } }))?.revision ?? null;
   const actors = await prisma.user.findMany({
     where: { status: "ACTIVE", OR: [{ role: "ADMIN" }, { role: "TEACHER", teacherProfile: { canManageWordCatalog: true } }] },
     orderBy: { id: "asc" },
-    take: 3,
+    take: 4,
     select: { id: true, tokenVersion: true, credentialRevision: true },
   });
-  while (actors.length < 3) {
+  while (actors.length < 4) {
     const actor = await prisma.user.create({
       data: {
         accountName: `catalog-check-${suffix}-${actors.length}`,
@@ -165,7 +156,27 @@ async function main() {
     temporaryActorIds.push(actor.id);
     actors.push(actor);
   }
-  const [proposer, reviewer, unclaimedReviewer] = actors as [typeof actors[number], typeof actors[number], typeof actors[number]];
+  const [proposer, reviewer, unclaimedReviewer, competingReviewer] = actors as [typeof actors[number], typeof actors[number], typeof actors[number], typeof actors[number]];
+  const revokedReviewerAccount = `catalog-check-revoked-${suffix}`;
+  const revokedReviewer = await prisma.user.create({
+    data: {
+      accountName: revokedReviewerAccount,
+      accountNameCanonical: revokedReviewerAccount,
+      passwordHash: "catalog-check-not-a-login-secret",
+      legacyName: "Catalog revoked reviewer check",
+      role: "TEACHER",
+      status: "ACTIVE",
+      mustChangePassword: true,
+      teacherProfile: {
+        create: {
+          legalName: "Catalog revoked reviewer check",
+          canManageWordCatalog: true,
+        },
+      },
+    },
+    select: { id: true },
+  });
+  temporaryActorIds.push(revokedReviewer.id);
   const ready = await prisma.catalogRevision.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
   if (!ready) throw new Error("READY catalog revision missing");
   const entry = await prisma.catalogEntry.create({ data: { catalogKey, lemma: basePayload.lemma, normalizedLemma: basePayload.lemma } });
@@ -180,7 +191,7 @@ async function main() {
     contentDigest: revisionContentDigest(basePayload), changeNote: basePayload.changeNote, catalogRevisionId: ready.id,
   } });
   const draftPayload = { ...basePayload, definitionZh: "草稿詞庫測試詞", acceptedAnswersZh: ["草稿詞庫測試詞"] };
-  const draftPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([{ ...sourceRow(draftPayload), catalog_status: "DRAFT" }])) });
+  const draftPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([{ ...sourceRow(draftPayload), catalog_status: "DRAFT" }], CATALOG_GOVERNANCE_HEADERS)) });
   draftBatchId = draftPreview.batch.id;
   if ((draftPreview.batch.groups[0]?.baseProposalPayload as { definitionZh?: string } | null)?.definitionZh !== basePayload.definitionZh) throw new Error("DRAFT target preview omitted the latest revision before payload");
   await prisma.wordSense.update({ where: { id: sense.id }, data: { status: "ACTIVE", approvedRevisionId: revision.id } });
@@ -193,7 +204,7 @@ async function main() {
   } });
 
   const updatedPayload = { ...basePayload, definitionZh: "詞庫測試詞", acceptedAnswersZh: ["詞庫測試詞"], changeNote: "approved DB checker update" };
-  const bytes = new TextEncoder().encode(catalogRowsToCsv([sourceRow(updatedPayload)]));
+  const bytes = new TextEncoder().encode(catalogRowsToCsv([sourceRow(updatedPayload)], CATALOG_GOVERNANCE_HEADERS));
   const preview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes });
   batchId = preview.batch.id;
   if (preview.batch.status !== "PREVIEW" || preview.batch.groups.length !== 1) throw new Error("preview contract failed");
@@ -253,7 +264,6 @@ async function main() {
   grantIds.push(grantId);
   await prisma.recentAuthGrant.create({ data: { id: grantId, userId: reviewer.id, tokenVersion: reviewer.tokenVersion, credentialRevision: reviewer.credentialRevision, reauthenticatedAt, expiresAt } });
   const finalized = await finalizeCatalogSubmissionBatch({ batchId, actorId: reviewer.id, expectedRevision: reviewed.patch.revision, operationId: randomUUID(), recentAuth: { grantId, tokenVersion: reviewer.tokenVersion, credentialRevision: reviewer.credentialRevision, reauthenticatedAt, expiresAt } });
-  if (finalized.patch.batch.status === "COMMITTED") committedMutationIncrements += 1;
   const finalizedBatch = await getCatalogSubmissionBatch({ batchId, actorId: reviewer.id, canReview: true });
   if (finalized.patch.batch.status !== "COMMITTED" || finalizedBatch.groups[0]?.changeRequest?.status !== "APPROVED") throw new Error("finalize did not atomically commit");
   const finalizedRequest = await prisma.catalogChangeRequest.findUnique({ where: { id: child.id }, select: { beforePayloadSnapshot: true, afterPayloadSnapshot: true } });
@@ -267,12 +277,12 @@ async function main() {
   if (correctivePayload?.definitionZh !== basePayload.definitionZh) throw new Error("corrective preview did not restore the previous payload");
 
   const createPayload: CatalogGovernancePayload = { ...basePayload, term: `checkcreate${suffix}`, lemma: `checkcreate${suffix}`, definitionZh: "新增測試詞", acceptedAnswersZh: ["新增測試詞"], exampleEn: "This is a newly created catalog check word.", exampleZh: "這是一個新增詞庫檢查詞。" };
-  const createPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(createPayload, "CREATE")])) });
+  const createPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(createPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
   createBatchId = createPreview.batch.id;
   const createSubmitted = await submitCatalogSubmissionBatch({ batchId: createBatchId, actorId: proposer.id, expectedRevision: createPreview.batch.revision, operationId: randomUUID(), reason: "CREATE database governance check" });
 
   const resolutionPayload: CatalogGovernancePayload = { ...basePayload, term: `checkresolution${suffix}`, lemma: `checkresolution${suffix}`, definitionZh: "修正流程測試詞", acceptedAnswersZh: ["修正流程測試詞"], exampleEn: "This word checks the resolution workflow.", exampleZh: "這個詞檢查修正流程。" };
-  const resolutionPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(resolutionPayload, "CREATE")])) });
+  const resolutionPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(resolutionPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
   resolutionBatchId = resolutionPreview.batch.id;
 
   const createRow = await prisma.catalogSubmissionRow.findFirstOrThrow({ where: { batchId: createBatchId, proposalGroupId: { not: null } }, select: { id: true } });
@@ -288,7 +298,6 @@ async function main() {
   const createClaimed = await getCatalogSubmissionBatch({ batchId: createBatchId, actorId: reviewer.id, canReview: true });
   const createReviewed = await reviewCatalogSubmissionGroup({ batchId: createBatchId, groupId: createClaimed.groups[0]!.id, actorId: reviewer.id, expectedBatchRevision: createClaimed.revision, expectedGroupRevision: createClaimed.groups[0]!.revision, decision: "APPROVE", reviewNote: "CREATE check approved", acknowledgedPayloadDigest: createClaimed.groups[0]!.payloadDigest });
   const createFinalized = await finalizeCatalogSubmissionBatch({ batchId: createBatchId, actorId: reviewer.id, expectedRevision: createReviewed.patch.revision, operationId: randomUUID(), recentAuth: { grantId, tokenVersion: reviewer.tokenVersion, credentialRevision: reviewer.credentialRevision, reauthenticatedAt, expiresAt } });
-  if (createFinalized.patch.batch.status === "COMMITTED") committedMutationIncrements += 1;
   const createFinalizedBatch = await getCatalogSubmissionBatch({ batchId: createBatchId, actorId: reviewer.id, canReview: true });
   createSenseId = createFinalizedBatch.groups[0]?.changeRequest?.resultRevisionId ? (await prisma.catalogChangeRequest.findUniqueOrThrow({ where: { id: createFinalizedBatch.groups[0]!.changeRequest!.id }, select: { senseId: true } })).senseId : null;
   if (createFinalized.patch.batch.status !== "COMMITTED" || !createSenseId) throw new Error("batch CREATE did not atomically bind and commit the new sense");
@@ -306,7 +315,7 @@ async function main() {
   const duplicateBase: CatalogGovernancePayload = { ...basePayload, term: `checkduplicate${suffix}`, lemma: `checkduplicate${suffix}`, definitionZh: "重複來源測試詞", acceptedAnswersZh: ["重複來源測試詞"], exampleEn: "This is source row two.", exampleZh: "這是來源第二行。" };
   const duplicateAlternative: CatalogGovernancePayload = { ...duplicateBase, exampleEn: "This is source row three.", exampleZh: "這是來源第三行。" };
   const duplicateRows = [{ ...sourceRow(duplicateBase, "CREATE"), sourceRow: 2 }, { ...sourceRow(duplicateAlternative, "CREATE"), sourceRow: 3 }];
-  const duplicatePreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv(duplicateRows)) });
+  const duplicatePreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv(duplicateRows, CATALOG_GOVERNANCE_HEADERS)) });
   duplicateBatchId = duplicatePreview.batch.id;
   if (duplicatePreview.batch.status !== "NEEDS_RESOLUTION" || duplicatePreview.batch.groups[0]?.sourceRows.length !== 2) throw new Error("different duplicate rows did not require explicit resolution");
   let sourceSelectionRequired = false;
@@ -319,7 +328,142 @@ async function main() {
   const duplicateResolved = await resolveCatalogSubmissionGroup({ batchId: duplicateBatchId, groupId: duplicatePreview.batch.groups[0]!.id, actorId: proposer.id, canReview: false, expectedBatchRevision: duplicatePreview.batch.revision, expectedGroupRevision: duplicatePreview.batch.groups[0]!.revision, resolution: "MERGE", reason: "adopt row three", sourceSelectionMode: "SOURCE_ROW", selectedSourceRowNumber: 3, acknowledgedSourceSetDigest: duplicatePreview.batch.groups[0]!.sourceSetDigest });
   if (duplicateResolved.batch.status !== "PREVIEW" || (duplicateResolved.group?.value.finalProposalPayload as { exampleEn?: string }).exampleEn !== duplicateAlternative.exampleEn) throw new Error("explicit duplicate source selection was not preserved");
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  const claimRecoveryPayload: CatalogGovernancePayload = {
+    ...basePayload,
+    term: `checkclaim${suffix}`,
+    lemma: `checkclaim${suffix}`,
+    definitionZh: "失效審核權限接管測試詞",
+    acceptedAnswersZh: ["失效審核權限接管測試詞"],
+    exampleEn: "This word checks recovery from a revoked review claim.",
+    exampleZh: "這個詞檢查失效審核權限的接管流程。",
+  };
+  const claimRecoveryPreview = await createCatalogSubmissionPreview({
+    actorId: proposer.id,
+    operationId: randomUUID(),
+    fileName: "catalog-governance-check.csv",
+    bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(claimRecoveryPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)),
+  });
+  claimRecoveryBatchId = claimRecoveryPreview.batch.id;
+  const claimRecoverySubmitted = await submitCatalogSubmissionBatch({
+    batchId: claimRecoveryBatchId,
+    actorId: proposer.id,
+    expectedRevision: claimRecoveryPreview.batch.revision,
+    operationId: randomUUID(),
+    reason: "revoked reviewer claim recovery database check",
+  });
+  const firstClaim = await claimCatalogSubmissionBatch({
+    batchId: claimRecoveryBatchId,
+    actorId: revokedReviewer.id,
+    expectedRevision: claimRecoverySubmitted.patch.revision,
+    release: false,
+  });
+  await prisma.teacherProfile.update({
+    where: { userId: revokedReviewer.id },
+    data: { canManageWordCatalog: false },
+  });
+  const replacementClaim = await claimCatalogSubmissionBatch({
+    batchId: claimRecoveryBatchId,
+    actorId: unclaimedReviewer.id,
+    expectedRevision: firstClaim.revision,
+    release: false,
+  });
+  if (replacementClaim.batch.reviewerId !== unclaimedReviewer.id) {
+    throw new Error("revoked reviewer claim could not be safely taken over");
+  }
+  const replacementAudit = await prisma.catalogAuditEvent.findFirst({
+    where: {
+      submissionBatchId: claimRecoveryBatchId,
+      actorUserId: unclaimedReviewer.id,
+      action: "REVIEW_CLAIMED",
+    },
+    orderBy: { createdAt: "desc" },
+    select: { metadata: true },
+  });
+  if ((replacementAudit?.metadata as { replacedInvalidClaim?: boolean } | null)?.replacedInvalidClaim !== true) {
+    throw new Error("revoked reviewer takeover audit metadata is missing");
+  }
+
+  const authorClaimPayload: CatalogGovernancePayload = {
+    ...basePayload,
+    term: `checkauthorclaim${suffix}`,
+    lemma: `checkauthorclaim${suffix}`,
+    definitionZh: "內容作者審核接管測試詞",
+    acceptedAnswersZh: ["內容作者審核接管測試詞"],
+    exampleEn: "This word checks recovery from a conflicted review claim.",
+    exampleZh: "這個詞檢查內容作者衝突審核的接管流程。",
+  };
+  const authorClaimPreview = await createCatalogSubmissionPreview({
+    actorId: proposer.id,
+    operationId: randomUUID(),
+    fileName: "catalog-governance-check.csv",
+    bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(authorClaimPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)),
+  });
+  authorClaimRecoveryBatchId = authorClaimPreview.batch.id;
+  const authorClaimGroup = authorClaimPreview.batch.groups[0];
+  if (!authorClaimGroup) throw new Error("author claim recovery proposal group is missing");
+  const authorClaimStoredGroup = await prisma.catalogSubmissionProposalGroup.findUniqueOrThrow({
+    where: { id: authorClaimGroup.id },
+    select: { payloadDigest: true },
+  });
+  await prisma.catalogSubmissionProposalAuthor.create({
+    data: {
+      proposalGroupId: authorClaimGroup.id,
+      actorUserId: reviewer.id,
+      payloadDigest: authorClaimStoredGroup.payloadDigest,
+      contributionKind: "RESOLUTION_EDIT",
+    },
+  });
+  const authorClaimSubmitted = await submitCatalogSubmissionBatch({
+    batchId: authorClaimRecoveryBatchId,
+    actorId: proposer.id,
+    expectedRevision: authorClaimPreview.batch.revision,
+    operationId: randomUUID(),
+    reason: "proposal author claim recovery database check",
+  });
+  let authorClaimRejected = false;
+  try {
+    await claimCatalogSubmissionBatch({
+      batchId: authorClaimRecoveryBatchId,
+      actorId: reviewer.id,
+      expectedRevision: authorClaimSubmitted.patch.revision,
+      release: false,
+    });
+  } catch (error) {
+    authorClaimRejected = error instanceof Error && error.message === "CATALOG_SELF_REVIEW_FORBIDDEN";
+  }
+  if (!authorClaimRejected) throw new Error("proposal author was allowed to claim review");
+  const legacyConflictedClaim = await prisma.catalogSubmissionBatch.update({
+    where: { id: authorClaimRecoveryBatchId },
+    data: { reviewerId: reviewer.id, status: "REVIEWING", revision: { increment: 1 } },
+    select: { revision: true },
+  });
+  const competingClaims = await Promise.allSettled([unclaimedReviewer, competingReviewer].map((candidate) => claimCatalogSubmissionBatch({
+    batchId: authorClaimRecoveryBatchId!,
+    actorId: candidate.id,
+    expectedRevision: legacyConflictedClaim.revision,
+    release: false,
+  })));
+  const successfulClaims = competingClaims.flatMap((result, index) => result.status === "fulfilled"
+    ? [{ claim: result.value, actorId: [unclaimedReviewer, competingReviewer][index]!.id }]
+    : []);
+  if (successfulClaims.length !== 1 || successfulClaims[0]!.claim.batch.reviewerId !== successfulClaims[0]!.actorId) {
+    throw new Error("conflicted proposal author claim did not have exactly one concurrent takeover winner");
+  }
+  const authorReplacementActorId = successfulClaims[0]!.actorId;
+  const authorReplacementAudit = await prisma.catalogAuditEvent.findFirst({
+    where: {
+      submissionBatchId: authorClaimRecoveryBatchId,
+      actorUserId: authorReplacementActorId,
+      action: "REVIEW_CLAIMED",
+    },
+    orderBy: { createdAt: "desc" },
+    select: { metadata: true },
+  });
+  if ((authorReplacementAudit?.metadata as { replacedInvalidClaim?: boolean } | null)?.replacedInvalidClaim !== true) {
+    throw new Error("conflicted proposal author takeover audit metadata is missing");
+  }
+
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

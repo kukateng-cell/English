@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { catalogAccess } from "@/lib/catalog/access";
 import { catalogGovernancePayloadFromUnknown, payloadFromRevision } from "@/lib/catalog/governance";
+import { catalogPendingRequestForActor } from "@/lib/catalog/pending-visibility";
 
 function headers() {
   return { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
@@ -56,9 +57,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ senseKe
     const revision = sense?.approvedRevision ?? latestRevision;
     const payload = revision ? payloadFromRevision(revision) : catalogGovernancePayloadFromUnknown(sourceRow?.sourceData ?? pendingStandalone?.payload);
     const pendingRequest = sense?.changeRequests[0] ?? sourceRow?.changeRequests[0] ?? pendingStandalone;
-    const pendingPayload = pendingRequest
-      ? catalogGovernancePayloadFromUnknown(pendingRequest.payload)
-        ?? catalogGovernancePayloadFromUnknown(pendingRequest.afterPayloadSnapshot)
+    const visiblePendingRequest = catalogPendingRequestForActor(
+      pendingRequest,
+      auth.userId,
+      access.canReview,
+    );
+    const pendingPayload = visiblePendingRequest && !("restricted" in visiblePendingRequest)
+      ? catalogGovernancePayloadFromUnknown(visiblePendingRequest.payload)
+        ?? catalogGovernancePayloadFromUnknown(visiblePendingRequest.afterPayloadSnapshot)
         ?? payload
       : null;
     return NextResponse.json({
@@ -76,7 +82,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ senseKe
       eligibilityResult: sourceRow?.eligibilityResult ?? "DRAFT_BLOCKED",
       issues: sourceRow?.issues ?? null,
       payload,
-      pendingRequest: pendingRequest ? { ...pendingRequest, payload: pendingPayload, createdAt: pendingRequest.createdAt.toISOString() } : null,
+      pendingRequest: visiblePendingRequest
+        ? "restricted" in visiblePendingRequest
+          ? visiblePendingRequest
+          : { ...visiblePendingRequest, payload: pendingPayload, createdAt: visiblePendingRequest.createdAt.toISOString() }
+        : null,
     }, { headers: headers() });
   } catch (error) {
     console.error("[catalog] detail failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });

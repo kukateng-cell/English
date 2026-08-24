@@ -1,6 +1,6 @@
 # 詞庫 CSV 批量提交及詞條修改歷史界面實施計劃
 
-> 狀態：本地效能加固及 2026-08-24 老師介面 UAT 修正已完成（staging／Vercel及production readiness外部項目另行處理）
+> 狀態：已完成（本地 implementation／verification；staging／Vercel及production rollout仍另行處理）
 >
 > 日期：2026-08-22
 >
@@ -63,7 +63,7 @@
 
 ### 5.1 CSV 支援範圍
 
-- 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；老師 template／export 固定使用 34 個精確 `word-catalog-v1` governance 欄名，parser 亦向後兼容完整 39 欄舊檔；所選格式每個欄名恰好一次、可換序，未知或重複欄一律拒絕；
+- 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；老師 template／export／upload 固定使用 34 個精確 `word-catalog-v1` governance 欄名，每個欄名恰好一次、可換序，未知、重複或完整39欄bootstrap檔一律拒絕；完整39欄只由受控bootstrap／migration工具讀取，唔進入普通老師endpoint；
 - launch 上限為 4 MiB、200 個 data rows；4 MiB 低於 Vercel Functions 4.5 MB request ceiling；0 行、超限、重複 header、未知欄、broken quoting、公式／CSV injection 或非支援 schema 一律拒絕；
 - `CREATE`：`catalog_key`、`sense_key`、`record_revision`、`catalog_status` 必須留空；
 - `UPDATE`：必須由系統匯出，保留 `catalog_key`、`sense_key`、`record_revision` 及只讀 `catalog_status`；lemma 不可越過既有穩定 headword boundary；
@@ -297,7 +297,7 @@ Review decision 屬於 final proposal group，值為 `PENDING | APPROVE | REJECT
 
 ### 7.4 Versioned proposal payload及34／39欄去向
 
-Governance proposal payload 係 versioned完整snapshot，足以重建實際批准內容。老師 34 欄 view 省略 prompt 及暫不要求嘅 provenance／change-note；舊 39 欄仍可讀，省略欄由 parser 安全補空：
+Governance proposal payload 係 versioned完整snapshot，足以重建實際批准內容。普通老師只可上載34欄view；完整39欄只屬bootstrap／受控migration輸入。34欄UPDATE以目前approved／latest payload為底，只覆蓋老師可編輯欄，因此省略嘅prompt及provenance／change-note唔會被解讀成清空；34欄CREATE的隱藏欄由server預設或日後獨立流程處理：
 
 | CSV 欄位 | Proposal／批准去向 |
 |---|---|
@@ -305,9 +305,9 @@ Governance proposal payload 係 versioned完整snapshot，足以重建實際批�
 | term至antonyms的內容欄 | normalized proposal；獲批後完整寫入immutable revision |
 | `prompt_en`／`prompt_zh` | 必須留空，不保存 |
 | direction flags／12個distractor欄 | proposal arrays；獲批後完整寫入immutable revision |
-| `source_reference` | proposal及獲批revision provenance |
-| `contributor_ref` | proposal provenance；不代替登入actor audit |
-| `change_note` | contributor note；正式變更理由仍使用batch／proposal reason並寫audit |
+| `source_reference` | 老師34欄不直接編輯；UPDATE保留目前revision值，CREATE由server預設／獨立流程處理 |
+| `contributor_ref` | 老師34欄不直接編輯；UPDATE保留目前revision值，且永不代替登入actor audit |
+| `change_note` | 老師34欄不直接編輯；UPDATE保留目前revision值；正式變更理由使用batch／proposal reason並寫audit |
 | `retirement_reason` | CREATE／UPDATE governance CSV必須留空；批量lifecycle不在launch範圍 |
 
 現有逐條 `CatalogGovernancePayload` 要同步擴充source／contributor／change-note語義或明確server取代，唔可以在payload conversion時靜默清空真正獲批provenance。
@@ -446,7 +446,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 ### Phase 4 — Shared approval service及batch review
 
 - [x] 從現有單條 approval route抽出共用 validate／plan／apply service，並以原有單條 regression鎖定行為；
-- [x] 實作 reviewer claim、progress CAS、reviewed payload digest、material author lineage、第二審核要求及所有proposal groups decided gate；
+- [x] 實作 reviewer claim、progress CAS、reviewed payload digest、material author lineage、一位合資格且未參與內容編寫的reviewer決定及所有proposal groups decided gate；
 - [x] finalize transaction按共用lock order驗證 recent auth、credential／capability、batch/request revision、dependency digest、identity／duplicate／validator version；
 - [x] 批准 subset 全批 atomic；故障時零 approved pointer／projection／revision partial write；
 - [x] stale batch保留已提交payload／resolution，terminalize child requests並提供 clone/re-preview；
@@ -458,7 +458,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 - [x] 將治理 workspace 拆成可維護的 catalog／bulk／history components，保持 admin／teacher共用；
 - [x] 完成 upload wizard、summary、row filters、before／after、duplicate bundle、resolution editor、error download及receipt；
 - [x] 完成 reviewer batch queue、save progress、final confirmation、recent-auth recovery及stale UX；
-- [x] 老師 template／UPDATE export 使用 34 欄乾淨 view，舊 39 欄 compatibility upload仍可讀；template guidance、欄名次序、Excel干擾項列及 parser regression 已更新；
+- [x] 老師 template／UPDATE export／upload使用34欄乾淨view；普通endpoint拒絕完整39欄bootstrap檔；template guidance、欄名次序、Excel干擾項列及parser regression已更新；
 - [ ] category／POS對照及代表性非技術老師10行CSV試填 UAT；
 - [ ] 320px mobile卡片／detail、768px tablet compact table、1280px desktop table均無頁面水平溢出；狀態非純顏色、native semantics、focus、keyboard、screen-reader async announcement、繁簡及light／dark驗收；
 - [x] 詞庫列表分批render；批次group每頁20項並按需展開完整diff／editor，避免200組同時mount。
@@ -485,7 +485,7 @@ Catalog-specific limiter launch policy：preview 每 user 10 次／10 分鐘兼�
 
 | 範圍 | 必須證明 |
 |---|---|
-| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、34欄乾淨 view／舊39欄 compatibility 每欄一次兼可換序、malformed quoting、空檔、oversized／偽Content-Length、4 MiB、200 rows、field-aware formula、safe error CSV |
+| CSV file | fatal UTF-8、replacement／NUL／control、單一檔首BOM、精確34欄view每欄一次兼可換序、普通endpoint拒絕完整39欄、malformed quoting、physical source line、空檔、oversized／偽Content-Length、4 MiB、200 rows、field-aware formula、safe error CSV |
 | Action contract | CREATE keys空白；UPDATE keys／revision完整；mixed合法；RETIRE／REACTIVATE拒絕；缺行零副作用 |
 | Content | taxonomy、POS、level、prompt-empty、accepted answers、例句pair、5–6 distractors、pool diversity、sibling collision |
 | Preview | 無 canonical write、disposition總數對數、database diff、duplicate bundle、7日activity／30日absolute expiry、owner isolation、pagination |
@@ -704,3 +704,43 @@ npm run check:catalog-governance
 - [x] 由詞條開啟歷史時明確顯示目前Sense key，並可一步回到完整詞庫或清除單詞篩選；
 - [x] 歷史詳情分開顯示提交人／提交時間及審核人／審核時間，批次歷史亦顯示提交、完成審核及正式套用節點；
 - [x] targeted history query 4 tests、兩個component lint、`tsc --noEmit`及`git diff --check`全部PASS；真實老師瀏覽器流程已驗證列表入口、編輯視窗入口、單詞篩選、提交者／審核者時間線及修改前後diff；1,440／768／390 px皆無水平溢出、零console error。精確命名的本機UAT歷史及帳號已清理並確認零殘留。
+
+## 23. 合併前資料 contract、安全及發布加固（2026-08-24，已完成本地驗證）
+
+固定基線 `903d39a` 的合併級審核確認上一輪 RSC 503 邊界及學生詞表 stale response 已修正，但發現 governance CSV、existing-sense CAS、REACTIVATE current validation、draft visibility、review claim recovery、audit pseudonym、CI coverage及實體 CSV 行號仍有缺口。本輪只修正本地程式、測試及 workflow；不執行 production deploy、production migration或 destructive cleanup。
+
+### Contract 決策
+
+- 老師 governance upload 只接受精確 34 欄 header；完整39欄只留給 bootstrap／受控 migration parser，普通老師 endpoint固定拒絕；
+- 34欄 UPDATE 以目前 approved／latest payload為底，只覆蓋老師可編輯欄；省略的 `sourceReference`、`contributorRef`、`changeNote`完整保留，`prompt_en`／`prompt_zh`仍維持server-owned空值；CREATE的隱藏provenance由server預設／獨立流程處理；
+- CREATE禁止傳 `expectedRevision`；UPDATE、RETIRE、REACTIVATE全部必須傳正整數expected revision，API本身fail closed，唔依賴UI；RETIRE／REACTIVATE均必須填理由；
+- REACTIVATE以目前approved revision重跑current taxonomy、direction、distractor、sibling／duplicate及answer-safety validation，全部通過先恢復ACTIVE；
+- 普通老師只可看自己pending request完整內容；其他人的pending只回不含actor／理由／payload的存在摘要；reviewer／admin保留完整資料；
+- 批次claim／review／resolution transaction內重讀reviewer authority；review claim同時排除proposer及任何proposal author；claim遇到現任owner已停用、失去capability或已有內容作者衝突時可安全takeover，仍合資格owner則保持互斥；
+- catalog actor pseudonym共用長期穩定security audit HMAC secret及實際key ID，唔再使用NextAuth secret或寫死版本；
+- CSV parser保存每個record開始的physical line，multiline quoted field後的錯誤行號仍對應原檔；
+- production workflow注入production config checker實際要求的audit／reset keyring，並在migration前拉取及核對Vercel Production實際runtime env；Study quality gate push paths覆蓋catalog API／UI及受保護workspace路徑，而且實際執行submission DB及catalog browser regression。
+
+### Checklist
+
+- [x] 修正production workflow secrets injection並加入對應config regression；發布前另拉取及核對Vercel Production實際runtime env；
+- [x] 修正34欄UPDATE provenance round-trip、拒絕普通39欄upload，補export→import `NO_CHANGE`及visible edit metadata retention；
+- [x] 強制existing-sense expected revision及REACTIVATE reason，補missing／stale API contract tests；
+- [x] REACTIVATE重跑current validator、taxonomy、direction、duplicate及answer-safety checks；
+- [x] list／detail對非owner普通老師redact pending draft payload、reason及actor；
+- [x] 批次claim／review／resolution交易內重驗權限，支援失效claim及proposal-author conflict安全takeover；
+- [x] catalog audit pseudonym改用security audit HMAC helper及實際key ID；
+- [x] 擴充Study quality gate paths、submission DB check、catalog E2E及production DB verification commands；
+- [x] strict CSV parser保存physical source line，所有quoted-field格式錯誤包含實際行號；
+- [x] catalog E2E加入雙重non-production DB guard，不再倒退monotonic mutation revision，並驗證非空provenance及list／detail草稿私隱；
+- [x] 執行unit、lint、typecheck、build、catalog DB check及targeted browser visibility／round-trip驗收；
+- [x] 兩位獨立、對抗式reviewer完成資料／安全及測試／操作審核；首輪提出4個Medium及3個Low，複審再找出runtime／cleanup連線不一致1個Medium及3個測試精度Low，全部有效項已跟進；兩位最終均為`APPROVE`，Blocker／High／Medium 0；
+- [x] 記錄實際驗證及已知限制；commit／push SHA由本輪交付報告記錄。
+
+### 審核跟進及實際驗證
+
+- 資料／安全 reviewer 發現proposal author仍可claim review、其後被self-review guard擋住而卡批次；claim現在於同一transaction檢查全部proposal authors，舊有衝突claim亦可由另一名合資格reviewer接管並留下audit metadata；
+- CI／操作 reviewer指出branch quality gate未執行新增integration、E2E回撥全域revision、只核對GitHub secrets而非Vercel runtime，以及provenance／list visibility／quoted error line覆蓋不足；相關workflow、guard及regression已全部補回；
+- 複審再確認mutating E2E／DB checker曾分別使用runtime及migration URL；三者現一律使用網站實際`DATABASE_URL`、強制持久non-production environment marker，並停止回撥monotonic revision。其後Low項亦補上精確quote opening line、visible definition assertion及兩個reviewer真正同時競爭失效claim；
+- 本輪最終通過309個unit tests、zero-warning lint、TypeScript、80-route production build、`git diff --check`、production config regression、`check:catalog-governance`、`check:catalog-immediate-retire`、`check:catalog-submission`及完整catalog workspace Playwright lifecycle；
+- browser／DB fixture已按精確ID清理；`CatalogMutationState.revision`保持monotonic，唔再為測試回撥。Staging、managed Vercel實際執行、production migration／deploy及destructive cleanup仍未執行，需另行授權。

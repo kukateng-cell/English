@@ -370,7 +370,7 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <h2 className="font-bold text-[var(--text)]">{tc("上載新增或更新 CSV")}</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">{tc("只接受 UTF-8 CSV、最多 200 行及 4 MiB。CREATE 的系統 key 留空；UPDATE 請先匯出現有詞條。")}</p>
-        <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-secondary" onClick={() => window.location.assign("/api/catalog/submissions/template")}>{tc("下載 CREATE 模板")}</button><span className="rounded-xl bg-[var(--border-soft)] px-3 py-2 text-xs text-[var(--muted)]">{tc("老師模板使用 34 個必要欄名；舊 39 欄檔案仍可上載，欄位次序可以調整。")}</span></div>
+        <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-secondary" onClick={() => window.location.assign("/api/catalog/submissions/template")}>{tc("下載 CREATE 模板")}</button><span className="rounded-xl bg-[var(--border-soft)] px-3 py-2 text-xs text-[var(--muted)]">{tc("老師模板及上載固定使用 34 個必要欄名，欄位次序可以調整；完整 39 欄只供受控基線工具使用。")}</span></div>
         <label className="mt-4 grid gap-2 text-sm font-semibold text-[var(--text)]">{tc("選擇 CSV 檔案")}<input type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="block w-full rounded-xl border border-[var(--border)] p-3 text-sm" /></label>
         <button type="button" className="ui-button ui-button-primary mt-3" disabled={!file || busy} onClick={() => void upload()}>{busy ? tc("處理中…") : tc("建立安全預覽")}</button>
       </div>

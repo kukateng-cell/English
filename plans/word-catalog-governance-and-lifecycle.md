@@ -1,6 +1,6 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
-> 狀態：進行中（治理工作區、正式 ACTIVE／DRAFT baseline、CSV preview／原子 commit、修改歷史、本機 full-size 效能加固、standalone 單一 reviewer／即時軟停用簡化、老師介面 UAT 修正，以及完整詞庫伺服器端分頁／搜尋均已完成本地驗證；staging／Vercel、production rollout及 legacy cleanup 仍未完成）
+> 狀態：已完成（本地 implementation／verification；staging／Vercel、production rollout及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22
 >
@@ -561,7 +561,7 @@ npm run test:e2e:card-motion
 - [x] 修正 standalone RETIRE／REACTIVATE 將 `{}` 當完整 proposal payload 回傳，導致提交成功或 reviewer「查看草稿」後對缺少陣列執行 `.join()` 崩潰；新 request 寫入完整 current payload，reader 對舊資料使用 after snapshot／approved payload fallback，client 再作完整 shape normalization；
 - [x] 修正 320px workspace mobile header 帳戶選單向 viewport 上方展開、不可觸控主題／語言／登出，以及工作臺標題逐字換行；
 - [x] 簡繁顯示層同時容忍簡體或繁體來源字面量：zh-Hans 統一轉簡、zh-Hant 統一轉繁，避免詞庫工作區混合兩套字形；
-- [x] 老師 governance template／UPDATE export 改用 34 欄乾淨 view，省略 `prompt_en`、`prompt_zh`、`source_reference`、`contributor_ref`、`change_note`；parser 仍接受舊 39 欄檔案並將省略欄安全補空；
+- [x] 老師governance template／UPDATE export／upload固定使用34欄乾淨view，省略 `prompt_en`、`prompt_zh`、`source_reference`、`contributor_ref`、`change_note`；UPDATE保留目前revision嘅隱藏metadata，普通endpoint拒絕完整39欄bootstrap檔；
 - [x] CSV 批量頁補唯一可見 `h1`；真實瀏覽器重驗 lifecycle submit／查看草稿／approve、320px 無水平溢出、簡體顯示、34 欄 template，以及開啟流動版帳戶選單時 automated WCAG A／AA；額外修正語言按鈕欠缺 `menuitemradio` semantics 後 axe 違規為 0；
 - [x] 只使用可回收本地 UAT fixture；完成後 friend 已恢復 ACTIVE，兩個帳戶、兩個 request 及相關 history／audit／security fixture 已刪除，catalog mutation revision 已由 18 還原至驗收前 16；治理 checker再次確認 ACTIVE 5,469／DRAFT 107／RETIRED 0／PENDING 0；不執行 production deploy。
 

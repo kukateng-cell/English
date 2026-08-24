@@ -211,7 +211,14 @@ git push
    | `DATABASE_URL` | （第 1 步的 Transaction pooler，6543） | 运行时连库 |
    | `MIGRATE_URL`  | 不要填入 Vercel Preview / Runtime | 只存入 GitHub `production` environment secret；build 不可持有 DDL 凭证 |
    | `NEXTAUTH_SECRET` | （和本地一样的那串） | 生产环境要重新生成一串新的也行 |
-   | `SECURITY_AUDIT_HASH_SECRET` | 至少 32 字符独立随机串 | 审计账号/IP HMAC；必须长期稳定，不跟 JWT 密钥一同轮换 |
+   | `SECURITY_AUDIT_HMAC_SECRET` | 至少 32 字符独立随机串 | 审计账号/IP／词库actor HMAC；必须长期稳定，不跟 JWT 密钥一同轮换 |
+   | `SECURITY_AUDIT_HMAC_KEY_ID` | 例如 `audit-v1` | 当前审计HMAC版本；轮换密钥时同步更新 |
+   | `TEACHER_RESET_PRECONDITION_KEY_CURRENT` | base64url编码的随机32-byte key | 教师重设密码precondition AEAD current key |
+   | `TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID` | 例如 `teacher-reset-v1` | 教师重设current key的稳定版本ID |
+   | `TEACHER_RESET_PRECONDITION_KEY_PREVIOUS/ID` | 默认留空；轮换期成对填写 | current轮换后至少保留五分钟，key与ID必须同时存在或同时留空 |
+   | `PASSWORD_RESET_PRECONDITION_KEY_CURRENT` | base64url编码的随机32-byte key | 管理员／教师共用的password-reset v2 current key |
+   | `PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID` | 例如 `password-reset-v2` | password-reset current key的稳定版本ID |
+   | `PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS/ID` | 默认留空；轮换期成对填写 | previous keyring pair；key与ID必须同时存在或同时留空 |
    | `NEXTAUTH_URL` | `https://你的应用名.vercel.app` | 部署后 Vercel 会给你域名；**首次可先留空或填预计域名，部署拿到真实域名后再回来改** |
    | `INITIAL_ADMIN_PASSWORD` | （和本地一样） | 仅 seed 时需要；Vercel 上一般不在构建期跑 seed |
    | `DATABASE_ENVIRONMENT` | `production` | 仅 seed 时使用；必须与数据库持久环境标记一致 |
@@ -233,8 +240,14 @@ git push
 ### 4.1 生产迁移与发布门闩
 
 正式启用后，请在 Vercel 关闭 `main` 的自动 Production deployment。把 Vercel 的
-`VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`，以及 Session pooler 的
-`MIGRATE_URL` 保存为 GitHub `production` environment secrets。之后每次发布只从
+`VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`、Session pooler 的
+`MIGRATE_URL`，以及上表的audit HMAC key／ID、teacher-reset current key／ID、
+password-reset current key／ID保存为GitHub `production` environment secrets；轮换期间亦要把
+兩組previous key／ID成對保存。呢啲runtime keyring同時要配置於Vercel Production環境，
+但`MIGRATE_URL`只可留喺GitHub。workflow除咗檢查GitHub release secrets，亦會在migration前
+以Vercel CLI拉取實際Production runtime設定，再用同一套production config checker核對
+Upstash、CRON、audit HMAC、reset keyring、catalog feature gate及禁止測試開關等contract；
+GitHub副本正確但Vercel漏設runtime secret時，發布同樣會在migration前停止。之后每次发布只从
 `main` 运行 GitHub Actions 的
 **Migrate and deploy production**：workflow 会先执行全部 migration，成功后才触发
 Vercel CLI 部署当前 workflow 的精确 checkout；migration 失败则不会 promotion，亦
