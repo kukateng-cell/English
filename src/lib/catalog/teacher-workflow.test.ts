@@ -3,7 +3,10 @@ import test from "node:test";
 import {
   canReadCatalogFeedback,
   canResolveCatalogFeedback,
+  decodeCatalogFeedbackCursor,
+  encodeCatalogFeedbackCursor,
   parseCatalogFeedbackInput,
+  parseCatalogFeedbackQuery,
   parseCatalogFeedbackResolution,
 } from "@/lib/catalog/feedback";
 import {
@@ -11,6 +14,7 @@ import {
   batchNeedsRevision,
   catalogBatchNeedsRevisionWhere,
   catalogBatchReviewWhere,
+  mergeCatalogWorkItems,
   standaloneRequestNeedsRevision,
 } from "@/lib/catalog/work-items";
 
@@ -33,13 +37,29 @@ test("feedback accepts a compact word report and normalizes text", () => {
 });
 
 test("missing-word feedback requires a term and resolution uses CAS input", () => {
-  assert.throws(() => parseCatalogFeedbackInput({ operationId: "op", kind: "MISSING_WORD", message: "應該加入" }), /CATALOG_FEEDBACK_TERM_REQUIRED/u);
+  assert.throws(() => parseCatalogFeedbackInput({ operationId: "op", kind: "MISSING_WORD", message: "應該加入" }), /CATALOG_FEEDBACK_TARGET_INVALID/u);
+  assert.throws(() => parseCatalogFeedbackInput({ operationId: "op", kind: "MISSING_WORD", senseKey: "existing", term: "run", message: "應該加入" }), /CATALOG_FEEDBACK_TARGET_INVALID/u);
+  assert.throws(() => parseCatalogFeedbackInput({ operationId: "op", kind: "DEFINITION", message: "解釋有問題" }), /CATALOG_FEEDBACK_SENSE_REQUIRED/u);
   assert.deepEqual(parseCatalogFeedbackResolution({ status: "RESOLVED", resolutionNote: "已建立修改草稿", expectedRevision: 0 }), {
     status: "RESOLVED",
     resolutionNote: "已建立修改草稿",
     expectedRevision: 0,
   });
   assert.throws(() => parseCatalogFeedbackResolution({ status: "RESOLVED", resolutionNote: "ok", expectedRevision: 0 }), /CATALOG_FEEDBACK_RESOLUTION_INVALID/u);
+});
+
+test("feedback query uses bounded signed keyset cursors", () => {
+  assert.deepEqual(parseCatalogFeedbackQuery(new URLSearchParams("scope=mine&limit=25")), { scope: "mine", limit: 25, cursor: null });
+  const cursor = encodeCatalogFeedbackCursor({ scope: "mine", actorId: "teacher-1", createdAt: "2026-08-25T00:00:00.000Z", id: "feedback-1" });
+  assert.deepEqual(decodeCatalogFeedbackCursor(cursor), {
+    v: 1,
+    scope: "mine",
+    actorId: "teacher-1",
+    createdAt: "2026-08-25T00:00:00.000Z",
+    id: "feedback-1",
+  });
+  assert.equal(decodeCatalogFeedbackCursor(`${cursor}x`), null);
+  assert.throws(() => parseCatalogFeedbackQuery(new URLSearchParams("scope=all")), /CATALOG_FEEDBACK_QUERY_INVALID/u);
 });
 
 test("feedback visibility is owner-or-reviewer and self-resolution is forbidden", () => {
@@ -75,4 +95,13 @@ test("a claimed resolution batch belongs to exactly one actionable bucket", () =
     status: "NEEDS_RESOLUTION",
     resolutionOwnerId: null,
   });
+});
+
+test("mixed work items are globally ordered and capped per section", () => {
+  const result = mergeCatalogWorkItems([
+    { id: "request", timestamp: "2026-08-25T01:00:00.000Z", type: "REQUEST" },
+    { id: "batch", timestamp: "2026-08-25T03:00:00.000Z", type: "BATCH" },
+    { id: "feedback", timestamp: "2026-08-25T02:00:00.000Z", type: "FEEDBACK" },
+  ], 2, "desc");
+  assert.deepEqual(result.map((item) => item.id), ["batch", "feedback"]);
 });

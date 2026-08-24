@@ -46,6 +46,7 @@ import {
   type CatalogSubmissionBatchPatch,
 } from "./submission-patch";
 import { isRetryableTransactionConflict, waitForTransactionRetry } from "@/lib/transaction-retry";
+import { threeWayMergeCatalogPayload } from "./retry-merge";
 
 type Tx = Prisma.TransactionClient;
 
@@ -211,6 +212,7 @@ export async function createCatalogSubmissionPreview(input: {
   fileName: string;
   bytes: Uint8Array;
   retrySourceBatchId?: string;
+  retryMergeConflicts?: ReadonlyMap<number, readonly string[]>;
 }) {
   if (!isCanonicalUuid(input.operationId)) throw new Error("IDEMPOTENCY_KEY_INVALID");
   if (input.bytes.byteLength > CATALOG_GOVERNANCE_MAX_BYTES) throw new Error("CATALOG_CSV_TOO_LARGE");
@@ -221,6 +223,9 @@ export async function createCatalogSubmissionPreview(input: {
     fileName: input.fileName,
     fileHash,
     retrySourceBatchId: input.retrySourceBatchId ?? null,
+    retryMergeConflicts: [...(input.retryMergeConflicts?.entries() ?? [])]
+      .map(([sourceRowNumber, fields]) => ({ sourceRowNumber, fields: [...fields].sort() }))
+      .sort((left, right) => left.sourceRowNumber - right.sourceRowNumber),
     versions: CATALOG_SUBMISSION_VERSIONS,
   }));
   const actor = catalogActorPseudonym(input.actorId);
@@ -253,7 +258,9 @@ export async function createCatalogSubmissionPreview(input: {
       if (retrySource.status !== "STALE" && retrySource.status !== "REJECTED") {
         throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
       }
-      if (retrySource.retriedBy) throw new Error("CATALOG_BATCH_ALREADY_SUPERSEDED");
+      if (retrySource.retriedBy) {
+        return { replay: true, batch: submissionBatchDto(await readBatchForDto(tx, retrySource.retriedBy.id)) };
+      }
     }
     const ready = await tx.catalogRevision.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
     if (!ready) throw new Error("CATALOG_NOT_READY");
@@ -280,6 +287,24 @@ export async function createCatalogSubmissionPreview(input: {
       requestFingerprint: row.requestFingerprint,
     }));
     const preview = buildCatalogSubmissionPreview(rows, snapshots, pendingChanges);
+    if (input.retryMergeConflicts?.size) {
+      for (const [sourceRowNumber, fields] of input.retryMergeConflicts) {
+        const conflictRow = preview.rows.find((candidate) => candidate.rowNumber === sourceRowNumber);
+        const groupNumber = conflictRow?.proposalGroupNumber ?? null;
+        const group = groupNumber === null
+          ? null
+          : preview.groups.find((candidate) => candidate.groupNumber === groupNumber);
+        if (!conflictRow || !group) throw new Error("CATALOG_BATCH_RETRY_STALE");
+        group.needsResolution = true;
+        group.resolution = null;
+        group.resolutionReason = `retry merge conflict: ${[...fields].join(", ")}`;
+        for (const row of preview.rows) {
+          if (row.proposalGroupNumber === groupNumber) row.primaryDisposition = "CONFLICT";
+        }
+      }
+      preview.summary.unresolvedGroups = preview.groups.filter((group) => group.needsResolution).length;
+      preview.status = preview.summary.unresolvedGroups ? "NEEDS_RESOLUTION" : preview.status;
+    }
     if (preview.summary.invalidRows > 0) preview.status = "NEEDS_RESOLUTION";
     const dependencyDigests = buildCatalogPreviewDependencyDigests(preview.groups, snapshots, pendingChanges);
     const batch = await tx.catalogSubmissionBatch.create({
@@ -405,7 +430,10 @@ export async function createCatalogSubmissionPreview(input: {
           where: { id: input.retrySourceBatchId },
           select: { retriedBy: { select: { id: true } } },
         });
-        if (source?.retriedBy) throw new Error("CATALOG_BATCH_ALREADY_SUPERSEDED");
+        if (source?.retriedBy) {
+          const replayBatch = await prisma.$transaction((tx) => readBatchForDto(tx, source.retriedBy!.id));
+          return { replay: true, batch: submissionBatchDto(replayBatch) };
+        }
       }
     }
     throw error;
@@ -425,16 +453,20 @@ export async function createRetryCatalogSubmissionPreview(input: {
       resolutionOwnerId: true,
       status: true,
       fileName: true,
+      retriedBy: { select: { id: true } },
       proposalGroups: {
         orderBy: { groupNumber: "asc" },
         select: {
           groupNumber: true,
           requestedAction: true,
+          baseRevision: true,
           targetCatalogKey: true,
           targetSenseKey: true,
           finalProposalPayload: true,
+          changeRequest: { select: { beforePayloadSnapshot: true } },
           targetSense: {
             select: {
+              id: true,
               status: true,
               catalogEntry: { select: { catalogKey: true } },
               approvedRevision: { select: revisionSelect },
@@ -449,19 +481,59 @@ export async function createRetryCatalogSubmissionPreview(input: {
   if (source.proposerId !== input.actorId && source.resolutionOwnerId !== input.actorId) {
     throw new Error("CATALOG_BATCH_FORBIDDEN");
   }
+  if (source.retriedBy) {
+    const batch = await prisma.$transaction((tx) => readBatchForDto(tx, source.retriedBy!.id));
+    return { replay: true, batch: submissionBatchDto(batch) };
+  }
   if (source.status !== "STALE" && source.status !== "REJECTED") {
     throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
   }
   if (!source.proposalGroups.length) throw new Error("CATALOG_BATCH_EMPTY");
 
+  const basePairs = source.proposalGroups.flatMap((group) => group.requestedAction === "UPDATE" && group.targetSense?.id && group.baseRevision !== null
+    ? [{ senseId: group.targetSense.id, revision: group.baseRevision }]
+    : []);
+  const baseRevisions = basePairs.length
+    ? await prisma.wordSenseRevision.findMany({
+        where: { OR: basePairs },
+        select: { senseId: true, ...revisionSelect },
+      })
+    : [];
+  const baseRevisionByKey = new Map(baseRevisions.map((revision) => [
+    `${revision.senseId}:${revision.revision}`,
+    payloadFromRevision(revision),
+  ]));
+  const retryMergeConflicts = new Map<number, readonly string[]>();
   const rows: CatalogSourceRow[] = source.proposalGroups.map((group) => {
     if (group.requestedAction !== "CREATE" && group.requestedAction !== "UPDATE") {
       throw new Error("CATALOG_BATCH_RETRY_STALE");
     }
-    const payload = parseCatalogGovernancePayload(group.finalProposalPayload);
+    const proposal = parseCatalogGovernancePayload(group.finalProposalPayload);
     const currentRevision = group.targetSense?.approvedRevision ?? group.targetSense?.revisions[0] ?? null;
     if (group.requestedAction !== "CREATE" && !currentRevision) {
       throw new Error("CATALOG_BATCH_RETRY_STALE");
+    }
+    let payload = proposal;
+    if (group.requestedAction === "UPDATE" && currentRevision?.revision !== group.baseRevision) {
+      const base = group.changeRequest?.beforePayloadSnapshot
+        ? parseCatalogGovernancePayload(group.changeRequest.beforePayloadSnapshot)
+        : group.targetSense?.id && group.baseRevision !== null
+          ? baseRevisionByKey.get(`${group.targetSense.id}:${group.baseRevision}`) ?? null
+          : null;
+      if (!base) throw new Error("CATALOG_BATCH_RETRY_STALE");
+      const current = payloadFromRevision(currentRevision!);
+      const firstPass = threeWayMergeCatalogPayload({ base, proposal, current });
+      if (firstPass.conflicts.length) {
+        retryMergeConflicts.set(group.groupNumber + 1, firstPass.conflicts.map((conflict) => conflict.field));
+        payload = threeWayMergeCatalogPayload({
+          base,
+          proposal,
+          current,
+          choices: Object.fromEntries(firstPass.conflicts.map((conflict) => [conflict.field, "PROPOSAL"])),
+        }).payload;
+      } else {
+        payload = firstPass.payload;
+      }
     }
     const catalogKey = group.targetSense?.catalogEntry.catalogKey
       ?? group.targetCatalogKey
@@ -488,6 +560,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
     fileName: `retry-${source.fileName}`.slice(0, 120),
     bytes: new TextEncoder().encode(csv),
     retrySourceBatchId: source.id,
+    retryMergeConflicts,
   });
 }
 

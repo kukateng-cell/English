@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import ErrorBanner from "@/components/ErrorBanner";
 import { rosterFetch } from "@/lib/roster-client";
@@ -68,6 +68,7 @@ export default function CatalogWorkItemsWorkspace({ bulkEnabled, onOpenCatalog, 
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [requestedLimit, setRequestedLimit] = useState(12);
+  const retryOperationIdsRef = useRef<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,12 +113,15 @@ export default function CatalogWorkItemsWorkspace({ bulkEnabled, onOpenCatalog, 
   async function retryBatch(item: WorkItem) {
     setBusyId(item.id); setError(null); setMessage(null);
     try {
+      const operationId = retryOperationIdsRef.current[item.id] ?? window.crypto.randomUUID();
+      retryOperationIdsRef.current[item.id] = operationId;
       const response = await rosterFetch(`/api/catalog/submissions/${encodeURIComponent(item.id)}/retry-preview`, {
         method: "POST",
-        headers: { "Idempotency-Key": window.crypto.randomUUID() },
+        headers: { "Idempotency-Key": operationId },
       });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const body = await response.json() as { batch: { id: string } };
+      delete retryOperationIdsRef.current[item.id];
       onOpenBatch(body.batch.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc(networkErrorMessage(cause)));

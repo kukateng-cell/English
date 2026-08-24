@@ -1,6 +1,6 @@
 # 詞庫教師意見、真實題目預覽及工作待辦實施計劃
 
-狀態：已完成（本地 implementation／verification；真實教師 UAT 及 production rollout 延後）
+狀態：已完成（2026-08-25 合併前資料一致性加固完成；production rollout 仍延後）
 
 建立日期：2026-08-24
 所屬分支：`codex/word-catalog-governance-and-lifecycle`
@@ -158,3 +158,60 @@
 ## 已知延後項目
 
 - 真實英文老師代表性 UAT、正式裝置／screen-reader 人手矩陣、staging／production rollout 及 production observation 仍屬外部 gate，未在本輪執行。
+
+## 2026-08-25 合併前資料一致性加固
+
+### 背景及決策
+
+固定 `93cedee` 的後續審核指出 retry rebase、client operation ID、preview validator、待辦聚合、資料庫 immutable guard、feedback list 及本機 checker 仍有 contract 缺口。七項意見均成立，本輪以以下方式修正：
+
+- 單筆／批次 retry 必須由原 base、原 proposal 及目前 approved revision 作 server-side three-way merge；無衝突欄自動 rebase，有衝突欄只接受 `CURRENT`／`PROPOSAL` 明確決定，server 重新計算並再次核對 current revision；
+- client 同一 request body 的網絡重試重用 operation ID，body 改變先換 ID，成功後先清除；server 對已存在 successor 回 authoritative replay；
+- 題目預覽、standalone submit 及批准／重啟共用同一 sibling validation loader，preview 不可比正式提交寬鬆；
+- 待辦 section 使用全域交錯排序及單一 section limit，top-level recent 排除 batch child；
+- 新 ordinary expand migration 鎖定 request／batch retry lineage，並以 constraint／trigger 保護 feedback 狀態及 immutable content；
+- feedback list 加 signed keyset cursor、scope／limit，同時嚴格限制 kind／target 組合；
+- 本機教師工作流程 checker 改用 runtime `DATABASE_URL`，並核對兩重 non-production marker 及持久 `DatabaseMetadata.environment`。
+
+### 非目標及 rollback
+
+- 不改學生出題、判分、SM-2、排行榜或學習事件；teacher preview 仍然係唯一會回答案 key 的新介面；
+- 不重寫或刪除既有 terminal request／batch／feedback；所有 migration 只做 additive／`CREATE OR REPLACE FUNCTION` guard；
+- 不執行 production migration／deploy。Application rollback 可隱藏 UI，但最低 rollback binary 必須保留新增 lineage／feedback DB guard compatibility。
+
+### Checklist
+
+- [x] 實作單筆及批次 retry three-way merge、衝突 DTO／決定、READY source row 重綁及 server current-revision recheck。
+- [x] feedback、單筆 retry、批次 retry client 保存 stable operation ID；補 response-lost replay regression。
+- [x] 抽出 sibling validation loader，令 preview／submit／final review／reactivate 使用一致 normalized rows。
+- [x] recent request 排除 batch child；四個 work-item sections 共用全域排序及單一總上限，totals 使用相同 filters。
+- [x] 新增 request／batch lineage immutable trigger、feedback consistency constraint／transition trigger及 direct mutation negative tests。
+- [x] feedback GET 支援 scope／limit／signed cursor；parser 嚴格限制 MISSING_WORD／field-specific target，UI 只顯示合適類型。
+- [x] checker 改用 `DATABASE_URL` 並加入 non-production／DatabaseMetadata guard；已核對現有 CI 使用獨立 test database 及一致 environment markers，毋須修改 workflow invocation。
+- [x] 執行 unit、zero-warning lint、TypeScript、production build、migration checksum／fresh replay、catalog DB checks及 browser lifecycle regression。
+- [x] 更新實際驗證、恢復計劃「已完成」並提交同一功能分支；GitHub push／quality gate 結果由本輪交付記錄核對。
+
+### 測試矩陣補充
+
+| 範圍 | 必須證明 |
+|---|---|
+| Retry merge | 中途批准修改未被舊 payload 還原；同欄不同值產生 conflict；決定只接受 current／proposal；current revision 再變即 stale |
+| Stable operation | response 遺失後同 body 重送只得一個 feedback／successor request／successor batch；改 body 先換 operation ID |
+| Sibling validation | 一個候選撞 sibling accepted answer，即使 builder 仍有三個安全選項，preview／submit／final validation均拒絕 |
+| Work items | 3-group committed batch只出一個 top-level batch；section 合併後最多 limit 項並按跨類型時間排序 |
+| DB guards | lineage FK不可更新；terminal feedback不可重開／改內容；OPEN不可寫 resolver；合法 terminal transition revision恰好加一 |
+| Feedback list | mine desc／review asc cursor無重複遺漏；target-kind非法組合422；UI入口只顯示適用類型 |
+| Checker | 缺 marker、production marker、確認不符或DB metadata不符全部 fail closed；不使用 migration credential |
+
+### 本輪實際驗證
+
+- `npm test`：326／326 通過，包括 three-way merge、stable operation、sibling validation、feedback cursor／target 及跨類型 work-item 排序。
+- `npm run lint -- --max-warnings=0`、`npx tsc --noEmit`：通過。
+- `npm run build`：83 個 App Router route production build 通過；首次 sandbox process spawn／port 限制失敗後，以獲准本機權限重跑通過。
+- `npm run test:migration-checksums`、`npm run test:migrations`：通過；63 個 ordinary migrations fresh／interrupted replay 成功。
+- `npx prisma migrate status`：本機 `english_dev/public` 已套用全部 63 個 migrations。
+- `npm run check:catalog-teacher-workflow`：feedback transition／terminal guards、request retry lineage、batch retry lineage 及 unique retry lineage 全部通過。
+- `npm run check:catalog-submission`：duplicate retry authoritative replay、reviewer takeover／transfer race、finalize／corrective lifecycle 全部通過。
+- `npm run check:catalog-governance`：通過。
+- `npm run test:e2e:catalog-workspace`：4／4 通過；包括中途正式 revision 合併、同欄 conflict 人手決定、response-lost operation ID replay、metadata round-trip、privacy、review、retire／reactivate 及 history。
+- production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。

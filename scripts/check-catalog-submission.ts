@@ -344,13 +344,9 @@ async function main() {
     where: { id: resolutionBatchId, status: { in: ["STALE", "REJECTED"] }, retriedBy: null },
   });
   if (staleSourceStillActionable !== 0) throw new Error("retried source remained actionable after successor creation");
-  let duplicateRetryBlocked = false;
-  try {
-    await createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: randomUUID() });
-  } catch (error) {
-    duplicateRetryBlocked = error instanceof Error && error.message === "CATALOG_BATCH_ALREADY_SUPERSEDED";
-  }
-  if (!duplicateRetryBlocked) throw new Error("request-resolution source accepted more than one retry successor");
+  const duplicateRetry = await createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: randomUUID() });
+  const duplicateRetryReplayed = duplicateRetry.replay && duplicateRetry.batch.id === retryPreview.batch.id;
+  if (!duplicateRetryReplayed) throw new Error("request-resolution source did not replay the existing retry successor");
 
   const duplicateBase: CatalogGovernancePayload = { ...basePayload, term: `checkduplicate${suffix}`, lemma: `checkduplicate${suffix}`, definitionZh: "重複來源測試詞", acceptedAnswersZh: ["重複來源測試詞"], exampleEn: "This is source row two.", exampleZh: "這是來源第二行。" };
   const duplicateAlternative: CatalogGovernancePayload = { ...duplicateBase, exampleEn: "This is source row three.", exampleZh: "這是來源第三行。" };
@@ -541,7 +537,7 @@ async function main() {
     throw new Error("transfer/takeover race selected an unexpected reviewer");
   }
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryBlocked, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

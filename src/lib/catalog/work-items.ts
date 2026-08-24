@@ -70,3 +70,18 @@ export function actionableCatalogWorkCount(input: {
 }): number {
   return Object.values(input).reduce((total, count) => total + Math.max(0, count), 0);
 }
+
+export function mergeCatalogWorkItems<T extends { timestamp: string; id: string }>(
+  items: T[],
+  limit: number,
+  order: "asc" | "desc",
+): T[] {
+  return [...items]
+    .sort((left, right) => {
+      const time = order === "desc"
+        ? right.timestamp.localeCompare(left.timestamp)
+        : left.timestamp.localeCompare(right.timestamp);
+      return time || left.id.localeCompare(right.id);
+    })
+    .slice(0, limit);
+}

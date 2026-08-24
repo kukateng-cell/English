@@ -17,6 +17,7 @@ import {
 import { normalizeCatalogText } from "@/lib/catalog/csv";
 import { catalogPayloadToQuestionWord } from "@/lib/catalog/question-preview";
 import { buildObjectiveQuestion, type QuestionDirection } from "@/lib/learning-policy/question";
+import { loadCatalogSiblingValidationRows } from "@/lib/catalog/sibling-validation";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -34,12 +35,13 @@ export async function POST(req: Request) {
       throw new Error("CATALOG_QUESTION_PREVIEW_INVALID");
     }
 
+    const siblingRows = await loadCatalogSiblingValidationRows(prisma, payload, senseKey || undefined);
     const validation = validateCatalogGovernancePayload(payload, {
       sourceFile: "teacher-question-preview.csv",
       sourceRow: 2,
       catalogKey: "teacher-question-preview",
       senseKey: senseKey || "teacher-question-preview-sense",
-    }, 1);
+    }, 1, siblingRows);
     if (validation.errors.length) {
       return catalogResponse("CATALOG_QUESTION_PREVIEW_VALIDATION_FAILED", 422, {
         errors: validation.errors,

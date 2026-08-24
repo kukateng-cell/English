@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import { rosterFetch } from "@/lib/roster-client";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
+import {
+  clientOperationFingerprint,
+  pendingClientOperation,
+  type PendingClientOperation,
+} from "@/lib/catalog/client-operation";
 
 const KINDS = [
   ["DEFINITION", "中文釋義"],
@@ -32,6 +37,10 @@ export default function CatalogFeedbackDialog({ target, onClose, onSubmitted }: 
   const [suggestedValue, setSuggestedValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const pendingOperationRef = useRef<PendingClientOperation | null>(null);
+  const availableKinds = target.senseKey
+    ? KINDS.filter(([value]) => value !== "MISSING_WORD")
+    : KINDS.filter(([value]) => value === "MISSING_WORD" || value === "OTHER");
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -69,19 +78,25 @@ export default function CatalogFeedbackDialog({ target, onClose, onSubmitted }: 
     setSaving(true);
     setError(null);
     try {
+      const requestBody = {
+        senseKey: target.senseKey,
+        term,
+        kind,
+        message,
+        suggestedValue,
+      };
+      const fingerprint = clientOperationFingerprint(requestBody);
+      pendingOperationRef.current = pendingClientOperation(pendingOperationRef.current, fingerprint, () => window.crypto.randomUUID());
       const response = await rosterFetch("/api/catalog/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          operationId: window.crypto.randomUUID(),
-          senseKey: target.senseKey,
-          term,
-          kind,
-          message,
-          suggestedValue,
+          operationId: pendingOperationRef.current.operationId,
+          ...requestBody,
         }),
       });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+      pendingOperationRef.current = null;
       onSubmitted();
       onClose();
     } catch (cause) {
@@ -98,7 +113,7 @@ export default function CatalogFeedbackDialog({ target, onClose, onSubmitted }: 
         <button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={onClose} aria-label={tc("關閉") as string}>×</button>
       </div>
       <div className="mt-5 grid gap-4">
-        <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("問題類型")}<select className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={kind} onChange={(event) => setKind(event.target.value)}>{KINDS.map(([value, label]) => <option key={value} value={value}>{tc(label)}</option>)}</select></label>
+        <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("問題類型")}<select className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={kind} onChange={(event) => setKind(event.target.value)}>{availableKinds.map(([value, label]) => <option key={value} value={value}>{tc(label)}</option>)}</select></label>
         <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("相關英文詞")}{kind === "MISSING_WORD" ? `（${tc("必填")}）` : ""}<input className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] disabled:bg-[var(--border-soft)]" value={term} required={kind === "MISSING_WORD"} aria-required={kind === "MISSING_WORD"} disabled={Boolean(target.senseKey)} onChange={(event) => setTerm(event.target.value)} /></label>
         {target.senseKey ? <p className="break-all text-xs text-[var(--muted)]">sense key：{target.senseKey}</p> : null}
         <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("發現咗咩問題？")}<textarea className="min-h-28 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)]" value={message} maxLength={2000} onChange={(event) => setMessage(event.target.value)} placeholder={tc("例如：呢個中文解釋太深，A1 學生未必明白。") as string} /></label>

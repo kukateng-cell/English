@@ -12,6 +12,16 @@ import CatalogHistoryWorkspace from "@/components/catalog/CatalogHistoryWorkspac
 import CatalogQuestionPreview from "@/components/catalog/CatalogQuestionPreview";
 import CatalogFeedbackDialog, { type CatalogFeedbackTarget } from "@/components/catalog/CatalogFeedbackDialog";
 import CatalogWorkItemsWorkspace from "@/components/catalog/CatalogWorkItemsWorkspace";
+import {
+  catalogRetryPayloadPatch,
+  type CatalogRetryConflictChoice,
+  type CatalogRetryMergeConflict,
+} from "@/lib/catalog/retry-merge";
+import {
+  clientOperationFingerprint,
+  pendingClientOperation,
+  type PendingClientOperation,
+} from "@/lib/catalog/client-operation";
 
 type CatalogStatus = "DRAFT" | "ACTIVE" | "RETIRED";
 type FilterStatus = "ALL" | CatalogStatus | "BLOCKED" | "VALIDATION_FAILED" | "PENDING";
@@ -123,6 +133,15 @@ type ReviewMutationResult = {
   replay: boolean;
   request: { status: string };
 };
+type RetrySource = {
+  id: string;
+  kind: "UPDATE" | "CREATE" | "RETIRE" | "REACTIVATE";
+  sourceRowId: string | null;
+  reviewNote: string | null;
+  mergeBaseline: CatalogPayload;
+  conflicts: CatalogRetryMergeConflict[];
+  choices: Partial<Record<keyof CatalogPayload, CatalogRetryConflictChoice>>;
+};
 
 const EMPTY_PAYLOAD: CatalogPayload = {
   term: "",
@@ -154,6 +173,13 @@ function parseList(value: string) {
 
 function listText(value: readonly string[] | null | undefined) {
   return (value ?? []).join(" | ");
+}
+
+function retryConflictValueText(value: unknown, tc: (value: string) => string): string {
+  if (value === null || value === undefined || value === "") return tc("（空白）");
+  if (Array.isArray(value)) return value.length ? value.join(" | ") : tc("（空白）");
+  if (typeof value === "boolean") return value ? tc("啟用") : tc("停用");
+  return String(value);
 }
 
 function visiblePendingRequestId(value: Detail["pendingRequest"]): string | null {
@@ -261,7 +287,7 @@ function CatalogOverviewWorkspace({
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [feedbackTarget, setFeedbackTarget] = useState<CatalogFeedbackTarget | null>(null);
-  const [retrySource, setRetrySource] = useState<{ id: string; kind: "UPDATE" | "CREATE" | "RETIRE" | "REACTIVATE"; sourceRowId: string | null; reviewNote: string | null } | null>(null);
+  const [retrySource, setRetrySource] = useState<RetrySource | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   const pendingSignatureRef = useRef("");
   const pendingRefreshInFlightRef = useRef(false);
@@ -274,6 +300,7 @@ function CatalogOverviewWorkspace({
   const catalogWorkspaceSignatureRef = useRef("");
   const catalogQueryKeyRef = useRef("");
   const selectedPendingRequestIdRef = useRef<string | null>(null);
+  const submitOperationRef = useRef<PendingClientOperation | null>(null);
 
   const catalogQueryKey = useMemo(() => JSON.stringify({ search, status, level, direction }), [direction, level, search, status]);
   useEffect(() => {
@@ -487,6 +514,7 @@ function CatalogOverviewWorkspace({
     setReason("");
     setReviewNote("");
     setRetrySource(null);
+    submitOperationRef.current = null;
   }
 
   useEffect(() => {
@@ -544,6 +572,7 @@ function CatalogOverviewWorkspace({
       setReason("");
       setReviewNote("");
       setRetrySource(null);
+      submitOperationRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc("讀取詞條失敗"));
     }
@@ -569,7 +598,7 @@ function CatalogOverviewWorkspace({
       try {
         const response = await fetch(`/api/catalog/requests/${encodeURIComponent(initialRetryRequestId)}/retry`, { cache: "no-store" });
         if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
-        const body = await response.json() as { retry: {
+        const body = await response.json() as { replay: true; successorId: string; senseKey: string | null } | { replay: false; retry: {
           supersedesRequestId: string;
           kind: "UPDATE" | "CREATE" | "RETIRE" | "REACTIVATE";
           senseKey: string | null;
@@ -577,10 +606,16 @@ function CatalogOverviewWorkspace({
           expectedRevision: number | null;
           currentStatus: CatalogStatus;
           payload: CatalogPayload;
+          conflicts: CatalogRetryMergeConflict[];
           previousReason: string | null;
           reviewNote: string | null;
         } };
         if (cancelled) return;
+        if (body.replay) {
+          setMessage(tc("呢項修正版已經成功提交，畫面已開啟現有後繼申請。"));
+          if (body.senseKey) await openDetailBySenseKey(body.senseKey);
+          return;
+        }
         const retry = body.retry;
         const retryPayload = normalizeCatalogPayload(retry.payload);
         setSelected({
@@ -603,7 +638,16 @@ function CatalogOverviewWorkspace({
         setForm(retryPayload);
         setReason(retry.previousReason ?? "");
         setReviewNote("");
-        setRetrySource({ id: retry.supersedesRequestId, kind: retry.kind, sourceRowId: retry.sourceRowId, reviewNote: retry.reviewNote });
+        setRetrySource({
+          id: retry.supersedesRequestId,
+          kind: retry.kind,
+          sourceRowId: retry.sourceRowId,
+          reviewNote: retry.reviewNote,
+          mergeBaseline: retryPayload,
+          conflicts: retry.conflicts,
+          choices: {},
+        });
+        submitOperationRef.current = null;
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : tc("讀取重新提交草稿失敗"));
       } finally {
@@ -611,7 +655,7 @@ function CatalogOverviewWorkspace({
       }
     })();
     return () => { cancelled = true; };
-  }, [initialRetryRequestId, onRetryConsumed, tc]);
+  }, [initialRetryRequestId, onRetryConsumed, openDetailBySenseKey, tc]);
 
   function openSelectedHistory() {
     if (!selected?.senseKey) return;
@@ -649,12 +693,37 @@ function CatalogOverviewWorkspace({
       setError(tc("詞義版本已經改變，請重新載入後再操作。"));
       return;
     }
+    if (retrySource?.conflicts.some((conflict) => !retrySource.choices[conflict.field])) {
+      setError(tc("正式版本同原提案改過同一欄；請先逐欄選擇保留目前值或採用原提案。"));
+      return;
+    }
     if (immediate && !window.confirm(tc("这个词义会立即停止出现在新学习题目；学生历史会保留。确定停用？"))) return;
     setSaving(true); setError(null); setMessage(null);
     try {
-      const response = await rosterFetch("/api/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId: window.crypto.randomUUID(), kind, senseKey: selected.senseKey, sourceRowId: retrySource?.sourceRowId ?? (selected.sourceFile && selected.sourceFile !== "governance" ? selected.id : undefined), expectedRevision: kind === "CREATE" ? undefined : selected.revision, payload: kind === "UPDATE" || kind === "CREATE" ? form : undefined, reason: trimmedReason || undefined, immediate, supersedesRequestId: retrySource?.id }) });
+      const retryResolvedBaseline = retrySource
+        ? retrySource.conflicts.reduce((current, conflict) => ({
+            ...current,
+            [conflict.field]: retrySource.choices[conflict.field] === "PROPOSAL" ? conflict.proposal : conflict.current,
+          }), retrySource.mergeBaseline)
+        : null;
+      const requestBody = {
+        kind,
+        senseKey: selected.senseKey,
+        sourceRowId: retrySource?.sourceRowId ?? (selected.sourceFile && selected.sourceFile !== "governance" ? selected.id : undefined),
+        expectedRevision: kind === "CREATE" ? undefined : selected.revision,
+        payload: kind === "UPDATE" || kind === "CREATE" ? form : undefined,
+        reason: trimmedReason || undefined,
+        immediate,
+        supersedesRequestId: retrySource?.id,
+        retryConflictChoices: retrySource?.choices,
+        retryPayloadPatch: retryResolvedBaseline ? catalogRetryPayloadPatch(retryResolvedBaseline, form) : undefined,
+      };
+      const fingerprint = clientOperationFingerprint(requestBody);
+      submitOperationRef.current = pendingClientOperation(submitOperationRef.current, fingerprint, () => window.crypto.randomUUID());
+      const response = await rosterFetch("/api/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId: submitOperationRef.current.operationId, ...requestBody }) });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const result = await response.json() as { status: string; immediate?: boolean };
+      submitOperationRef.current = null;
       setRetrySource(null);
       setMessage(result.immediate && result.status === "APPROVED"
         ? tc("词义已停用；不会再出现在新学习题目，既有历史仍会保留。")
@@ -752,7 +821,7 @@ function CatalogOverviewWorkspace({
     <p className="text-sm text-[var(--muted)]" role="status" aria-live="polite">{loading ? tc("正在更新詞庫結果…") : <>{tc("目前篩選")}: {filteredTotal} / {counts.all ?? 0} {tc("條；已載入")} {rows.length}</>}</p>
     <div aria-busy={loading || loadingMore}>{loading ? <p role="status" className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">{tc("正在更新詞庫結果…")}</p> : rows.length ? <div className="space-y-2">{rows.map((row) => <article key={row.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[minmax(180px,1.1fr)_minmax(220px,1.6fr)_100px_150px_auto] lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="break-words text-[17px] text-[var(--text)]">{row.term || tc("未完成詞條")}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(row.status)}`}>{statusLabel(row.status, tc)}</span></div><p className="mt-1 break-all text-[11px] text-[var(--muted)]">{row.senseKey ?? tc("尚未建立 sense key")}</p></div><div className="min-w-0"><p className="line-clamp-2 text-sm text-[var(--text)]">{row.definitionZh || tc("尚未填寫中文釋義")}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.partOfSpeech || "—"} · {row.level || "—"} · {tc(row.category || "other")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.enableEnToZh ? tc("英譯中") : tc("英譯中停用")}</p><p>{row.enableZhToEn ? tc("中譯英") : tc("中譯英停用")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.primaryDisposition === "VALIDATION_FAILED" ? tc("需修訂 validator 問題") : row.eligibilityResult === "DRAFT_BLOCKED" ? tc("出題方向未就緒") : row.approvedRevisionId ? `${tc("已批准 revision")} ${row.revision ?? "—"}` : tc("未批准")}</p><p>{row.pendingRequest ? tc("已有待審核修改") : row.sourceFile ? `${row.sourceFile}:${row.sourceRow}` : tc("治理草稿")}</p></div><div className="flex flex-wrap gap-2 lg:justify-end">{bulkEnabled ? hasCatalogExportTarget(row) ? <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]"><input type="checkbox" checked={exportSenseKeys.has(row.senseKey!)} disabled={Boolean(row.pendingRequest) || (!exportSenseKeys.has(row.senseKey!) && exportSenseKeys.size >= 200)} onChange={(event) => toggleExportSelection(row.senseKey!, event.target.checked)} />{tc("選取匯出")}</label> : catalogExportAvailability(row) === "REQUIRES_GOVERNED_REVISION" ? <span role="note" className="max-w-44 text-xs leading-5 text-[var(--muted)]">{tc("請先查看／修改並建立詞義版本，之後才可批量匯出。")}</span> : catalogExportAvailability(row) === "REVISION_UNAVAILABLE" ? <span role="note" className="max-w-44 text-xs leading-5 text-[var(--danger)]">{tc("詞義版本未就緒；請重新載入，如持續出現請通知管理員。")}</span> : <span role="note" className="max-w-44 text-xs leading-5 text-[var(--muted)]">{tc("未有 sense key；請用 CSV 批量提交修正來源資料。")}</span> : null}{row.senseKey ? <><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => setFeedbackTarget({ senseKey: row.senseKey, term: row.term })}>{tc("報告問題")}</button>{historyEnabled ? <button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => onOpenHistory(row.senseKey!)}>{tc("查看歷史")}</button> : null}<button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => void openDetail(row)}>{tc("查看／修改")}</button></> : null}{row.validationErrors.length ? <span className="rounded-full bg-[var(--danger-bg)] px-2 py-1 text-[10px] text-[var(--danger)]">{row.validationErrors.length} {tc("個問題")}</span> : null}</div></div></article>)}</div> : <p className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">{tc("目前篩選沒有詞條。")}</p>}</div>
     {nextCursor ? <button type="button" className="ui-button ui-button-secondary mx-auto block" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? tc("載入中…") : tc("載入更多（最多 100 條）")}</button> : null}
-    {selected ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="catalog-dialog-title"><section ref={dialogRef} tabIndex={-1} className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-t-3xl bg-[var(--surface)] p-5 shadow-2xl sm:rounded-3xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-[var(--muted)]">{selected.senseKey}</p><h2 id="catalog-dialog-title" className="mt-1 text-xl font-bold text-[var(--text)]">{form.term || tc("詞條內容")}</h2><p className="mt-1 text-xs text-[var(--muted)]">{statusLabel(selected.status, tc)} · {selected.revision === null ? tc("未有 revision") : `revision ${selected.revision}`}</p></div><div className="flex flex-wrap justify-end gap-2"><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => setFeedbackTarget({ senseKey: selected.senseKey, term: form.term })}>{tc("報告問題")}</button>{historyEnabled ? <button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={openSelectedHistory}>{tc("查看歷史")}</button> : null}<button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => { setSelected(null); setRetrySource(null); }} aria-label={tc("關閉") as string}>×</button></div></div><div className="mt-4 grid gap-3 md:grid-cols-2"><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文詞") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.term} onChange={(event) => updateForm("term", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Lemma") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)] disabled:cursor-not-allowed disabled:bg-[var(--border-soft)]" value={form.lemma} disabled={selected.hasSense} onChange={(event) => updateForm("lemma", event.target.value)} />{selected.hasSense ? <small className="font-normal text-[var(--muted)]">{tc("Lemma 屬於穩定詞頭身份；如要改成另一個詞頭，請新增詞義並停用舊詞義。")}</small> : null}</label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("詞性") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.partOfSpeech} onChange={(event) => updateForm("partOfSpeech", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("程度") }<select className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.level} onChange={(event) => updateForm("level", event.target.value as CatalogPayload["level"])}>{["A1", "A2", "B1", "B2"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Category") }<select className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.category} onChange={(event) => updateForm("category", event.target.value)}>{CATALOG_CATEGORIES.includes(form.category as (typeof CATALOG_CATEGORIES)[number]) ? null : <option value={form.category}>{form.category} ({tc("無效，請重新選擇")})</option>}{CATALOG_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("音標") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.phoneticIpa ?? ""} onChange={(event) => updateForm("phoneticIpa", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("中文釋義") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.definitionZh} onChange={(event) => updateForm("definitionZh", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("例句英文") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.exampleEn ?? ""} onChange={(event) => updateForm("exampleEn", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("例句中文") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.exampleZh ?? ""} onChange={(event) => updateForm("exampleZh", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("中文正確答案（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.acceptedAnswersZh)} onChange={(event) => updateForm("acceptedAnswersZh", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文正確形式（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.acceptedFormsEn)} onChange={(event) => updateForm("acceptedFormsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文近義詞（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.synonymsEn)} onChange={(event) => updateForm("synonymsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文反義詞（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={listText(form.antonymsEn)} onChange={(event) => updateForm("antonymsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("英譯中干擾項（用 | 分隔；5–6 個）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.distractorZh)} onChange={(event) => updateForm("distractorZh", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("中譯英干擾項（用 | 分隔；5–6 個）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.distractorEn)} onChange={(event) => updateForm("distractorEn", parseList(event.target.value))} /></label></div><div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-[var(--border)] p-3 text-sm text-[var(--text)]"><label className="flex items-center gap-2"><input type="checkbox" checked={form.enableEnToZh} onChange={(event) => updateForm("enableEnToZh", event.target.checked)} />{tc("啟用英譯中")}</label><label className="flex items-center gap-2"><input type="checkbox" checked={form.enableZhToEn} onChange={(event) => updateForm("enableZhToEn", event.target.checked)} />{tc("啟用中譯英")}</label></div><CatalogQuestionPreview payload={form} senseKey={selected.senseKey} />{retrySource ? <p className="mt-4 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]"><strong>{tc("重新提交修正版")}</strong> · {tc("原審核意見")}：{retrySource.reviewNote || tc("未有備註")}。{tc("提交後會建立新申請，舊紀錄會保留。")}</p> : null}<label className="mt-4 grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("修改／停用理由") }<textarea className="min-h-16 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={reason} onChange={(event) => setReason(event.target.value)} placeholder={tc("簡單說明修改原因，停用時必須填寫。")} /></label>{selected.status === "ACTIVE" && canReview ? <p className="mt-2 text-xs text-[var(--danger)]">{tc("按下「立即停用」并确认后会即时生效；学生历史及审核记录会保留。")}</p> : null}{selected.pendingRequest ? <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]">{tc(canReview && selected.status === "ACTIVE" ? "已有待审核修改；即时停用仍会生效，现有内容申请不会自动重新启用这个词义。" : "此词条已有待审核版本，请先完成该审核。")}</p> : null}<div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4"><button type="button" className="ui-button ui-button-quiet" onClick={() => { setSelected(null); setRetrySource(null); }}>{tc("取消")}</button>{retrySource ? <button type="button" className="ui-button ui-button-primary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange(retrySource.kind)}>{saving ? tc("提交中…") : tc("修改後重新提交")}</button> : selected.status === "RETIRED" ? <><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange("UPDATE")}>{saving ? tc("提交中…") : tc("提交內容修改草稿")}</button><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange("REACTIVATE")}>{tc("提交重新啟用申請")}</button></> : <><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange(selected.hasSense === false ? "CREATE" : "UPDATE")}>{saving ? tc("提交中…") : tc("提交草稿")}</button>{selected.status === "ACTIVE" ? <button type="button" className="ui-button ui-button-danger" disabled={saving || (!canReview && Boolean(selected.pendingRequest))} onClick={() => void submitChange("RETIRE")}>{tc(canReview ? "立即停用" : "提交停用申请")}</button> : null}</>}</div></section></div> : null}{feedbackTarget ? <CatalogFeedbackDialog key={`${feedbackTarget.senseKey ?? "general"}:${feedbackTarget.term ?? ""}`} target={feedbackTarget} onClose={() => setFeedbackTarget(null)} onSubmitted={() => setMessage(tc("意見已提交；你可以在「我的待辦」查看處理狀態。"))} /> : null}
+    {selected ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="catalog-dialog-title"><section ref={dialogRef} tabIndex={-1} className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-t-3xl bg-[var(--surface)] p-5 shadow-2xl sm:rounded-3xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-[var(--muted)]">{selected.senseKey}</p><h2 id="catalog-dialog-title" className="mt-1 text-xl font-bold text-[var(--text)]">{form.term || tc("詞條內容")}</h2><p className="mt-1 text-xs text-[var(--muted)]">{statusLabel(selected.status, tc)} · {selected.revision === null ? tc("未有 revision") : `revision ${selected.revision}`}</p></div><div className="flex flex-wrap justify-end gap-2"><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => setFeedbackTarget({ senseKey: selected.senseKey, term: form.term })}>{tc("報告問題")}</button>{historyEnabled ? <button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={openSelectedHistory}>{tc("查看歷史")}</button> : null}<button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => { setSelected(null); setRetrySource(null); }} aria-label={tc("關閉") as string}>×</button></div></div><div className="mt-4 grid gap-3 md:grid-cols-2"><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文詞") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.term} onChange={(event) => updateForm("term", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Lemma") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)] disabled:cursor-not-allowed disabled:bg-[var(--border-soft)]" value={form.lemma} disabled={selected.hasSense} onChange={(event) => updateForm("lemma", event.target.value)} />{selected.hasSense ? <small className="font-normal text-[var(--muted)]">{tc("Lemma 屬於穩定詞頭身份；如要改成另一個詞頭，請新增詞義並停用舊詞義。")}</small> : null}</label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("詞性") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.partOfSpeech} onChange={(event) => updateForm("partOfSpeech", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("程度") }<select className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.level} onChange={(event) => updateForm("level", event.target.value as CatalogPayload["level"])}>{["A1", "A2", "B1", "B2"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Category") }<select className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.category} onChange={(event) => updateForm("category", event.target.value)}>{CATALOG_CATEGORIES.includes(form.category as (typeof CATALOG_CATEGORIES)[number]) ? null : <option value={form.category}>{form.category} ({tc("無效，請重新選擇")})</option>}{CATALOG_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("音標") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={form.phoneticIpa ?? ""} onChange={(event) => updateForm("phoneticIpa", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("中文釋義") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.definitionZh} onChange={(event) => updateForm("definitionZh", event.target.value)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("例句英文") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.exampleEn ?? ""} onChange={(event) => updateForm("exampleEn", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("例句中文") }<textarea className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={form.exampleZh ?? ""} onChange={(event) => updateForm("exampleZh", event.target.value || null)} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("中文正確答案（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.acceptedAnswersZh)} onChange={(event) => updateForm("acceptedAnswersZh", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文正確形式（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.acceptedFormsEn)} onChange={(event) => updateForm("acceptedFormsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文近義詞（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.synonymsEn)} onChange={(event) => updateForm("synonymsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("英文反義詞（用 | 分隔）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={listText(form.antonymsEn)} onChange={(event) => updateForm("antonymsEn", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("英譯中干擾項（用 | 分隔；5–6 個）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.distractorZh)} onChange={(event) => updateForm("distractorZh", parseList(event.target.value))} /></label><label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">{tc("中譯英干擾項（用 | 分隔；5–6 個）") }<input className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]" value={listText(form.distractorEn)} onChange={(event) => updateForm("distractorEn", parseList(event.target.value))} /></label></div><div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-[var(--border)] p-3 text-sm text-[var(--text)]"><label className="flex items-center gap-2"><input type="checkbox" checked={form.enableEnToZh} onChange={(event) => updateForm("enableEnToZh", event.target.checked)} />{tc("啟用英譯中")}</label><label className="flex items-center gap-2"><input type="checkbox" checked={form.enableZhToEn} onChange={(event) => updateForm("enableZhToEn", event.target.checked)} />{tc("啟用中譯英")}</label></div><CatalogQuestionPreview payload={form} senseKey={selected.senseKey} />{retrySource?.conflicts.length ? <section className="mt-4 rounded-2xl border border-[var(--warning)] bg-[var(--warning-bg)] p-4"><h3 className="font-bold text-[var(--warning)]">{tc("正式版本同原提案有欄位衝突")}</h3><p className="mt-1 text-xs text-[var(--warning)]">{tc("請逐欄比較原基線、被拒提案及目前正式值，再決定修正版採用邊一個。")}</p><div className="mt-3 space-y-3">{retrySource.conflicts.map((conflict) => <div key={conflict.field} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"><p className="text-sm font-bold text-[var(--text)]">{conflict.field}</p><dl className="mt-2 grid gap-2 text-xs md:grid-cols-3"><div><dt className="font-semibold text-[var(--muted)]">{tc("原基線")}</dt><dd className="mt-1 break-words text-[var(--text)]">{retryConflictValueText(conflict.base, tc)}</dd></div><div><dt className="font-semibold text-[var(--muted)]">{tc("被拒提案")}</dt><dd className="mt-1 break-words text-[var(--text)]">{retryConflictValueText(conflict.proposal, tc)}</dd></div><div><dt className="font-semibold text-[var(--muted)]">{tc("目前正式值")}</dt><dd className="mt-1 break-words text-[var(--text)]">{retryConflictValueText(conflict.current, tc)}</dd></div></dl><label className="mt-3 grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("修正版採用")}<select aria-label={`${tc("衝突欄位")} ${conflict.field}`} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={retrySource.choices[conflict.field] ?? ""} onChange={(event) => { const choice = event.target.value as CatalogRetryConflictChoice; const nextValue = choice === "PROPOSAL" ? conflict.proposal : conflict.current; setRetrySource((current) => current ? { ...current, choices: { ...current.choices, [conflict.field]: choice } } : current); setForm((current) => ({ ...current, [conflict.field]: nextValue }) as CatalogPayload); }}><option value="">{tc("請選擇")}</option><option value="CURRENT">{tc("保留目前正式值")}</option><option value="PROPOSAL">{tc("採用原提案值")}</option></select></label></div>)}</div></section> : null}{retrySource ? <p className="mt-4 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]"><strong>{tc("重新提交修正版")}</strong> · {tc("原審核意見")}：{retrySource.reviewNote || tc("未有備註")}。{tc("提交後會建立新申請，舊紀錄會保留。")}</p> : null}<label className="mt-4 grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("修改／停用理由") }<textarea className="min-h-16 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]" value={reason} onChange={(event) => setReason(event.target.value)} placeholder={tc("簡單說明修改原因，停用時必須填寫。")} /></label>{selected.status === "ACTIVE" && canReview ? <p className="mt-2 text-xs text-[var(--danger)]">{tc("按下「立即停用」并确认后会即时生效；学生历史及审核记录会保留。")}</p> : null}{selected.pendingRequest ? <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]">{tc(canReview && selected.status === "ACTIVE" ? "已有待审核修改；即时停用仍会生效，现有内容申请不会自动重新启用这个词义。" : "此词条已有待审核版本，请先完成该审核。")}</p> : null}<div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4"><button type="button" className="ui-button ui-button-quiet" onClick={() => { setSelected(null); setRetrySource(null); }}>{tc("取消")}</button>{retrySource ? <button type="button" className="ui-button ui-button-primary" disabled={saving || Boolean(selected.pendingRequest) || retrySource.conflicts.some((conflict) => !retrySource.choices[conflict.field])} onClick={() => void submitChange(retrySource.kind)}>{saving ? tc("提交中…") : tc("修改後重新提交")}</button> : selected.status === "RETIRED" ? <><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange("UPDATE")}>{saving ? tc("提交中…") : tc("提交內容修改草稿")}</button><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange("REACTIVATE")}>{tc("提交重新啟用申請")}</button></> : <><button type="button" className="ui-button ui-button-secondary" disabled={saving || Boolean(selected.pendingRequest)} onClick={() => void submitChange(selected.hasSense === false ? "CREATE" : "UPDATE")}>{saving ? tc("提交中…") : tc("提交草稿")}</button>{selected.status === "ACTIVE" ? <button type="button" className="ui-button ui-button-danger" disabled={saving || (!canReview && Boolean(selected.pendingRequest))} onClick={() => void submitChange("RETIRE")}>{tc(canReview ? "立即停用" : "提交停用申请")}</button> : null}</>}</div></section></div> : null}{feedbackTarget ? <CatalogFeedbackDialog key={`${feedbackTarget.senseKey ?? "general"}:${feedbackTarget.term ?? ""}`} target={feedbackTarget} onClose={() => setFeedbackTarget(null)} onSubmitted={() => setMessage(tc("意見已提交；你可以在「我的待辦」查看處理狀態。"))} /> : null}
   </div>;
 }
 

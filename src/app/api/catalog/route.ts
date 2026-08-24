@@ -7,13 +7,14 @@ import { catalogAccess, requireCatalogReviewerInTransaction } from "@/lib/catalo
 import { catalogBulkSubmissionEnabled, catalogHistoryEnabled } from "@/lib/catalog/features";
 import {
   catalogEntryAcceptsLemma,
+  catalogGovernancePayloadFromUnknown,
   parseCatalogGovernancePayload,
   payloadFingerprint,
   payloadFromRevision,
   validateCatalogGovernancePayload,
   type CatalogGovernancePayload,
 } from "@/lib/catalog/governance";
-import { normalizeCatalogRow, normalizeCatalogText } from "@/lib/catalog/csv";
+import { normalizeCatalogText } from "@/lib/catalog/csv";
 import { isRetryableTransactionConflict } from "@/lib/transaction-retry";
 import { catalogActorPseudonym } from "@/lib/catalog/submission";
 import { consumeCatalogGovernanceLimit } from "@/lib/catalog-limiter";
@@ -32,6 +33,13 @@ import {
   parseCatalogWorkspaceQuery,
 } from "@/lib/catalog/workspace-query";
 import { readCatalogWorkspacePage } from "@/lib/catalog/workspace-read";
+import {
+  applyCatalogRetryPayloadPatch,
+  parseCatalogRetryConflictChoices,
+  parseCatalogRetryPayloadPatch,
+  threeWayMergeCatalogPayload,
+} from "@/lib/catalog/retry-merge";
+import { loadCatalogSiblingValidationRows } from "@/lib/catalog/sibling-validation";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
 const CHANGE_KINDS = ["UPDATE", "CREATE", "RETIRE", "REACTIVATE"] as const;
@@ -202,6 +210,17 @@ export async function POST(req: Request) {
       return errorResponse("CATALOG_PAYLOAD_INVALID", 422, { detail: error instanceof Error ? error.message : "invalid payload" });
     }
   }
+  let retryConflictChoices: ReturnType<typeof parseCatalogRetryConflictChoices> = {};
+  let retryPayloadPatch: ReturnType<typeof parseCatalogRetryPayloadPatch> = {};
+  try {
+    retryConflictChoices = parseCatalogRetryConflictChoices(body.retryConflictChoices);
+    retryPayloadPatch = parseCatalogRetryPayloadPatch(body.retryPayloadPatch);
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "CATALOG_REQUEST_RETRY_PATCH_INVALID", 422);
+  }
+  if (!supersedesRequestId && (Object.keys(retryConflictChoices).length || Object.keys(retryPayloadPatch).length)) {
+    return errorResponse("CATALOG_REQUEST_RETRY_MISMATCH", 422);
+  }
   const requestFingerprint = payloadFingerprint({
     operationId,
     kind,
@@ -211,6 +230,8 @@ export async function POST(req: Request) {
     payload,
     reason,
     supersedesRequestId,
+    retryConflictChoices,
+    retryPayloadPatch,
     ...(immediateRetire ? { immediateRetire: true } : {}),
   });
   try {
@@ -230,8 +251,12 @@ export async function POST(req: Request) {
               status: true,
               senseKey: true,
               sourceImportRowId: true,
+              baseRevision: true,
+              payload: true,
+              beforePayloadSnapshot: true,
+              afterPayloadSnapshot: true,
               submissionProposalGroupId: true,
-              supersededBy: { select: { id: true } },
+              supersededBy: { select: { id: true, status: true } },
             },
           })
         : null;
@@ -239,8 +264,15 @@ export async function POST(req: Request) {
         if (!retrySource) throw new Error("CATALOG_REQUEST_NOT_FOUND");
         if (retrySource.proposerId !== auth.userId || retrySource.submissionProposalGroupId) throw new Error("CATALOG_REQUEST_RETRY_FORBIDDEN");
         if (retrySource.status !== "REJECTED") throw new Error("CATALOG_REQUEST_NOT_RETRYABLE");
-        if (retrySource.supersededBy) throw new Error("CATALOG_REQUEST_ALREADY_SUPERSEDED");
-        if (retrySource.kind !== kind || (retrySource.senseKey ?? "") !== senseKey || (retrySource.sourceImportRowId ?? "") !== sourceRowId) {
+        if (retrySource.supersededBy) {
+          return {
+            replay: true,
+            requestId: retrySource.supersededBy.id,
+            status: retrySource.supersededBy.status,
+            immediate: false,
+          };
+        }
+        if (retrySource.kind !== kind || (retrySource.senseKey ?? "") !== senseKey) {
           throw new Error("CATALOG_REQUEST_RETRY_MISMATCH");
         }
       }
@@ -276,6 +308,36 @@ export async function POST(req: Request) {
         : null;
       const baseRevision = targetSense?.approvedRevision?.revision ?? latest?.revision ?? null;
       if (targetSense && expectedRevision !== null && baseRevision !== expectedRevision) throw new Error("CATALOG_REVISION_STALE");
+      if (retrySource && kind === "UPDATE") {
+        const retryBase = catalogGovernancePayloadFromUnknown(retrySource.beforePayloadSnapshot);
+        const retryProposal = catalogGovernancePayloadFromUnknown(retrySource.afterPayloadSnapshot ?? retrySource.payload);
+        if (!retryBase || !retryProposal || !beforePayload || retrySource.baseRevision === null) {
+          throw new Error("CATALOG_REQUEST_RETRY_STALE");
+        }
+        const merge = threeWayMergeCatalogPayload({
+          base: retryBase,
+          proposal: retryProposal,
+          current: beforePayload,
+          choices: retryConflictChoices,
+        });
+        const conflictFields = new Set<string>(merge.conflicts.map((conflict) => conflict.field));
+        if (Object.keys(retryConflictChoices).some((field) => !conflictFields.has(field))) {
+          throw new Error("CATALOG_REQUEST_RETRY_RESOLUTION_INVALID");
+        }
+        if (merge.unresolvedFields.length) {
+          throw new Error(`CATALOG_REQUEST_RETRY_CONFLICT:${JSON.stringify(merge.unresolvedFields)}`);
+        }
+        let mergedPayload: CatalogGovernancePayload;
+        try {
+          mergedPayload = parseCatalogGovernancePayload(applyCatalogRetryPayloadPatch(merge.payload, retryPayloadPatch));
+        } catch {
+          throw new Error("CATALOG_REQUEST_RETRY_PATCH_INVALID");
+        }
+        if (!payload || payloadFingerprint(payload) !== payloadFingerprint(mergedPayload)) {
+          throw new Error("CATALOG_REQUEST_RETRY_MISMATCH");
+        }
+        payload = mergedPayload;
+      }
       if (kind === "REACTIVATE" && targetSense?.status !== "RETIRED") throw new Error("CATALOG_NOT_RETIRED");
       if (kind === "RETIRE" && targetSense?.status === "RETIRED") throw new Error("CATALOG_ALREADY_RETIRED");
       if (kind === "RETIRE" && (targetSense?.status !== "ACTIVE" || !targetSense.approvedRevisionId)) throw new Error("CATALOG_NOT_ACTIVE");
@@ -329,55 +391,7 @@ export async function POST(req: Request) {
           sourceFile: sourceRow?.sourceFile ?? "governance",
           sourceRow: sourceRow?.sourceRow ?? 0,
         };
-        const siblings = await tx.wordSense.findMany({ where: { normalizedTerm: normalizeCatalogText(payload.term), ...(targetSense ? { senseKey: { not: targetSense.senseKey } } : {}) }, include: { catalogEntry: { select: { catalogKey: true } }, revisions: { orderBy: { revision: "desc" }, take: 1 }, approvedRevision: true } });
-        const siblingRows = siblings.flatMap((sibling) => {
-          const siblingRevision = sibling.approvedRevision ?? sibling.revisions[0];
-          if (!siblingRevision) return [];
-          const siblingPayload = payloadFromRevision(siblingRevision);
-          return [normalizeCatalogRow({
-            sourceFile: "sibling",
-            sourceRow: 0,
-            schema_version: "word-catalog-v1",
-            requested_action: "CREATE_DRAFT",
-            catalog_key: sibling.catalogEntry.catalogKey,
-            sense_key: sibling.senseKey,
-            record_revision: String(siblingRevision.revision),
-            catalog_status: "DRAFT",
-            term: siblingPayload.term,
-            lemma: siblingPayload.lemma,
-            part_of_speech: siblingPayload.partOfSpeech,
-            level: siblingPayload.level,
-            category: siblingPayload.category,
-            definition_zh: siblingPayload.definitionZh,
-            accepted_answers_zh: siblingPayload.acceptedAnswersZh.join("|"),
-            prompt_en: "",
-            prompt_zh: "",
-            phonetic_ipa: siblingPayload.phoneticIpa ?? "",
-            example_en: siblingPayload.exampleEn ?? "",
-            example_zh: siblingPayload.exampleZh ?? "",
-            accepted_forms_en: siblingPayload.acceptedFormsEn.join("|"),
-            synonyms_en: siblingPayload.synonymsEn.join("|"),
-            antonyms_en: siblingPayload.antonymsEn.join("|"),
-            enable_en_to_zh: String(siblingPayload.enableEnToZh).toUpperCase(),
-            distractor_zh_1: siblingPayload.distractorZh[0] ?? "",
-            distractor_zh_2: siblingPayload.distractorZh[1] ?? "",
-            distractor_zh_3: siblingPayload.distractorZh[2] ?? "",
-            distractor_zh_4: siblingPayload.distractorZh[3] ?? "",
-            distractor_zh_5: siblingPayload.distractorZh[4] ?? "",
-            distractor_zh_6: siblingPayload.distractorZh[5] ?? "",
-            enable_zh_to_en: String(siblingPayload.enableZhToEn).toUpperCase(),
-            distractor_en_1: siblingPayload.distractorEn[0] ?? "",
-            distractor_en_2: siblingPayload.distractorEn[1] ?? "",
-            distractor_en_3: siblingPayload.distractorEn[2] ?? "",
-            distractor_en_4: siblingPayload.distractorEn[3] ?? "",
-            distractor_en_5: siblingPayload.distractorEn[4] ?? "",
-            distractor_en_6: siblingPayload.distractorEn[5] ?? "",
-            source_reference: "",
-            contributor_ref: "",
-            change_note: "",
-            retirement_reason: siblingPayload.retirementReason ?? "",
-          }, 0)];
-        });
+        const siblingRows = await loadCatalogSiblingValidationRows(tx, payload, targetSense?.senseKey);
         const validation = validateCatalogGovernancePayload(payload, identity, (latest?.revision ?? 0) + 1, siblingRows);
         if (validation.errors.length) throw new Error(`CATALOG_PAYLOAD_REJECTED:${JSON.stringify(validation.errors)}`);
         validationWarnings = validation.warnings;
@@ -464,7 +478,12 @@ export async function POST(req: Request) {
       return errorResponse(supersedesRequestId ? "CATALOG_REQUEST_ALREADY_SUPERSEDED" : "CATALOG_IDENTITY_CONFLICT", 409);
     }
     if (message === "IDEMPOTENCY_CONFLICT") return errorResponse("IDEMPOTENCY_CONFLICT", 409);
-    if (message === "CATALOG_REVISION_STALE") return errorResponse("CATALOG_REVISION_STALE", 409);
+    if (message === "CATALOG_REVISION_STALE" || message === "CATALOG_REQUEST_RETRY_STALE") return errorResponse(message, 409);
+    if (message.startsWith("CATALOG_REQUEST_RETRY_CONFLICT:")) {
+      let fields: string[] = [];
+      try { fields = JSON.parse(message.slice("CATALOG_REQUEST_RETRY_CONFLICT:".length)) as string[]; } catch { fields = []; }
+      return errorResponse("CATALOG_REQUEST_RETRY_CONFLICT", 409, { fields });
+    }
     if (message === "CATALOG_REVIEW_FORBIDDEN") return errorResponse(message, 403);
     if (["CATALOG_CHANGE_PENDING", "CATALOG_ALREADY_EXISTS", "CATALOG_ALREADY_RETIRED", "CATALOG_NOT_RETIRED", "CATALOG_NOT_ACTIVE", "CATALOG_SOURCE_ROW_NOT_FOUND", "CATALOG_PENDING_SENSE_CONFLICT", "CATALOG_IDENTITY_MISMATCH", "CATALOG_REQUEST_NOT_RETRYABLE", "CATALOG_REQUEST_ALREADY_SUPERSEDED", "CATALOG_REQUEST_RETRY_MISMATCH"].includes(message)) return errorResponse(message, 409);
     if (message === "CATALOG_REQUEST_RETRY_FORBIDDEN") return errorResponse(message, 403);
@@ -474,7 +493,7 @@ export async function POST(req: Request) {
       try { errors = JSON.parse(message.slice("CATALOG_PAYLOAD_REJECTED:".length)) as string[]; } catch { errors = ["payload rejected"]; }
       return errorResponse("CATALOG_PAYLOAD_REJECTED", 422, { errors });
     }
-    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_REQUIRED", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE"].includes(message)) return errorResponse(message, 422);
+    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_REQUIRED", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE", "CATALOG_REQUEST_RETRY_RESOLUTION_INVALID", "CATALOG_REQUEST_RETRY_PATCH_INVALID"].includes(message)) return errorResponse(message, 422);
     console.error("[catalog] request failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });
     return errorResponse("CATALOG_REQUEST_FAILED", 500);
   }

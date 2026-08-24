@@ -9,6 +9,7 @@ import {
   actionableCatalogWorkCount,
   catalogBatchNeedsRevisionWhere,
   catalogBatchReviewWhere,
+  mergeCatalogWorkItems,
 } from "@/lib/catalog/work-items";
 import { catalogBulkSubmissionEnabled } from "@/lib/catalog/features";
 
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
       ],
     };
     const waitingFeedbackWhere = { reporterId: actorId, status: "OPEN" as const };
-    const recentRequestWhere: Prisma.CatalogChangeRequestWhereInput = { proposerId: actorId, status: { in: ["APPROVED", "REJECTED", "CANCELLED"] }, updatedAt: { gte: recentSince } };
+    const recentRequestWhere: Prisma.CatalogChangeRequestWhereInput = { proposerId: actorId, submissionProposalGroupId: null, status: { in: ["APPROVED", "REJECTED", "CANCELLED"] }, updatedAt: { gte: recentSince } };
     const recentBatchWhere: Prisma.CatalogSubmissionBatchWhereInput = { proposerId: actorId, status: { in: ["COMMITTED", "REJECTED", "STALE", "EXPIRED", "CANCELLED", "SUPERSEDED"] }, updatedAt: { gte: recentSince } };
     const recentFeedbackWhere: Prisma.CatalogFeedbackWhereInput = { reporterId: actorId, status: { in: ["RESOLVED", "DISMISSED"] }, updatedAt: { gte: recentSince } };
     const [revisionRequests, revisionBatches, reviewRequests, reviewBatches, reviewFeedback, waitingRequests, waitingBatches, waitingFeedback, recentRequests, recentBatches, recentFeedback] = await Promise.all([
@@ -155,6 +156,25 @@ export async function GET(req: Request) {
       waiting: waitingRequestCount + waitingBatchCount + waitingFeedbackCount,
       recent: recentRequestCount + recentBatchCount + recentFeedbackCount,
     };
+    const needsRevision = mergeCatalogWorkItems([
+      ...revisionRequests.map((item) => ({ type: "REQUEST" as const, ...item, updatedAt: item.updatedAt.toISOString(), timestamp: item.updatedAt.toISOString() })),
+      ...revisionBatches.map((item) => ({ type: "BATCH" as const, ...item, updatedAt: item.updatedAt.toISOString(), timestamp: item.updatedAt.toISOString() })),
+    ], itemLimit, "desc");
+    const toReview = mergeCatalogWorkItems([
+      ...reviewRequests.map((item) => ({ type: "REQUEST" as const, ...item, createdAt: item.createdAt.toISOString(), timestamp: item.createdAt.toISOString() })),
+      ...reviewBatches.map((item) => ({ type: "BATCH" as const, ...item, createdAt: item.createdAt.toISOString(), timestamp: item.createdAt.toISOString() })),
+      ...reviewFeedback.map((item) => ({ type: "FEEDBACK" as const, ...item, createdAt: item.createdAt.toISOString(), timestamp: item.createdAt.toISOString() })),
+    ], itemLimit, "asc");
+    const waiting = mergeCatalogWorkItems([
+      ...waitingRequests.map((item) => ({ type: "REQUEST" as const, ...item, createdAt: item.createdAt.toISOString(), timestamp: item.createdAt.toISOString() })),
+      ...waitingBatches.map((item) => ({ type: "BATCH" as const, ...item, createdAt: item.createdAt.toISOString(), timestamp: item.createdAt.toISOString() })),
+      ...waitingFeedback.map((item) => ({ type: "FEEDBACK" as const, ...item, createdAt: item.createdAt.toISOString(), timestamp: item.createdAt.toISOString() })),
+    ], itemLimit, "desc");
+    const recent = mergeCatalogWorkItems([
+      ...recentRequests.map((item) => ({ type: "REQUEST" as const, ...item, updatedAt: item.updatedAt.toISOString(), timestamp: item.updatedAt.toISOString() })),
+      ...recentBatches.map((item) => ({ type: "BATCH" as const, ...item, updatedAt: item.updatedAt.toISOString(), timestamp: item.updatedAt.toISOString() })),
+      ...recentFeedback.map((item) => ({ type: "FEEDBACK" as const, ...item, updatedAt: item.updatedAt.toISOString(), timestamp: item.updatedAt.toISOString() })),
+    ], itemLimit, "desc");
 
     return NextResponse.json({
       counts,
@@ -162,25 +182,10 @@ export async function GET(req: Request) {
       bulkEnabled,
       itemLimit,
       sectionTotals,
-      needsRevision: [
-        ...revisionRequests.map((item) => ({ type: "REQUEST" as const, ...item, updatedAt: item.updatedAt.toISOString() })),
-        ...revisionBatches.map((item) => ({ type: "BATCH" as const, ...item, updatedAt: item.updatedAt.toISOString() })),
-      ],
-      toReview: [
-        ...reviewRequests.map((item) => ({ type: "REQUEST" as const, ...item, createdAt: item.createdAt.toISOString() })),
-        ...reviewBatches.map((item) => ({ type: "BATCH" as const, ...item, createdAt: item.createdAt.toISOString() })),
-        ...reviewFeedback.map((item) => ({ type: "FEEDBACK" as const, ...item, createdAt: item.createdAt.toISOString() })),
-      ],
-      waiting: [
-        ...waitingRequests.map((item) => ({ type: "REQUEST" as const, ...item, createdAt: item.createdAt.toISOString() })),
-        ...waitingBatches.map((item) => ({ type: "BATCH" as const, ...item, createdAt: item.createdAt.toISOString() })),
-        ...waitingFeedback.map((item) => ({ type: "FEEDBACK" as const, ...item, createdAt: item.createdAt.toISOString() })),
-      ],
-      recent: [
-        ...recentRequests.map((item) => ({ type: "REQUEST" as const, ...item, updatedAt: item.updatedAt.toISOString() })),
-        ...recentBatches.map((item) => ({ type: "BATCH" as const, ...item, updatedAt: item.updatedAt.toISOString() })),
-        ...recentFeedback.map((item) => ({ type: "FEEDBACK" as const, ...item, updatedAt: item.updatedAt.toISOString() })),
-      ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, itemLimit),
+      needsRevision,
+      toReview,
+      waiting,
+      recent,
     }, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) {
     return catalogRouteError(error);

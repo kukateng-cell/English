@@ -5,12 +5,37 @@ import { Prisma, PrismaClient } from "../src/generated/prisma";
 import { payloadFingerprint, payloadFromRevision } from "../src/lib/catalog/governance";
 
 dotenv.config({ path: ".env.local", override: true });
-if (!process.env.MIGRATE_URL) throw new Error("MIGRATE_URL is required.");
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is required.");
+const environment = process.env.DATABASE_ENVIRONMENT;
+if (!environment || environment === "production" || process.env.CONFIRM_DATABASE_ENVIRONMENT !== environment) {
+  throw new Error("check:catalog-teacher-workflow requires matching non-production DATABASE_ENVIRONMENT and CONFIRM_DATABASE_ENVIRONMENT");
+}
 
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.MIGRATE_URL }) });
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 const ROLLBACK = "CATALOG_TEACHER_WORKFLOW_CHECK_ROLLBACK";
 
+async function expectDatabaseGuard(
+  tx: Prisma.TransactionClient,
+  label: string,
+  run: () => Promise<unknown>,
+): Promise<void> {
+  await tx.$executeRawUnsafe(`SAVEPOINT ${label}`);
+  let rejected = false;
+  try {
+    await run();
+  } catch {
+    rejected = true;
+  } finally {
+    await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${label}`);
+    await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${label}`);
+  }
+  if (!rejected) throw new Error(`${label} database guard did not reject the mutation.`);
+}
+
 async function main() {
+  const metadata = await prisma.databaseMetadata.findUnique({ where: { key: "environment" }, select: { value: true } });
+  if (metadata?.value !== environment) throw new Error("DatabaseMetadata.environment mismatch");
   let verified = false;
   try {
     await prisma.$transaction(async (tx) => {
@@ -98,6 +123,89 @@ async function main() {
       if (lineage?.status !== "REJECTED" || lineage.supersededBy?.id !== successor.id) {
         throw new Error("Immutable request supersession lineage failed.");
       }
+      await expectDatabaseGuard(tx, "guard_request_lineage", () => tx.catalogChangeRequest.update({
+        where: { id: successor.id },
+        data: { supersedesRequestId: null },
+      }));
+      await expectDatabaseGuard(tx, "guard_feedback_reopen", () => tx.catalogFeedback.update({
+        where: { id: feedback.id },
+        data: { status: "OPEN", resolverId: null, resolutionNote: null, resolvedAt: null, revision: { increment: 1 } },
+      }));
+      await expectDatabaseGuard(tx, "guard_feedback_message", () => tx.catalogFeedback.update({
+        where: { id: feedback.id },
+        data: { message: "不應容許修改已結案內容" },
+      }));
+
+      const secondFeedback = await tx.catalogFeedback.create({
+        data: {
+          operationId: randomUUID(),
+          requestFingerprint: payloadFingerprint({ kind: "EXAMPLE", senseKey: sense.senseKey, message: "open guard" }),
+          reporterId: reporter.id,
+          senseId: sense.id,
+          senseKey: sense.senseKey,
+          termSnapshot: sense.term,
+          baseRevision: sense.approvedRevision.revision,
+          kind: "EXAMPLE",
+          message: "整合檢查：未處理意見",
+        },
+      });
+      await expectDatabaseGuard(tx, "guard_feedback_open_resolver", () => tx.catalogFeedback.update({
+        where: { id: secondFeedback.id },
+        data: { resolverId: resolver.id },
+      }));
+
+      const readyRevision = await tx.catalogRevision.findFirst({
+        where: { status: "READY" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { id: true },
+      });
+      if (!readyRevision) throw new Error("A READY catalog revision is required.");
+      const expiresAt = new Date(Date.now() + 86_400_000);
+      const sourceBatch = await tx.catalogSubmissionBatch.create({
+        data: {
+          proposerId: reporter.id,
+          operationId: randomUUID(),
+          fileName: "guard-source.csv",
+          fileHash: payloadFingerprint({ source: "guard-source" }),
+          requestDigest: payloadFingerprint({ request: "guard-source" }),
+          schemaVersion: "word-catalog-v1",
+          validatorVersion: "catalog-validator-v1",
+          normalizationVersion: "catalog-normalization-v1",
+          taxonomyDigest: payloadFingerprint({ taxonomy: "guard" }),
+          readyCatalogRevisionId: readyRevision.id,
+          baseMutationRevision: beforeMutation?.revision ?? 0,
+          status: "PREVIEW",
+          rowCount: 0,
+          summary: {},
+          expiresAt,
+          absoluteExpiresAt: expiresAt,
+        },
+      });
+      const retryBatch = await tx.catalogSubmissionBatch.create({
+        data: {
+          proposerId: reporter.id,
+          operationId: randomUUID(),
+          fileName: "guard-retry.csv",
+          fileHash: payloadFingerprint({ source: "guard-retry" }),
+          requestDigest: payloadFingerprint({ request: "guard-retry" }),
+          schemaVersion: "word-catalog-v1",
+          validatorVersion: "catalog-validator-v1",
+          normalizationVersion: "catalog-normalization-v1",
+          taxonomyDigest: payloadFingerprint({ taxonomy: "guard" }),
+          readyCatalogRevisionId: readyRevision.id,
+          baseMutationRevision: beforeMutation?.revision ?? 0,
+          status: "PREVIEW",
+          rowCount: 0,
+          summary: {},
+          expiresAt,
+          absoluteExpiresAt: expiresAt,
+          retryOfBatchId: sourceBatch.id,
+        },
+      });
+      await expectDatabaseGuard(tx, "guard_batch_retry_lineage", () => tx.catalogSubmissionBatch.update({
+        where: { id: retryBatch.id },
+        data: { retryOfBatchId: null },
+      }));
 
       const afterSense = await tx.wordSense.findUnique({ where: { id: sense.id }, select: { status: true, approvedRevisionId: true } });
       const afterMutation = await tx.catalogMutationState.findUnique({ where: { id: 1 }, select: { revision: true } });
@@ -121,7 +229,7 @@ async function main() {
   } catch (error) {
     if (!(error instanceof Error) || error.message !== ROLLBACK || !verified) throw error;
   }
-  console.log(JSON.stringify({ ready: true, checks: ["feedback-non-executable", "feedback-cas", "request-supersession", "unique-retry-lineage"] }, null, 2));
+  console.log(JSON.stringify({ ready: true, checks: ["feedback-non-executable", "feedback-cas", "feedback-terminal-guards", "request-supersession", "request-lineage-guard", "batch-retry-lineage-guard", "unique-retry-lineage"] }, null, 2));
 }
 
 main().finally(async () => prisma.$disconnect());

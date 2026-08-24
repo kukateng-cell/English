@@ -8,11 +8,15 @@ import {
   parseJsonObject,
   requireCatalogActor,
 } from "@/lib/catalog/api";
-import { parseCatalogFeedbackInput } from "@/lib/catalog/feedback";
+import {
+  decodeCatalogFeedbackCursor,
+  encodeCatalogFeedbackCursor,
+  parseCatalogFeedbackInput,
+  parseCatalogFeedbackQuery,
+} from "@/lib/catalog/feedback";
 import { payloadFingerprint } from "@/lib/catalog/governance";
 
 const MAX_BODY_BYTES = 16 * 1024;
-const PAGE_SIZE = 50;
 
 function dto(item: {
   id: string;
@@ -84,20 +88,40 @@ export async function GET(req: Request) {
   const auth = await requireCatalogActor(req);
   if (!auth.ok) return auth.response;
   try {
-    const params = new URL(req.url).searchParams;
-    const scope = params.get("scope") === "review" ? "review" : "mine";
+    const query = parseCatalogFeedbackQuery(new URL(req.url).searchParams);
+    const { scope } = query;
     if (scope === "review" && !auth.canReview) return catalogResponse("CATALOG_FEEDBACK_FORBIDDEN", 403);
+    const cursor = query.cursor ? decodeCatalogFeedbackCursor(query.cursor) : null;
+    if (query.cursor && !cursor) return catalogResponse("CATALOG_FEEDBACK_CURSOR_INVALID", 422);
+    if (cursor && (cursor.scope !== scope || cursor.actorId !== auth.actor.userId)) {
+      return catalogResponse("CATALOG_FEEDBACK_CURSOR_INVALID", 422);
+    }
+    const cursorWhere: Prisma.CatalogFeedbackWhereInput = cursor
+      ? scope === "review"
+        ? { OR: [{ createdAt: { gt: new Date(cursor.createdAt) } }, { createdAt: new Date(cursor.createdAt), id: { gt: cursor.id } }] }
+        : { OR: [{ createdAt: { lt: new Date(cursor.createdAt) } }, { createdAt: new Date(cursor.createdAt), id: { lt: cursor.id } }] }
+      : {};
     const feedback = await prisma.catalogFeedback.findMany({
-      where: scope === "review"
-        ? { status: "OPEN", reporterId: { not: auth.actor.userId } }
-        : { reporterId: auth.actor.userId },
-      orderBy: [{ createdAt: scope === "review" ? "asc" : "desc" }, { id: "asc" }],
-      take: PAGE_SIZE + 1,
+      where: {
+        AND: [
+          scope === "review"
+            ? { status: "OPEN", reporterId: { not: auth.actor.userId } }
+            : { reporterId: auth.actor.userId },
+          cursorWhere,
+        ],
+      },
+      orderBy: [{ createdAt: scope === "review" ? "asc" : "desc" }, { id: scope === "review" ? "asc" : "desc" }],
+      take: query.limit + 1,
       select: feedbackSelect,
     });
+    const page = feedback.slice(0, query.limit);
+    const last = page.at(-1);
     return NextResponse.json({
-      feedback: feedback.slice(0, PAGE_SIZE).map(dto),
-      hasMore: feedback.length > PAGE_SIZE,
+      feedback: page.map(dto),
+      hasMore: feedback.length > query.limit,
+      nextCursor: feedback.length > query.limit && last
+        ? encodeCatalogFeedbackCursor({ scope, actorId: auth.actor.userId, createdAt: last.createdAt.toISOString(), id: last.id })
+        : null,
       canReview: auth.canReview,
     }, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) {

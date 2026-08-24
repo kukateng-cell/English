@@ -35,6 +35,8 @@ async function detail(page: Page, senseKey: string) {
     revision: number | null;
     payload: {
       definitionZh: string;
+      exampleEn: string | null;
+      exampleZh: string | null;
       sourceReference: string | null;
       contributorRef: string | null;
       changeNote: string | null;
@@ -316,6 +318,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
   const unrelatedTeacher = await login(browser, "teacher-reset", password!);
   const reviewer = await login(browser, "admin", password!);
   const proposerHeaders = await mutationHeaders(proposer.page);
+  const unrelatedTeacherHeaders = await mutationHeaders(unrelatedTeacher.page);
   const reviewerHeaders = await mutationHeaders(reviewer.page);
   const payload = {
     term,
@@ -407,9 +410,35 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await feedbackDialog.getByLabel(/問題類型|问题类型/).selectOption("DISTRACTOR");
     await feedbackDialog.getByLabel(/發現咗咩問題|发现咗咩问题/).fill("呢組干擾項對學生嚟講太容易");
     await feedbackDialog.getByLabel(/建議點改|建议点改/).fill("改用同一語境但意思不同的詞");
+    const feedbackOperationIds: string[] = [];
+    let hideFirstFeedbackResponse = true;
+    await proposer.page.route("**/api/catalog/feedback", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      const requestBody = route.request().postDataJSON() as { operationId: string };
+      feedbackOperationIds.push(requestBody.operationId);
+      const upstream = await route.fetch();
+      if (hideFirstFeedbackResponse) {
+        hideFirstFeedbackResponse = false;
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "AUTH_BACKEND_UNAVAILABLE" }) });
+        return;
+      }
+      await route.fulfill({ response: upstream });
+    });
+    await feedbackDialog.getByRole("button", { name: /提交意見|提交意见/ }).click();
+    await expect(feedbackDialog.getByRole("alert")).toBeVisible();
     await feedbackDialog.getByRole("button", { name: /提交意見|提交意见/ }).click();
     await expect(feedbackDialog).toHaveCount(0);
+    await proposer.page.unroute("**/api/catalog/feedback");
+    expect(feedbackOperationIds).toHaveLength(2);
+    expect(feedbackOperationIds[1]).toBe(feedbackOperationIds[0]);
     await expect(parentDialog).not.toHaveAttribute("aria-hidden", "true");
+    const proposerFeedbackResponse = await proposer.page.request.get("/api/catalog/feedback?scope=mine&limit=100");
+    expect(proposerFeedbackResponse.ok(), await proposerFeedbackResponse.text()).toBeTruthy();
+    const proposerFeedback = await proposerFeedbackResponse.json() as { feedback: Array<{ message: string }> };
+    expect(proposerFeedback.feedback.filter((item) => item.message === "呢組干擾項對學生嚟講太容易")).toHaveLength(1);
     const unrelatedFeedbackResponse = await unrelatedTeacher.page.request.get("/api/catalog/feedback?scope=mine");
     expect(unrelatedFeedbackResponse.ok(), await unrelatedFeedbackResponse.text()).toBeTruthy();
     const unrelatedFeedback = await unrelatedFeedbackResponse.json() as { feedback: Array<{ message: string }> };
@@ -444,6 +473,27 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     const restrictedListRow = restrictedList.rows.find((item) => item.senseKey === senseKey);
     expect(restrictedListRow?.pendingRequest).toEqual({ restricted: true, kind: "UPDATE", status: "PENDING" });
     await rejectPending(reviewer.page, reviewerHeaders, senseKey, "請按學生程度重新寫得更清楚");
+
+    const beforeInterveningUpdate = await detail(unrelatedTeacher.page, senseKey);
+    const interveningPayload = {
+      ...(beforeInterveningUpdate.payload as typeof payload),
+      definitionZh: "另一位老師已批准的正式中文釋義",
+      exampleEn: "Another teacher approved this newer example before the retry.",
+      exampleZh: "另一位老師在重新提交前批准了這個較新的例句。",
+    };
+    const interveningUpdate = await unrelatedTeacher.page.request.post("/api/catalog", {
+      headers: unrelatedTeacherHeaders,
+      data: {
+        operationId: randomUUID(),
+        kind: "UPDATE",
+        senseKey,
+        expectedRevision: beforeInterveningUpdate.revision,
+        payload: interveningPayload,
+        reason: "驗證重新提交會保留中途獲批的正式修改",
+      },
+    });
+    expect(interveningUpdate.status(), await interveningUpdate.text()).toBe(201);
+    await approvePending(reviewer.page, reviewerHeaders, senseKey);
 
     await reviewer.page.goto("/admin/words");
     await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
@@ -481,11 +531,40 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await retryItem.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
     const retryDialog = proposer.page.getByRole("dialog");
     await expect(retryDialog.getByText(/重新提交修正版/)).toBeVisible();
+    await expect(retryDialog.getByText(/正式版本同原提案有欄位衝突|正式版本同原提案有栏位冲突/)).toBeVisible();
+    await retryDialog.getByLabel(/衝突欄位 definitionZh|冲突栏位 definitionZh/).selectOption("PROPOSAL");
     await retryDialog.getByLabel(/中文釋義|中文释义/).fill("按審核意見修正的瀏覽器詞庫回歸測試詞");
     await retryDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("已按審核意見修正中文釋義");
+    const retryOperationIds: string[] = [];
+    let hideFirstRetryResponse = true;
+    await proposer.page.route("**/api/catalog", async (route) => {
+      if (route.request().method() !== "POST" || new URL(route.request().url()).pathname !== "/api/catalog") {
+        await route.continue();
+        return;
+      }
+      const requestBody = route.request().postDataJSON() as { operationId: string; supersedesRequestId?: string };
+      if (!requestBody.supersedesRequestId) {
+        await route.continue();
+        return;
+      }
+      retryOperationIds.push(requestBody.operationId);
+      const upstream = await route.fetch();
+      if (hideFirstRetryResponse) {
+        hideFirstRetryResponse = false;
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "AUTH_BACKEND_UNAVAILABLE" }) });
+        return;
+      }
+      await route.fulfill({ response: upstream });
+    });
+    const lostRetryResponse = proposer.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog");
+    await retryDialog.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
+    expect((await lostRetryResponse).status()).toBe(503);
     const retryResponse = proposer.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog");
     await retryDialog.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
-    expect((await retryResponse).status()).toBe(201);
+    expect((await retryResponse).status()).toBe(200);
+    await proposer.page.unroute("**/api/catalog");
+    expect(retryOperationIds).toHaveLength(2);
+    expect(retryOperationIds[1]).toBe(retryOperationIds[0]);
     await approvePending(reviewer.page, reviewerHeaders, senseKey);
     const approvedUpdate = await detail(proposer.page, senseKey);
     expect(approvedUpdate.payload).toMatchObject({
@@ -493,6 +572,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
       sourceReference: payload.sourceReference,
       contributorRef: payload.contributorRef,
       changeNote: payload.changeNote,
+      exampleEn: interveningPayload.exampleEn,
+      exampleZh: interveningPayload.exampleZh,
     });
 
     const exportResponse = await proposer.page.request.post("/api/catalog/submissions/export", {
@@ -561,8 +642,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await expect(proposer.page.getByRole("heading", { name: /詞條修改歷史|词条修改历史/ })).toBeVisible();
     await expect(proposer.page.getByText(senseKey, { exact: true }).first()).toBeVisible();
     const historyEntries = proposer.page.locator("main article");
-    await expect(historyEntries).toHaveCount(6);
-    await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(5);
+    await expect(historyEntries).toHaveCount(7);
+    await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(6);
     await expect(historyEntries.filter({ hasText: "REJECTED" })).toHaveCount(1);
   } finally {
     await Promise.all([proposer.context.close(), unrelatedTeacher.context.close(), reviewer.context.close()]);
