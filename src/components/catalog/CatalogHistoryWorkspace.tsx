@@ -27,7 +27,21 @@ type HistoryEntry = {
   sourceKind: "STANDALONE_REQUEST" | "BATCH" | "INITIAL_BASELINE";
   occurredAt: string;
   request?: Change;
-  batch?: { id: string; fileName?: string; status: string; rowCount: number; groupCount: number; visibility: string };
+  batch?: {
+    id: string;
+    fileName?: string;
+    status: string;
+    rowCount: number;
+    groupCount: number;
+    visibility: string;
+    createdAt: string;
+    submittedAt: string | null;
+    reviewedAt: string | null;
+    committedAt: string | null;
+    proposerName?: string | null;
+    reviewerName?: string | null;
+    finalizerName?: string | null;
+  };
   baseline?: { id: string; report: unknown; createdAt: string };
 };
 
@@ -37,7 +51,12 @@ function tone(status: string) {
   return "bg-[var(--border-soft)] text-[var(--muted)]";
 }
 
-export default function CatalogHistoryWorkspace({ canReview, onOpenCorrectiveBatch, initialSenseKey }: { canReview: boolean; onOpenCorrectiveBatch: (batchId: string) => void; initialSenseKey?: string | null }) {
+function historyDate(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("zh-HK", { timeZone: "Asia/Shanghai" });
+}
+
+export default function CatalogHistoryWorkspace({ canReview, onOpenCorrectiveBatch, onBackToCatalog, initialSenseKey }: { canReview: boolean; onOpenCorrectiveBatch: (batchId: string) => void; onBackToCatalog: () => void; initialSenseKey?: string | null }) {
   const { tc } = useLocale();
   const [items, setItems] = useState<HistoryEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -132,7 +151,8 @@ export default function CatalogHistoryWorkspace({ canReview, onOpenCorrectiveBat
   }, [load]);
 
   return <div className="space-y-4">
-    <div><h1 className="text-xl font-bold text-[var(--text)]">{tc("詞條修改歷史")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc("按不可變時間線查看逐條申請、CSV 批次及最初詞庫基線；批次子項只在批次內展開。")}</p></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-xl font-bold text-[var(--text)]">{tc("詞條修改歷史")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc("按不可變時間線查看逐條申請、CSV 批次及最初詞庫基線；批次子項只在批次內展開。")}</p></div><button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={onBackToCatalog}>{tc("返回完整詞庫")}</button></div>
+    {senseKey.trim() ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)] px-4 py-3"><div><p className="text-xs font-semibold text-[var(--muted)]">{tc("正在查看此詞條的完整修改流程")}</p><p className="mt-1 break-all font-mono text-sm font-bold text-[var(--text)]">{senseKey.trim()}</p></div><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => setSenseKey("")}>{tc("查看全部歷史")}</button></div> : null}
     <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("搜尋修改前後詞語或釋義")}<input className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
       <Filter label={tc("狀態") as string} value={status} onChange={setStatus} options={["PENDING", "APPROVED", "REJECTED", "CANCELLED"]} all={tc("全部狀態") as string} />
@@ -153,8 +173,8 @@ export default function CatalogHistoryWorkspace({ canReview, onOpenCorrectiveBat
       const title = entry.sourceKind === "INITIAL_BASELINE" ? tc("最初正式詞庫基線") : entry.sourceKind === "BATCH" ? entry.batch?.fileName ?? tc("CSV 批次") : changes[0]?.after.term ?? changes[0]?.before.term ?? tc("詞條修改");
       const currentStatus = entry.batch?.status ?? entry.request?.status ?? "BASELINE";
       return <article key={entry.feedEntryId} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <button type="button" className="flex w-full flex-wrap items-start justify-between gap-3 text-left" aria-expanded={expanded === entry.feedEntryId} onClick={() => toggleEntry(entry)}><span className="min-w-0"><strong className="block break-words text-[var(--text)]">{title}</strong><small className="mt-1 block text-[var(--muted)]">{entry.sourceKind} · {new Date(entry.occurredAt).toLocaleString("zh-HK", { timeZone: "Asia/Shanghai" })} {entry.batch ? `· ${entry.batch.rowCount} ${tc("行")} · ${entry.batch.groupCount} ${tc("項提案")}` : ""}</small></span><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${tone(currentStatus)}`}>{currentStatus}</span></button>
-        {expanded === entry.feedEntryId ? <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">{entry.baseline ? <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-[var(--border-soft)] p-3 text-xs text-[var(--text)]">{JSON.stringify(entry.baseline.report, null, 2)}</pre> : changes.map((change) => <ChangeDiff key={change.id} change={change} tc={tc} />)}{entry.batch && batchChildCursor[entry.batch.id] ? <button type="button" className="ui-button ui-button-secondary ui-button-small" disabled={loading} onClick={() => void loadBatchChildren(entry.batch!.id, true)}>{tc("載入更多批次子項")}</button> : null}{canReview && entry.batch?.status === "COMMITTED" ? <button type="button" className="ui-button ui-button-secondary" disabled={correcting === entry.batch.id} onClick={() => void createCorrectivePreview(entry.batch!.id)}>{correcting === entry.batch.id ? tc("建立中…") : tc("建立反向修正預覽")}</button> : null}</div> : null}
+        <button type="button" className="flex w-full flex-wrap items-start justify-between gap-3 text-left" aria-expanded={expanded === entry.feedEntryId} onClick={() => toggleEntry(entry)}><span className="min-w-0"><strong className="block break-words text-[var(--text)]">{title}</strong><small className="mt-1 block text-[var(--muted)]">{entry.sourceKind} · {historyDate(entry.occurredAt)} {entry.batch ? `· ${entry.batch.rowCount} ${tc("行")} · ${entry.batch.groupCount} ${tc("項提案")}` : ""}</small></span><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${tone(currentStatus)}`}>{currentStatus}</span></button>
+        {expanded === entry.feedEntryId ? <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">{entry.baseline ? <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-[var(--border-soft)] p-3 text-xs text-[var(--text)]">{JSON.stringify(entry.baseline.report, null, 2)}</pre> : <>{entry.batch ? <BatchTimeline batch={entry.batch} tc={tc} /> : null}{changes.map((change) => <ChangeDiff key={change.id} change={change} tc={tc} />)}</>}{entry.batch && batchChildCursor[entry.batch.id] ? <button type="button" className="ui-button ui-button-secondary ui-button-small" disabled={loading} onClick={() => void loadBatchChildren(entry.batch!.id, true)}>{tc("載入更多批次子項")}</button> : null}{canReview && entry.batch?.status === "COMMITTED" ? <button type="button" className="ui-button ui-button-secondary" disabled={correcting === entry.batch.id} onClick={() => void createCorrectivePreview(entry.batch!.id)}>{correcting === entry.batch.id ? tc("建立中…") : tc("建立反向修正預覽")}</button> : null}</div> : null}
       </article>;
     })}</div>
     {!items.length && !loading ? <p className="rounded-2xl border border-dashed border-[var(--border)] p-8 text-center text-sm text-[var(--muted)]">{tc("未有符合條件的修改歷史。")}</p> : null}
@@ -168,7 +188,21 @@ function Filter({ label, value, onChange, options, all }: { label: string; value
 }
 
 function ChangeDiff({ change, tc }: { change: Change; tc: (value: string) => string }) {
-  return <section className="rounded-xl border border-[var(--border)] p-3"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-[var(--text)]">{change.kind}</strong><span className={`rounded-full px-2 py-1 text-[10px] ${tone(change.status)}`}>{change.status}</span><span className="break-all text-xs text-[var(--muted)]">{change.senseKey}</span></div><div className="mt-3 grid gap-3 md:grid-cols-2"><Snapshot title={tc("修改前")} value={change.before} /><Snapshot title={tc("修改後")} value={change.after} /></div><PayloadDiff before={change.before.payload} after={change.after.payload} tc={tc} />{change.reason || change.reviewNote || change.proposerName ? <dl className="mt-3 grid gap-1 text-xs text-[var(--muted)]">{change.proposerName ? <div><dt className="inline font-semibold">{tc("提交者")}：</dt><dd className="inline">{change.proposerName}</dd></div> : null}{change.reviewerName ? <div><dt className="inline font-semibold">{tc("審核者")}：</dt><dd className="inline">{change.reviewerName}</dd></div> : null}{change.reason ? <div><dt className="inline font-semibold">{tc("理由")}：</dt><dd className="inline">{change.reason}</dd></div> : null}{change.reviewNote ? <div><dt className="inline font-semibold">{tc("審核備註")}：</dt><dd className="inline">{change.reviewNote}</dd></div> : null}</dl> : null}</section>;
+  const proposer = change.proposerName ?? (change.visibility === "OWNER" ? tc("你") : tc("未公開"));
+  const reviewer = change.reviewerName ?? tc("審核人員");
+  const reviewAction = change.status === "APPROVED" ? tc("已批准") : change.status === "REJECTED" ? tc("已拒絕") : change.status === "CANCELLED" ? tc("已取消") : tc("待審核");
+  return <section className="rounded-xl border border-[var(--border)] p-3"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-[var(--text)]">{change.kind}</strong><span className={`rounded-full px-2 py-1 text-[10px] ${tone(change.status)}`}>{change.status}</span><span className="break-all text-xs text-[var(--muted)]">{change.senseKey}</span></div><div className="mt-3 grid gap-2 md:grid-cols-2" aria-label={tc("提交及審核時間線")}><TimelineStep label={tc("已提交")} actor={proposer} occurredAt={change.createdAt} /><TimelineStep label={reviewAction} actor={change.reviewedAt ? reviewer : tc("尚未審核")} occurredAt={change.reviewedAt} pending={!change.reviewedAt} /></div><div className="mt-3 grid gap-3 md:grid-cols-2"><Snapshot title={tc("修改前")} value={change.before} /><Snapshot title={tc("修改後")} value={change.after} /></div><PayloadDiff before={change.before.payload} after={change.after.payload} tc={tc} />{change.reason || change.reviewNote ? <dl className="mt-3 grid gap-1 text-xs text-[var(--muted)]">{change.reason ? <div><dt className="inline font-semibold">{tc("理由")}：</dt><dd className="inline">{change.reason}</dd></div> : null}{change.reviewNote ? <div><dt className="inline font-semibold">{tc("審核備註")}：</dt><dd className="inline">{change.reviewNote}</dd></div> : null}</dl> : null}</section>;
+}
+
+function TimelineStep({ label, actor, occurredAt, pending = false }: { label: string; actor: string; occurredAt: string | null; pending?: boolean }) {
+  return <div className={`flex gap-3 rounded-xl border p-3 ${pending ? "border-dashed border-[var(--border)]" : "border-[var(--primary)]/25 bg-[var(--border-soft)]"}`}><span aria-hidden="true" className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${pending ? "bg-[var(--muted)]" : "bg-[var(--primary)]"}`} /><div className="min-w-0"><p className="text-xs font-bold text-[var(--text)]">{label}</p><p className="mt-1 break-words text-xs text-[var(--muted)]">{actor}</p><time className="mt-1 block text-xs tabular-nums text-[var(--muted)]" dateTime={occurredAt ?? undefined}>{historyDate(occurredAt)}</time></div></div>;
+}
+
+function BatchTimeline({ batch, tc }: { batch: NonNullable<HistoryEntry["batch"]>; tc: (value: string) => string }) {
+  const owner = batch.proposerName ?? (batch.visibility === "OWNER" ? tc("你") : tc("未公開"));
+  const reviewer = batch.reviewerName ?? tc("審核人員");
+  const finalizer = batch.finalizerName ?? reviewer;
+  return <section className="rounded-xl bg-[var(--border-soft)] p-3"><h3 className="text-sm font-bold text-[var(--text)]">{tc("批次處理時間線")}</h3><div className="mt-3 grid gap-2 md:grid-cols-3"><TimelineStep label={tc("已提交批次")} actor={owner} occurredAt={batch.submittedAt ?? batch.createdAt} /><TimelineStep label={batch.reviewedAt ? tc("已完成審核") : tc("待審核")} actor={batch.reviewedAt ? reviewer : tc("尚未審核")} occurredAt={batch.reviewedAt} pending={!batch.reviewedAt} /><TimelineStep label={batch.committedAt ? tc("已正式套用") : tc("尚未套用")} actor={batch.committedAt ? finalizer : tc("—")} occurredAt={batch.committedAt} pending={!batch.committedAt} /></div></section>;
 }
 
 function Snapshot({ title, value }: { title: string; value: Change["before"] }) {

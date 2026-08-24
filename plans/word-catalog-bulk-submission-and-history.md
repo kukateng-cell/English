@@ -695,3 +695,12 @@ npm run check:catalog-governance
 - 首次實際選取200行揭示UI把只有baseline sense key、尚未建立`WordSense`／revision嘅import-only DRAFT row錯當成可匯出UPDATE target，導致409 stale；畫面現以共享純函數排除呢類row，並有eligibility、輸入邊界及server fail-closed regression；
 - 修正後跨兩個100-row page選取200個ACTIVE sense，下載成功；正式CSV parser確認200行、200個不重複sense key、全部為UPDATE；320／768／1,440 px無水平溢出；
 - fixture及瀏覽器輸出已清理，治理baseline恢復ACTIVE 5,469／DRAFT 107／mutation revision 16。完整screen-reader／原生裝置、managed PostgreSQL／Vercel及production rollout仍屬deferred。
+
+## 22. 逐詞條歷史入口及審核時間線改善（2026-08-24，已完成）
+
+本輪不改變Public Approved／Owner／Reviewer權限邊界、歷史資料模型或API contract，只改善現有資料在老師工作區內的可發現性及時間線呈現。
+
+- [x] 每個詞條列表項直接提供「查看歷史」，並從詞條編輯視窗可一步進入同一sense timeline；如有未提交輸入會先要求確認，避免靜默丟失；
+- [x] 由詞條開啟歷史時明確顯示目前Sense key，並可一步回到完整詞庫或清除單詞篩選；
+- [x] 歷史詳情分開顯示提交人／提交時間及審核人／審核時間，批次歷史亦顯示提交、完成審核及正式套用節點；
+- [x] targeted history query 4 tests、兩個component lint、`tsc --noEmit`及`git diff --check`全部PASS；真實老師瀏覽器流程已驗證列表入口、編輯視窗入口、單詞篩選、提交者／審核者時間線及修改前後diff；1,440／768／390 px皆無水平溢出、零console error。精確命名的本機UAT歷史及帳號已清理並確認零殘留。
