@@ -5,6 +5,8 @@ import { threeWayMergeCatalogPayload } from "./retry-merge";
 import {
   catalogRetryEffectiveKind,
   catalogRetryGroupsAreContentOnly,
+  mergeCatalogRetryConflictFields,
+  parseCatalogRetryMergeConflictFields,
   retryableCatalogContentGroups,
 } from "./submission-retry";
 
@@ -77,4 +79,19 @@ test("effective UPDATE retry still reports conflicting same-field edits", () => 
   const current = payload({ definitionZh: "跑動" });
   const merged = threeWayMergeCatalogPayload({ base, proposal, current });
   assert.deepEqual(merged.unresolvedFields, ["definitionZh"]);
+});
+
+test("batch retry conflict metadata is validated, de-duplicated, and kept in canonical order", () => {
+  assert.deepEqual(
+    parseCatalogRetryMergeConflictFields(["exampleEn", "definitionZh", "exampleEn"]),
+    ["definitionZh", "exampleEn"],
+  );
+  assert.deepEqual(
+    mergeCatalogRetryConflictFields(["exampleEn"], ["definitionZh", "exampleEn"]),
+    ["definitionZh", "exampleEn"],
+  );
+  assert.throws(
+    () => parseCatalogRetryMergeConflictFields(["notAField"]),
+    /CATALOG_BATCH_RETRY_STALE/u,
+  );
 });

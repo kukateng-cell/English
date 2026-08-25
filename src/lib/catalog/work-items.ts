@@ -92,6 +92,58 @@ export function standaloneRequestNeedsRevision(input: {
     && input.supersededById === null;
 }
 
+export type StandaloneRetryIneligibilityReason =
+  | "ALREADY_RETIRED"
+  | "ALREADY_ACTIVE"
+  | "SENSE_REMOVED"
+  | "IDENTITY_ALREADY_EXISTS";
+
+export type StandaloneRetryIdentity = {
+  status: string;
+  approvedRevisionId: string | null;
+} | null;
+
+export function evaluateStandaloneRetryEligibility(input: {
+  kind: "CREATE" | "UPDATE" | "RETIRE" | "REACTIVATE";
+  senseKey: string | null;
+  currentIdentity: StandaloneRetryIdentity;
+}): { eligible: true } | { eligible: false; reason: StandaloneRetryIneligibilityReason } {
+  if (!input.senseKey) return { eligible: false, reason: "SENSE_REMOVED" };
+  if (input.kind === "CREATE") {
+    return input.currentIdentity
+      ? { eligible: false, reason: "IDENTITY_ALREADY_EXISTS" }
+      : { eligible: true };
+  }
+  if (!input.currentIdentity) return { eligible: false, reason: "SENSE_REMOVED" };
+  if (input.kind === "UPDATE") return { eligible: true };
+  if (!input.currentIdentity.approvedRevisionId) {
+    return { eligible: false, reason: "SENSE_REMOVED" };
+  }
+  if (input.kind === "RETIRE") {
+    return input.currentIdentity.status === "ACTIVE"
+      ? { eligible: true }
+      : { eligible: false, reason: "ALREADY_RETIRED" };
+  }
+  return input.currentIdentity.status === "RETIRED"
+    ? { eligible: true }
+    : { eligible: false, reason: "ALREADY_ACTIVE" };
+}
+
+export function standaloneRequestRetryCandidateWhere(actorId: string): Prisma.CatalogChangeRequestWhereInput {
+  return {
+    proposerId: actorId,
+    status: "REJECTED",
+    submissionProposalGroupId: null,
+    supersededBy: null,
+    OR: [
+      { kind: "CREATE" },
+      { kind: "UPDATE", sense: { isNot: null } },
+      { kind: "RETIRE", sense: { is: { status: "ACTIVE", approvedRevisionId: { not: null } } } },
+      { kind: "REACTIVATE", sense: { is: { status: "RETIRED", approvedRevisionId: { not: null } } } },
+    ],
+  };
+}
+
 export function batchNeedsRevision(input: {
   status: string;
   proposerId: string;

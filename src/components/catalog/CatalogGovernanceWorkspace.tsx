@@ -689,6 +689,13 @@ function CatalogOverviewWorkspace({
       setError(tc("修改、停用或重新啟用理由不可超過 2,000 字。"));
       return;
     }
+    if (
+      (kind === "RETIRE" || kind === "REACTIVATE")
+      && clientOperationFingerprint(form) !== clientOperationFingerprint(selected.payload ?? EMPTY_PAYLOAD)
+    ) {
+      setError(tc("你修改咗詞條內容。請先提交 UPDATE 並完成審核，之後再停用或重新啟用詞義。"));
+      return;
+    }
     if (kind !== "CREATE" && selected.revision === null) {
       setError(tc("詞義版本已經改變，請重新載入後再操作。"));
       return;

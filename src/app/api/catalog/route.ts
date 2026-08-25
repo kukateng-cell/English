@@ -191,6 +191,9 @@ export async function POST(req: Request) {
   const immediateRetire = body.immediate === true;
   if (!operationId || operationId.length > 120 || !CHANGE_KINDS.includes(kind as ChangeKind)) return errorResponse("CATALOG_INPUT_INVALID", 422);
   if (immediateRetire && kind !== "RETIRE") return errorResponse("CATALOG_INPUT_INVALID", 422);
+  if ((kind === "RETIRE" || kind === "REACTIVATE") && body.payload !== undefined) {
+    return errorResponse("CATALOG_STATUS_PAYLOAD_NOT_ALLOWED", 422);
+  }
   if ((kind === "RETIRE" || kind === "REACTIVATE") && !senseKey) return errorResponse("CATALOG_SENSE_REQUIRED", 422);
   if ((kind === "RETIRE" || kind === "REACTIVATE") && reason.length < 3) return errorResponse("CATALOG_REASON_REQUIRED", 422);
   if (reason.length > 2000) return errorResponse("CATALOG_REASON_INVALID", 422);
@@ -500,7 +503,7 @@ export async function POST(req: Request) {
       try { errors = JSON.parse(message.slice("CATALOG_PAYLOAD_REJECTED:".length)) as string[]; } catch { errors = ["payload rejected"]; }
       return errorResponse("CATALOG_PAYLOAD_REJECTED", 422, { errors });
     }
-    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_REQUIRED", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE", "CATALOG_REQUEST_RETRY_RESOLUTION_INVALID", "CATALOG_REQUEST_RETRY_PATCH_INVALID"].includes(message)) return errorResponse(message, 422);
+    if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_REQUIRED", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE", "CATALOG_REQUEST_RETRY_RESOLUTION_INVALID", "CATALOG_REQUEST_RETRY_PATCH_INVALID", "CATALOG_STATUS_PAYLOAD_NOT_ALLOWED"].includes(message)) return errorResponse(message, 422);
     console.error("[catalog] request failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });
     return errorResponse("CATALOG_REQUEST_FAILED", 500);
   }

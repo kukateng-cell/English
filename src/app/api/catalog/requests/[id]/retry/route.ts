@@ -11,6 +11,7 @@ import {
   payloadFromRevision,
 } from "@/lib/catalog/governance";
 import { threeWayMergeCatalogPayload } from "@/lib/catalog/retry-merge";
+import { evaluateStandaloneRetryEligibility } from "@/lib/catalog/work-items";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCatalogActor(req);
@@ -34,13 +35,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         reviewNote: true,
         submissionProposalGroupId: true,
         supersededBy: { select: { id: true } },
-        sense: {
-          select: {
-            status: true,
-            approvedRevision: true,
-            revisions: { orderBy: { revision: "desc" }, take: 1 },
-          },
-        },
       },
     });
     if (!request) return catalogResponse("CATALOG_REQUEST_NOT_FOUND", 404);
@@ -51,9 +45,30 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (request.supersededBy) {
       return NextResponse.json({ replay: true, successorId: request.supersededBy.id, senseKey: request.senseKey }, { headers: CATALOG_PRIVATE_HEADERS });
     }
+    const currentSense = request.senseKey
+      ? await prisma.wordSense.findUnique({
+          where: { senseKey: request.senseKey },
+          select: {
+            status: true,
+            approvedRevisionId: true,
+            approvedRevision: true,
+            revisions: { orderBy: { revision: "desc" }, take: 1 },
+          },
+        })
+      : null;
+    const eligibility = evaluateStandaloneRetryEligibility({
+      kind: request.kind,
+      senseKey: request.senseKey,
+      currentIdentity: currentSense,
+    });
+    if (!eligibility.eligible) {
+      return catalogResponse("CATALOG_REQUEST_RETRY_NO_LONGER_APPLICABLE", 409, { reason: eligibility.reason });
+    }
     const proposal = catalogGovernancePayloadFromUnknown(request.afterPayloadSnapshot ?? request.payload);
     if (!proposal) return catalogResponse("CATALOG_PAYLOAD_INVALID", 422);
-    const currentRevision = request.sense?.approvedRevision ?? request.sense?.revisions[0] ?? null;
+    const currentRevision = request.kind === "RETIRE" || request.kind === "REACTIVATE"
+      ? currentSense?.approvedRevision ?? null
+      : currentSense?.approvedRevision ?? currentSense?.revisions[0] ?? null;
     let payload = proposal;
     let conflicts: ReturnType<typeof threeWayMergeCatalogPayload>["conflicts"] = [];
     if (request.kind === "UPDATE") {
@@ -66,6 +81,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       });
       payload = merged.payload;
       conflicts = merged.conflicts;
+    } else if (request.kind === "RETIRE" || request.kind === "REACTIVATE") {
+      if (!currentRevision) return catalogResponse("CATALOG_REQUEST_RETRY_STALE", 409);
+      payload = payloadFromRevision(currentRevision);
     }
     const readyBatch = await prisma.catalogImportBatch.findFirst({
       where: { status: "READY" },
@@ -86,7 +104,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         senseKey: request.senseKey,
         sourceRowId: currentSourceRow?.id ?? null,
         expectedRevision: request.kind === "CREATE" ? null : currentRevision?.revision ?? null,
-        currentStatus: request.sense?.status ?? "DRAFT",
+        currentStatus: currentSense?.status ?? "DRAFT",
         payload,
         conflicts,
         previousReason: request.reason,

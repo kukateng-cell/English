@@ -1,6 +1,6 @@
 # 詞庫教師意見、真實題目預覽及工作待辦實施計劃
 
-狀態：已完成（2026-08-25 第二輪 retry／feedback lineage 加固完成；production rollout 仍延後）
+狀態：已完成（2026-08-25 第三輪 retry applicability／conflict persistence 加固完成；production rollout 仍延後）
 
 建立日期：2026-08-24
 所屬分支：`codex/word-catalog-governance-and-lifecycle`
@@ -158,6 +158,47 @@
 ## 已知延後項目
 
 - 真實英文老師代表性 UAT、正式裝置／screen-reader 人手矩陣、staging／production rollout 及 production observation 仍屬外部 gate，未在本輪執行。
+
+## 2026-08-25 第三輪 retry applicability／conflict persistence 加固
+
+### 背景及決策
+
+固定 `fc550a5` 的後續審核指出：批次 retry 的 three-way merge 衝突未持久化，取消／過期後建立下一代 retry 會遺失未解決欄位；已不再適用的 standalone 狀態申請仍會留在待辦；狀態型 retry 顯示舊 payload，而普通狀態操作亦可能靜默丟棄表單修改；本機 checker 只按固定檔名清理一層 retry。四項意見均成立，本輪採用以下 contract：
+
+- `CatalogSubmissionProposalGroup` 持久保存 unresolved retry conflict fields；下一代 retry 必須繼承並與新衝突合併，只有使用者完成 proposal resolution 才可清空；
+- standalone retry 必須按目前 `WordSense` 身份、狀態及 approved revision 評估可行性；失效申請保留歷史但不再計入待辦，retry endpoint fail closed；
+- `RETIRE`／`REACTIVATE` retry 永遠顯示目前 approved revision；任何 status request 均不可攜帶 payload，前端如偵測到未提交內容修改會先阻止狀態操作；
+- checker 由 root fixture 沿 `retriedBy`／`supersededBy` child-first 遞迴清理，不再依賴有限檔名列表或父先子後順序。
+
+### Checklist
+
+- [x] 新增 conflict metadata 欄位及 ordinary expand migration；建立 retry preview 時保存、下一代繼承／合併，完成 resolution 後清空。
+- [x] 建立 shared standalone retry eligibility，令待辦 count／list 與 retry GET 使用相同規則。
+- [x] 狀態 retry 改用 current approved payload；前後端共同拒絕 status operation 靜默丟棄內容修改。
+- [x] checker 使用 lineage tree child-first cleanup，並驗證 retry-of-retry 中途殘留可於下次啟動清理。
+- [x] 執行 unit、zero-warning lint、TypeScript、migration checksum／fresh replay、catalog DB checker 及相關 browser regression。
+- [x] 更新實際驗證、已知限制及計劃狀態。
+
+### 測試矩陣補充
+
+| 範圍 | 必須證明 |
+|---|---|
+| Conflict persistence | 衝突 retry 取消／過期後再 retry 仍為 `NEEDS_RESOLUTION`；舊、新 conflict fields 合併去重；未解決不可 submit |
+| Standalone applicability | rejected RETIRE 已被其他流程停用、rejected REACTIVATE 已被其他流程啟用、CREATE identity 已存在時均不計待辦且 retry GET 回 409 |
+| Status payload | rejected status retry 顯示 current approved revision；一般表單改內容後 status action 被前端阻止；API status + payload 回 422 |
+| Checker cleanup | root → retry → retry-of-retry 殘留由 child-first 遞迴完整刪除，重複 discovery／cleanup 保持冪等 |
+
+### 本輪實際驗證
+
+- `npm test`：333／333 通過；涵蓋 conflict metadata parser／union 及 standalone CREATE／UPDATE／RETIRE／REACTIVATE applicability。
+- `npm run lint -- --max-warnings=0`、`npx tsc --noEmit`：通過。
+- `npm run build`：83 個 App Router routes production build 通過；sandbox 內首次因 Turbopack helper 不可綁定 loopback port 而失敗，以獲准本機權限重跑後通過。
+- `npm run test:migration-checksums`、`npm run test:migrations`：通過；65 個 ordinary migrations fresh／interrupted replay 成功。
+- `npm run db:deploy`、`npx prisma migrate status`：新增 ordinary migration 已套用到本機 `english_dev/public`，schema up to date。
+- `npm run check:catalog-submission`：conflict metadata 在取消／過期後跨代保留、未解決不可 submit、完成 resolution 後清空、submitted metadata immutable，以及 retry tree child-first cleanup 零殘留均通過。
+- `npm run check:catalog-teacher-workflow`、`check:catalog-governance`、`check:catalog-immediate-retire`：通過。
+- `npm run test:e2e:catalog-workspace`：4／4 通過；涵蓋普通表單未提交修改阻止 status action、status + payload 422、狀態 retry 顯示 current approved revision、失效 RETIRE 不再出現於待辦／badge且 retry GET 409。
+- production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。
 
 ## 2026-08-25 合併前資料一致性加固
 

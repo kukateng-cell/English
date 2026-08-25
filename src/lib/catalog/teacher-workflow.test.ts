@@ -14,6 +14,7 @@ import {
   batchNeedsRevision,
   catalogBatchNeedsRevisionWhere,
   catalogBatchReviewWhere,
+  evaluateStandaloneRetryEligibility,
   mergeCatalogWorkItems,
   standaloneRequestNeedsRevision,
 } from "@/lib/catalog/work-items";
@@ -81,6 +82,16 @@ test("only unsuperseded rejected or stale owner items remain actionable", () => 
   assert.equal(batchNeedsRevision({ status: "CANCELLED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, retryOfBatchId: null }), false);
   assert.equal(batchNeedsRevision({ status: "REJECTED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, hasRetryableContent: false }), false);
   assert.equal(actionableCatalogWorkCount({ requestsToRevise: 1, batchesToRevise: 2, requestsToReview: 3, batchesToReview: 4, feedbackToReview: 5 }), 15);
+});
+
+test("standalone retry eligibility follows the current sense identity and lifecycle", () => {
+  assert.deepEqual(evaluateStandaloneRetryEligibility({ kind: "UPDATE", senseKey: "sense-run", currentIdentity: { status: "RETIRED", approvedRevisionId: "r2" } }), { eligible: true });
+  assert.deepEqual(evaluateStandaloneRetryEligibility({ kind: "UPDATE", senseKey: "sense-run", currentIdentity: null }), { eligible: false, reason: "SENSE_REMOVED" });
+  assert.deepEqual(evaluateStandaloneRetryEligibility({ kind: "RETIRE", senseKey: "sense-run", currentIdentity: { status: "RETIRED", approvedRevisionId: "r2" } }), { eligible: false, reason: "ALREADY_RETIRED" });
+  assert.deepEqual(evaluateStandaloneRetryEligibility({ kind: "REACTIVATE", senseKey: "sense-run", currentIdentity: { status: "ACTIVE", approvedRevisionId: "r2" } }), { eligible: false, reason: "ALREADY_ACTIVE" });
+  assert.deepEqual(evaluateStandaloneRetryEligibility({ kind: "CREATE", senseKey: "sense-run", currentIdentity: { status: "ACTIVE", approvedRevisionId: "r1" } }), { eligible: false, reason: "IDENTITY_ALREADY_EXISTS" });
+  assert.deepEqual(evaluateStandaloneRetryEligibility({ kind: "CREATE", senseKey: "sense-run", currentIdentity: null }), { eligible: true });
+  assert.deepEqual(evaluateStandaloneRetryEligibility({ kind: "CREATE", senseKey: null, currentIdentity: null }), { eligible: false, reason: "SENSE_REMOVED" });
 });
 
 test("a claimed resolution batch belongs to exactly one actionable bucket", () => {

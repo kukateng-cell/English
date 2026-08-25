@@ -38,6 +38,7 @@ let createBatchId: string | null = null;
 let resolutionBatchId: string | null = null;
 let retryBatchId: string | null = null;
 let retryRestartBatchId: string | null = null;
+let retryExpiredRestartBatchId: string | null = null;
 let duplicateBatchId: string | null = null;
 let draftBatchId: string | null = null;
 let claimRecoveryBatchId: string | null = null;
@@ -87,8 +88,9 @@ function sourceRow(payload: CatalogGovernancePayload, action: "CREATE" | "UPDATE
   };
 }
 
-async function cleanupBatchFixture(cleanupBatchId: string) {
+async function cleanupBatchFixtureLeaf(cleanupBatchId: string) {
     const batch = await prisma.catalogSubmissionBatch.findUnique({ where: { id: cleanupBatchId }, include: { proposalGroups: { include: { changeRequest: true } } } });
+    if (!batch) return;
     const requestIds = batch?.proposalGroups.flatMap((group) => group.changeRequest ? [group.changeRequest.id] : []) ?? [];
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.catalog_fixture_cleanup', 'on', true)`;
@@ -101,6 +103,22 @@ async function cleanupBatchFixture(cleanupBatchId: string) {
       await tx.catalogSubmissionProposalGroup.deleteMany({ where: { batchId: cleanupBatchId } });
       await tx.catalogSubmissionBatch.deleteMany({ where: { id: cleanupBatchId } });
     });
+}
+
+async function cleanupBatchTree(cleanupBatchId: string, visited = new Set<string>()): Promise<void> {
+  if (visited.has(cleanupBatchId)) return;
+  visited.add(cleanupBatchId);
+  const batch = await prisma.catalogSubmissionBatch.findUnique({
+    where: { id: cleanupBatchId },
+    select: {
+      retriedBy: { select: { id: true } },
+      supersededBy: { select: { id: true } },
+    },
+  });
+  if (!batch) return;
+  if (batch.retriedBy) await cleanupBatchTree(batch.retriedBy.id, visited);
+  for (const child of batch.supersededBy) await cleanupBatchTree(child.id, visited);
+  await cleanupBatchFixtureLeaf(cleanupBatchId);
 }
 
 async function cleanupSenseFixture(cleanupSenseId: string, force = false) {
@@ -117,10 +135,11 @@ async function cleanupSenseFixture(cleanupSenseId: string, force = false) {
 
 async function cleanupStaleFixtures() {
   const staleBatches = await prisma.catalogSubmissionBatch.findMany({
-    where: { fileName: { in: ["catalog-governance-check.csv", "corrective-catalog-governance-check.csv", "retry-catalog-governance-check.csv"] } },
+    where: { fileName: { endsWith: "catalog-governance-check.csv" } },
     select: { id: true },
   });
-  for (const stale of staleBatches) await cleanupBatchFixture(stale.id);
+  const visited = new Set<string>();
+  for (const stale of staleBatches) await cleanupBatchTree(stale.id, visited);
   const staleSenses = await prisma.wordSense.findMany({ where: { senseKey: { startsWith: "check_sense_" } }, select: { id: true } });
   for (const stale of staleSenses) await cleanupSenseFixture(stale.id);
   await prisma.recentAuthGrant.deleteMany({ where: { id: { startsWith: "catalog-check-grant-" } } });
@@ -128,8 +147,9 @@ async function cleanupStaleFixtures() {
 }
 
 async function cleanup() {
-  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
-    await cleanupBatchFixture(cleanupBatchId);
+  const visited = new Set<string>();
+  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryExpiredRestartBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
+    await cleanupBatchTree(cleanupBatchId, visited);
   }
   if (senseId) {
     await cleanupSenseFixture(senseId);
@@ -244,6 +264,16 @@ async function main() {
     payloadBlocked = true;
   }
   if (!payloadBlocked) throw new Error("submitted proposal payload guard was bypassed");
+  let retryConflictMetadataBlocked = false;
+  try {
+    await prisma.catalogSubmissionProposalGroup.update({
+      where: { id: submittedBatch.groups[0]!.id },
+      data: { retryMergeConflictFields: ["definitionZh"] },
+    });
+  } catch {
+    retryConflictMetadataBlocked = true;
+  }
+  if (!retryConflictMetadataBlocked) throw new Error("submitted retry conflict metadata guard was bypassed");
   await claimCatalogSubmissionBatch({ batchId, actorId: reviewer.id, expectedRevision: submitted.patch.revision, release: false });
   const claimed = await getCatalogSubmissionBatch({ batchId, actorId: reviewer.id, canReview: true });
   let acknowledgementRequired = false;
@@ -342,6 +372,31 @@ async function main() {
   if ((retryPreview.batch.groups[0]?.finalProposalPayload as { definitionZh?: string } | undefined)?.definitionZh !== resolutionPayload.definitionZh) {
     throw new Error("request-resolution retry preview did not preserve the proposed payload");
   }
+  const retryConflictGroup = retryPreview.batch.groups[0];
+  if (!retryConflictGroup) throw new Error("retry conflict fixture group is missing");
+  await prisma.$transaction([
+    prisma.catalogSubmissionProposalGroup.update({
+      where: { id: retryConflictGroup.id },
+      data: {
+        resolution: null,
+        resolutionReason: "retry merge conflict: definitionZh",
+        retryMergeConflictFields: ["definitionZh"],
+        revision: { increment: 1 },
+      },
+    }),
+    prisma.catalogSubmissionBatch.update({
+      where: { id: retryPreview.batch.id },
+      data: { status: "NEEDS_RESOLUTION", revision: { increment: 1 } },
+    }),
+  ]);
+  const conflictRetry = await getCatalogSubmissionBatch({ batchId: retryPreview.batch.id, actorId: proposer.id, canReview: false });
+  if (
+    conflictRetry.status !== "NEEDS_RESOLUTION"
+    || !Array.isArray(conflictRetry.groups[0]?.retryMergeConflictFields)
+    || conflictRetry.groups[0]?.retryMergeConflictFields[0] !== "definitionZh"
+  ) {
+    throw new Error("retry merge conflict metadata was not persisted");
+  }
   const staleSourceStillActionable = await prisma.catalogSubmissionBatch.count({
     where: { id: resolutionBatchId, status: { in: ["STALE", "REJECTED"] }, retriedBy: null },
   });
@@ -352,7 +407,7 @@ async function main() {
   const cancelledRetry = await cancelCatalogSubmissionBatch({
     batchId: retryPreview.batch.id,
     actorId: proposer.id,
-    expectedRevision: retryPreview.batch.revision,
+    expectedRevision: conflictRetry.revision,
   });
   if (cancelledRetry.batch.status !== "CANCELLED") throw new Error("retry preview cancellation failed");
   const cancelledRetryActionable = await prisma.catalogSubmissionBatch.count({
@@ -372,10 +427,81 @@ async function main() {
   ) {
     throw new Error("cancelled retry did not create exactly one next-generation successor");
   }
+  if (
+    restartedResults[0]!.batch.status !== "NEEDS_RESOLUTION"
+    || restartedResults[0]!.batch.groups[0]?.resolution !== null
+    || !Array.isArray(restartedResults[0]!.batch.groups[0]?.retryMergeConflictFields)
+    || restartedResults[0]!.batch.groups[0]?.retryMergeConflictFields[0] !== "definitionZh"
+  ) {
+    throw new Error("cancelled retry lost unresolved merge conflict metadata");
+  }
+  let unresolvedRetrySubmitted = false;
+  try {
+    await submitCatalogSubmissionBatch({
+      batchId: retryRestartBatchId,
+      actorId: proposer.id,
+      expectedRevision: restartedResults[0]!.batch.revision,
+      operationId: randomUUID(),
+      reason: "unresolved conflict must not submit",
+    });
+  } catch (error) {
+    unresolvedRetrySubmitted = error instanceof Error && error.message === "CATALOG_BATCH_NEEDS_RESOLUTION";
+  }
+  if (!unresolvedRetrySubmitted) throw new Error("unresolved retry merge conflict was submit-able");
+  await prisma.$transaction(async (tx) => {
+    await tx.catalogSubmissionBatch.update({
+      where: { id: retryRestartBatchId! },
+      data: { status: "FINALIZING", revision: { increment: 1 } },
+    });
+    await tx.catalogSubmissionBatch.update({
+      where: { id: retryRestartBatchId! },
+      data: { status: "EXPIRED", revision: { increment: 1 } },
+    });
+  });
+  const expiredRestart = await createRetryCatalogSubmissionPreview({
+    sourceBatchId: retryRestartBatchId,
+    actorId: proposer.id,
+    operationId: randomUUID(),
+  });
+  retryExpiredRestartBatchId = expiredRestart.batch.id;
+  if (
+    expiredRestart.batch.status !== "NEEDS_RESOLUTION"
+    || expiredRestart.batch.retryOfBatchId !== retryRestartBatchId
+    || expiredRestart.batch.groups[0]?.resolution !== null
+    || !Array.isArray(expiredRestart.batch.groups[0]?.retryMergeConflictFields)
+    || expiredRestart.batch.groups[0]?.retryMergeConflictFields[0] !== "definitionZh"
+  ) {
+    throw new Error("expired retry lost unresolved merge conflict metadata");
+  }
+  const resolvedExpiredRestart = await resolveCatalogSubmissionGroup({
+    batchId: expiredRestart.batch.id,
+    groupId: expiredRestart.batch.groups[0]!.id,
+    actorId: proposer.id,
+    canReview: false,
+    expectedBatchRevision: expiredRestart.batch.revision,
+    expectedGroupRevision: expiredRestart.batch.groups[0]!.revision,
+    resolution: "KEEP_SEPARATE",
+    reason: "explicitly resolve inherited retry merge conflict",
+  });
+  if (
+    resolvedExpiredRestart.batch.status !== "PREVIEW"
+    || resolvedExpiredRestart.group?.value.retryMergeConflictFields !== null
+  ) {
+    throw new Error("completed retry resolution did not clear conflict metadata");
+  }
   const restartedSourceStillActionable = await prisma.catalogSubmissionBatch.count({
     where: { AND: [{ id: retryPreview.batch.id }, catalogBatchNeedsRevisionWhere(proposer.id)] },
   });
   if (restartedSourceStillActionable !== 0) throw new Error("restarted retry source remained actionable after successor creation");
+
+  const retryTreeIds = [resolutionBatchId, retryBatchId, retryRestartBatchId, retryExpiredRestartBatchId];
+  await cleanupBatchTree(resolutionBatchId);
+  const retryTreeRemainder = await prisma.catalogSubmissionBatch.count({ where: { id: { in: retryTreeIds } } });
+  if (retryTreeRemainder !== 0) throw new Error("recursive retry lineage cleanup left descendant batches behind");
+  resolutionBatchId = null;
+  retryBatchId = null;
+  retryRestartBatchId = null;
+  retryExpiredRestartBatchId = null;
 
   const duplicateBase: CatalogGovernancePayload = { ...basePayload, term: `checkduplicate${suffix}`, lemma: `checkduplicate${suffix}`, definitionZh: "重複來源測試詞", acceptedAnswersZh: ["重複來源測試詞"], exampleEn: "This is source row two.", exampleZh: "這是來源第二行。" };
   const duplicateAlternative: CatalogGovernancePayload = { ...duplicateBase, exampleEn: "This is source row three.", exampleZh: "這是來源第三行。" };
@@ -566,7 +692,7 @@ async function main() {
     throw new Error("transfer/takeover race selected an unexpected reviewer");
   }
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, cancelledRetryRestarted: true, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, retryConflictMetadataBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, cancelledRetryRestarted: true, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

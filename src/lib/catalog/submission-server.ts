@@ -51,6 +51,8 @@ import { isCatalogBatchRetrySourceStatus } from "./work-items";
 import {
   catalogRetryEffectiveKind,
   catalogRetryGroupsAreContentOnly,
+  mergeCatalogRetryConflictFields,
+  parseCatalogRetryMergeConflictFields,
   retryableCatalogContentGroups,
 } from "./submission-retry";
 
@@ -301,6 +303,7 @@ export async function createCatalogSubmissionPreview(input: {
       requestFingerprint: row.requestFingerprint,
     }));
     const preview = buildCatalogSubmissionPreview(rows, snapshots, pendingChanges);
+    const retryMergeConflictFieldsByGroup = new Map<number, ReturnType<typeof parseCatalogRetryMergeConflictFields>>();
     if (input.retryMergeConflicts?.size) {
       for (const [sourceRowNumber, fields] of input.retryMergeConflicts) {
         const conflictRow = preview.rows.find((candidate) => candidate.rowNumber === sourceRowNumber);
@@ -309,9 +312,12 @@ export async function createCatalogSubmissionPreview(input: {
           ? null
           : preview.groups.find((candidate) => candidate.groupNumber === groupNumber);
         if (!conflictRow || !group) throw new Error("CATALOG_BATCH_RETRY_STALE");
+        const normalizedFields = parseCatalogRetryMergeConflictFields(fields);
+        if (!normalizedFields.length) throw new Error("CATALOG_BATCH_RETRY_STALE");
+        retryMergeConflictFieldsByGroup.set(groupNumber!, normalizedFields);
         group.needsResolution = true;
         group.resolution = null;
-        group.resolutionReason = `retry merge conflict: ${[...fields].join(", ")}`;
+        group.resolutionReason = `retry merge conflict: ${normalizedFields.join(", ")}`;
         for (const row of preview.rows) {
           if (row.proposalGroupNumber === groupNumber) row.primaryDisposition = "CONFLICT";
         }
@@ -368,6 +374,9 @@ export async function createCatalogSubmissionPreview(input: {
         requestedAction: group.requestedAction,
         resolution: group.resolution,
         resolutionReason: group.resolutionReason,
+        retryMergeConflictFields: retryMergeConflictFieldsByGroup.has(group.groupNumber)
+          ? json(retryMergeConflictFieldsByGroup.get(group.groupNumber)!)
+          : Prisma.JsonNull,
         targetCatalogKey,
         targetSenseKey,
         targetSenseId: group.targetSenseId,
@@ -476,6 +485,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
           groupNumber: true,
           requestedAction: true,
           resolution: true,
+          retryMergeConflictFields: true,
           baseRevision: true,
           targetCatalogKey: true,
           targetSenseKey: true,
@@ -537,6 +547,10 @@ export async function createRetryCatalogSubmissionPreview(input: {
     const effectiveKind = catalogRetryEffectiveKind(group);
     if (effectiveKind !== "CREATE" && effectiveKind !== "UPDATE") throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
     const sourceRowNumber = rows.length + 2;
+    const inheritedConflicts = group.resolution === null
+      ? parseCatalogRetryMergeConflictFields(group.retryMergeConflictFields)
+      : [];
+    let unresolvedConflicts = inheritedConflicts;
     const proposal = parseCatalogGovernancePayload(group.finalProposalPayload);
     const currentRevision = group.targetSense?.approvedRevision ?? group.targetSense?.revisions[0] ?? null;
     if (effectiveKind === "UPDATE" && !currentRevision) {
@@ -553,7 +567,10 @@ export async function createRetryCatalogSubmissionPreview(input: {
       const current = payloadFromRevision(currentRevision!);
       const firstPass = threeWayMergeCatalogPayload({ base, proposal, current });
       if (firstPass.conflicts.length) {
-        retryMergeConflicts.set(sourceRowNumber, firstPass.conflicts.map((conflict) => conflict.field));
+        unresolvedConflicts = mergeCatalogRetryConflictFields(
+          unresolvedConflicts,
+          firstPass.conflicts.map((conflict) => conflict.field),
+        );
         payload = threeWayMergeCatalogPayload({
           base,
           proposal,
@@ -564,6 +581,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
         payload = firstPass.payload;
       }
     }
+    if (unresolvedConflicts.length) retryMergeConflicts.set(sourceRowNumber, unresolvedConflicts);
     const catalogKey = group.targetSense?.catalogEntry.catalogKey
       ?? group.targetCatalogKey
       ?? `retry-${source.id}`;
@@ -630,6 +648,7 @@ function submissionProposalGroupDto(group: ProposalGroupForDto, visibility: Subm
     requestedAction: group.requestedAction,
     resolution: group.resolution,
     resolutionReason: group.resolutionReason,
+    retryMergeConflictFields: group.retryMergeConflictFields,
     targetCatalogKey: group.targetCatalogKey,
     targetSenseKey: group.targetSenseKey,
     targetSenseId: group.targetSenseId,
@@ -891,6 +910,9 @@ export async function resolveCatalogSubmissionGroup(input: {
       data: {
         resolution: input.resolution,
         resolutionReason: input.reason || null,
+        retryMergeConflictFields: input.resolution === "ESCALATE"
+          ? group.retryMergeConflictFields ?? Prisma.JsonNull
+          : Prisma.JsonNull,
         finalProposalPayload: json(payload),
         payloadDigest: payloadFingerprint(payload),
         lastContentAuthorId: payloadChanged || materialResolution ? input.actorId : group.lastContentAuthorId,

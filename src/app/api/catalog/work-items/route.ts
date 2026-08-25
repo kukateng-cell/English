@@ -9,7 +9,9 @@ import {
   actionableCatalogWorkCount,
   catalogBatchNeedsRevisionWhere,
   catalogBatchReviewWhere,
+  evaluateStandaloneRetryEligibility,
   mergeCatalogWorkItems,
+  standaloneRequestRetryCandidateWhere,
 } from "@/lib/catalog/work-items";
 import { catalogBulkSubmissionEnabled } from "@/lib/catalog/features";
 
@@ -28,12 +30,7 @@ export async function GET(req: Request) {
       ? Math.min(MAX_ITEM_LIMIT, Math.max(DEFAULT_ITEM_LIMIT, requestedLimit))
       : DEFAULT_ITEM_LIMIT;
     const bulkEnabled = catalogBulkSubmissionEnabled();
-    const requestNeedsRevisionWhere = {
-      proposerId: actorId,
-      status: "REJECTED" as const,
-      submissionProposalGroupId: null,
-      supersededBy: null,
-    };
+    const requestNeedsRevisionWhere = standaloneRequestRetryCandidateWhere(actorId);
     const batchNeedsRevisionWhere = catalogBatchNeedsRevisionWhere(actorId);
     const requestReviewWhere = {
       status: "PENDING" as const,
@@ -43,13 +40,31 @@ export async function GET(req: Request) {
     const batchReviewWhere = catalogBatchReviewWhere(actorId);
     const feedbackReviewWhere = { status: "OPEN" as const, reporterId: { not: actorId } };
 
-    const [requestsToRevise, batchesToRevise, requestsToReview, batchesToReview, feedbackToReview] = await Promise.all([
-      prisma.catalogChangeRequest.count({ where: requestNeedsRevisionWhere }),
+    const [revisionRequestCandidates, batchesToRevise, requestsToReview, batchesToReview, feedbackToReview] = await Promise.all([
+      prisma.catalogChangeRequest.findMany({
+        where: requestNeedsRevisionWhere,
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        select: { id: true, kind: true, senseKey: true, afterTermSnapshot: true, reviewNote: true, updatedAt: true },
+      }),
       bulkEnabled ? prisma.catalogSubmissionBatch.count({ where: batchNeedsRevisionWhere }) : Promise.resolve(0),
       auth.canReview ? prisma.catalogChangeRequest.count({ where: requestReviewWhere }) : Promise.resolve(0),
       auth.canReview && bulkEnabled ? prisma.catalogSubmissionBatch.count({ where: batchReviewWhere }) : Promise.resolve(0),
       auth.canReview ? prisma.catalogFeedback.count({ where: feedbackReviewWhere }) : Promise.resolve(0),
     ]);
+    const retrySenseKeys = [...new Set(revisionRequestCandidates.flatMap((request) => request.senseKey ? [request.senseKey] : []))];
+    const retrySenses = retrySenseKeys.length
+      ? await prisma.wordSense.findMany({
+          where: { senseKey: { in: retrySenseKeys } },
+          select: { senseKey: true, status: true, approvedRevisionId: true },
+        })
+      : [];
+    const retrySenseByKey = new Map(retrySenses.map((sense) => [sense.senseKey, sense]));
+    const revisionRequests = revisionRequestCandidates.filter((request) => evaluateStandaloneRetryEligibility({
+      kind: request.kind,
+      senseKey: request.senseKey,
+      currentIdentity: request.senseKey ? retrySenseByKey.get(request.senseKey) ?? null : null,
+    }).eligible);
+    const requestsToRevise = revisionRequests.length;
     const counts = {
       requestsToRevise,
       batchesToRevise,
@@ -73,13 +88,7 @@ export async function GET(req: Request) {
     const recentRequestWhere: Prisma.CatalogChangeRequestWhereInput = { proposerId: actorId, submissionProposalGroupId: null, status: { in: ["APPROVED", "REJECTED", "CANCELLED"] }, updatedAt: { gte: recentSince } };
     const recentBatchWhere: Prisma.CatalogSubmissionBatchWhereInput = { proposerId: actorId, status: { in: ["COMMITTED", "REJECTED", "STALE", "EXPIRED", "CANCELLED", "SUPERSEDED"] }, updatedAt: { gte: recentSince } };
     const recentFeedbackWhere: Prisma.CatalogFeedbackWhereInput = { reporterId: actorId, status: { in: ["RESOLVED", "DISMISSED"] }, updatedAt: { gte: recentSince } };
-    const [revisionRequests, revisionBatches, reviewRequests, reviewBatches, reviewFeedback, waitingRequests, waitingBatches, waitingFeedback, recentRequests, recentBatches, recentFeedback] = await Promise.all([
-      prisma.catalogChangeRequest.findMany({
-        where: requestNeedsRevisionWhere,
-        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-        take: itemLimit,
-        select: { id: true, kind: true, senseKey: true, afterTermSnapshot: true, reviewNote: true, updatedAt: true },
-      }),
+    const [revisionBatches, reviewRequests, reviewBatches, reviewFeedback, waitingRequests, waitingBatches, waitingFeedback, recentRequests, recentBatches, recentFeedback] = await Promise.all([
       bulkEnabled ? prisma.catalogSubmissionBatch.findMany({
         where: batchNeedsRevisionWhere,
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],

@@ -606,6 +606,18 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     });
     expect(cancel.ok(), await cancel.text()).toBeTruthy();
 
+    await proposer.page.goto("/teacher/words");
+    await proposer.page.getByLabel(/搜尋詞條、釋義或 key|搜索词条、释义或 key/).fill(term);
+    const statusActionRow = proposer.page.locator("article").filter({ hasText: term }).first();
+    await expect(statusActionRow).toBeVisible();
+    await statusActionRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const statusActionDialog = proposer.page.getByRole("dialog");
+    await statusActionDialog.getByLabel(/例句英文/).fill("This unsaved edit must not be dropped by a status action.");
+    await statusActionDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("驗證狀態操作不會靜默丟棄內容修改");
+    await statusActionDialog.getByRole("button", { name: /提交停用申請|提交停用申请/ }).click();
+    await expect(proposer.page.getByText(/請先提交 UPDATE 並完成審核|请先提交 UPDATE 并完成审核/)).toBeVisible();
+    await statusActionDialog.getByRole("button", { name: /關閉|关闭/ }).click();
+
     const beforeRetire = await detail(reviewer.page, senseKey);
     const retire = await reviewer.page.request.post("/api/catalog", {
       headers: reviewerHeaders,
@@ -621,6 +633,20 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     expect(retire.ok(), await retire.text()).toBeTruthy();
     const retired = await detail(proposer.page, senseKey);
     expect(retired.status).toBe("RETIRED");
+
+    const statusPayloadResponse = await proposer.page.request.post("/api/catalog", {
+      headers: proposerHeaders,
+      data: {
+        operationId: randomUUID(),
+        kind: "REACTIVATE",
+        senseKey,
+        expectedRevision: retired.revision,
+        payload: interveningPayload,
+        reason: "狀態申請不可同時夾帶內容",
+      },
+    });
+    expect(statusPayloadResponse.status()).toBe(422);
+    expect(await statusPayloadResponse.json()).toMatchObject({ code: "CATALOG_STATUS_PAYLOAD_NOT_ALLOWED" });
 
     const reactivate = await proposer.page.request.post("/api/catalog", {
       headers: proposerHeaders,
@@ -651,6 +677,26 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     });
     expect(rejectedReactivatePatch.status()).toBe(422);
 
+    const statusRetryCurrentPayload = {
+      ...interveningPayload,
+      definitionZh: "按審核意見修正的瀏覽器詞庫回歸測試詞",
+      exampleEn: "A newer approved example must appear in the reactivation retry.",
+      exampleZh: "重新提交啟用申請時必須顯示這個較新的正式例句。",
+    };
+    const retiredContentUpdate = await unrelatedTeacher.page.request.post("/api/catalog", {
+      headers: unrelatedTeacherHeaders,
+      data: {
+        operationId: randomUUID(),
+        kind: "UPDATE",
+        senseKey,
+        expectedRevision: retired.revision,
+        payload: statusRetryCurrentPayload,
+        reason: "驗證狀態重試顯示目前正式 revision",
+      },
+    });
+    expect(retiredContentUpdate.status(), await retiredContentUpdate.text()).toBe(201);
+    await approvePending(reviewer.page, reviewerHeaders, senseKey);
+
     await proposer.page.goto("/teacher/words");
     await proposer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
     const reactivateRetryItem = proposer.page.locator("article").filter({ hasText: term }).filter({
@@ -661,6 +707,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     const reactivateRetryDialog = proposer.page.getByRole("dialog");
     await expect(reactivateRetryDialog.getByText(/狀態變更申請|状态变更申请/)).toBeVisible();
     await expect(reactivateRetryDialog.getByLabel(/中文釋義|中文释义/)).toBeDisabled();
+    await expect(reactivateRetryDialog.getByLabel(/例句英文/)).toHaveValue(statusRetryCurrentPayload.exampleEn);
     const reactivateReason = reactivateRetryDialog.getByLabel(/修改／停用理由|修改\/停用理由/);
     await expect(reactivateReason).toBeEnabled();
     await reactivateReason.fill("已補充重新啟用理由並重新提交");
@@ -678,9 +725,47 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await expect(proposer.page.getByRole("heading", { name: /詞條修改歷史|词条修改历史/ })).toBeVisible();
     await expect(proposer.page.getByText(senseKey, { exact: true }).first()).toBeVisible();
     const historyEntries = proposer.page.locator("main article");
-    await expect(historyEntries).toHaveCount(8);
-    await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(6);
+    await expect(historyEntries).toHaveCount(9);
+    await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(7);
     await expect(historyEntries.filter({ hasText: "REJECTED" })).toHaveCount(2);
+
+    const activeBeforeInapplicableRetire = await detail(proposer.page, senseKey);
+    const obsoleteRetire = await proposer.page.request.post("/api/catalog", {
+      headers: proposerHeaders,
+      data: {
+        operationId: randomUUID(),
+        kind: "RETIRE",
+        senseKey,
+        expectedRevision: activeBeforeInapplicableRetire.revision,
+        reason: "建立稍後會失效的停用申請",
+      },
+    });
+    expect(obsoleteRetire.status(), await obsoleteRetire.text()).toBe(201);
+    const obsoleteRetireBody = await obsoleteRetire.json() as { requestId: string };
+    await rejectPending(reviewer.page, reviewerHeaders, senseKey, "暫不接受這次停用申請");
+    const immediateRetire = await reviewer.page.request.post("/api/catalog", {
+      headers: reviewerHeaders,
+      data: {
+        operationId: randomUUID(),
+        kind: "RETIRE",
+        senseKey,
+        expectedRevision: activeBeforeInapplicableRetire.revision,
+        reason: "另一個獲授權流程已經停用詞義",
+        immediate: true,
+      },
+    });
+    expect(immediateRetire.ok(), await immediateRetire.text()).toBeTruthy();
+    const obsoleteWorkResponse = await proposer.page.request.get("/api/catalog/work-items?limit=100");
+    expect(obsoleteWorkResponse.ok(), await obsoleteWorkResponse.text()).toBeTruthy();
+    const obsoleteWork = await obsoleteWorkResponse.json() as { counts: { requestsToRevise: number }; needsRevision: Array<{ id: string }> };
+    expect(obsoleteWork.needsRevision.some((item) => item.id === obsoleteRetireBody.requestId)).toBe(false);
+    expect(obsoleteWork.counts.requestsToRevise).toBe(0);
+    const obsoleteRetry = await proposer.page.request.get(`/api/catalog/requests/${obsoleteRetireBody.requestId}/retry`);
+    expect(obsoleteRetry.status()).toBe(409);
+    expect(await obsoleteRetry.json()).toMatchObject({
+      code: "CATALOG_REQUEST_RETRY_NO_LONGER_APPLICABLE",
+      reason: "ALREADY_RETIRED",
+    });
   } finally {
     await Promise.all([proposer.context.close(), unrelatedTeacher.context.close(), reviewer.context.close()]);
     await cleanupFixture({

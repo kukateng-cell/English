@@ -594,41 +594,42 @@ model CatalogSubmissionRow {
 }
 
 model CatalogSubmissionProposalGroup {
-  id                    String                            @id @default(cuid())
-  batchId               String
-  groupNumber           Int
-  requestedAction       CatalogChangeKind
-  resolution            CatalogProposalResolution?
-  resolutionReason      String?
-  targetCatalogKey      String?
-  targetSenseKey        String?
-  targetSenseId         String?
-  baseRevision          Int?
-  baseStatus            CatalogStatus?
-  dependencyDigest      String
-  finalProposalPayload  Json
-  payloadDigest         String
-  lastContentAuthorId   String
-  reviewRisk            CatalogReviewRisk
-  reviewRiskVersion     String
-  reviewRiskReason      Json
-  decision              CatalogProposalDecision           @default(PENDING)
-  decidedById           String?
-  decidedAt             DateTime?
-  reviewedPayloadDigest String?
-  reviewNote            String?
-  revision              Int                               @default(0)
-  actorPseudonym        String?
-  actorKeyVersion       String?
-  createdAt             DateTime                          @default(now())
-  updatedAt             DateTime                          @updatedAt
-  batch                 CatalogSubmissionBatch            @relation(fields: [batchId], references: [id], onDelete: Restrict)
-  targetSense           WordSense?                        @relation(fields: [targetSenseId], references: [id], onDelete: Restrict)
-  lastContentAuthor     User                              @relation("CatalogProposalLastContentAuthor", fields: [lastContentAuthorId], references: [id], onDelete: Restrict)
-  decidedBy             User?                             @relation("CatalogProposalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
-  sourceRows            CatalogSubmissionRow[]
-  authors               CatalogSubmissionProposalAuthor[]
-  changeRequest         CatalogChangeRequest?
+  id                       String                            @id @default(cuid())
+  batchId                  String
+  groupNumber              Int
+  requestedAction          CatalogChangeKind
+  resolution               CatalogProposalResolution?
+  resolutionReason         String?
+  retryMergeConflictFields Json?
+  targetCatalogKey         String?
+  targetSenseKey           String?
+  targetSenseId            String?
+  baseRevision             Int?
+  baseStatus               CatalogStatus?
+  dependencyDigest         String
+  finalProposalPayload     Json
+  payloadDigest            String
+  lastContentAuthorId      String
+  reviewRisk               CatalogReviewRisk
+  reviewRiskVersion        String
+  reviewRiskReason         Json
+  decision                 CatalogProposalDecision           @default(PENDING)
+  decidedById              String?
+  decidedAt                DateTime?
+  reviewedPayloadDigest    String?
+  reviewNote               String?
+  revision                 Int                               @default(0)
+  actorPseudonym           String?
+  actorKeyVersion          String?
+  createdAt                DateTime                          @default(now())
+  updatedAt                DateTime                          @updatedAt
+  batch                    CatalogSubmissionBatch            @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  targetSense              WordSense?                        @relation(fields: [targetSenseId], references: [id], onDelete: Restrict)
+  lastContentAuthor        User                              @relation("CatalogProposalLastContentAuthor", fields: [lastContentAuthorId], references: [id], onDelete: Restrict)
+  decidedBy                User?                             @relation("CatalogProposalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  sourceRows               CatalogSubmissionRow[]
+  authors                  CatalogSubmissionProposalAuthor[]
+  changeRequest            CatalogChangeRequest?
 
   @@unique([batchId, groupNumber])
   @@index([batchId, decision, groupNumber])
