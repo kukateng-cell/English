@@ -301,6 +301,12 @@ function CatalogOverviewWorkspace({
   const catalogQueryKeyRef = useRef("");
   const selectedPendingRequestIdRef = useRef<string | null>(null);
   const submitOperationRef = useRef<PendingClientOperation | null>(null);
+  const formBaselineRef = useRef<CatalogPayload>(EMPTY_PAYLOAD);
+
+  const loadFormForDialog = useCallback((payload: CatalogPayload) => {
+    formBaselineRef.current = payload;
+    setForm(payload);
+  }, []);
 
   const catalogQueryKey = useMemo(() => JSON.stringify({ search, status, level, direction }), [direction, level, search, status]);
   useEffect(() => {
@@ -509,8 +515,9 @@ function CatalogOverviewWorkspace({
 
   function startCreate() {
     const identity = `governance_${window.crypto.randomUUID().replaceAll("-", "")}`;
+    const initialPayload = { ...EMPTY_PAYLOAD, acceptedAnswersZh: [], acceptedFormsEn: [], synonymsEn: [], antonymsEn: [], distractorZh: [], distractorEn: [] };
     setSelected({ id: null, senseKey: identity, catalogKey: null, sourceFile: null, sourceRow: null, status: "DRAFT", revision: null, latestRevision: null, approvedRevisionId: null, primaryDisposition: "CREATED_DRAFT", eligibilityResult: "DRAFT_BLOCKED", hasSense: false, issues: null, payload: EMPTY_PAYLOAD, pendingRequest: null });
-    setForm({ ...EMPTY_PAYLOAD, acceptedAnswersZh: [], acceptedFormsEn: [], synonymsEn: [], antonymsEn: [], distractorZh: [], distractorEn: [] });
+    loadFormForDialog(initialPayload);
     setReason("");
     setReviewNote("");
     setRetrySource(null);
@@ -568,7 +575,7 @@ function CatalogOverviewWorkspace({
         ? { ...detail.pendingRequest, payload: normalizeCatalogPayload(detail.pendingRequest.payload, currentPayload ?? EMPTY_PAYLOAD) }
         : detail.pendingRequest;
       setSelected({ ...detail, payload: currentPayload, pendingRequest });
-      setForm(visiblePendingRequestPayload(pendingRequest) ?? currentPayload ?? EMPTY_PAYLOAD);
+      loadFormForDialog(visiblePendingRequestPayload(pendingRequest) ?? currentPayload ?? EMPTY_PAYLOAD);
       setReason("");
       setReviewNote("");
       setRetrySource(null);
@@ -576,7 +583,7 @@ function CatalogOverviewWorkspace({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc("讀取詞條失敗"));
     }
-  }, [tc]);
+  }, [loadFormForDialog, tc]);
 
   async function openDetail(row: CatalogRow) {
     if (row.senseKey) await openDetailBySenseKey(row.senseKey);
@@ -635,7 +642,7 @@ function CatalogOverviewWorkspace({
           payload: retryPayload,
           pendingRequest: null,
         });
-        setForm(retryPayload);
+        loadFormForDialog(retryPayload);
         setReason(retry.previousReason ?? "");
         setReviewNote("");
         setRetrySource({
@@ -655,12 +662,12 @@ function CatalogOverviewWorkspace({
       }
     })();
     return () => { cancelled = true; };
-  }, [initialRetryRequestId, onRetryConsumed, openDetailBySenseKey, tc]);
+  }, [initialRetryRequestId, loadFormForDialog, onRetryConsumed, openDetailBySenseKey, tc]);
 
   function openSelectedHistory() {
     if (!selected?.senseKey) return;
-    const savedPayload = visiblePendingRequestPayload(selected.pendingRequest) ?? selected.payload ?? EMPTY_PAYLOAD;
-    const hasUnsavedInput = JSON.stringify(form) !== JSON.stringify(savedPayload)
+    const loadedFormBaseline = visiblePendingRequestPayload(selected.pendingRequest) ?? formBaselineRef.current;
+    const hasUnsavedInput = clientOperationFingerprint(form) !== clientOperationFingerprint(loadedFormBaseline)
       || reason.trim().length > 0
       || reviewNote.trim().length > 0;
     if (hasUnsavedInput && !window.confirm(tc("你尚有未提交的詞條內容；開啟修改歷史後，這些輸入不會保留。確定繼續？"))) return;
@@ -689,9 +696,13 @@ function CatalogOverviewWorkspace({
       setError(tc("修改、停用或重新啟用理由不可超過 2,000 字。"));
       return;
     }
+    const loadedFormBaseline = visiblePendingRequestPayload(selected.pendingRequest) ?? formBaselineRef.current;
+    const changedFields = (Object.keys(form) as Array<keyof CatalogPayload>).filter(
+      (field) => clientOperationFingerprint(form[field]) !== clientOperationFingerprint(loadedFormBaseline[field]),
+    );
     if (
       (kind === "RETIRE" || kind === "REACTIVATE")
-      && clientOperationFingerprint(form) !== clientOperationFingerprint(selected.payload ?? EMPTY_PAYLOAD)
+      && changedFields.length > 0
     ) {
       setError(tc("你修改咗詞條內容。請先提交 UPDATE 並完成審核，之後再停用或重新啟用詞義。"));
       return;
@@ -825,7 +836,7 @@ function CatalogOverviewWorkspace({
       <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("程度")}<select className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={level} onChange={(event) => setLevel(event.target.value)}><option value="ALL">{tc("全部程度")}</option>{["A1", "A2", "B1", "B2"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("出題方向")}<select className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={direction} onChange={(event) => setDirection(event.target.value)}><option value="ALL">{tc("全部方向")}</option><option value="EN_ZH">{tc("英譯中可用")}</option><option value="ZH_EN">{tc("中譯英可用")}</option></select></label>
     </div>
-    {canReview ? <section className="rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-[var(--text)]">{tc("待審核草稿")}</h2><p className="mt-1 text-xs text-[var(--muted)]">{tc("批准前會重新檢查版本、答案安全及干擾項；不能批准自己提交的修改。")}</p></div><span className="rounded-full bg-[var(--surface)] px-3 py-1 text-xs text-[var(--primary)]">{pending.length} {tc("項")}</span></div>{pendingHasMore ? <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-xs text-[var(--warning)]">{tc("待審核項目超過目前顯示上限，請先處理現有項目。")}</p> : null}{pending.length ? <div className="mt-3 grid gap-2 lg:grid-cols-2">{pending.map((request) => <article key={request.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[var(--text)]">{request.sense?.term ?? request.payload.term ?? tc("新詞義")}</p><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{request.senseKey ?? request.sourceImportRow?.senseKey ?? tc("尚未建立 sense key")} · {request.kind} · {request.proposer.legalName || request.proposer.accountName} · r{request.baseRevision ?? 0}</p></div><span className="rounded-full bg-[var(--warning-bg)] px-2 py-1 text-[10px] text-[var(--warning)]">{tc("待審核")}</span></div><p className="mt-2 line-clamp-2 text-sm text-[var(--text)]">{request.payload.definitionZh}</p><textarea className="mt-3 min-h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 text-xs text-[var(--text)]" placeholder={tc("審核備註（拒絕時必填）")} value={reviewNotes[request.id] ?? ""} onChange={(event) => setReviewNotes((current) => ({ ...current, [request.id]: event.target.value }))} aria-label={tc("審核備註")} /><div className="mt-2 flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => { setForm(request.payload); setReviewNote(reviewNotes[request.id] ?? ""); setSelected({ id: request.sourceImportRow?.id ?? null, senseKey: request.sense?.senseKey ?? request.senseKey ?? request.sourceImportRow?.senseKey ?? "", catalogKey: request.sourceImportRow?.catalogKey ?? request.catalogKey ?? null, sourceFile: request.sourceImportRow?.sourceFile ?? null, sourceRow: request.sourceImportRow?.sourceRow ?? null, status: request.baseStatus ?? "DRAFT", revision: request.baseRevision, latestRevision: request.baseRevision, approvedRevisionId: null, primaryDisposition: request.sourceImportRow?.primaryDisposition ?? "", eligibilityResult: request.sourceImportRow?.eligibilityResult ?? null, hasSense: Boolean(request.sense), issues: null, payload: request.payload, pendingRequest: { id: request.id, kind: request.kind, status: request.status, revision: request.revision, payload: request.payload, reason: request.reason, proposerId: request.proposerId, createdAt: request.createdAt } }); }}>{tc("查看草稿")}</button><button type="button" className="ui-button ui-button-primary ui-button-small" disabled={saving} onClick={() => void reviewRequest(request, "APPROVE")}>{tc("批准")}</button><button type="button" className="ui-button ui-button-danger ui-button-small" disabled={saving} onClick={() => void reviewRequest(request, "REJECT")}>{tc("拒絕")}</button></div></article>)}</div> : <p className="mt-3 text-sm text-[var(--muted)]">{tc("目前沒有等待審核的草稿。")}</p>}</section> : null}
+    {canReview ? <section className="rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-[var(--text)]">{tc("待審核草稿")}</h2><p className="mt-1 text-xs text-[var(--muted)]">{tc("批准前會重新檢查版本、答案安全及干擾項；不能批准自己提交的修改。")}</p></div><span className="rounded-full bg-[var(--surface)] px-3 py-1 text-xs text-[var(--primary)]">{pending.length} {tc("項")}</span></div>{pendingHasMore ? <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-xs text-[var(--warning)]">{tc("待審核項目超過目前顯示上限，請先處理現有項目。")}</p> : null}{pending.length ? <div className="mt-3 grid gap-2 lg:grid-cols-2">{pending.map((request) => <article key={request.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[var(--text)]">{request.sense?.term ?? request.payload.term ?? tc("新詞義")}</p><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{request.senseKey ?? request.sourceImportRow?.senseKey ?? tc("尚未建立 sense key")} · {request.kind} · {request.proposer.legalName || request.proposer.accountName} · r{request.baseRevision ?? 0}</p></div><span className="rounded-full bg-[var(--warning-bg)] px-2 py-1 text-[10px] text-[var(--warning)]">{tc("待審核")}</span></div><p className="mt-2 line-clamp-2 text-sm text-[var(--text)]">{request.payload.definitionZh}</p><textarea className="mt-3 min-h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 text-xs text-[var(--text)]" placeholder={tc("審核備註（拒絕時必填）")} value={reviewNotes[request.id] ?? ""} onChange={(event) => setReviewNotes((current) => ({ ...current, [request.id]: event.target.value }))} aria-label={tc("審核備註")} /><div className="mt-2 flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => { loadFormForDialog(request.payload); setReviewNote(reviewNotes[request.id] ?? ""); setSelected({ id: request.sourceImportRow?.id ?? null, senseKey: request.sense?.senseKey ?? request.senseKey ?? request.sourceImportRow?.senseKey ?? "", catalogKey: request.sourceImportRow?.catalogKey ?? request.catalogKey ?? null, sourceFile: request.sourceImportRow?.sourceFile ?? null, sourceRow: request.sourceImportRow?.sourceRow ?? null, status: request.baseStatus ?? "DRAFT", revision: request.baseRevision, latestRevision: request.baseRevision, approvedRevisionId: null, primaryDisposition: request.sourceImportRow?.primaryDisposition ?? "", eligibilityResult: request.sourceImportRow?.eligibilityResult ?? null, hasSense: Boolean(request.sense), issues: null, payload: request.payload, pendingRequest: { id: request.id, kind: request.kind, status: request.status, revision: request.revision, payload: request.payload, reason: request.reason, proposerId: request.proposerId, createdAt: request.createdAt } }); }}>{tc("查看草稿")}</button><button type="button" className="ui-button ui-button-primary ui-button-small" disabled={saving} onClick={() => void reviewRequest(request, "APPROVE")}>{tc("批准")}</button><button type="button" className="ui-button ui-button-danger ui-button-small" disabled={saving} onClick={() => void reviewRequest(request, "REJECT")}>{tc("拒絕")}</button></div></article>)}</div> : <p className="mt-3 text-sm text-[var(--muted)]">{tc("目前沒有等待審核的草稿。")}</p>}</section> : null}
     <p className="text-sm text-[var(--muted)]" role="status" aria-live="polite">{loading ? tc("正在更新詞庫結果…") : <>{tc("目前篩選")}: {filteredTotal} / {counts.all ?? 0} {tc("條；已載入")} {rows.length}</>}</p>
     <div aria-busy={loading || loadingMore}>{loading ? <p role="status" className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">{tc("正在更新詞庫結果…")}</p> : rows.length ? <div className="space-y-2">{rows.map((row) => <article key={row.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[minmax(180px,1.1fr)_minmax(220px,1.6fr)_100px_150px_auto] lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="break-words text-[17px] text-[var(--text)]">{row.term || tc("未完成詞條")}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass(row.status)}`}>{statusLabel(row.status, tc)}</span></div><p className="mt-1 break-all text-[11px] text-[var(--muted)]">{row.senseKey ?? tc("尚未建立 sense key")}</p></div><div className="min-w-0"><p className="line-clamp-2 text-sm text-[var(--text)]">{row.definitionZh || tc("尚未填寫中文釋義")}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.partOfSpeech || "—"} · {row.level || "—"} · {tc(row.category || "other")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.enableEnToZh ? tc("英譯中") : tc("英譯中停用")}</p><p>{row.enableZhToEn ? tc("中譯英") : tc("中譯英停用")}</p></div><div className="text-xs text-[var(--muted)]"><p>{row.primaryDisposition === "VALIDATION_FAILED" ? tc("需修訂 validator 問題") : row.eligibilityResult === "DRAFT_BLOCKED" ? tc("出題方向未就緒") : row.approvedRevisionId ? `${tc("已批准 revision")} ${row.revision ?? "—"}` : tc("未批准")}</p><p>{row.pendingRequest ? tc("已有待審核修改") : row.sourceFile ? `${row.sourceFile}:${row.sourceRow}` : tc("治理草稿")}</p></div><div className="flex flex-wrap gap-2 lg:justify-end">{bulkEnabled ? hasCatalogExportTarget(row) ? <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]"><input type="checkbox" checked={exportSenseKeys.has(row.senseKey!)} disabled={Boolean(row.pendingRequest) || (!exportSenseKeys.has(row.senseKey!) && exportSenseKeys.size >= 200)} onChange={(event) => toggleExportSelection(row.senseKey!, event.target.checked)} />{tc("選取匯出")}</label> : catalogExportAvailability(row) === "REQUIRES_GOVERNED_REVISION" ? <span role="note" className="max-w-44 text-xs leading-5 text-[var(--muted)]">{tc("請先查看／修改並建立詞義版本，之後才可批量匯出。")}</span> : catalogExportAvailability(row) === "REVISION_UNAVAILABLE" ? <span role="note" className="max-w-44 text-xs leading-5 text-[var(--danger)]">{tc("詞義版本未就緒；請重新載入，如持續出現請通知管理員。")}</span> : <span role="note" className="max-w-44 text-xs leading-5 text-[var(--muted)]">{tc("未有 sense key；請用 CSV 批量提交修正來源資料。")}</span> : null}{row.senseKey ? <><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => setFeedbackTarget({ senseKey: row.senseKey, term: row.term })}>{tc("報告問題")}</button>{historyEnabled ? <button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => onOpenHistory(row.senseKey!)}>{tc("查看歷史")}</button> : null}<button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => void openDetail(row)}>{tc("查看／修改")}</button></> : null}{row.validationErrors.length ? <span className="rounded-full bg-[var(--danger-bg)] px-2 py-1 text-[10px] text-[var(--danger)]">{row.validationErrors.length} {tc("個問題")}</span> : null}</div></div></article>)}</div> : <p className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]">{tc("目前篩選沒有詞條。")}</p>}</div>
     {nextCursor ? <button type="button" className="ui-button ui-button-secondary mx-auto block" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? tc("載入中…") : tc("載入更多（最多 100 條）")}</button> : null}

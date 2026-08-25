@@ -95,6 +95,7 @@ export function standaloneRequestNeedsRevision(input: {
 export type StandaloneRetryIneligibilityReason =
   | "ALREADY_RETIRED"
   | "ALREADY_ACTIVE"
+  | "CHANGE_PENDING"
   | "SENSE_REMOVED"
   | "IDENTITY_ALREADY_EXISTS";
 
@@ -107,7 +108,9 @@ export function evaluateStandaloneRetryEligibility(input: {
   kind: "CREATE" | "UPDATE" | "RETIRE" | "REACTIVATE";
   senseKey: string | null;
   currentIdentity: StandaloneRetryIdentity;
+  hasPendingChange: boolean;
 }): { eligible: true } | { eligible: false; reason: StandaloneRetryIneligibilityReason } {
+  if (input.hasPendingChange) return { eligible: false, reason: "CHANGE_PENDING" };
   if (!input.senseKey) return { eligible: false, reason: "SENSE_REMOVED" };
   if (input.kind === "CREATE") {
     return input.currentIdentity
@@ -137,9 +140,9 @@ export function standaloneRequestRetryCandidateWhere(actorId: string): Prisma.Ca
     supersededBy: null,
     OR: [
       { kind: "CREATE" },
-      { kind: "UPDATE", sense: { isNot: null } },
-      { kind: "RETIRE", sense: { is: { status: "ACTIVE", approvedRevisionId: { not: null } } } },
-      { kind: "REACTIVATE", sense: { is: { status: "RETIRED", approvedRevisionId: { not: null } } } },
+      { kind: "UPDATE", sense: { is: { changeRequests: { none: { status: "PENDING" } } } } },
+      { kind: "RETIRE", sense: { is: { status: "ACTIVE", approvedRevisionId: { not: null }, changeRequests: { none: { status: "PENDING" } } } } },
+      { kind: "REACTIVATE", sense: { is: { status: "RETIRED", approvedRevisionId: { not: null }, changeRequests: { none: { status: "PENDING" } } } } },
     ],
   };
 }

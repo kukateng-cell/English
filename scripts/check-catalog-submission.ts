@@ -31,6 +31,8 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: proc
 const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 const catalogKey = `check_catalog_${suffix}`;
 const senseKey = `check_sense_${suffix}`;
+const CATALOG_CHECKER_FILE_NAME = "__catalog_checker__catalog-governance-check.csv";
+const CATALOG_CHECKER_FILE_NAME_PATTERN = /^(?:(?:retry|corrective)-)*(?:__catalog_checker__)?catalog-governance-check\.csv$/u;
 let batchId: string | null = null;
 let correctiveBatchId: string | null = null;
 let secondCorrectiveBatchId: string | null = null;
@@ -41,6 +43,7 @@ let retryRestartBatchId: string | null = null;
 let retryExpiredRestartBatchId: string | null = null;
 let duplicateBatchId: string | null = null;
 let draftBatchId: string | null = null;
+let conflictUnionBatchId: string | null = null;
 let claimRecoveryBatchId: string | null = null;
 let authorClaimRecoveryBatchId: string | null = null;
 let senseId: string | null = null;
@@ -134,10 +137,11 @@ async function cleanupSenseFixture(cleanupSenseId: string, force = false) {
 }
 
 async function cleanupStaleFixtures() {
-  const staleBatches = await prisma.catalogSubmissionBatch.findMany({
+  const candidates = await prisma.catalogSubmissionBatch.findMany({
     where: { fileName: { endsWith: "catalog-governance-check.csv" } },
-    select: { id: true },
+    select: { id: true, fileName: true },
   });
+  const staleBatches = candidates.filter((batch) => CATALOG_CHECKER_FILE_NAME_PATTERN.test(batch.fileName));
   const visited = new Set<string>();
   for (const stale of staleBatches) await cleanupBatchTree(stale.id, visited);
   const staleSenses = await prisma.wordSense.findMany({ where: { senseKey: { startsWith: "check_sense_" } }, select: { id: true } });
@@ -148,7 +152,7 @@ async function cleanupStaleFixtures() {
 
 async function cleanup() {
   const visited = new Set<string>();
-  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryExpiredRestartBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
+  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryExpiredRestartBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, conflictUnionBatchId, draftBatchId].filter((value): value is string => Boolean(value))) {
     await cleanupBatchTree(cleanupBatchId, visited);
   }
   if (senseId) {
@@ -160,6 +164,14 @@ async function cleanup() {
 }
 
 async function main() {
+  if (
+    !CATALOG_CHECKER_FILE_NAME_PATTERN.test("catalog-governance-check.csv")
+    || !CATALOG_CHECKER_FILE_NAME_PATTERN.test("retry-retry-catalog-governance-check.csv")
+    || !CATALOG_CHECKER_FILE_NAME_PATTERN.test(CATALOG_CHECKER_FILE_NAME)
+    || CATALOG_CHECKER_FILE_NAME_PATTERN.test("my-catalog-governance-check.csv")
+  ) {
+    throw new Error("catalog checker reserved filename pattern is unsafe");
+  }
   const metadata = await prisma.databaseMetadata.findUnique({ where: { key: "environment" }, select: { value: true } });
   if (metadata?.value !== environment) throw new Error("DatabaseMetadata.environment does not match DATABASE_ENVIRONMENT");
   await cleanupStaleFixtures();
@@ -218,7 +230,7 @@ async function main() {
     contentDigest: revisionContentDigest(basePayload), changeNote: basePayload.changeNote, catalogRevisionId: ready.id,
   } });
   const draftPayload = { ...basePayload, definitionZh: "草稿詞庫測試詞", acceptedAnswersZh: ["草稿詞庫測試詞"] };
-  const draftPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([{ ...sourceRow(draftPayload), catalog_status: "DRAFT" }], CATALOG_GOVERNANCE_HEADERS)) });
+  const draftPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: CATALOG_CHECKER_FILE_NAME, bytes: new TextEncoder().encode(catalogRowsToCsv([{ ...sourceRow(draftPayload), catalog_status: "DRAFT" }], CATALOG_GOVERNANCE_HEADERS)) });
   draftBatchId = draftPreview.batch.id;
   if ((draftPreview.batch.groups[0]?.baseProposalPayload as { definitionZh?: string } | null)?.definitionZh !== basePayload.definitionZh) throw new Error("DRAFT target preview omitted the latest revision before payload");
   await prisma.wordSense.update({ where: { id: sense.id }, data: { status: "ACTIVE", approvedRevisionId: revision.id } });
@@ -232,7 +244,7 @@ async function main() {
 
   const updatedPayload = { ...basePayload, definitionZh: "詞庫測試詞", acceptedAnswersZh: ["詞庫測試詞"], changeNote: "approved DB checker update" };
   const bytes = new TextEncoder().encode(catalogRowsToCsv([sourceRow(updatedPayload)], CATALOG_GOVERNANCE_HEADERS));
-  const preview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes });
+  const preview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: CATALOG_CHECKER_FILE_NAME, bytes });
   batchId = preview.batch.id;
   if (preview.batch.status !== "PREVIEW" || preview.batch.groups.length !== 1) throw new Error("preview contract failed");
   let terminalAttachBlocked = false;
@@ -307,6 +319,40 @@ async function main() {
   if (!finalizedRequest?.beforePayloadSnapshot || !finalizedRequest.afterPayloadSnapshot) throw new Error("complete history payload snapshots are missing");
   const history = await prisma.catalogHistoryFeedEntry.count({ where: { submissionBatchId: batchId } });
   if (history !== 1) throw new Error("batch history feed entry missing");
+  const approvedAfterFinalize = await prisma.wordSense.findUniqueOrThrow({
+    where: { id: sense.id },
+    select: { approvedRevision: { select: { revision: true } } },
+  });
+  const conflictUnionPayload: CatalogGovernancePayload = {
+    ...updatedPayload,
+    definitionZh: "多行衝突合併測試詞",
+    acceptedAnswersZh: ["多行衝突合併測試詞"],
+    exampleEn: "Two retry rows preserve every unresolved conflict field.",
+    exampleZh: "兩個重試資料列會保留所有未解決衝突欄位。",
+  };
+  const conflictUnionRows = [2, 3].map((rowNumber) => ({
+    ...sourceRow(conflictUnionPayload),
+    sourceRow: rowNumber,
+    record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+  }));
+  const conflictUnionPreview = await createCatalogSubmissionPreview({
+    actorId: proposer.id,
+    operationId: randomUUID(),
+    fileName: CATALOG_CHECKER_FILE_NAME,
+    bytes: new TextEncoder().encode(catalogRowsToCsv(conflictUnionRows, CATALOG_GOVERNANCE_HEADERS)),
+    retryMergeConflicts: new Map([
+      [2, ["definitionZh"]],
+      [3, ["exampleEn"]],
+    ]),
+  });
+  conflictUnionBatchId = conflictUnionPreview.batch.id;
+  if (
+    conflictUnionPreview.batch.groups.length !== 1
+    || conflictUnionPreview.batch.status !== "NEEDS_RESOLUTION"
+    || JSON.stringify(conflictUnionPreview.batch.groups[0]?.retryMergeConflictFields) !== JSON.stringify(["definitionZh", "exampleEn"])
+  ) {
+    throw new Error("multi-row retry conflicts were not unioned on the proposal group");
+  }
   const corrective = await createCorrectiveCatalogSubmissionPreview({ sourceBatchId: batchId, actorId: reviewer.id, operationId: randomUUID() });
   correctiveBatchId = corrective.batch.id;
   if (corrective.batch.status !== "PREVIEW" || corrective.batch.supersedesBatchId !== batchId || corrective.batch.groups[0]?.requestedAction !== "UPDATE") throw new Error("corrective preview contract failed");
@@ -322,12 +368,12 @@ async function main() {
   if (secondCorrective.batch.supersedesBatchId !== batchId) throw new Error("cancelled corrective preview permanently blocked a later corrective preview");
 
   const createPayload: CatalogGovernancePayload = { ...basePayload, term: `checkcreate${suffix}`, lemma: `checkcreate${suffix}`, definitionZh: "新增測試詞", acceptedAnswersZh: ["新增測試詞"], exampleEn: "This is a newly created catalog check word.", exampleZh: "這是一個新增詞庫檢查詞。" };
-  const createPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(createPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
+  const createPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: CATALOG_CHECKER_FILE_NAME, bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(createPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
   createBatchId = createPreview.batch.id;
   const createSubmitted = await submitCatalogSubmissionBatch({ batchId: createBatchId, actorId: proposer.id, expectedRevision: createPreview.batch.revision, operationId: randomUUID(), reason: "CREATE database governance check" });
 
   const resolutionPayload: CatalogGovernancePayload = { ...basePayload, term: `checkresolution${suffix}`, lemma: `checkresolution${suffix}`, definitionZh: "修正流程測試詞", acceptedAnswersZh: ["修正流程測試詞"], exampleEn: "This word checks the resolution workflow.", exampleZh: "這個詞檢查修正流程。" };
-  const resolutionPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(resolutionPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
+  const resolutionPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: CATALOG_CHECKER_FILE_NAME, bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(resolutionPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
   resolutionBatchId = resolutionPreview.batch.id;
 
   const createRow = await prisma.catalogSubmissionRow.findFirstOrThrow({ where: { batchId: createBatchId, proposalGroupId: { not: null } }, select: { id: true } });
@@ -397,6 +443,23 @@ async function main() {
   ) {
     throw new Error("retry merge conflict metadata was not persisted");
   }
+  const escalatedConflict = await resolveCatalogSubmissionGroup({
+    batchId: retryPreview.batch.id,
+    groupId: conflictRetry.groups[0]!.id,
+    actorId: proposer.id,
+    canReview: false,
+    expectedBatchRevision: conflictRetry.revision,
+    expectedGroupRevision: conflictRetry.groups[0]!.revision,
+    resolution: "ESCALATE",
+    reason: "preserve unresolved retry conflict for reviewer escalation",
+  });
+  if (
+    escalatedConflict.batch.status !== "NEEDS_RESOLUTION"
+    || escalatedConflict.group?.value.resolution !== "ESCALATE"
+    || JSON.stringify(escalatedConflict.group.value.retryMergeConflictFields) !== JSON.stringify(["definitionZh"])
+  ) {
+    throw new Error("escalating a retry conflict cleared its unresolved metadata");
+  }
   const staleSourceStillActionable = await prisma.catalogSubmissionBatch.count({
     where: { id: resolutionBatchId, status: { in: ["STALE", "REJECTED"] }, retriedBy: null },
   });
@@ -407,7 +470,7 @@ async function main() {
   const cancelledRetry = await cancelCatalogSubmissionBatch({
     batchId: retryPreview.batch.id,
     actorId: proposer.id,
-    expectedRevision: conflictRetry.revision,
+    expectedRevision: escalatedConflict.revision,
   });
   if (cancelledRetry.batch.status !== "CANCELLED") throw new Error("retry preview cancellation failed");
   const cancelledRetryActionable = await prisma.catalogSubmissionBatch.count({
@@ -506,7 +569,7 @@ async function main() {
   const duplicateBase: CatalogGovernancePayload = { ...basePayload, term: `checkduplicate${suffix}`, lemma: `checkduplicate${suffix}`, definitionZh: "重複來源測試詞", acceptedAnswersZh: ["重複來源測試詞"], exampleEn: "This is source row two.", exampleZh: "這是來源第二行。" };
   const duplicateAlternative: CatalogGovernancePayload = { ...duplicateBase, exampleEn: "This is source row three.", exampleZh: "這是來源第三行。" };
   const duplicateRows = [{ ...sourceRow(duplicateBase, "CREATE"), sourceRow: 2 }, { ...sourceRow(duplicateAlternative, "CREATE"), sourceRow: 3 }];
-  const duplicatePreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: "catalog-governance-check.csv", bytes: new TextEncoder().encode(catalogRowsToCsv(duplicateRows, CATALOG_GOVERNANCE_HEADERS)) });
+  const duplicatePreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: CATALOG_CHECKER_FILE_NAME, bytes: new TextEncoder().encode(catalogRowsToCsv(duplicateRows, CATALOG_GOVERNANCE_HEADERS)) });
   duplicateBatchId = duplicatePreview.batch.id;
   if (duplicatePreview.batch.status !== "NEEDS_RESOLUTION" || duplicatePreview.batch.groups[0]?.sourceRows.length !== 2) throw new Error("different duplicate rows did not require explicit resolution");
   let sourceSelectionRequired = false;
@@ -531,7 +594,7 @@ async function main() {
   const claimRecoveryPreview = await createCatalogSubmissionPreview({
     actorId: proposer.id,
     operationId: randomUUID(),
-    fileName: "catalog-governance-check.csv",
+    fileName: CATALOG_CHECKER_FILE_NAME,
     bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(claimRecoveryPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)),
   });
   claimRecoveryBatchId = claimRecoveryPreview.batch.id;
@@ -586,7 +649,7 @@ async function main() {
   const authorClaimPreview = await createCatalogSubmissionPreview({
     actorId: proposer.id,
     operationId: randomUUID(),
-    fileName: "catalog-governance-check.csv",
+    fileName: CATALOG_CHECKER_FILE_NAME,
     bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(authorClaimPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)),
   });
   authorClaimRecoveryBatchId = authorClaimPreview.batch.id;

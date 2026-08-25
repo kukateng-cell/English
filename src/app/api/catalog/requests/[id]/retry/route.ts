@@ -45,24 +45,34 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (request.supersededBy) {
       return NextResponse.json({ replay: true, successorId: request.supersededBy.id, senseKey: request.senseKey }, { headers: CATALOG_PRIVATE_HEADERS });
     }
-    const currentSense = request.senseKey
-      ? await prisma.wordSense.findUnique({
-          where: { senseKey: request.senseKey },
-          select: {
-            status: true,
-            approvedRevisionId: true,
-            approvedRevision: true,
-            revisions: { orderBy: { revision: "desc" }, take: 1 },
-          },
-        })
-      : null;
+    const [currentSense, pendingChange] = request.senseKey
+      ? await Promise.all([
+          prisma.wordSense.findUnique({
+            where: { senseKey: request.senseKey },
+            select: {
+              status: true,
+              approvedRevisionId: true,
+              approvedRevision: true,
+              revisions: { orderBy: { revision: "desc" }, take: 1 },
+            },
+          }),
+          prisma.catalogChangeRequest.findFirst({
+            where: { status: "PENDING", senseKey: request.senseKey },
+            select: { id: true },
+          }),
+        ])
+      : [null, null];
     const eligibility = evaluateStandaloneRetryEligibility({
       kind: request.kind,
       senseKey: request.senseKey,
       currentIdentity: currentSense,
+      hasPendingChange: Boolean(pendingChange),
     });
     if (!eligibility.eligible) {
-      return catalogResponse("CATALOG_REQUEST_RETRY_NO_LONGER_APPLICABLE", 409, { reason: eligibility.reason });
+      const code = eligibility.reason === "CHANGE_PENDING"
+        ? "CATALOG_CHANGE_PENDING"
+        : "CATALOG_REQUEST_RETRY_NO_LONGER_APPLICABLE";
+      return catalogResponse(code, 409, { reason: eligibility.reason });
     }
     const proposal = catalogGovernancePayloadFromUnknown(request.afterPayloadSnapshot ?? request.payload);
     if (!proposal) return catalogResponse("CATALOG_PAYLOAD_INVALID", 422);

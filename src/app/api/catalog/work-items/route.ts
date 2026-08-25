@@ -52,17 +52,25 @@ export async function GET(req: Request) {
       auth.canReview ? prisma.catalogFeedback.count({ where: feedbackReviewWhere }) : Promise.resolve(0),
     ]);
     const retrySenseKeys = [...new Set(revisionRequestCandidates.flatMap((request) => request.senseKey ? [request.senseKey] : []))];
-    const retrySenses = retrySenseKeys.length
-      ? await prisma.wordSense.findMany({
-          where: { senseKey: { in: retrySenseKeys } },
-          select: { senseKey: true, status: true, approvedRevisionId: true },
-        })
-      : [];
+    const [retrySenses, pendingRetryRequests] = retrySenseKeys.length
+      ? await Promise.all([
+          prisma.wordSense.findMany({
+            where: { senseKey: { in: retrySenseKeys } },
+            select: { senseKey: true, status: true, approvedRevisionId: true },
+          }),
+          prisma.catalogChangeRequest.findMany({
+            where: { status: "PENDING", senseKey: { in: retrySenseKeys } },
+            select: { senseKey: true },
+          }),
+        ])
+      : [[], []];
     const retrySenseByKey = new Map(retrySenses.map((sense) => [sense.senseKey, sense]));
+    const pendingRetrySenseKeys = new Set(pendingRetryRequests.flatMap((request) => request.senseKey ? [request.senseKey] : []));
     const revisionRequests = revisionRequestCandidates.filter((request) => evaluateStandaloneRetryEligibility({
       kind: request.kind,
       senseKey: request.senseKey,
       currentIdentity: request.senseKey ? retrySenseByKey.get(request.senseKey) ?? null : null,
+      hasPendingChange: request.senseKey ? pendingRetrySenseKeys.has(request.senseKey) : false,
     }).eligible);
     const requestsToRevise = revisionRequests.length;
     const counts = {

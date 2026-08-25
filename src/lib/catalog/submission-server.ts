@@ -314,10 +314,14 @@ export async function createCatalogSubmissionPreview(input: {
         if (!conflictRow || !group) throw new Error("CATALOG_BATCH_RETRY_STALE");
         const normalizedFields = parseCatalogRetryMergeConflictFields(fields);
         if (!normalizedFields.length) throw new Error("CATALOG_BATCH_RETRY_STALE");
-        retryMergeConflictFieldsByGroup.set(groupNumber!, normalizedFields);
+        const mergedFields = mergeCatalogRetryConflictFields(
+          retryMergeConflictFieldsByGroup.get(groupNumber!) ?? [],
+          normalizedFields,
+        );
+        retryMergeConflictFieldsByGroup.set(groupNumber!, mergedFields);
         group.needsResolution = true;
         group.resolution = null;
-        group.resolutionReason = `retry merge conflict: ${normalizedFields.join(", ")}`;
+        group.resolutionReason = `retry merge conflict: ${mergedFields.join(", ")}`;
         for (const row of preview.rows) {
           if (row.proposalGroupNumber === groupNumber) row.primaryDisposition = "CONFLICT";
         }
@@ -547,9 +551,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
     const effectiveKind = catalogRetryEffectiveKind(group);
     if (effectiveKind !== "CREATE" && effectiveKind !== "UPDATE") throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
     const sourceRowNumber = rows.length + 2;
-    const inheritedConflicts = group.resolution === null
-      ? parseCatalogRetryMergeConflictFields(group.retryMergeConflictFields)
-      : [];
+    const inheritedConflicts = parseCatalogRetryMergeConflictFields(group.retryMergeConflictFields);
     let unresolvedConflicts = inheritedConflicts;
     const proposal = parseCatalogGovernancePayload(group.finalProposalPayload);
     const currentRevision = group.targetSense?.approvedRevision ?? group.targetSense?.revisions[0] ?? null;

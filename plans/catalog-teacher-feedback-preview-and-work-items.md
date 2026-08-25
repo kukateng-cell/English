@@ -1,6 +1,6 @@
 # 詞庫教師意見、真實題目預覽及工作待辦實施計劃
 
-狀態：已完成（2026-08-25 第三輪 retry applicability／conflict persistence 加固完成；production rollout 仍延後）
+狀態：已完成（2026-08-25 第四輪 pending baseline／retry conflict／actionability 加固完成；production rollout 仍延後）
 
 建立日期：2026-08-24
 所屬分支：`codex/word-catalog-governance-and-lifecycle`
@@ -158,6 +158,34 @@
 ## 已知延後項目
 
 - 真實英文老師代表性 UAT、正式裝置／screen-reader 人手矩陣、staging／production rollout 及 production observation 仍屬外部 gate，未在本輪執行。
+
+## 2026-08-25 第四輪 pending baseline／retry actionability 加固
+
+### 背景及決策
+
+後續審核指出四個一致性缺口：審核員開啟 pending UPDATE 時，狀態操作錯用正式 payload 判斷未儲存修改；批次 retry conflict metadata 在 `ESCALATE` 及多行合併時仍可能遺失；另一 pending change 已存在時，舊 rejected request 仍被列作可行動；checker 的 stale fixture 檔名條件過寬。四項均成立，本輪採用以下 contract：
+
+- 每次 dialog 載入正式、pending 或 retry payload 時，同步保存實際表單 baseline；狀態操作只比較使用者載入後真正改過的內容；
+- `retryMergeConflictFields` 是 unresolved conflict 的唯一依據，`ESCALATE` 不會令下一代 retry 遺失欄位；同一 proposal group 的多行 conflict 必須 union；
+- standalone retry eligibility 同時檢查目前 lifecycle 及相同 sense key 的 pending request；blocked item 不計入 actionable badge，pending 完成後可重新出現；
+- checker 新 fixture 使用專用 marker，兼容舊精確 reserved names，但拒絕只係 suffix 相同的普通檔名。
+
+### Checklist
+
+- [x] 表單載入 helper 同步保存 baseline；pending UPDATE 未改內容可即時停用，手動改內容仍 fail closed。
+- [x] retry conflict metadata 無條件按持久欄位繼承；同組多行 conflict 合併去重並保留 resolution reason。
+- [x] work-items count／list 及 retry GET 共用 pending-aware eligibility；CREATE 以 sense key 批量檢查 pending identity。
+- [x] checker fixture discovery 改用 reserved marker／嚴格 pattern，保留非 checker 本機批次。
+- [x] 補 unit、DB checker 及 browser lifecycle regression，完成 lint、TypeScript 及 production build。
+
+### 本輪實際驗證
+
+- `npm test`：333／333 通過。
+- `npm run lint -- --max-warnings=0`、`npx tsc --noEmit`：通過。
+- `npm run build`：83 個 App Router routes production build 通過；sandbox 內 Turbopack helper 不可綁定 loopback port，以獲准本機權限重跑後通過。
+- `npm run check:catalog-submission`：同一 proposal group 多行 conflict union、`ESCALATE → cancel → retry` conflict 繼承、嚴格 fixture discovery 及 lineage cleanup 通過。
+- `npm run test:e2e:catalog-workspace`：4／4 通過；涵蓋 pending UPDATE baseline、手動內容修改阻止 status action、pending blocker 令 rejected retry 暫時退出待辦，及 blocker 完成後重新出現。
+- production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。
 
 ## 2026-08-25 第三輪 retry applicability／conflict persistence 加固
 

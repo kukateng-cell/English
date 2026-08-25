@@ -437,8 +437,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await expect(parentDialog).not.toHaveAttribute("aria-hidden", "true");
     const proposerFeedbackResponse = await proposer.page.request.get("/api/catalog/feedback?scope=mine&limit=100");
     expect(proposerFeedbackResponse.ok(), await proposerFeedbackResponse.text()).toBeTruthy();
-    const proposerFeedback = await proposerFeedbackResponse.json() as { feedback: Array<{ message: string }> };
-    expect(proposerFeedback.feedback.filter((item) => item.message === "呢組干擾項對學生嚟講太容易")).toHaveLength(1);
+    const proposerFeedback = await proposerFeedbackResponse.json() as { feedback: Array<{ message: string; senseKey: string | null }> };
+    expect(proposerFeedback.feedback.filter((item) => item.message === "呢組干擾項對學生嚟講太容易" && item.senseKey === senseKey)).toHaveLength(1);
     const unrelatedFeedbackResponse = await unrelatedTeacher.page.request.get("/api/catalog/feedback?scope=mine");
     expect(unrelatedFeedbackResponse.ok(), await unrelatedFeedbackResponse.text()).toBeTruthy();
     const unrelatedFeedback = await unrelatedFeedbackResponse.json() as { feedback: Array<{ message: string }> };
@@ -606,33 +606,59 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     });
     expect(cancel.ok(), await cancel.text()).toBeTruthy();
 
-    await proposer.page.goto("/teacher/words");
-    await proposer.page.getByLabel(/搜尋詞條、釋義或 key|搜索词条、释义或 key/).fill(term);
-    const statusActionRow = proposer.page.locator("article").filter({ hasText: term }).first();
-    await expect(statusActionRow).toBeVisible();
-    await statusActionRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
-    const statusActionDialog = proposer.page.getByRole("dialog");
-    await statusActionDialog.getByLabel(/例句英文/).fill("This unsaved edit must not be dropped by a status action.");
-    await statusActionDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("驗證狀態操作不會靜默丟棄內容修改");
-    await statusActionDialog.getByRole("button", { name: /提交停用申請|提交停用申请/ }).click();
-    await expect(proposer.page.getByText(/請先提交 UPDATE 並完成審核|请先提交 UPDATE 并完成审核/)).toBeVisible();
-    await statusActionDialog.getByRole("button", { name: /關閉|关闭/ }).click();
-
     const beforeRetire = await detail(reviewer.page, senseKey);
-    const retire = await reviewer.page.request.post("/api/catalog", {
-      headers: reviewerHeaders,
+    const pendingStatusPayload = {
+      ...(beforeRetire.payload as typeof payload),
+      exampleEn: "This pending update is the form baseline for immediate retirement.",
+      exampleZh: "這個待審核修改是立即停用操作的表單基線。",
+    };
+    const pendingStatusUpdate = await proposer.page.request.post("/api/catalog", {
+      headers: proposerHeaders,
       data: {
         operationId: randomUUID(),
-        kind: "RETIRE",
+        kind: "UPDATE",
         senseKey,
         expectedRevision: beforeRetire.revision,
-        reason: "瀏覽器回歸測試即時停用",
-        immediate: true,
+        payload: pendingStatusPayload,
+        reason: "驗證審核員開啟 pending UPDATE 後仍可立即停用",
       },
     });
-    expect(retire.ok(), await retire.text()).toBeTruthy();
+    expect(pendingStatusUpdate.status(), await pendingStatusUpdate.text()).toBe(201);
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.getByLabel(/搜尋詞條、釋義或 key|搜索词条、释义或 key/).fill(term);
+    const statusActionRow = reviewer.page.locator("article").filter({ hasText: term }).filter({
+      has: reviewer.page.getByRole("button", { name: /查看／修改|查看\/修改/ }),
+    }).first();
+    await expect(statusActionRow).toBeVisible();
+    await statusActionRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const statusActionDialog = reviewer.page.getByRole("dialog");
+    await statusActionDialog.getByLabel(/例句英文/).fill("This unsaved edit must not be dropped by a status action.");
+    await statusActionDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("驗證狀態操作不會靜默丟棄內容修改");
+    await statusActionDialog.getByRole("button", { name: /立即停用/ }).click();
+    await expect(reviewer.page.getByText(/請先提交 UPDATE 並完成審核|请先提交 UPDATE 并完成审核/)).toBeVisible();
+    await statusActionDialog.getByRole("button", { name: /關閉|关闭/ }).click();
+    await expect(statusActionDialog).toHaveCount(0);
+    await statusActionRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    await expect(statusActionDialog.getByLabel(/例句英文/)).toHaveValue(pendingStatusPayload.exampleEn);
+    await statusActionDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("驗證 pending UPDATE baseline 不會阻止即時停用");
+    const immediateRetireResponsePromise = reviewer.page.waitForResponse(
+      (response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog",
+      { timeout: 5_000 },
+    ).catch(() => null);
+    reviewer.page.once("dialog", (dialog) => void dialog.accept());
+    await statusActionDialog.getByRole("button", { name: /立即停用/ }).click();
+    const immediateRetireResponse = await immediateRetireResponsePromise;
+    if (!immediateRetireResponse) {
+      const alertText = await reviewer.page.getByRole("alert").filter({ hasText: /修改咗詞條內容|修改了词条内容/ }).textContent().catch(() => null);
+      throw new Error(`immediate retire did not submit: ${alertText ?? "no UI error"}`);
+    }
+    expect(immediateRetireResponse.ok()).toBeTruthy();
     const retired = await detail(proposer.page, senseKey);
     expect(retired.status).toBe("RETIRED");
+    await approvePending(reviewer.page, reviewerHeaders, senseKey);
+    const retiredAfterPendingApproval = await detail(proposer.page, senseKey);
+    expect(retiredAfterPendingApproval.status).toBe("RETIRED");
 
     const statusPayloadResponse = await proposer.page.request.post("/api/catalog", {
       headers: proposerHeaders,
@@ -640,7 +666,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
         operationId: randomUUID(),
         kind: "REACTIVATE",
         senseKey,
-        expectedRevision: retired.revision,
+        expectedRevision: retiredAfterPendingApproval.revision,
         payload: interveningPayload,
         reason: "狀態申請不可同時夾帶內容",
       },
@@ -654,7 +680,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
         operationId: randomUUID(),
         kind: "REACTIVATE",
         senseKey,
-        expectedRevision: retired.revision,
+        expectedRevision: retiredAfterPendingApproval.revision,
         reason: "瀏覽器回歸測試重新啟用",
       },
     });
@@ -669,7 +695,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
         operationId: randomUUID(),
         kind: "REACTIVATE",
         senseKey,
-        expectedRevision: retired.revision,
+        expectedRevision: retiredAfterPendingApproval.revision,
         reason: "惡意內容 patch 應被拒絕",
         supersedesRequestId: pendingReactivate.pendingRequest!.id,
         retryPayloadPatch: { definitionZh: "不應生效" },
@@ -678,7 +704,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     expect(rejectedReactivatePatch.status()).toBe(422);
 
     const statusRetryCurrentPayload = {
-      ...interveningPayload,
+      ...(retiredAfterPendingApproval.payload as typeof payload),
       definitionZh: "按審核意見修正的瀏覽器詞庫回歸測試詞",
       exampleEn: "A newer approved example must appear in the reactivation retry.",
       exampleZh: "重新提交啟用申請時必須顯示這個較新的正式例句。",
@@ -689,7 +715,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
         operationId: randomUUID(),
         kind: "UPDATE",
         senseKey,
-        expectedRevision: retired.revision,
+        expectedRevision: retiredAfterPendingApproval.revision,
         payload: statusRetryCurrentPayload,
         reason: "驗證狀態重試顯示目前正式 revision",
       },
@@ -725,8 +751,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await expect(proposer.page.getByRole("heading", { name: /詞條修改歷史|词条修改历史/ })).toBeVisible();
     await expect(proposer.page.getByText(senseKey, { exact: true }).first()).toBeVisible();
     const historyEntries = proposer.page.locator("main article");
-    await expect(historyEntries).toHaveCount(9);
-    await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(7);
+    await expect(historyEntries).toHaveCount(10);
+    await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(8);
     await expect(historyEntries.filter({ hasText: "REJECTED" })).toHaveCount(2);
 
     const activeBeforeInapplicableRetire = await detail(proposer.page, senseKey);
@@ -743,6 +769,39 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     expect(obsoleteRetire.status(), await obsoleteRetire.text()).toBe(201);
     const obsoleteRetireBody = await obsoleteRetire.json() as { requestId: string };
     await rejectPending(reviewer.page, reviewerHeaders, senseKey, "暫不接受這次停用申請");
+    const pendingBlockerPayload = {
+      ...(activeBeforeInapplicableRetire.payload as typeof payload),
+      exampleEn: "A pending update temporarily blocks retrying an older rejected request.",
+      exampleZh: "另一個待審核修改會暫時阻止重新提交舊申請。",
+    };
+    const pendingBlocker = await unrelatedTeacher.page.request.post("/api/catalog", {
+      headers: unrelatedTeacherHeaders,
+      data: {
+        operationId: randomUUID(),
+        kind: "UPDATE",
+        senseKey,
+        expectedRevision: activeBeforeInapplicableRetire.revision,
+        payload: pendingBlockerPayload,
+        reason: "驗證 pending change 會暫時隱藏舊 rejected retry",
+      },
+    });
+    expect(pendingBlocker.status(), await pendingBlocker.text()).toBe(201);
+    const blockedWorkResponse = await proposer.page.request.get("/api/catalog/work-items?limit=100");
+    expect(blockedWorkResponse.ok(), await blockedWorkResponse.text()).toBeTruthy();
+    const blockedWork = await blockedWorkResponse.json() as { counts: { requestsToRevise: number }; needsRevision: Array<{ id: string }> };
+    expect(blockedWork.needsRevision.some((item) => item.id === obsoleteRetireBody.requestId)).toBe(false);
+    expect(blockedWork.counts.requestsToRevise).toBe(0);
+    const pendingBlockedRetry = await proposer.page.request.get(`/api/catalog/requests/${obsoleteRetireBody.requestId}/retry`);
+    expect(pendingBlockedRetry.status()).toBe(409);
+    expect(await pendingBlockedRetry.json()).toMatchObject({ code: "CATALOG_CHANGE_PENDING", reason: "CHANGE_PENDING" });
+
+    await rejectPending(reviewer.page, reviewerHeaders, senseKey, "完成 pending blocker 回歸並釋放舊 retry");
+    const unblockedWorkResponse = await proposer.page.request.get("/api/catalog/work-items?limit=100");
+    expect(unblockedWorkResponse.ok(), await unblockedWorkResponse.text()).toBeTruthy();
+    const unblockedWork = await unblockedWorkResponse.json() as { counts: { requestsToRevise: number }; needsRevision: Array<{ id: string }> };
+    expect(unblockedWork.needsRevision.some((item) => item.id === obsoleteRetireBody.requestId)).toBe(true);
+    expect(unblockedWork.counts.requestsToRevise).toBe(1);
+
     const immediateRetire = await reviewer.page.request.post("/api/catalog", {
       headers: reviewerHeaders,
       data: {
@@ -767,11 +826,14 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
       reason: "ALREADY_RETIRED",
     });
   } finally {
-    await Promise.all([proposer.context.close(), unrelatedTeacher.context.close(), reviewer.context.close()]);
-    await cleanupFixture({
-      connectionString: connectionString!,
-      senseKey,
-      batchId: previewBatchId,
-    });
+    try {
+      await cleanupFixture({
+        connectionString: connectionString!,
+        senseKey,
+        batchId: previewBatchId,
+      });
+    } finally {
+      await Promise.allSettled([proposer.context.close(), unrelatedTeacher.context.close(), reviewer.context.close()]);
+    }
   }
 });
