@@ -56,6 +56,26 @@ async function main() {
       });
       if (!sense?.approvedRevision) throw new Error("An ACTIVE governed sense is required.");
       const payload = payloadFromRevision(sense.approvedRevision);
+      const targetSuffix = randomUUID().replaceAll("-", "");
+      const alternateEntry = await tx.catalogEntry.create({
+        data: {
+          catalogKey: `feedback_guard_${targetSuffix}`,
+          lemma: "feedbackguard",
+          normalizedLemma: "feedbackguard",
+        },
+      });
+      const alternateSense = await tx.wordSense.create({
+        data: {
+          catalogEntryId: alternateEntry.id,
+          senseKey: `feedback_guard_sense_${targetSuffix}`,
+          term: "feedbackguard",
+          normalizedTerm: "feedbackguard",
+          pos: "noun",
+          level: "A1",
+          category: "other",
+          status: "DRAFT",
+        },
+      });
       const beforeMutation = await tx.catalogMutationState.findUnique({ where: { id: 1 }, select: { revision: true } });
       const beforeSense = { status: sense.status, approvedRevisionId: sense.approvedRevisionId };
 
@@ -135,6 +155,10 @@ async function main() {
         where: { id: feedback.id },
         data: { message: "不應容許修改已結案內容" },
       }));
+      await expectDatabaseGuard(tx, "guard_feedback_terminal_sense", () => tx.catalogFeedback.update({
+        where: { id: feedback.id },
+        data: { senseId: alternateSense.id },
+      }));
 
       const secondFeedback = await tx.catalogFeedback.create({
         data: {
@@ -152,6 +176,33 @@ async function main() {
       await expectDatabaseGuard(tx, "guard_feedback_open_resolver", () => tx.catalogFeedback.update({
         where: { id: secondFeedback.id },
         data: { resolverId: resolver.id },
+      }));
+      await expectDatabaseGuard(tx, "guard_feedback_resolve_and_retarget", () => tx.catalogFeedback.update({
+        where: { id: secondFeedback.id },
+        data: {
+          senseId: alternateSense.id,
+          status: "RESOLVED",
+          resolverId: resolver.id,
+          resolutionNote: "不應容許重綁目標",
+          resolvedAt: new Date(),
+          revision: { increment: 1 },
+        },
+      }));
+
+      await tx.catalogFeedback.create({
+        data: {
+          operationId: randomUUID(),
+          requestFingerprint: payloadFingerprint({ kind: "OTHER", senseKey: alternateSense.senseKey, message: "restrict guard" }),
+          reporterId: reporter.id,
+          senseId: alternateSense.id,
+          senseKey: alternateSense.senseKey,
+          termSnapshot: alternateSense.term,
+          kind: "OTHER",
+          message: "整合檢查：引用詞義不可刪除",
+        },
+      });
+      await expectDatabaseGuard(tx, "guard_feedback_sense_delete", () => tx.wordSense.delete({
+        where: { id: alternateSense.id },
       }));
 
       const readyRevision = await tx.catalogRevision.findFirst({
@@ -229,7 +280,7 @@ async function main() {
   } catch (error) {
     if (!(error instanceof Error) || error.message !== ROLLBACK || !verified) throw error;
   }
-  console.log(JSON.stringify({ ready: true, checks: ["feedback-non-executable", "feedback-cas", "feedback-terminal-guards", "request-supersession", "request-lineage-guard", "batch-retry-lineage-guard", "unique-retry-lineage"] }, null, 2));
+  console.log(JSON.stringify({ ready: true, checks: ["feedback-non-executable", "feedback-cas", "feedback-terminal-guards", "feedback-target-immutable", "feedback-sense-delete-restrict", "request-supersession", "request-lineage-guard", "batch-retry-lineage-guard", "unique-retry-lineage"] }, null, 2));
 }
 
 main().finally(async () => prisma.$disconnect());

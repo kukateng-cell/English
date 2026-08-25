@@ -47,6 +47,12 @@ import {
 } from "./submission-patch";
 import { isRetryableTransactionConflict, waitForTransactionRetry } from "@/lib/transaction-retry";
 import { threeWayMergeCatalogPayload } from "./retry-merge";
+import { isCatalogBatchRetrySourceStatus } from "./work-items";
+import {
+  catalogRetryEffectiveKind,
+  catalogRetryGroupsAreContentOnly,
+  retryableCatalogContentGroups,
+} from "./submission-retry";
 
 type Tx = Prisma.TransactionClient;
 
@@ -248,6 +254,8 @@ export async function createCatalogSubmissionPreview(input: {
           proposerId: true,
           resolutionOwnerId: true,
           status: true,
+          retryOfBatchId: true,
+          contentPurgedAt: true,
           retriedBy: { select: { id: true } },
         },
       });
@@ -255,7 +263,13 @@ export async function createCatalogSubmissionPreview(input: {
       if (retrySource.proposerId !== input.actorId && retrySource.resolutionOwnerId !== input.actorId) {
         throw new Error("CATALOG_BATCH_FORBIDDEN");
       }
-      if (retrySource.status !== "STALE" && retrySource.status !== "REJECTED") {
+      if (
+        retrySource.contentPurgedAt
+        || !isCatalogBatchRetrySourceStatus({
+          status: retrySource.status,
+          retryOfBatchId: retrySource.retryOfBatchId,
+        })
+      ) {
         throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
       }
       if (retrySource.retriedBy) {
@@ -453,17 +467,20 @@ export async function createRetryCatalogSubmissionPreview(input: {
       resolutionOwnerId: true,
       status: true,
       fileName: true,
+      retryOfBatchId: true,
+      contentPurgedAt: true,
       retriedBy: { select: { id: true } },
       proposalGroups: {
         orderBy: { groupNumber: "asc" },
         select: {
           groupNumber: true,
           requestedAction: true,
+          resolution: true,
           baseRevision: true,
           targetCatalogKey: true,
           targetSenseKey: true,
           finalProposalPayload: true,
-          changeRequest: { select: { beforePayloadSnapshot: true } },
+          changeRequest: { select: { kind: true, beforePayloadSnapshot: true } },
           targetSense: {
             select: {
               id: true,
@@ -485,14 +502,25 @@ export async function createRetryCatalogSubmissionPreview(input: {
     const batch = await prisma.$transaction((tx) => readBatchForDto(tx, source.retriedBy!.id));
     return { replay: true, batch: submissionBatchDto(batch) };
   }
-  if (source.status !== "STALE" && source.status !== "REJECTED") {
+  if (
+    source.contentPurgedAt
+    || !isCatalogBatchRetrySourceStatus({
+      status: source.status,
+      retryOfBatchId: source.retryOfBatchId,
+    })
+  ) {
     throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
   }
-  if (!source.proposalGroups.length) throw new Error("CATALOG_BATCH_EMPTY");
+  const retryGroups = retryableCatalogContentGroups(source.proposalGroups);
+  if (!retryGroups.length) throw new Error("CATALOG_BATCH_EMPTY");
+  if (!catalogRetryGroupsAreContentOnly(retryGroups)) throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
 
-  const basePairs = source.proposalGroups.flatMap((group) => group.requestedAction === "UPDATE" && group.targetSense?.id && group.baseRevision !== null
-    ? [{ senseId: group.targetSense.id, revision: group.baseRevision }]
-    : []);
+  const basePairs = retryGroups.flatMap((group) => {
+    const effectiveKind = catalogRetryEffectiveKind(group);
+    return effectiveKind === "UPDATE" && group.targetSense?.id && group.baseRevision !== null
+      ? [{ senseId: group.targetSense.id, revision: group.baseRevision }]
+      : [];
+  });
   const baseRevisions = basePairs.length
     ? await prisma.wordSenseRevision.findMany({
         where: { OR: basePairs },
@@ -504,17 +532,18 @@ export async function createRetryCatalogSubmissionPreview(input: {
     payloadFromRevision(revision),
   ]));
   const retryMergeConflicts = new Map<number, readonly string[]>();
-  const rows: CatalogSourceRow[] = source.proposalGroups.map((group) => {
-    if (group.requestedAction !== "CREATE" && group.requestedAction !== "UPDATE") {
-      throw new Error("CATALOG_BATCH_RETRY_STALE");
-    }
+  const rows: CatalogSourceRow[] = [];
+  for (const group of retryGroups) {
+    const effectiveKind = catalogRetryEffectiveKind(group);
+    if (effectiveKind !== "CREATE" && effectiveKind !== "UPDATE") throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
+    const sourceRowNumber = rows.length + 2;
     const proposal = parseCatalogGovernancePayload(group.finalProposalPayload);
     const currentRevision = group.targetSense?.approvedRevision ?? group.targetSense?.revisions[0] ?? null;
-    if (group.requestedAction !== "CREATE" && !currentRevision) {
+    if (effectiveKind === "UPDATE" && !currentRevision) {
       throw new Error("CATALOG_BATCH_RETRY_STALE");
     }
     let payload = proposal;
-    if (group.requestedAction === "UPDATE" && currentRevision?.revision !== group.baseRevision) {
+    if (effectiveKind === "UPDATE" && currentRevision?.revision !== group.baseRevision) {
       const base = group.changeRequest?.beforePayloadSnapshot
         ? parseCatalogGovernancePayload(group.changeRequest.beforePayloadSnapshot)
         : group.targetSense?.id && group.baseRevision !== null
@@ -524,7 +553,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
       const current = payloadFromRevision(currentRevision!);
       const firstPass = threeWayMergeCatalogPayload({ base, proposal, current });
       if (firstPass.conflicts.length) {
-        retryMergeConflicts.set(group.groupNumber + 1, firstPass.conflicts.map((conflict) => conflict.field));
+        retryMergeConflicts.set(sourceRowNumber, firstPass.conflicts.map((conflict) => conflict.field));
         payload = threeWayMergeCatalogPayload({
           base,
           proposal,
@@ -544,15 +573,15 @@ export async function createRetryCatalogSubmissionPreview(input: {
         catalogKey,
         senseKey,
         sourceFile: `retry-${source.fileName}`,
-        sourceRow: group.groupNumber + 1,
+        sourceRow: sourceRowNumber,
       }, currentRevision?.revision ?? 0),
-      requested_action: group.requestedAction,
+      requested_action: effectiveKind,
       catalog_status: group.targetSense?.status ?? "DRAFT",
     };
-    return group.requestedAction === "CREATE"
+    rows.push(effectiveKind === "CREATE"
       ? { ...row, catalog_key: "", sense_key: "", record_revision: "", catalog_status: "" }
-      : row;
-  });
+      : row);
+  }
   const csv = catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS);
   return createCatalogSubmissionPreview({
     actorId: input.actorId,

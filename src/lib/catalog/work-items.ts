@@ -1,14 +1,57 @@
 import type { Prisma } from "@/generated/prisma";
 
 const REVIEWABLE_BATCH_STATUSES = ["SUBMITTED", "REVIEWING", "REVIEWED"] as const;
+const INITIAL_RETRY_SOURCE_STATUSES = ["STALE", "REJECTED"] as const;
+const RESTARTABLE_RETRY_SOURCE_STATUSES = ["CANCELLED", "EXPIRED"] as const;
+
+export function isCatalogBatchRetrySourceStatus(input: {
+  status: string;
+  retryOfBatchId: string | null;
+}): boolean {
+  return INITIAL_RETRY_SOURCE_STATUSES.includes(input.status as (typeof INITIAL_RETRY_SOURCE_STATUSES)[number])
+    || (
+      input.retryOfBatchId !== null
+      && RESTARTABLE_RETRY_SOURCE_STATUSES.includes(input.status as (typeof RESTARTABLE_RETRY_SOURCE_STATUSES)[number])
+    );
+}
+
+const retryableContentGroups: Prisma.CatalogSubmissionProposalGroupListRelationFilter = {
+  some: {
+    AND: [
+      { OR: [{ resolution: null }, { resolution: { not: "REJECT" } }] },
+      { requestedAction: { in: ["CREATE", "UPDATE"] } },
+    ],
+  },
+  none: {
+    AND: [
+      { OR: [{ resolution: null }, { resolution: { not: "REJECT" } }] },
+      { OR: [
+        { requestedAction: { in: ["RETIRE", "REACTIVATE"] } },
+        { changeRequest: { is: { kind: { in: ["RETIRE", "REACTIVATE"] } } } },
+      ] },
+    ],
+  },
+};
 
 export function catalogBatchNeedsRevisionWhere(actorId: string): Prisma.CatalogSubmissionBatchWhereInput {
   return {
     OR: [
       {
-        status: { in: ["STALE", "REJECTED"] },
-        OR: [{ proposerId: actorId }, { resolutionOwnerId: actorId }],
+        AND: [
+          {
+            OR: [
+              { status: { in: [...INITIAL_RETRY_SOURCE_STATUSES] } },
+              {
+                status: { in: [...RESTARTABLE_RETRY_SOURCE_STATUSES] },
+                retryOfBatchId: { not: null },
+              },
+            ],
+          },
+          { OR: [{ proposerId: actorId }, { resolutionOwnerId: actorId }] },
+        ],
         retriedBy: null,
+        contentPurgedAt: null,
+        proposalGroups: retryableContentGroups,
       },
       { status: "PREVIEW", proposerId: actorId },
       {
@@ -55,10 +98,15 @@ export function batchNeedsRevision(input: {
   resolutionOwnerId: string | null;
   actorId: string;
   retriedById: string | null;
+  retryOfBatchId?: string | null;
+  contentPurgedAt?: Date | null;
+  hasRetryableContent?: boolean;
 }): boolean {
-  return ["STALE", "REJECTED"].includes(input.status)
+  return isCatalogBatchRetrySourceStatus({ status: input.status, retryOfBatchId: input.retryOfBatchId ?? null })
     && (input.proposerId === input.actorId || input.resolutionOwnerId === input.actorId)
-    && input.retriedById === null;
+    && input.retriedById === null
+    && (input.contentPurgedAt ?? null) === null
+    && (input.hasRetryableContent ?? true);
 }
 
 export function actionableCatalogWorkCount(input: {
@@ -81,7 +129,10 @@ export function mergeCatalogWorkItems<T extends { timestamp: string; id: string 
       const time = order === "desc"
         ? right.timestamp.localeCompare(left.timestamp)
         : left.timestamp.localeCompare(right.timestamp);
-      return time || left.id.localeCompare(right.id);
+      const id = order === "desc"
+        ? right.id.localeCompare(left.id)
+        : left.id.localeCompare(right.id);
+      return time || id;
     })
     .slice(0, limit);
 }

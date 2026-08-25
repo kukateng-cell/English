@@ -1,6 +1,6 @@
 # 詞庫教師意見、真實題目預覽及工作待辦實施計劃
 
-狀態：已完成（2026-08-25 合併前資料一致性加固完成；production rollout 仍延後）
+狀態：已完成（2026-08-25 第二輪 retry／feedback lineage 加固完成；production rollout 仍延後）
 
 建立日期：2026-08-24
 所屬分支：`codex/word-catalog-governance-and-lifecycle`
@@ -214,4 +214,51 @@
 - `npm run check:catalog-submission`：duplicate retry authoritative replay、reviewer takeover／transfer race、finalize／corrective lifecycle 全部通過。
 - `npm run check:catalog-governance`：通過。
 - `npm run test:e2e:catalog-workspace`：4／4 通過；包括中途正式 revision 合併、同欄 conflict 人手決定、response-lost operation ID replay、metadata round-trip、privacy、review、retire／reactivate 及 history。
+- production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。
+
+## 2026-08-25 第二輪 retry／feedback lineage 加固
+
+### 背景及決策
+
+固定 `5a6ebac` 的後續審核指出，批次 retry 仍可能遺失 `CREATE + REPLACE_EXISTING → UPDATE` 的實際操作語義，亦未完整處理 `REJECT` proposal、retry preview 取消／過期、feedback target FK、狀態型單筆 retry、feedback 建議可見性及同時間排序。六項意見均成立，本輪採用以下 contract：
+
+- 批次 retry 以 child request `kind` 為首要 effective kind；未建立 child 時才由 `requestedAction + resolution` 推導。`REJECT` proposal 不會復活，只有真正 `CREATE` 才清除 identity，真正 `UPDATE` 必須 three-way merge；含 status-only `RETIRE`／`REACTIVATE` 的批次不提供一般 CSV retry。
+- 保留 `retryOfBatchId` 唯一關係，採 retry chain：`CANCELLED`／`EXPIRED` retry successor 在內容尚未 purge 且未有下一個 successor 時，可成為下一次 retry source；同一 source 仍最多一個直接 successor。
+- `CatalogFeedback.senseId` 與 snapshot 一樣 immutable，FK 改為 `ON DELETE RESTRICT`，避免 trigger 與 `SET NULL` contract 互相矛盾。
+- 被拒絕的 `RETIRE`／`REACTIVATE` retry 只可修改理由；詞條內容欄鎖定，server 拒絕 status-only retry payload patch。內容修訂必須另行提交 `UPDATE`。
+- feedback work item 必須顯示 `suggestedValue`；work-item merge 的 timestamp 及 ID tie-breaker 必須同資料庫查詢方向一致。
+
+### Checklist
+
+- [x] 以 effective kind 重建 batch retry，排除 `REJECT` proposal，保留 `REPLACE_EXISTING` target identity 並套用 three-way merge。
+- [x] 加入 retry chain eligibility；取消／過期且未 purge 的 retry 可再建立 successor，並發仍只建立一個直接 successor。
+- [x] 新增普通 migration：feedback `senseId` immutable、FK `RESTRICT`；補 direct DB negative tests。
+- [x] 狀態型單筆 retry 鎖定內容 editor，只容許修改 reason；server fail closed 拒絕內容 patch。
+- [x] work-items 傳回及顯示 feedback `suggestedValue`；修正 DESC tie-breaker 並補同 timestamp 邊界測試。
+- [x] 執行 unit、zero-warning lint、TypeScript、production build、migration checksum／fresh replay、catalog DB checks及 browser regression。
+- [x] 更新實際驗證並恢復計劃「已完成」；commit／push 及 GitHub quality gate 狀態於交付紀錄另行核對。
+
+### 測試矩陣補充
+
+| 範圍 | 必須證明 |
+|---|---|
+| Effective retry | `CREATE + REPLACE_EXISTING` 以 `UPDATE` retry；current 未被 proposal 改動欄保持；同欄衝突仍需解決 |
+| Excluded/status groups | `REJECT` group 不復活；含 `RETIRE`／`REACTIVATE` 的 source 不出現在一般 retry 待辦且 endpoint fail closed |
+| Retry chain | retry cancel／expire 後可由 terminal successor 再開；同時 restart 只產生一個直接 successor |
+| Feedback lineage | resolve 同時改 `senseId`、terminal 改 target、刪除被 feedback 引用 sense 均由明確 DB guard／FK 拒絕 |
+| Status retry UX | `RETIRE`／`REACTIVATE` 內容控制不可編輯，只有 reason 會提交；惡意 patch 422 |
+| Work items | reviewer／reporter 可見原建議；超過 limit 且 timestamp 完全相同時，DB 與 merge top-N 次序一致 |
+
+### 實際驗證
+
+- `npm test`：331／331 通過。
+- `npm run lint`：zero-warning 通過。
+- `npx tsc --noEmit`：通過。
+- `npm run build`：83 routes production build 通過；首次 sandbox 執行因 Turbopack helper 不可綁定 loopback port 而失敗，按本機規則以 escalated 權限重跑後通過。
+- `npm run test:migration-checksums`：通過。
+- `npm run test:migrations`：64 個 ordinary migrations fresh／interrupted replay 通過。
+- `npm run check:catalog-teacher-workflow`：feedback target immutable、terminal guard、`WordSense` delete `RESTRICT` 及 retry lineage 通過。
+- `npm run check:catalog-submission`：effective retry、取消後 retry chain、同 operation ID 並發 replay、claim／transaction guards 通過。
+- `npm run check:catalog-governance`、`npm run check:catalog-immediate-retire`：通過。
+- `npm run test:e2e:catalog-workspace`：4／4 通過；包括 feedback 建議可見、status-only retry editor disabled、惡意 retry patch 422、重新提交及完整歷史。
 - production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。

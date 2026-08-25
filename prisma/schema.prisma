@@ -481,7 +481,7 @@ model CatalogFeedback {
   updatedAt      DateTime              @updatedAt
   reporter       User                  @relation("CatalogFeedbackReporter", fields: [reporterId], references: [id], onDelete: Restrict)
   resolver       User?                 @relation("CatalogFeedbackResolver", fields: [resolverId], references: [id], onDelete: Restrict)
-  sense          WordSense?            @relation(fields: [senseId], references: [id], onDelete: SetNull)
+  sense          WordSense?            @relation(fields: [senseId], references: [id], onDelete: Restrict)
 
   @@unique([reporterId, operationId])
   @@index([status, createdAt, id])

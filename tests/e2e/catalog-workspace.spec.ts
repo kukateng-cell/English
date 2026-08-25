@@ -499,11 +499,13 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
     const reviewWorkResponse = await reviewer.page.request.get("/api/catalog/work-items?limit=100");
     expect(reviewWorkResponse.ok(), await reviewWorkResponse.text()).toBeTruthy();
-    const reviewWork = await reviewWorkResponse.json() as { toReview: Array<{ type: string; id: string; message?: string; revision?: number }> };
+    const reviewWork = await reviewWorkResponse.json() as { toReview: Array<{ type: string; id: string; message?: string; suggestedValue?: string | null; revision?: number }> };
     const feedbackWork = reviewWork.toReview.find((item) => item.type === "FEEDBACK" && item.message === "呢組干擾項對學生嚟講太容易");
     expect(feedbackWork).toBeTruthy();
+    expect(feedbackWork?.suggestedValue).toBe("改用同一語境但意思不同的詞");
     const feedbackItem = reviewer.page.locator("article").filter({ hasText: "呢組干擾項對學生嚟講太容易" });
     await expect(feedbackItem).toBeVisible();
+    await expect(feedbackItem).toContainText("改用同一語境但意思不同的詞");
     await feedbackItem.getByRole("textbox").fill("已檢視意見，內容修改會另行審核");
     await feedbackItem.getByRole("button", { name: /標記已跟進|标记已跟进/ }).click();
     await expect(feedbackItem).toHaveCount(0);
@@ -631,6 +633,40 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
       },
     });
     expect(reactivate.status(), await reactivate.text()).toBe(201);
+    const pendingReactivate = await detail(proposer.page, senseKey);
+    expect(pendingReactivate.pendingRequest?.id).toBeTruthy();
+    await rejectPending(reviewer.page, reviewerHeaders, senseKey, "請補充重新啟用理由後再提交");
+
+    const rejectedReactivatePatch = await proposer.page.request.post("/api/catalog", {
+      headers: proposerHeaders,
+      data: {
+        operationId: randomUUID(),
+        kind: "REACTIVATE",
+        senseKey,
+        expectedRevision: retired.revision,
+        reason: "惡意內容 patch 應被拒絕",
+        supersedesRequestId: pendingReactivate.pendingRequest!.id,
+        retryPayloadPatch: { definitionZh: "不應生效" },
+      },
+    });
+    expect(rejectedReactivatePatch.status()).toBe(422);
+
+    await proposer.page.goto("/teacher/words");
+    await proposer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
+    const reactivateRetryItem = proposer.page.locator("article").filter({ hasText: term }).filter({
+      has: proposer.page.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }),
+    });
+    await expect(reactivateRetryItem).toBeVisible();
+    await reactivateRetryItem.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
+    const reactivateRetryDialog = proposer.page.getByRole("dialog");
+    await expect(reactivateRetryDialog.getByText(/狀態變更申請|状态变更申请/)).toBeVisible();
+    await expect(reactivateRetryDialog.getByLabel(/中文釋義|中文释义/)).toBeDisabled();
+    const reactivateReason = reactivateRetryDialog.getByLabel(/修改／停用理由|修改\/停用理由/);
+    await expect(reactivateReason).toBeEnabled();
+    await reactivateReason.fill("已補充重新啟用理由並重新提交");
+    const reactivateRetryResponse = proposer.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog");
+    await reactivateRetryDialog.getByRole("button", { name: /重新提交狀態申請|重新提交状态申请/ }).click();
+    expect((await reactivateRetryResponse).status()).toBe(201);
     await approvePending(reviewer.page, reviewerHeaders, senseKey);
     expect((await detail(proposer.page, senseKey)).status).toBe("ACTIVE");
 
@@ -642,9 +678,9 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await expect(proposer.page.getByRole("heading", { name: /詞條修改歷史|词条修改历史/ })).toBeVisible();
     await expect(proposer.page.getByText(senseKey, { exact: true }).first()).toBeVisible();
     const historyEntries = proposer.page.locator("main article");
-    await expect(historyEntries).toHaveCount(7);
+    await expect(historyEntries).toHaveCount(8);
     await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(6);
-    await expect(historyEntries.filter({ hasText: "REJECTED" })).toHaveCount(1);
+    await expect(historyEntries.filter({ hasText: "REJECTED" })).toHaveCount(2);
   } finally {
     await Promise.all([proposer.context.close(), unrelatedTeacher.context.close(), reviewer.context.close()]);
     await cleanupFixture({

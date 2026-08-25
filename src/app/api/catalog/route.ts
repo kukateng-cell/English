@@ -221,6 +221,13 @@ export async function POST(req: Request) {
   if (!supersedesRequestId && (Object.keys(retryConflictChoices).length || Object.keys(retryPayloadPatch).length)) {
     return errorResponse("CATALOG_REQUEST_RETRY_MISMATCH", 422);
   }
+  if (
+    supersedesRequestId
+    && kind !== "UPDATE"
+    && (Object.keys(retryConflictChoices).length || Object.keys(retryPayloadPatch).length)
+  ) {
+    return errorResponse("CATALOG_REQUEST_RETRY_PATCH_INVALID", 422);
+  }
   const requestFingerprint = payloadFingerprint({
     operationId,
     kind,

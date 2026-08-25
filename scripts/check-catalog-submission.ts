@@ -4,6 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma";
 import { CATALOG_GOVERNANCE_HEADERS, catalogRowsToCsv, type CatalogSourceRow } from "../src/lib/catalog/csv";
 import { revisionContentDigest, type CatalogGovernancePayload } from "../src/lib/catalog/governance";
+import { catalogBatchNeedsRevisionWhere } from "../src/lib/catalog/work-items";
 import {
   claimCatalogSubmissionBatch,
   cancelCatalogSubmissionBatch,
@@ -36,6 +37,7 @@ let secondCorrectiveBatchId: string | null = null;
 let createBatchId: string | null = null;
 let resolutionBatchId: string | null = null;
 let retryBatchId: string | null = null;
+let retryRestartBatchId: string | null = null;
 let duplicateBatchId: string | null = null;
 let draftBatchId: string | null = null;
 let claimRecoveryBatchId: string | null = null;
@@ -126,7 +128,7 @@ async function cleanupStaleFixtures() {
 }
 
 async function cleanup() {
-  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
+  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, draftBatchId].filter((value): value is string => Boolean(value))) {
     await cleanupBatchFixture(cleanupBatchId);
   }
   if (senseId) {
@@ -347,6 +349,33 @@ async function main() {
   const duplicateRetry = await createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: randomUUID() });
   const duplicateRetryReplayed = duplicateRetry.replay && duplicateRetry.batch.id === retryPreview.batch.id;
   if (!duplicateRetryReplayed) throw new Error("request-resolution source did not replay the existing retry successor");
+  const cancelledRetry = await cancelCatalogSubmissionBatch({
+    batchId: retryPreview.batch.id,
+    actorId: proposer.id,
+    expectedRevision: retryPreview.batch.revision,
+  });
+  if (cancelledRetry.batch.status !== "CANCELLED") throw new Error("retry preview cancellation failed");
+  const cancelledRetryActionable = await prisma.catalogSubmissionBatch.count({
+    where: { AND: [{ id: retryPreview.batch.id }, catalogBatchNeedsRevisionWhere(proposer.id)] },
+  });
+  if (cancelledRetryActionable !== 1) throw new Error("cancelled retry successor did not return to the revision work queue");
+  const restartOperationId = randomUUID();
+  const restartedResults = await Promise.all([
+    createRetryCatalogSubmissionPreview({ sourceBatchId: retryPreview.batch.id, actorId: proposer.id, operationId: restartOperationId }),
+    createRetryCatalogSubmissionPreview({ sourceBatchId: retryPreview.batch.id, actorId: proposer.id, operationId: restartOperationId }),
+  ]);
+  retryRestartBatchId = restartedResults[0]!.batch.id;
+  if (
+    restartedResults.filter((result) => result.replay).length !== 1
+    || restartedResults[0]!.batch.id !== restartedResults[1]!.batch.id
+    || restartedResults[0]!.batch.retryOfBatchId !== retryPreview.batch.id
+  ) {
+    throw new Error("cancelled retry did not create exactly one next-generation successor");
+  }
+  const restartedSourceStillActionable = await prisma.catalogSubmissionBatch.count({
+    where: { AND: [{ id: retryPreview.batch.id }, catalogBatchNeedsRevisionWhere(proposer.id)] },
+  });
+  if (restartedSourceStillActionable !== 0) throw new Error("restarted retry source remained actionable after successor creation");
 
   const duplicateBase: CatalogGovernancePayload = { ...basePayload, term: `checkduplicate${suffix}`, lemma: `checkduplicate${suffix}`, definitionZh: "重複來源測試詞", acceptedAnswersZh: ["重複來源測試詞"], exampleEn: "This is source row two.", exampleZh: "這是來源第二行。" };
   const duplicateAlternative: CatalogGovernancePayload = { ...duplicateBase, exampleEn: "This is source row three.", exampleZh: "這是來源第三行。" };
@@ -537,7 +566,7 @@ async function main() {
     throw new Error("transfer/takeover race selected an unexpected reviewer");
   }
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, cancelledRetryRestarted: true, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

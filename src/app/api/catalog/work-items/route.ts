@@ -102,7 +102,7 @@ export async function GET(req: Request) {
         where: feedbackReviewWhere,
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         take: itemLimit,
-        select: { id: true, kind: true, senseKey: true, termSnapshot: true, message: true, revision: true, reporterId: true, createdAt: true },
+        select: { id: true, kind: true, senseKey: true, termSnapshot: true, message: true, suggestedValue: true, revision: true, reporterId: true, createdAt: true },
       }) : Promise.resolve([]),
       prisma.catalogChangeRequest.findMany({
         where: waitingRequestWhere,
@@ -120,7 +120,7 @@ export async function GET(req: Request) {
         where: waitingFeedbackWhere,
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: itemLimit,
-        select: { id: true, kind: true, senseKey: true, termSnapshot: true, message: true, createdAt: true },
+        select: { id: true, kind: true, senseKey: true, termSnapshot: true, message: true, suggestedValue: true, createdAt: true },
       }),
       prisma.catalogChangeRequest.findMany({
         where: recentRequestWhere,
@@ -138,7 +138,7 @@ export async function GET(req: Request) {
         where: recentFeedbackWhere,
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: itemLimit,
-        select: { id: true, kind: true, status: true, senseKey: true, termSnapshot: true, resolutionNote: true, updatedAt: true },
+        select: { id: true, kind: true, status: true, senseKey: true, termSnapshot: true, message: true, suggestedValue: true, resolutionNote: true, updatedAt: true },
       }),
     ]);
 

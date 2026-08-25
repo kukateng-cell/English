@@ -76,6 +76,10 @@ test("only unsuperseded rejected or stale owner items remain actionable", () => 
   assert.equal(standaloneRequestNeedsRevision({ status: "REJECTED", proposerId: "teacher", actorId: "teacher", supersededById: "successor" }), false);
   assert.equal(batchNeedsRevision({ status: "STALE", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null }), true);
   assert.equal(batchNeedsRevision({ status: "STALE", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: "retry-1" }), false);
+  assert.equal(batchNeedsRevision({ status: "CANCELLED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, retryOfBatchId: "source" }), true);
+  assert.equal(batchNeedsRevision({ status: "EXPIRED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, retryOfBatchId: "source", contentPurgedAt: new Date() }), false);
+  assert.equal(batchNeedsRevision({ status: "CANCELLED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, retryOfBatchId: null }), false);
+  assert.equal(batchNeedsRevision({ status: "REJECTED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, hasRetryableContent: false }), false);
   assert.equal(actionableCatalogWorkCount({ requestsToRevise: 1, batchesToRevise: 2, requestsToReview: 3, batchesToReview: 4, feedbackToReview: 5 }), 15);
 });
 
@@ -104,4 +108,20 @@ test("mixed work items are globally ordered and capped per section", () => {
     { id: "feedback", timestamp: "2026-08-25T02:00:00.000Z", type: "FEEDBACK" },
   ], 2, "desc");
   assert.deepEqual(result.map((item) => item.id), ["batch", "feedback"]);
+});
+
+test("descending work-item ties use the same descending ID order as database queries", () => {
+  const timestamp = "2026-08-25T03:00:00.000Z";
+  const result = mergeCatalogWorkItems(
+    Array.from({ length: 13 }, (_, index) => ({
+      id: `item-${String(index + 1).padStart(2, "0")}`,
+      timestamp,
+    })),
+    12,
+    "desc",
+  );
+  assert.deepEqual(result.map((item) => item.id), [
+    "item-13", "item-12", "item-11", "item-10", "item-09", "item-08",
+    "item-07", "item-06", "item-05", "item-04", "item-03", "item-02",
+  ]);
 });
