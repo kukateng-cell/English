@@ -1,6 +1,6 @@
 # 詞庫教師意見、真實題目預覽及工作待辦實施計劃
 
-狀態：已完成（2026-08-25 第五輪 batch retry fail-closed／detail request race 加固完成；production rollout 仍延後）
+狀態：已完成（2026-08-25 第六輪 dialog intent／retry blocked detail 加固完成；production rollout 仍延後）
 
 建立日期：2026-08-24
 所屬分支：`codex/word-catalog-governance-and-lifecycle`
@@ -359,4 +359,38 @@
 - `npm run check:catalog-submission`：effective retry、取消後 retry chain、同 operation ID 並發 replay、claim／transaction guards 通過。
 - `npm run check:catalog-governance`、`npm run check:catalog-immediate-retire`：通過。
 - `npm run test:e2e:catalog-workspace`：4／4 通過；包括 feedback 建議可見、status-only retry editor disabled、惡意 retry patch 422、重新提交及完整歷史。
+- production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。
+
+## 2026-08-25 第六輪 dialog intent／retry blocked detail 加固
+
+固定 `ddd988e` 的後續審核確認：detail A→B freshness 雖已處理，但 pending 草稿、單筆 retry loader 及提交後 refresh 仍未共用同一個 dialog intent；另外 inherited conflict row 自然變成 `NO_CHANGE` 時會錯誤阻塞同批其他有效 group，而結構化 retry blocked rows 未有呈現畀老師。三項意見均成立，本輪維持既有 API 權限、審核及資料模型，只補齊 freshness、retry rebase 邊界及錯誤可讀性。
+
+### Checklist
+
+- [x] 將 detail、pending 草稿、retry、create、close、history、tab／unmount 共用同一 dialog intent generation，並同時取消 detail／retry request。
+- [x] 提交成功後只在原 dialog intent 仍然有效時重開詞條；使用者其間關閉或改開其他草稿時，舊流程只刷新清單。
+- [x] inherited conflict row rebase 為 `NO_CHANGE` 時視為自然解決，略過該 row 並保留同批其他 actionable proposal group。
+- [x] retry blocked response 加入 term／sense key 及由 error descriptor 產生的中文原因；待辦保留 stable operation ID 並在原 batch card 顯示 CSV 行號及修正提示。
+- [x] 補 unit、真實 PostgreSQL checker及四個 browser regression；執行 zero-warning lint、TypeScript、production build及 `git diff --check`。
+- [x] 完成全部本地驗證後恢復「已完成」；commit／push 同同一 SHA 的 GitHub checks 狀態由本輪交付紀錄核對。
+
+### 驗收矩陣
+
+| 範圍 | 必須證明 |
+|---|---|
+| Pending dialog | 慢 detail A 後點「查看草稿」B，A 最後返回仍只顯示 B |
+| Retry dialog | 慢 retry A 後開詞條 B，retry response 不可覆蓋 B |
+| Submit refresh | 提交 A 後等待 refresh 時關閉／開 B，A 不可自行重開 |
+| Retry conflict | inherited conflict row 已成 `NO_CHANGE`，同批普通 UPDATE 仍可建立 successor |
+| Blocked details | validator 阻擋時顯示 CSV 行號、詞語及可讀原因，且 transaction 不建立 successor |
+
+本輪沒有 schema／migration、學生 runtime、審批人數或 production rollout 改動。
+
+### 實際驗證
+
+- `npm test`：335／335 通過，包括混合批次 inherited conflict row 已成 `NO_CHANGE` 時略過、另一個 UPDATE group 保持 actionable。
+- `npm run lint -- --max-warnings=0`、`npx tsc --noEmit`、`git diff --check`：通過。
+- `npm run check:catalog-submission`：先只讀核對 `DatabaseMetadata.environment=development`，再以匹配雙重環境確認執行；blocked retry 保持 `retriedBy=null`，解除 blocker 後可正常建立 successor。
+- `npm run build`：83 routes production build 通過；首次沙箱內因 Turbopack helper 不可綁定 loopback port 失敗，以獲准本機權限重跑同一指令後通過。
+- `npm run test:e2e:catalog-workspace`：9／9 通過；新增 pending 草稿、slow retry、submit refresh 三種 dialog intent race，以及 blocked CSV row／term／中文原因顯示。
 - production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。

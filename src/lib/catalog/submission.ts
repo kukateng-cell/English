@@ -54,8 +54,9 @@ export function describeCatalogBatchError(detail: string): CatalogBatchErrorDesc
   const token = detail.match(/^([A-Za-z][A-Za-z0-9_]*)/u)?.[1] ?? "";
   const mapped = directional?.field ?? fieldAliases[token] ?? (CATALOG_HEADERS.includes(token as (typeof CATALOG_HEADERS)[number]) ? token : detail.startsWith("UPDATE") ? "sense_key" : detail.startsWith("CREATE") ? "requested_action" : "");
   const code = `CATALOG_ROW_${detail.toUpperCase().replace(/[^A-Z0-9]+/gu, "_").replace(/^_|_$/gu, "").slice(0, 48) || "INVALID"}`;
-  const message = detail.includes("stale") ? "匯出的詞條版本已過期。" : detail.includes("does not exist") ? "指定的現有詞條不存在。" : detail.includes("required") ? "必填內容未填寫或格式不正確。" : detail.includes("distractor") ? "干擾項不符合題目安全或數量規則。" : detail.includes("taxonomy") || detail.includes("category") ? "分類不在允許清單內。" : "詞條內容未通過驗證。";
-  const fix = directional ? `檢查 ${directional.field}（Excel ${directional.excelColumn}），確保有 5–6 個不重複、非正確答案的干擾項。` : detail.includes("stale") ? "重新由系統匯出最新 UPDATE CSV，再套用修改。" : detail.includes("does not exist") ? "確認 sense key，或重新匯出該詞條。" : "按 field 及 technical_detail 修正該欄，然後重新上載預覽。";
+  const pendingChange = detail.includes("already has a pending request");
+  const message = pendingChange ? "目標詞條已有另一項待審核修改。" : detail.includes("stale") ? "匯出的詞條版本已過期。" : detail.includes("does not exist") ? "指定的現有詞條不存在。" : detail.includes("required") ? "必填內容未填寫或格式不正確。" : detail.includes("distractor") ? "干擾項不符合題目安全或數量規則。" : detail.includes("taxonomy") || detail.includes("category") ? "分類不在允許清單內。" : "詞條內容未通過驗證。";
+  const fix = pendingChange ? "等待現有修改完成審核後，再重新建立修正版預覽。" : directional ? `檢查 ${directional.field}（Excel ${directional.excelColumn}），確保有 5–6 個不重複、非正確答案的干擾項。` : detail.includes("stale") ? "重新由系統匯出最新 UPDATE CSV，再套用修改。" : detail.includes("does not exist") ? "確認 sense key，或重新匯出該詞條。" : "按 field 及 technical_detail 修正該欄，然後重新上載預覽。";
   return { field: mapped, excelColumn: directional?.excelColumn ?? excelColumnForCatalogField(mapped), code, message, fix };
 }
 
@@ -136,6 +137,8 @@ export interface CatalogSubmissionPreview {
 
 export type CatalogRetryPreviewBlockedRow = {
   rowNumber: number;
+  senseKey: string | null;
+  term: string;
   errors: string[];
 };
 
@@ -149,10 +152,26 @@ export class CatalogRetryPreviewBlockedError extends Error {
   }
 }
 
-export function assertCatalogRetryPreviewActionable(preview: CatalogSubmissionPreview): void {
+export function assertCatalogRetryPreviewActionable(
+  preview: CatalogSubmissionPreview,
+  sourceRows: readonly CatalogSourceRow[] = [],
+): void {
+  const sourceRowsByNumber = new Map(sourceRows.map((row) => [row.sourceRow, row]));
   const blockedRows = preview.rows
     .filter((row) => row.primaryDisposition === "VALIDATION_FAILED")
-    .map((row) => ({ rowNumber: row.rowNumber, errors: [...row.errors] }));
+    .map((row) => {
+      const source = sourceRowsByNumber.get(row.rowNumber);
+      const errors = [...new Set(row.errors.map((error) => {
+        const descriptor = describeCatalogBatchError(error);
+        return `${descriptor.message} ${descriptor.fix}`.trim();
+      }))];
+      return {
+        rowNumber: row.rowNumber,
+        senseKey: source?.sense_key.trim() || null,
+        term: source?.term.trim() || row.normalizedSourcePayload.term,
+        errors,
+      };
+    });
   if (blockedRows.length) throw new CatalogRetryPreviewBlockedError(blockedRows);
   if (preview.groups.length === 0) throw new Error("CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE");
 }

@@ -389,7 +389,7 @@ async function main() {
     where: { AND: [{ id: blockedRetrySourceBatchId }, catalogBatchNeedsRevisionWhere(proposer.id)] },
   });
   if (blockedSourceActionable !== 0) throw new Error("pending target did not hide the blocked retry source from work items");
-  let retryBlockedRows: Array<{ rowNumber: number; errors: string[] }> | null = null;
+  let retryBlockedRows: Array<{ rowNumber: number; senseKey: string | null; term: string; errors: string[] }> | null = null;
   try {
     await createRetryCatalogSubmissionPreview({
       sourceBatchId: blockedRetrySourceBatchId,
@@ -398,10 +398,14 @@ async function main() {
     });
   } catch (error) {
     if (error instanceof Error && error.message === "CATALOG_BATCH_RETRY_BLOCKED" && "rows" in error) {
-      retryBlockedRows = error.rows as Array<{ rowNumber: number; errors: string[] }>;
+      retryBlockedRows = error.rows as Array<{ rowNumber: number; senseKey: string | null; term: string; errors: string[] }>;
     }
   }
-  if (!retryBlockedRows?.some((row) => row.errors.includes("UPDATE target already has a pending request"))) {
+  if (!retryBlockedRows?.some((row) => (
+    row.senseKey === senseKey
+    && row.term === updatedPayload.term
+    && row.errors.some((message) => message.includes("已有另一項待審核修改"))
+  ))) {
     throw new Error("retry preview did not report its pending target blocker");
   }
   const blockedSourceAfterFailure = await prisma.catalogSubmissionBatch.findUniqueOrThrow({

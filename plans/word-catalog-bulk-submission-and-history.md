@@ -785,3 +785,13 @@ npm run check:catalog-governance
 - [x] unit 334／334、zero-warning lint、TypeScript、83-route build及真實 PostgreSQL submission checker通過；checker證明 blocked 時 `retriedBy=null`，解除後可建立有效 successor。
 
 本輪沒有資料模型、migration或 production rollout 改動；managed PostgreSQL／Vercel驗證仍維持 deferred。
+
+## 26. Retry rebase conflict及教師錯誤詳情加固（2026-08-25，已完成）
+
+- [x] 將 retry conflict 套用抽成可測試共用 helper；inherited conflict row rebase 後已是 `NO_CHANGE` 時自然消解，不再令混合批次誤回 `CATALOG_BATCH_RETRY_STALE`；
+- [x] `CATALOG_BATCH_RETRY_BLOCKED` row DTO 加入 `senseKey`、`term` 及中文可行動提示，並保留原有 transaction-before-create fail-closed gate；
+- [x] 老師待辦按 source batch 保存 blocked rows，直接顯示 CSV 行號、詞語、sense key 及錯誤原因；同 body 重試仍重用原 operation ID；
+- [x] unit 及 browser regression 已加入；真實 PostgreSQL submission checker繼續核對 blocked retry `retriedBy=null`；
+- [x] 335 unit、zero-warning lint、TypeScript、83-route build、真實 DB checker及 catalog workspace Playwright 9／9 全部通過；GitHub push checks 狀態由本輪交付紀錄核對。
+
+本輪不改 schema、migration、批次審批語義或 production rollout 狀態。

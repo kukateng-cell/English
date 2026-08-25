@@ -50,6 +50,7 @@ import { isRetryableTransactionConflict, waitForTransactionRetry } from "@/lib/t
 import { threeWayMergeCatalogPayload } from "./retry-merge";
 import { isCatalogBatchRetrySourceStatus } from "./work-items";
 import {
+  applyCatalogRetryMergeConflicts,
   catalogRetryEffectiveKind,
   catalogRetryGroupsAreContentOnly,
   mergeCatalogRetryConflictFields,
@@ -304,33 +305,8 @@ export async function createCatalogSubmissionPreview(input: {
       requestFingerprint: row.requestFingerprint,
     }));
     const preview = buildCatalogSubmissionPreview(rows, snapshots, pendingChanges);
-    if (input.retrySourceBatchId) assertCatalogRetryPreviewActionable(preview);
-    const retryMergeConflictFieldsByGroup = new Map<number, ReturnType<typeof parseCatalogRetryMergeConflictFields>>();
-    if (input.retryMergeConflicts?.size) {
-      for (const [sourceRowNumber, fields] of input.retryMergeConflicts) {
-        const conflictRow = preview.rows.find((candidate) => candidate.rowNumber === sourceRowNumber);
-        const groupNumber = conflictRow?.proposalGroupNumber ?? null;
-        const group = groupNumber === null
-          ? null
-          : preview.groups.find((candidate) => candidate.groupNumber === groupNumber);
-        if (!conflictRow || !group) throw new Error("CATALOG_BATCH_RETRY_STALE");
-        const normalizedFields = parseCatalogRetryMergeConflictFields(fields);
-        if (!normalizedFields.length) throw new Error("CATALOG_BATCH_RETRY_STALE");
-        const mergedFields = mergeCatalogRetryConflictFields(
-          retryMergeConflictFieldsByGroup.get(groupNumber!) ?? [],
-          normalizedFields,
-        );
-        retryMergeConflictFieldsByGroup.set(groupNumber!, mergedFields);
-        group.needsResolution = true;
-        group.resolution = null;
-        group.resolutionReason = `retry merge conflict: ${mergedFields.join(", ")}`;
-        for (const row of preview.rows) {
-          if (row.proposalGroupNumber === groupNumber) row.primaryDisposition = "CONFLICT";
-        }
-      }
-      preview.summary.unresolvedGroups = preview.groups.filter((group) => group.needsResolution).length;
-      preview.status = preview.summary.unresolvedGroups ? "NEEDS_RESOLUTION" : preview.status;
-    }
+    if (input.retrySourceBatchId) assertCatalogRetryPreviewActionable(preview, rows);
+    const retryMergeConflictFieldsByGroup = applyCatalogRetryMergeConflicts(preview, input.retryMergeConflicts);
     if (preview.summary.invalidRows > 0) preview.status = "NEEDS_RESOLUTION";
     const dependencyDigests = buildCatalogPreviewDependencyDigests(preview.groups, snapshots, pendingChanges);
     const batch = await tx.catalogSubmissionBatch.create({

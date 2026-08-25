@@ -302,24 +302,30 @@ function CatalogOverviewWorkspace({
   const selectedPendingRequestIdRef = useRef<string | null>(null);
   const submitOperationRef = useRef<PendingClientOperation | null>(null);
   const formBaselineRef = useRef<CatalogPayload>(EMPTY_PAYLOAD);
-  const detailGenerationRef = useRef(0);
+  const dialogIntentRef = useRef(0);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const retryAbortRef = useRef<AbortController | null>(null);
 
   const loadFormForDialog = useCallback((payload: CatalogPayload) => {
     formBaselineRef.current = payload;
     setForm(payload);
   }, []);
 
-  const cancelDetailRequest = useCallback(() => {
-    detailGenerationRef.current += 1;
+  const beginDialogIntent = useCallback(() => {
+    const intent = ++dialogIntentRef.current;
     detailAbortRef.current?.abort();
+    retryAbortRef.current?.abort();
     detailAbortRef.current = null;
+    retryAbortRef.current = null;
+    return intent;
   }, []);
 
   const setSelected = useCallback((value: Detail | null | ((current: Detail | null) => Detail | null)) => {
-    if (value === null || typeof value === "function") cancelDetailRequest();
+    beginDialogIntent();
     setSelectedState(value);
-  }, [cancelDetailRequest]);
+  }, [beginDialogIntent]);
+
+  const isCurrentDialogIntent = useCallback((intent: number) => intent === dialogIntentRef.current, []);
 
   const closeDetailDialog = useCallback(() => {
     setSelected(null);
@@ -328,8 +334,8 @@ function CatalogOverviewWorkspace({
   }, [setSelected]);
 
   useEffect(() => () => {
-    cancelDetailRequest();
-  }, [cancelDetailRequest]);
+    beginDialogIntent();
+  }, [beginDialogIntent]);
 
   const catalogQueryKey = useMemo(() => JSON.stringify({ search, status, level, direction }), [direction, level, search, status]);
   useEffect(() => {
@@ -537,10 +543,10 @@ function CatalogOverviewWorkspace({
   }, [canReview, refreshPending]);
 
   function startCreate() {
-    cancelDetailRequest();
+    beginDialogIntent();
     const identity = `governance_${window.crypto.randomUUID().replaceAll("-", "")}`;
     const initialPayload = { ...EMPTY_PAYLOAD, acceptedAnswersZh: [], acceptedFormsEn: [], synonymsEn: [], antonymsEn: [], distractorZh: [], distractorEn: [] };
-    setSelected({ id: null, senseKey: identity, catalogKey: null, sourceFile: null, sourceRow: null, status: "DRAFT", revision: null, latestRevision: null, approvedRevisionId: null, primaryDisposition: "CREATED_DRAFT", eligibilityResult: "DRAFT_BLOCKED", hasSense: false, issues: null, payload: EMPTY_PAYLOAD, pendingRequest: null });
+    setSelectedState({ id: null, senseKey: identity, catalogKey: null, sourceFile: null, sourceRow: null, status: "DRAFT", revision: null, latestRevision: null, approvedRevisionId: null, primaryDisposition: "CREATED_DRAFT", eligibilityResult: "DRAFT_BLOCKED", hasSense: false, issues: null, payload: EMPTY_PAYLOAD, pendingRequest: null });
     loadFormForDialog(initialPayload);
     setReason("");
     setReviewNote("");
@@ -589,8 +595,7 @@ function CatalogOverviewWorkspace({
   }, [feedbackTarget, selected]);
 
   const openDetailBySenseKey = useCallback(async (senseKey: string) => {
-    const generation = ++detailGenerationRef.current;
-    detailAbortRef.current?.abort();
+    const intent = beginDialogIntent();
     const controller = new AbortController();
     detailAbortRef.current = controller;
     setError(null);
@@ -599,31 +604,31 @@ function CatalogOverviewWorkspace({
         cache: "no-store",
         signal: controller.signal,
       });
-      if (generation !== detailGenerationRef.current) return;
+      if (!isCurrentDialogIntent(intent)) return;
       if (!response.ok) {
         const message = await responseErrorMessage(response, tc);
-        if (generation !== detailGenerationRef.current) return;
+        if (!isCurrentDialogIntent(intent)) return;
         throw new Error(message);
       }
       const detail = await response.json() as Detail;
-      if (generation !== detailGenerationRef.current) return;
+      if (!isCurrentDialogIntent(intent)) return;
       const currentPayload = detail.payload ? normalizeCatalogPayload(detail.payload) : null;
       const pendingRequest = detail.pendingRequest && "payload" in detail.pendingRequest
         ? { ...detail.pendingRequest, payload: normalizeCatalogPayload(detail.pendingRequest.payload, currentPayload ?? EMPTY_PAYLOAD) }
         : detail.pendingRequest;
-      setSelected({ ...detail, payload: currentPayload, pendingRequest });
+      setSelectedState({ ...detail, payload: currentPayload, pendingRequest });
       loadFormForDialog(visiblePendingRequestPayload(pendingRequest) ?? currentPayload ?? EMPTY_PAYLOAD);
       setReason("");
       setReviewNote("");
       setRetrySource(null);
       submitOperationRef.current = null;
     } catch (cause) {
-      if (generation !== detailGenerationRef.current || isAbortError(cause)) return;
+      if (!isCurrentDialogIntent(intent) || isAbortError(cause)) return;
       setError(cause instanceof Error ? cause.message : tc("讀取詞條失敗"));
     } finally {
       if (detailAbortRef.current === controller) detailAbortRef.current = null;
     }
-  }, [loadFormForDialog, setSelected, tc]);
+  }, [beginDialogIntent, isCurrentDialogIntent, loadFormForDialog, tc]);
 
   async function openDetail(row: CatalogRow) {
     if (row.senseKey) await openDetailBySenseKey(row.senseKey);
@@ -639,12 +644,28 @@ function CatalogOverviewWorkspace({
 
   useEffect(() => {
     if (!initialRetryRequestId) return;
-    let cancelled = false;
+    const intent = beginDialogIntent();
+    const controller = new AbortController();
+    retryAbortRef.current = controller;
+    let consumed = false;
+    const consumeRetryIntent = () => {
+      if (consumed) return;
+      consumed = true;
+      onRetryConsumed();
+    };
     void (async () => {
       setError(null);
       try {
-        const response = await fetch(`/api/catalog/requests/${encodeURIComponent(initialRetryRequestId)}/retry`, { cache: "no-store" });
-        if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+        const response = await fetch(`/api/catalog/requests/${encodeURIComponent(initialRetryRequestId)}/retry`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!isCurrentDialogIntent(intent)) return;
+        if (!response.ok) {
+          const message = await responseErrorMessage(response, tc);
+          if (!isCurrentDialogIntent(intent)) return;
+          throw new Error(message);
+        }
         const body = await response.json() as { replay: true; successorId: string; senseKey: string | null } | { replay: false; retry: {
           supersedesRequestId: string;
           kind: "UPDATE" | "CREATE" | "RETIRE" | "REACTIVATE";
@@ -657,16 +678,15 @@ function CatalogOverviewWorkspace({
           previousReason: string | null;
           reviewNote: string | null;
         } };
-        if (cancelled) return;
+        if (!isCurrentDialogIntent(intent)) return;
         if (body.replay) {
           setMessage(tc("呢項修正版已經成功提交，畫面已開啟現有後繼申請。"));
           if (body.senseKey) await openDetailBySenseKey(body.senseKey);
           return;
         }
         const retry = body.retry;
-        cancelDetailRequest();
         const retryPayload = normalizeCatalogPayload(retry.payload);
-        setSelected({
+        setSelectedState({
           id: retry.sourceRowId,
           senseKey: retry.senseKey ?? `governance_${window.crypto.randomUUID().replaceAll("-", "")}`,
           catalogKey: null,
@@ -697,13 +717,20 @@ function CatalogOverviewWorkspace({
         });
         submitOperationRef.current = null;
       } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : tc("讀取重新提交草稿失敗"));
+        if (isCurrentDialogIntent(intent) && !isAbortError(cause)) {
+          setError(cause instanceof Error ? cause.message : tc("讀取重新提交草稿失敗"));
+        }
       } finally {
-        if (!cancelled) onRetryConsumed();
+        if (retryAbortRef.current === controller) retryAbortRef.current = null;
+        consumeRetryIntent();
       }
     })();
-    return () => { cancelled = true; };
-  }, [cancelDetailRequest, initialRetryRequestId, loadFormForDialog, onRetryConsumed, openDetailBySenseKey, setSelected, tc]);
+    return () => {
+      controller.abort();
+      if (retryAbortRef.current === controller) retryAbortRef.current = null;
+      consumeRetryIntent();
+    };
+  }, [beginDialogIntent, initialRetryRequestId, isCurrentDialogIntent, loadFormForDialog, onRetryConsumed, openDetailBySenseKey, tc]);
 
   function openSelectedHistory() {
     if (!selected?.senseKey) return;
@@ -757,6 +784,8 @@ function CatalogOverviewWorkspace({
       return;
     }
     if (immediate && !window.confirm(tc("这个词义会立即停止出现在新学习题目；学生历史会保留。确定停用？"))) return;
+    const submitIntent = dialogIntentRef.current;
+    const submittedSenseKey = selected.senseKey;
     setSaving(true); setError(null); setMessage(null);
     try {
       const retryResolvedBaseline = retrySource?.kind === "UPDATE"
@@ -783,15 +812,18 @@ function CatalogOverviewWorkspace({
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const result = await response.json() as { status: string; immediate?: boolean };
       submitOperationRef.current = null;
+      const refreshedCatalog = await loadCatalog();
+      if (!isCurrentDialogIntent(submitIntent)) return;
       setRetrySource(null);
       setMessage(result.immediate && result.status === "APPROVED"
         ? tc("词义已停用；不会再出现在新学习题目，既有历史仍会保留。")
         : tc("已提交草稿，等待一位有权限的老师或管理员审核。"));
-      const refreshedCatalog = await loadCatalog();
       if (kind === "CREATE" || immediate) { closeDetailDialog(); return; }
-      if (refreshedCatalog) await openDetailBySenseKey(selected.senseKey);
+      if (refreshedCatalog) await openDetailBySenseKey(submittedSenseKey);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : tc("提交詞庫修改失敗"));
+      if (isCurrentDialogIntent(submitIntent)) {
+        setError(cause instanceof Error ? cause.message : tc("提交詞庫修改失敗"));
+      }
     } finally { setSaving(false); }
   }
 

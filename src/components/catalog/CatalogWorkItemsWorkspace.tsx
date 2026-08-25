@@ -44,6 +44,30 @@ type WorkPayload = {
   recent: WorkItem[];
 };
 
+type RetryBlockedRow = {
+  rowNumber: number;
+  senseKey: string | null;
+  term: string;
+  errors: string[];
+};
+
+function parseRetryBlockedRows(value: unknown): RetryBlockedRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const row = candidate as Record<string, unknown>;
+    if (!Number.isInteger(row.rowNumber) || (row.rowNumber as number) < 1 || !Array.isArray(row.errors)) return [];
+    const errors = row.errors.filter((error): error is string => typeof error === "string" && error.trim().length > 0);
+    if (!errors.length) return [];
+    return [{
+      rowNumber: row.rowNumber as number,
+      senseKey: typeof row.senseKey === "string" && row.senseKey.trim() ? row.senseKey : null,
+      term: typeof row.term === "string" ? row.term.trim() : "",
+      errors,
+    }];
+  }).slice(0, 200);
+}
+
 function itemTitle(item: WorkItem, tc: (value: string) => string): string {
   if (item.type === "BATCH") return item.fileName || tc("CSV 批次");
   return item.afterTermSnapshot || item.termSnapshot || item.senseKey || (item.type === "FEEDBACK" ? tc("一般詞庫意見") : tc("新詞義"));
@@ -68,6 +92,7 @@ export default function CatalogWorkItemsWorkspace({ bulkEnabled, onOpenCatalog, 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [retryBlockedRows, setRetryBlockedRows] = useState<Record<string, RetryBlockedRow[]>>({});
   const [requestedLimit, setRequestedLimit] = useState(12);
   const retryOperationIdsRef = useRef<Record<string, string>>({});
 
@@ -113,6 +138,12 @@ export default function CatalogWorkItemsWorkspace({ bulkEnabled, onOpenCatalog, 
 
   async function retryBatch(item: WorkItem) {
     setBusyId(item.id); setError(null); setMessage(null);
+    setRetryBlockedRows((current) => {
+      if (!(item.id in current)) return current;
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
     try {
       const operationId = retryOperationIdsRef.current[item.id] ?? window.crypto.randomUUID();
       retryOperationIdsRef.current[item.id] = operationId;
@@ -120,7 +151,18 @@ export default function CatalogWorkItemsWorkspace({ bulkEnabled, onOpenCatalog, 
         method: "POST",
         headers: { "Idempotency-Key": operationId },
       });
-      if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+      if (!response.ok) {
+        const failure = await response.clone().json().catch(() => null) as { code?: unknown; rows?: unknown } | null;
+        const blockedRows = failure?.code === "CATALOG_BATCH_RETRY_BLOCKED"
+          ? parseRetryBlockedRows(failure.rows)
+          : [];
+        if (blockedRows.length) {
+          setRetryBlockedRows((current) => ({ ...current, [item.id]: blockedRows }));
+          setError(tc("批次目前有阻擋問題，請查看下面的行號及錯誤。"));
+          return;
+        }
+        throw new Error(await responseErrorMessage(response, tc));
+      }
       const body = await response.json() as { batch: { id: string } };
       delete retryOperationIdsRef.current[item.id];
       onOpenBatch(body.batch.id);
@@ -142,6 +184,7 @@ export default function CatalogWorkItemsWorkspace({ bulkEnabled, onOpenCatalog, 
         {item.suggestedValue ? <p className="mt-3 rounded-xl bg-[var(--border-soft)] px-3 py-2 text-sm text-[var(--text)]"><strong>{tc("建議修改")}：</strong>{item.suggestedValue}</p> : null}
         {item.reviewNote ? <p className="mt-3 rounded-xl bg-[var(--danger-bg)] px-3 py-2 text-sm text-[var(--danger)]"><strong>{tc("審核意見")}：</strong>{item.reviewNote}</p> : null}
         {item.resolutionNote ? <p className="mt-3 rounded-xl bg-[var(--border-soft)] px-3 py-2 text-sm text-[var(--text)]"><strong>{tc("處理回覆")}：</strong>{item.resolutionNote}</p> : null}
+        {retryBlockedRows[item.id]?.length ? <div className="mt-3 rounded-xl border border-[var(--danger)]/30 bg-[var(--danger-bg)] px-3 py-3 text-sm text-[var(--danger)]"><p className="font-semibold">{tc("修正版預覽暫時無法建立")}</p><div className="mt-2 space-y-2">{retryBlockedRows[item.id]!.map((row) => <div key={row.rowNumber} data-testid={`catalog-retry-blocked-row-${row.rowNumber}`}><strong>{tc("CSV 第")} {row.rowNumber} {tc("行")}{row.term ? ` · ${row.term}` : ""}</strong>{row.senseKey ? <span className="ml-2 break-all text-xs opacity-80">{row.senseKey}</span> : null}<ul className="mt-1 list-disc space-y-1 pl-5">{row.errors.map((rowError, index) => <li key={`${index}-${rowError}`}>{tc(rowError)}</li>)}</ul></div>)}</div></div> : null}
         {mode === "revision" ? <div className="mt-3 flex flex-wrap gap-2">{item.type === "REQUEST" ? <button type="button" className="ui-button ui-button-primary ui-button-small" onClick={() => onRetryRequest(item.id)}>{tc("修改後重新提交")}</button> : item.type === "BATCH" ? ["STALE", "REJECTED", "CANCELLED", "EXPIRED"].includes(item.status ?? "") ? <button type="button" className="ui-button ui-button-primary ui-button-small" disabled={busyId === item.id} onClick={() => void retryBatch(item)}>{busyId === item.id ? tc("建立中…") : tc("一鍵建立修正版預覽")}</button> : <button type="button" className="ui-button ui-button-primary ui-button-small" onClick={() => onOpenBatch(item.id)}>{item.status === "PREVIEW" ? tc("繼續處理預覽") : tc("解決批次問題")}</button> : null}</div> : null}
         {mode === "review" ? <div className="mt-3">{item.type === "BATCH" ? <button type="button" className="ui-button ui-button-primary ui-button-small" onClick={() => onOpenBatch(item.id)}>{tc("打開批次審核")}</button> : item.type === "REQUEST" ? <button type="button" className="ui-button ui-button-primary ui-button-small" onClick={() => onOpenCatalog(item.senseKey)}>{tc("打開單筆審核")}</button> : <><textarea className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 text-sm text-[var(--text)]" value={notes[item.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder={tc("簡短回覆回報人（必填）") as string} /> <div className="mt-2 flex flex-wrap gap-2">{item.senseKey ? <button type="button" className="ui-button ui-button-secondary ui-button-small" onClick={() => onOpenCatalog(item.senseKey)}>{tc("打開詞條修改")}</button> : null}<button type="button" className="ui-button ui-button-primary ui-button-small" disabled={busyId === item.id} onClick={() => void resolveFeedback(item, "RESOLVED")}>{tc("標記已跟進")}</button><button type="button" className="ui-button ui-button-quiet ui-button-small" disabled={busyId === item.id} onClick={() => void resolveFeedback(item, "DISMISSED")}>{tc("駁回意見")}</button></div></>}</div> : null}
       </article>)}</div></>

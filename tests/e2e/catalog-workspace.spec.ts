@@ -246,6 +246,134 @@ function catalogRacePayload(term: string, definitionZh: string) {
   };
 }
 
+function catalogRaceRow(
+  id: string,
+  senseKey: string,
+  payload: ReturnType<typeof catalogRacePayload>,
+) {
+  return {
+    id,
+    senseKey,
+    catalogKey: `catalog-${id}`,
+    sourceFile: "catalog-race.csv",
+    sourceRow: 2,
+    term: payload.term,
+    lemma: payload.lemma,
+    definitionZh: payload.definitionZh,
+    partOfSpeech: payload.partOfSpeech,
+    level: payload.level,
+    category: payload.category,
+    phoneticIpa: payload.phoneticIpa,
+    enableEnToZh: true,
+    enableZhToEn: true,
+    status: "ACTIVE",
+    revision: 1,
+    latestRevision: 1,
+    approvedRevisionId: `revision-${id}`,
+    primaryDisposition: "UPDATE",
+    eligibilityResult: null,
+    validationErrors: [],
+    validationWarnings: [],
+    pendingRequest: null,
+    hasSense: true,
+  };
+}
+
+function catalogRaceDetailBody(
+  senseKey: string,
+  payload: ReturnType<typeof catalogRacePayload>,
+) {
+  return {
+    id: senseKey,
+    senseKey,
+    catalogKey: `catalog-${senseKey}`,
+    sourceFile: "catalog-race.csv",
+    sourceRow: 2,
+    status: "ACTIVE",
+    revision: 1,
+    latestRevision: 1,
+    approvedRevisionId: `revision-${senseKey}`,
+    primaryDisposition: "UPDATE",
+    eligibilityResult: null,
+    hasSense: true,
+    issues: null,
+    payload,
+    pendingRequest: null,
+  };
+}
+
+function catalogRacePendingRequest(
+  id: string,
+  senseKey: string,
+  payload: ReturnType<typeof catalogRacePayload>,
+) {
+  return {
+    id,
+    kind: "UPDATE",
+    status: "PENDING",
+    operationId: `operation-${id}`,
+    baseRevision: 1,
+    baseStatus: "ACTIVE",
+    revision: 0,
+    payload,
+    reason: "dialog intent race regression",
+    reviewNote: null,
+    createdAt: "2026-08-25T01:00:00.000Z",
+    reviewedAt: null,
+    proposerId: "teacher-race",
+    reviewerId: null,
+    catalogKey: `catalog-${senseKey}`,
+    senseKey,
+    sense: { senseKey, term: payload.term, level: payload.level, category: payload.category },
+    sourceImportRow: null,
+    proposer: { legalName: "競態老師", accountName: "race-teacher" },
+  };
+}
+
+async function installCatalogRaceList(
+  page: Page,
+  rows: Array<ReturnType<typeof catalogRaceRow>>,
+  options: {
+    canReview?: boolean;
+    pending?: Array<ReturnType<typeof catalogRacePendingRequest>>;
+    beforeCatalogResponse?: (requestNumber: number) => Promise<void>;
+  } = {},
+) {
+  const signature = "catalog-dialog-intent-race";
+  let requestNumber = 0;
+  await page.route("**/api/catalog?*", async (route) => {
+    requestNumber += 1;
+    await options.beforeCatalogResponse?.(requestNumber);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        rows,
+        counts: { all: rows.length, ACTIVE: rows.length, pending: options.pending?.length ?? 0 },
+        filteredTotal: rows.length,
+        nextCursor: null,
+        canReview: options.canReview === true,
+        mutationRevision: 1,
+        workspaceSignature: signature,
+      }),
+    });
+  });
+  if (options.canReview) {
+    await page.route("**/api/catalog/requests?status=PENDING*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          requests: options.pending ?? [],
+          hasMore: false,
+          signature,
+          mutationRevision: 1,
+        }),
+      });
+    });
+  }
+}
+
 test("newer catalog detail selection survives an older delayed response and submits the selected sense", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "Seeded admin credentials are required.");
@@ -352,6 +480,255 @@ test("newer catalog detail selection survives an older delayed response and subm
     await dialog.getByRole("button", { name: /提交草稿/ }).click();
     expect((await submitted).status()).toBe(200);
     expect(submittedSenseKey).toBe(senseB);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("opening a pending draft cancels an older delayed detail intent", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseA = "catalog-pending-race-a";
+  const senseB = "catalog-pending-race-b";
+  const payloadA = catalogRacePayload("pendingracealpha", "草稿競態甲");
+  const payloadB = catalogRacePayload("pendingracebeta", "草稿競態乙");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(
+      reviewer.page,
+      [catalogRaceRow("pending-race-a", senseA, payloadA)],
+      {
+        canReview: true,
+        pending: [catalogRacePendingRequest("pending-race-b", senseB, payloadB)],
+      },
+    );
+    await reviewer.page.route(`**/api/catalog/${senseA}`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(catalogRaceDetailBody(senseA, payloadA)),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const rowA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
+    const pendingB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    await expect(pendingB.getByRole("button", { name: /查看草稿/ })).toBeVisible();
+    await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    await pendingB.getByRole("button", { name: /查看草稿/ }).click();
+
+    const dialog = reviewer.page.getByRole("dialog");
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await reviewer.page.waitForTimeout(500);
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByText(senseA)).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("an older delayed retry loader cannot replace a newer catalog detail intent", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseA = "catalog-retry-race-a";
+  const senseB = "catalog-retry-race-b";
+  const payloadA = catalogRacePayload("retryracealpha", "重試競態甲");
+  const payloadB = catalogRacePayload("retryracebeta", "重試競態乙");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [catalogRaceRow("retry-race-b", senseB, payloadB)]);
+    await reviewer.page.route("**/api/catalog/work-items?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          counts: { requestsToRevise: 1, batchesToRevise: 0, requestsToReview: 0, batchesToReview: 0, feedbackToReview: 0, totalActionable: 1 },
+          canReview: true,
+          bulkEnabled: false,
+          itemLimit: 12,
+          sectionTotals: { needsRevision: 1, toReview: 0, waiting: 0, recent: 0 },
+          needsRevision: [{
+            type: "REQUEST",
+            id: "retry-race-request-a",
+            kind: "UPDATE",
+            status: "REJECTED",
+            senseKey: senseA,
+            afterTermSnapshot: payloadA.term,
+            reviewNote: "請修改後重交",
+            updatedAt: "2026-08-25T02:00:00.000Z",
+          }],
+          toReview: [],
+          waiting: [],
+          recent: [],
+        }),
+      });
+    });
+    await reviewer.page.route("**/api/catalog/requests/retry-race-request-a/retry", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          replay: false,
+          retry: {
+            supersedesRequestId: "retry-race-request-a",
+            kind: "UPDATE",
+            senseKey: senseA,
+            sourceRowId: null,
+            expectedRevision: 1,
+            payload: payloadA,
+            mergeBaseline: payloadA,
+            conflicts: [],
+            previousReason: "舊申請理由",
+            reviewNote: "請修改後重交",
+          },
+        }),
+      });
+    });
+    await reviewer.page.route(`**/api/catalog/${senseB}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(catalogRaceDetailBody(senseB, payloadB)),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
+    await reviewer.page.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
+    const rowB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    await rowB.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+
+    const dialog = reviewer.page.getByRole("dialog");
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await reviewer.page.waitForTimeout(500);
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByText(senseA)).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("a completed submit does not reopen its old dialog after the user opens another draft", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseA = "catalog-submit-race-a";
+  const senseB = "catalog-submit-race-b";
+  const payloadA = catalogRacePayload("submitracealpha", "提交競態甲");
+  const payloadB = catalogRacePayload("submitracebeta", "提交競態乙");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(
+      reviewer.page,
+      [catalogRaceRow("submit-race-a", senseA, payloadA)],
+      {
+        canReview: true,
+        pending: [catalogRacePendingRequest("submit-race-b", senseB, payloadB)],
+        beforeCatalogResponse: async (requestNumber) => {
+          if (requestNumber > 1) await new Promise((resolve) => setTimeout(resolve, 500));
+        },
+      },
+    );
+    await reviewer.page.route(`**/api/catalog/${senseA}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(catalogRaceDetailBody(senseA, payloadA)),
+      });
+    });
+    await reviewer.page.route("**/api/catalog", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "PENDING", immediate: false }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const rowA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
+    const pendingB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await dialog.getByLabel(/中文釋義|中文释义/).fill("提交競態甲修訂");
+    const submitted = reviewer.page.waitForResponse((response) => (
+      response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog"
+    ));
+    await dialog.getByRole("button", { name: /提交草稿/ }).click();
+    expect((await submitted).status()).toBe(200);
+    await dialog.getByRole("button", { name: /關閉|关闭/ }).click();
+    await pendingB.getByRole("button", { name: /查看草稿/ }).click();
+
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await reviewer.page.waitForTimeout(650);
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByText(senseA)).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("blocked batch retry shows the CSV row and readable reason without opening a successor", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  let retryCalls = 0;
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: true, historyEnabled: false });
+    await reviewer.page.route("**/api/catalog/work-items?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          counts: { requestsToRevise: 0, batchesToRevise: 1, requestsToReview: 0, batchesToReview: 0, feedbackToReview: 0, totalActionable: 1 },
+          canReview: true,
+          bulkEnabled: true,
+          itemLimit: 12,
+          sectionTotals: { needsRevision: 1, toReview: 0, waiting: 0, recent: 0 },
+          needsRevision: [{
+            type: "BATCH",
+            id: "blocked-retry-batch",
+            fileName: "blocked-retry.csv",
+            rowCount: 2,
+            status: "STALE",
+            updatedAt: "2026-08-25T03:00:00.000Z",
+          }],
+          toReview: [],
+          waiting: [],
+          recent: [],
+        }),
+      });
+    });
+    await reviewer.page.route("**/api/catalog/submissions/blocked-retry-batch/retry-preview", async (route) => {
+      retryCalls += 1;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "CATALOG_BATCH_RETRY_BLOCKED",
+          rows: [{
+            rowNumber: 2,
+            senseKey: "sense_blocked_word",
+            term: "blockedword",
+            errors: ["目標詞條已有另一項待審核修改。 等待現有修改完成審核後，再重新建立修正版預覽。"],
+          }],
+        }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
+    await reviewer.page.getByRole("button", { name: /一鍵建立修正版預覽|一键建立修正版预览/ }).click();
+
+    const blockedRow = reviewer.page.getByTestId("catalog-retry-blocked-row-2");
+    await expect(blockedRow).toContainText(/CSV 第 2 行/);
+    await expect(blockedRow).toContainText("blockedword");
+    await expect(blockedRow).toContainText(/已有另一項待審核修改|已有另一项待审核修改/);
+    await expect(reviewer.page.getByRole("heading", { name: /我的詞庫待辦|我的词库待办/ })).toBeVisible();
+    expect(retryCalls).toBe(1);
   } finally {
     await reviewer.context.close();
   }
