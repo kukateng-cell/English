@@ -423,3 +423,23 @@
 - `npm run check:catalog-submission`：一次性closure、terminal payload guard、`retriedBy=null`、待辦排除、歷史保留、單一audit／receipt及同operation ID replay全部通過。
 - `npm run test:e2e:catalog-workspace`：14／14通過，包括舊review成功／失敗不污染新dialog、sense-aware preview stale response、唯一可用方向自動切換及全 `NO_CHANGE` 待辦移除。
 - Staging、managed Vercel、production migration／deploy及真實老師UAT未執行，仍屬明確延後項目。
+
+## 2026-08-25 第八輪題目預覽 A→B→A／審核結果通知加固
+
+固定 `f63147a` 的後續審核指出兩個成立邊界：題目預覽只以 key 隱藏舊 state，payload 或方向 A→B→A 時可能重新命中殘留 loading／preview；另外舊審核失敗雖不再污染新 dialog，結果亦會被完全吞掉。本輪維持既有 server API、審核權限及資料模型，只修正 client request identity、state lifecycle及跨 dialog action feedback。
+
+### Checklist
+
+- [x] 題目預覽由父層以 `senseKey + 完整 payload` fingerprint remount；同一詞義內容 A→B→A 不會復用舊 component state。
+- [x] 預覽方向切換會同步 abort request、遞增 generation並清除 preview／error／loading；`generate()` 直接使用目前 render 的 key。
+- [x] 審核成功／失敗寫入獨立全域 action notice；舊失敗仍可見，但只在原 dialog intent 有效時更新 dialog-local error。
+- [x] 補三個 preview A→B→A／direction loading browser regression，以及舊 A 審核失敗／新 B dialog 隔離測試。
+- [x] 完成 unit、zero-warning lint、TypeScript、production build、17 項 catalog workspace Playwright及差異檢查。
+
+### 實際驗證
+
+- `npm test`：335／335 通過。
+- `npm run lint -- --max-warnings=0`、`npx tsc --noEmit`：通過。
+- `npm run build`：83 routes production build 通過；sandbox 首次因 Turbopack helper 不可綁定 loopback port失敗，以獲准本機權限重跑後通過。
+- `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:e2e:catalog-workspace`：17／17 通過；包括 loading A→B→A、已完成 preview A→B→A、方向 loading 切換後重試，以及全域 review failure notice。
+- Staging、production migration／deploy及真實老師UAT未執行，仍屬明確延後項目。

@@ -485,6 +485,171 @@ test("newer catalog detail selection survives an older delayed response and subm
   }
 });
 
+test("question preview loading resets after payload A to B to A", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseKey = "question-preview-payload-loading";
+  const payload = catalogRacePayload("previewloading", "預覽載入甲");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [catalogRaceRow("question-preview-loading", senseKey, payload)]);
+    await reviewer.page.route(`**/api/catalog/${senseKey}`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(catalogRaceDetailBody(senseKey, payload)) });
+    });
+    await reviewer.page.route("**/api/catalog/question-preview", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            preview: {
+              prompt: "已中止的舊題目",
+              direction: "en-zh",
+              options: [],
+              correctOptionId: "correct",
+              correctAnswer: payload.definitionZh,
+              itemConstructionVersion: "catalog-preview-abort-v1",
+            },
+          }),
+        });
+      } catch {
+        // Payload identity changes are expected to abort the request.
+      }
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
+    await expect(dialog.getByRole("button", { name: /正在出題|正在出题/ })).toBeVisible();
+
+    const definition = dialog.getByLabel(/中文釋義|中文释义/);
+    await definition.fill("預覽載入乙");
+    await definition.fill(payload.definitionZh);
+    await reviewer.page.waitForTimeout(500);
+
+    const generate = dialog.getByRole("button", { name: /產生預覽|产生预览/ });
+    await expect(generate).toBeEnabled();
+    await expect(dialog.getByText("已中止的舊題目")).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("question preview does not restore an old result after payload A to B to A", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseKey = "question-preview-payload-result";
+  const payload = catalogRacePayload("previewresult", "預覽結果甲");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [catalogRaceRow("question-preview-result", senseKey, payload)]);
+    await reviewer.page.route(`**/api/catalog/${senseKey}`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(catalogRaceDetailBody(senseKey, payload)) });
+    });
+    await reviewer.page.route("**/api/catalog/question-preview", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          preview: {
+            prompt: "A 已完成舊題目",
+            direction: "en-zh",
+            options: [
+              { id: "correct", text: payload.definitionZh },
+              { id: "wrong-1", text: "干擾一" },
+              { id: "wrong-2", text: "干擾二" },
+              { id: "wrong-3", text: "干擾三" },
+            ],
+            correctOptionId: "correct",
+            correctAnswer: payload.definitionZh,
+            itemConstructionVersion: "catalog-preview-result-v1",
+          },
+        }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
+    await expect(dialog.getByText("A 已完成舊題目")).toBeVisible();
+
+    const definition = dialog.getByLabel(/中文釋義|中文释义/);
+    await definition.fill("預覽結果乙");
+    await definition.fill(payload.definitionZh);
+
+    await expect(dialog.getByText("A 已完成舊題目")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: /產生預覽|产生预览/ })).toBeEnabled();
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("question preview can restart after switching direction during loading", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseKey = "question-preview-direction-loading";
+  const payload = catalogRacePayload("previewdirection", "預覽方向競態");
+  let enToZhRequests = 0;
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [catalogRaceRow("question-preview-direction-loading", senseKey, payload)]);
+    await reviewer.page.route(`**/api/catalog/${senseKey}`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(catalogRaceDetailBody(senseKey, payload)) });
+    });
+    await reviewer.page.route("**/api/catalog/question-preview", async (route) => {
+      const body = route.request().postDataJSON() as { direction: "en-zh" | "zh-en" };
+      if (body.direction === "en-zh") enToZhRequests += 1;
+      if (body.direction === "en-zh" && enToZhRequests === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            preview: {
+              prompt: enToZhRequests === 1 ? "已中止方向題目" : "重新產生方向題目",
+              direction: body.direction,
+              options: [
+                { id: "correct", text: payload.definitionZh },
+                { id: "wrong-1", text: "干擾一" },
+                { id: "wrong-2", text: "干擾二" },
+                { id: "wrong-3", text: "干擾三" },
+              ],
+              correctOptionId: "correct",
+              correctAnswer: payload.definitionZh,
+              itemConstructionVersion: `catalog-preview-direction-loading-${enToZhRequests}`,
+            },
+          }),
+        });
+      } catch {
+        // Direction changes are expected to abort the first request.
+      }
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
+    await dialog.getByRole("combobox", { name: /預覽方向|预览方向/ }).selectOption("zh-en");
+    await dialog.getByRole("combobox", { name: /預覽方向|预览方向/ }).selectOption("en-zh");
+
+    const generate = dialog.getByRole("button", { name: /產生預覽|产生预览/ });
+    await expect(generate).toBeEnabled();
+    await generate.click();
+    await expect(dialog.getByText("重新產生方向題目")).toBeVisible();
+    expect(enToZhRequests).toBe(2);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
 test("question preview is scoped to sense identity and ignores an older delayed response", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "Seeded admin credentials are required.");
@@ -682,12 +847,15 @@ test("a completed older review cannot close or clear a newer draft dialog", asyn
     await reviewer.page.waitForTimeout(500);
     await expect(dialog.getByText("review-sense-b")).toBeVisible();
     await expect(note).toHaveValue("B 草稿仍然要保留的審核備註");
+    const notice = reviewer.page.getByTestId("catalog-review-action-notice");
+    await expect(notice).toContainText(payloadA.term);
+    await expect(notice).toContainText(/草稿已批准並更新詞庫|草稿已批准并更新词库/);
   } finally {
     await reviewer.context.close();
   }
 });
 
-test("an older review error is not rendered as the newer draft error", async ({ browser }) => {
+test("an older review error uses a global notice without polluting the newer draft", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "Seeded admin credentials are required.");
   const reviewer = await login(browser, "admin", password!);
@@ -719,7 +887,11 @@ test("an older review error is not rendered as the newer draft error", async ({ 
     await reviewer.page.waitForTimeout(500);
     await expect(dialog.getByText("review-error-sense-b")).toBeVisible();
     await expect(note).toHaveValue("B 錯誤競態備註");
-    await expect(reviewer.page.getByText("A 專用審核錯誤")).toHaveCount(0);
+    await expect(dialog.getByText("A 專用審核錯誤")).toHaveCount(0);
+    const notice = reviewer.page.getByTestId("catalog-review-action-notice");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText(payloadA.term);
+    await expect(notice).toContainText("A 專用審核錯誤");
   } finally {
     await reviewer.context.close();
   }

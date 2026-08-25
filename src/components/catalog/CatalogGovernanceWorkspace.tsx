@@ -9,7 +9,7 @@ import { CATALOG_CATEGORIES } from "@/lib/catalog/taxonomy";
 import { catalogExportAvailability, hasCatalogExportTarget } from "@/lib/catalog/workspace-selection";
 import CatalogBulkSubmissionWorkspace from "@/components/catalog/CatalogBulkSubmissionWorkspace";
 import CatalogHistoryWorkspace from "@/components/catalog/CatalogHistoryWorkspace";
-import CatalogQuestionPreview from "@/components/catalog/CatalogQuestionPreview";
+import CatalogQuestionPreviewComponent from "@/components/catalog/CatalogQuestionPreview";
 import CatalogFeedbackDialog, { type CatalogFeedbackTarget } from "@/components/catalog/CatalogFeedbackDialog";
 import CatalogWorkItemsWorkspace from "@/components/catalog/CatalogWorkItemsWorkspace";
 import {
@@ -133,6 +133,17 @@ type ReviewMutationResult = {
   replay: boolean;
   request: { status: string };
 };
+type ReviewActionNotice = {
+  requestId: string;
+  term: string;
+  type: "success" | "error";
+  message: string;
+};
+
+function CatalogQuestionPreview({ payload, senseKey }: { payload: CatalogPayload; senseKey: string }) {
+  const identity = clientOperationFingerprint({ senseKey, payload });
+  return <CatalogQuestionPreviewComponent key={identity} payload={payload} senseKey={senseKey} />;
+}
 type RetrySource = {
   id: string;
   kind: "UPDATE" | "CREATE" | "RETIRE" | "REACTIVATE";
@@ -285,6 +296,7 @@ function CatalogOverviewWorkspace({
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [reviewActionNotice, setReviewActionNotice] = useState<ReviewActionNotice | null>(null);
   const [saving, setSaving] = useState(false);
   const [feedbackTarget, setFeedbackTarget] = useState<CatalogFeedbackTarget | null>(null);
   const [retrySource, setRetrySource] = useState<RetrySource | null>(null);
@@ -865,14 +877,16 @@ function CatalogOverviewWorkspace({
   async function reviewRequest(request: PendingRequest, decision: "APPROVE" | "REJECT") {
     const reviewIntent = dialogIntentRef.current;
     const selectedRequestIdAtStart = visiblePendingRequestId(selected?.pendingRequest ?? null);
+    const requestTerm = request.sense?.term || request.payload.term || request.senseKey || tc("詞庫申請");
     setSaving(true); setError(null); setMessage(null);
+    setReviewActionNotice(null);
     try {
       const note = reviewNotes[request.id] ?? (selectedRequestIdAtStart === request.id ? reviewNote : "");
       const response = await rosterFetch(`/api/catalog/requests/${encodeURIComponent(request.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, expectedRevision: request.revision, reviewNote: note.trim() }) });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const result = await response.json() as ReviewMutationResult;
       const actualStatus = result.request.status;
-      setMessage(result.replay
+      const successMessage = result.replay
         ? actualStatus === "APPROVED"
           ? tc("这项申请已经批准，画面已更新。")
           : actualStatus === "REJECTED"
@@ -880,7 +894,13 @@ function CatalogOverviewWorkspace({
             : tc("这项申请已经处理，画面已更新。")
         : actualStatus === "APPROVED"
           ? tc("草稿已批准並更新詞庫。")
-          : tc("草稿已拒絕。"));
+          : tc("草稿已拒絕。");
+      setReviewActionNotice({
+        requestId: request.id,
+        term: requestTerm,
+        type: "success",
+        message: successMessage,
+      });
       setReviewNotes((current) => { const next = { ...current }; delete next[request.id]; return next; });
       await loadCatalog();
       if (isCurrentDialogIntent(reviewIntent)) {
@@ -892,8 +912,15 @@ function CatalogOverviewWorkspace({
         }
       }
     } catch (cause) {
+      const failureMessage = cause instanceof Error ? cause.message : tc("審核詞庫修改失敗");
+      setReviewActionNotice({
+        requestId: request.id,
+        term: requestTerm,
+        type: "error",
+        message: failureMessage,
+      });
       if (isCurrentDialogIntent(reviewIntent)) {
-        setError(cause instanceof Error ? cause.message : tc("審核詞庫修改失敗"));
+        setError(failureMessage);
       }
     } finally { setSaving(false); }
   }
@@ -910,6 +937,7 @@ function CatalogOverviewWorkspace({
     </div>
     {error ? <ErrorBanner message={error} onRetry={() => void loadCatalog()} /> : null}
     {message ? <p role="status" className="rounded-xl bg-[var(--success-bg)] px-4 py-3 text-sm text-[var(--success)]">{message}</p> : null}
+    {reviewActionNotice ? <div data-testid="catalog-review-action-notice" role={reviewActionNotice.type === "error" ? "alert" : "status"} className={`fixed right-4 top-4 z-[70] max-w-md rounded-xl border bg-[var(--surface)] p-4 shadow-xl ${reviewActionNotice.type === "error" ? "border-[var(--danger)] text-[var(--danger)]" : "border-[var(--success)] text-[var(--success)]"}`}><strong className="text-[var(--text)]">{reviewActionNotice.term}</strong><p className="mt-1 text-sm">{reviewActionNotice.message}</p><button type="button" className="ui-button ui-button-quiet ui-button-small mt-3" onClick={() => setReviewActionNotice(null)}>{tc("關閉")}</button></div> : null}
     <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
       {(["all", "ACTIVE", "DRAFT", "RETIRED", "blocked", "validationFailed", "pending"] as const).map((key) => <div key={key} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"><p className="text-xs text-[var(--muted)]">{key === "all" ? tc("全部") : key === "ACTIVE" ? tc("已啟用") : key === "DRAFT" ? tc("草稿") : key === "RETIRED" ? tc("已停用") : key === "blocked" ? tc("方向被阻擋") : key === "validationFailed" ? tc("驗證失敗") : tc("等待審核")}</p><p className="mt-1 text-xl font-bold text-[var(--text)]">{counts[key] ?? 0}</p></div>)}
     </div>

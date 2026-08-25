@@ -58,8 +58,20 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
     previewAbortRef.current?.abort();
   }, []);
 
+  function changeDirection(next: "en-zh" | "zh-en") {
+    previewGenerationRef.current += 1;
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    setPreview(null);
+    setPreviewKey("");
+    setError(null);
+    setLoadingKey(null);
+    setDirection(next);
+  }
+
   async function generate() {
-    const requestKey = latestKeyRef.current;
+    const requestKey = currentKey;
+    latestKeyRef.current = currentKey;
     const generation = ++previewGenerationRef.current;
     previewAbortRef.current?.abort();
     const controller = new AbortController();
@@ -101,7 +113,7 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("預覽方向")}
-          <select key={effectiveDirection} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={effectiveDirection} onChange={(event) => setDirection(event.target.value as "en-zh" | "zh-en")}>
+          <select key={effectiveDirection} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={effectiveDirection} onChange={(event) => changeDirection(event.target.value as "en-zh" | "zh-en")}>
             <option value="en-zh" disabled={!payload.enableEnToZh}>{tc("英譯中")}{!payload.enableEnToZh ? `（${tc("未啟用")}）` : ""}</option>
             <option value="zh-en" disabled={!payload.enableZhToEn}>{tc("中譯英")}{!payload.enableZhToEn ? `（${tc("未啟用")}）` : ""}</option>
           </select>
