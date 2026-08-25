@@ -443,3 +443,23 @@
 - `npm run build`：83 routes production build 通過；sandbox 首次因 Turbopack helper 不可綁定 loopback port失敗，以獲准本機權限重跑後通過。
 - `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:e2e:catalog-workspace`：17／17 通過；包括 loading A→B→A、已完成 preview A→B→A、方向 loading 切換後重試，以及全域 review failure notice。
 - Staging、production migration／deploy及真實老師UAT未執行，仍屬明確延後項目。
+
+## 2026-08-25 第九輪跨 workspace 審核通知持久化
+
+固定 `0ce6cc0` 的後續審核確認：review notice 雖已獨立於詞條 dialog，但 state 仍屬於會隨 tab 卸載的 `CatalogOverviewWorkspace`；審核 request 返回前切去「我的待辦」等 workspace 時，成功／失敗結果會消失。本輪將 notice ownership 提升到最外層 `CatalogGovernanceWorkspace`，子 workspace 只回報 action result。
+
+### Checklist
+
+- [x] 將 `ReviewActionNotice` state及固定置頂呈現移到最外層 workspace；Overview 卸載後仍可寫入及關閉通知。
+- [x] 保留 dialog intent 隔離：跨 tab 結果只更新父層 notice，唔會重開或污染已卸載 dialog。
+- [x] 補延遲審核成功／失敗後立即切去「我的待辦」兩條 browser regression。
+- [x] 移除題目預覽方向切換的重複 key effect abort；由 parent identity remount、`changeDirection()` 及 generation作唯一 freshness邊界。
+- [x] 將方向競態測試改用 deterministic request gate，三條高風險時序各重跑三次。
+
+### 實際驗證
+
+- `npm run lint -- --max-warnings=0`、`npx tsc --noEmit`、`git diff --check`：通過。
+- `npm run build`：83 routes production build 通過。
+- 方向 loading及跨 workspace 成功／失敗通知各重跑三次：9／9 通過。
+- `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:e2e:catalog-workspace`：19／19 通過，包括完整 development PostgreSQL 詞庫生命週期。
+- 冇 schema／migration、學生 runtime、審批權限或 production rollout改動。

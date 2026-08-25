@@ -258,6 +258,7 @@ function isAbortError(value: unknown): boolean {
 function CatalogOverviewWorkspace({
   bulkEnabled,
   historyEnabled,
+  onReviewActionNotice,
   onOpenHistory,
   initialRetryRequestId,
   onRetryConsumed,
@@ -266,6 +267,7 @@ function CatalogOverviewWorkspace({
 }: {
   bulkEnabled: boolean;
   historyEnabled: boolean;
+  onReviewActionNotice: (notice: ReviewActionNotice | null) => void;
   onOpenHistory: (senseKey: string) => void;
   initialRetryRequestId: string | null;
   onRetryConsumed: () => void;
@@ -296,7 +298,6 @@ function CatalogOverviewWorkspace({
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
-  const [reviewActionNotice, setReviewActionNotice] = useState<ReviewActionNotice | null>(null);
   const [saving, setSaving] = useState(false);
   const [feedbackTarget, setFeedbackTarget] = useState<CatalogFeedbackTarget | null>(null);
   const [retrySource, setRetrySource] = useState<RetrySource | null>(null);
@@ -879,7 +880,7 @@ function CatalogOverviewWorkspace({
     const selectedRequestIdAtStart = visiblePendingRequestId(selected?.pendingRequest ?? null);
     const requestTerm = request.sense?.term || request.payload.term || request.senseKey || tc("詞庫申請");
     setSaving(true); setError(null); setMessage(null);
-    setReviewActionNotice(null);
+    onReviewActionNotice(null);
     try {
       const note = reviewNotes[request.id] ?? (selectedRequestIdAtStart === request.id ? reviewNote : "");
       const response = await rosterFetch(`/api/catalog/requests/${encodeURIComponent(request.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, expectedRevision: request.revision, reviewNote: note.trim() }) });
@@ -895,7 +896,7 @@ function CatalogOverviewWorkspace({
         : actualStatus === "APPROVED"
           ? tc("草稿已批准並更新詞庫。")
           : tc("草稿已拒絕。");
-      setReviewActionNotice({
+      onReviewActionNotice({
         requestId: request.id,
         term: requestTerm,
         type: "success",
@@ -913,7 +914,7 @@ function CatalogOverviewWorkspace({
       }
     } catch (cause) {
       const failureMessage = cause instanceof Error ? cause.message : tc("審核詞庫修改失敗");
-      setReviewActionNotice({
+      onReviewActionNotice({
         requestId: request.id,
         term: requestTerm,
         type: "error",
@@ -937,7 +938,6 @@ function CatalogOverviewWorkspace({
     </div>
     {error ? <ErrorBanner message={error} onRetry={() => void loadCatalog()} /> : null}
     {message ? <p role="status" className="rounded-xl bg-[var(--success-bg)] px-4 py-3 text-sm text-[var(--success)]">{message}</p> : null}
-    {reviewActionNotice ? <div data-testid="catalog-review-action-notice" role={reviewActionNotice.type === "error" ? "alert" : "status"} className={`fixed right-4 top-4 z-[70] max-w-md rounded-xl border bg-[var(--surface)] p-4 shadow-xl ${reviewActionNotice.type === "error" ? "border-[var(--danger)] text-[var(--danger)]" : "border-[var(--success)] text-[var(--success)]"}`}><strong className="text-[var(--text)]">{reviewActionNotice.term}</strong><p className="mt-1 text-sm">{reviewActionNotice.message}</p><button type="button" className="ui-button ui-button-quiet ui-button-small mt-3" onClick={() => setReviewActionNotice(null)}>{tc("關閉")}</button></div> : null}
     <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
       {(["all", "ACTIVE", "DRAFT", "RETIRED", "blocked", "validationFailed", "pending"] as const).map((key) => <div key={key} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"><p className="text-xs text-[var(--muted)]">{key === "all" ? tc("全部") : key === "ACTIVE" ? tc("已啟用") : key === "DRAFT" ? tc("草稿") : key === "RETIRED" ? tc("已停用") : key === "blocked" ? tc("方向被阻擋") : key === "validationFailed" ? tc("驗證失敗") : tc("等待審核")}</p><p className="mt-1 text-xl font-bold text-[var(--text)]">{counts[key] ?? 0}</p></div>)}
     </div>
@@ -969,6 +969,7 @@ export default function CatalogGovernanceWorkspace() {
   const [catalogSenseKey, setCatalogSenseKey] = useState<string | null>(null);
   const [retryRequestId, setRetryRequestId] = useState<string | null>(null);
   const [catalogResetVersion, setCatalogResetVersion] = useState(0);
+  const [reviewActionNotice, setReviewActionNotice] = useState<ReviewActionNotice | null>(null);
   const accessGenerationRef = useRef(0);
   const confirmedBulkEnabledRef = useRef(false);
 
@@ -1042,9 +1043,10 @@ export default function CatalogGovernanceWorkspace() {
   ];
 
   return <div className="mx-auto w-full max-w-[1500px] space-y-5 overflow-x-clip">
+    {reviewActionNotice ? <div data-testid="catalog-review-action-notice" role={reviewActionNotice.type === "error" ? "alert" : "status"} className={`fixed right-4 top-4 z-[70] max-w-md rounded-xl border bg-[var(--surface)] p-4 shadow-xl ${reviewActionNotice.type === "error" ? "border-[var(--danger)] text-[var(--danger)]" : "border-[var(--success)] text-[var(--success)]"}`}><strong className="text-[var(--text)]">{reviewActionNotice.term}</strong><p className="mt-1 text-sm">{reviewActionNotice.message}</p><button type="button" className="ui-button ui-button-quiet ui-button-small mt-3" onClick={() => setReviewActionNotice(null)}>{tc("關閉")}</button></div> : null}
     <nav aria-label={tc("詞庫工作區") as string} className={`grid gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 ${tabs.length === 4 ? "sm:grid-cols-4" : tabs.length === 3 ? "sm:grid-cols-3" : tabs.length === 2 ? "sm:grid-cols-2" : ""}`}>
       {tabs.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} className={`rounded-xl px-4 py-3 text-left transition-colors ${tab === item.id ? "bg-[var(--primary)] text-white" : "text-[var(--text)] hover:bg-[var(--border-soft)]"}`} onClick={() => { if (item.id === "history") setHistorySenseKey(null); setTab(item.id); }}><strong className="block text-sm">{item.label}</strong><span className={`mt-1 block text-xs ${tab === item.id ? "text-white/75" : "text-[var(--muted)]"}`}>{item.detail}</span></button>)}
     </nav>
-    {tab === "work" ? <CatalogWorkItemsWorkspace bulkEnabled={bulkEnabled} onOpenCatalog={(senseKey) => { setCatalogSenseKey(senseKey ?? null); setTab("catalog"); }} onOpenBatch={(batchId) => { if (bulkEnabled) { setBulkBatchId(batchId); setTab("bulk"); } }} onRetryRequest={(requestId) => { setRetryRequestId(requestId); setTab("catalog"); }} /> : tab === "catalog" ? <CatalogOverviewWorkspace key={catalogResetVersion} bulkEnabled={bulkEnabled} historyEnabled={historyEnabled} initialRetryRequestId={retryRequestId} onRetryConsumed={() => setRetryRequestId(null)} initialSenseKey={catalogSenseKey} onInitialSenseConsumed={() => setCatalogSenseKey(null)} onOpenHistory={(senseKey) => { setHistorySenseKey(senseKey); setTab("history"); }} /> : tab === "bulk" ? <CatalogBulkSubmissionWorkspace canReview={canReview} actorUserId={actorUserId} initialBatchId={bulkBatchId} /> : <CatalogHistoryWorkspace canReview={canReview} bulkEnabled={bulkEnabled} initialSenseKey={historySenseKey} onBackToCatalog={() => { setHistorySenseKey(null); setTab("catalog"); }} onOpenCorrectiveBatch={(batchId) => { setBulkBatchId(batchId); setTab("bulk"); }} />}
+    {tab === "work" ? <CatalogWorkItemsWorkspace bulkEnabled={bulkEnabled} onOpenCatalog={(senseKey) => { setCatalogSenseKey(senseKey ?? null); setTab("catalog"); }} onOpenBatch={(batchId) => { if (bulkEnabled) { setBulkBatchId(batchId); setTab("bulk"); } }} onRetryRequest={(requestId) => { setRetryRequestId(requestId); setTab("catalog"); }} /> : tab === "catalog" ? <CatalogOverviewWorkspace key={catalogResetVersion} bulkEnabled={bulkEnabled} historyEnabled={historyEnabled} onReviewActionNotice={setReviewActionNotice} initialRetryRequestId={retryRequestId} onRetryConsumed={() => setRetryRequestId(null)} initialSenseKey={catalogSenseKey} onInitialSenseConsumed={() => setCatalogSenseKey(null)} onOpenHistory={(senseKey) => { setHistorySenseKey(senseKey); setTab("history"); }} /> : tab === "bulk" ? <CatalogBulkSubmissionWorkspace canReview={canReview} actorUserId={actorUserId} initialBatchId={bulkBatchId} /> : <CatalogHistoryWorkspace canReview={canReview} bulkEnabled={bulkEnabled} initialSenseKey={historySenseKey} onBackToCatalog={() => { setHistorySenseKey(null); setTab("catalog"); }} onOpenCorrectiveBatch={(batchId) => { setBulkBatchId(batchId); setTab("bulk"); }} />}
   </div>;
 }

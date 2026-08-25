@@ -220,6 +220,26 @@ async function installBulkWorkItemMock(page: Page) {
   });
 }
 
+async function installEmptyCatalogWorkItemsMock(page: Page) {
+  await page.route("**/api/catalog/work-items?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        counts: { requestsToRevise: 0, batchesToRevise: 0, requestsToReview: 0, batchesToReview: 0, feedbackToReview: 0, totalActionable: 0 },
+        canReview: true,
+        bulkEnabled: false,
+        itemLimit: 12,
+        sectionTotals: { needsRevision: 0, toReview: 0, waiting: 0, recent: 0 },
+        needsRevision: [],
+        toReview: [],
+        waiting: [],
+        recent: [],
+      }),
+    });
+  });
+}
+
 function catalogRacePayload(term: string, definitionZh: string) {
   return {
     term,
@@ -596,6 +616,10 @@ test("question preview can restart after switching direction during loading", as
   const senseKey = "question-preview-direction-loading";
   const payload = catalogRacePayload("previewdirection", "預覽方向競態");
   let enToZhRequests = 0;
+  let releaseFirstRequest = () => {};
+  const firstRequestGate = new Promise<void>((resolve) => {
+    releaseFirstRequest = resolve;
+  });
   try {
     await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
     await installCatalogRaceList(reviewer.page, [catalogRaceRow("question-preview-direction-loading", senseKey, payload)]);
@@ -604,9 +628,9 @@ test("question preview can restart after switching direction during loading", as
     });
     await reviewer.page.route("**/api/catalog/question-preview", async (route) => {
       const body = route.request().postDataJSON() as { direction: "en-zh" | "zh-en" };
-      if (body.direction === "en-zh") enToZhRequests += 1;
-      if (body.direction === "en-zh" && enToZhRequests === 1) {
-        await new Promise((resolve) => setTimeout(resolve, 400));
+      const requestNumber = body.direction === "en-zh" ? ++enToZhRequests : 0;
+      if (requestNumber === 1) {
+        await firstRequestGate;
       }
       try {
         await route.fulfill({
@@ -614,7 +638,7 @@ test("question preview can restart after switching direction during loading", as
           contentType: "application/json",
           body: JSON.stringify({
             preview: {
-              prompt: enToZhRequests === 1 ? "已中止方向題目" : "重新產生方向題目",
+              prompt: requestNumber === 1 ? "已中止方向題目" : "重新產生方向題目",
               direction: body.direction,
               options: [
                 { id: "correct", text: payload.definitionZh },
@@ -624,7 +648,7 @@ test("question preview can restart after switching direction during loading", as
               ],
               correctOptionId: "correct",
               correctAnswer: payload.definitionZh,
-              itemConstructionVersion: `catalog-preview-direction-loading-${enToZhRequests}`,
+              itemConstructionVersion: `catalog-preview-direction-loading-${requestNumber}`,
             },
           }),
         });
@@ -637,15 +661,23 @@ test("question preview can restart after switching direction during loading", as
     await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
-    await dialog.getByRole("combobox", { name: /預覽方向|预览方向/ }).selectOption("zh-en");
-    await dialog.getByRole("combobox", { name: /預覽方向|预览方向/ }).selectOption("en-zh");
+    await expect.poll(() => enToZhRequests).toBe(1);
+    const direction = dialog.getByRole("combobox", { name: /預覽方向|预览方向/ });
+    await direction.selectOption("zh-en");
+    await expect(direction).toHaveValue("zh-en");
+    await direction.selectOption("en-zh");
+    await expect(direction).toHaveValue("en-zh");
 
     const generate = dialog.getByRole("button", { name: /產生預覽|产生预览/ });
     await expect(generate).toBeEnabled();
     await generate.click();
+    await expect.poll(() => enToZhRequests).toBe(2);
     await expect(dialog.getByText("重新產生方向題目")).toBeVisible();
-    expect(enToZhRequests).toBe(2);
+    releaseFirstRequest();
+    await reviewer.page.waitForTimeout(100);
+    await expect(dialog.getByText("已中止方向題目")).toHaveCount(0);
   } finally {
+    releaseFirstRequest();
     await reviewer.context.close();
   }
 });
@@ -892,6 +924,70 @@ test("an older review error uses a global notice without polluting the newer dra
     await expect(notice).toBeVisible();
     await expect(notice).toContainText(payloadA.term);
     await expect(notice).toContainText("A 專用審核錯誤");
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("a delayed review success remains visible after switching workspace tabs", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const payload = catalogRacePayload("reviewtabsuccess", "跨分頁審核成功");
+  const request = catalogRacePendingRequest("review-tab-success", "review-tab-success-sense", payload);
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [], { canReview: true, pending: [request] });
+    await installEmptyCatalogWorkItemsMock(reviewer.page);
+    await reviewer.page.route("**/api/catalog/requests/review-tab-success", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ replay: false, request: { status: "APPROVED" } }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const reviewStarted = reviewer.page.waitForRequest((candidate) => candidate.url().endsWith("/api/catalog/requests/review-tab-success"));
+    await reviewer.page.locator("article").filter({ hasText: payload.term }).getByRole("button", { name: /批准/ }).click();
+    await reviewStarted;
+    await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
+    await expect(reviewer.page.getByRole("heading", { name: /我的詞庫待辦|我的词库待办/ })).toBeVisible();
+
+    const notice = reviewer.page.getByTestId("catalog-review-action-notice");
+    await expect(notice).toContainText(payload.term);
+    await expect(notice).toContainText(/草稿已批准並更新詞庫|草稿已批准并更新词库/);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("a delayed review error remains visible after switching workspace tabs", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const payload = catalogRacePayload("reviewtaberror", "跨分頁審核失敗");
+  const request = catalogRacePendingRequest("review-tab-error", "review-tab-error-sense", payload);
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [], { canReview: true, pending: [request] });
+    await installEmptyCatalogWorkItemsMock(reviewer.page);
+    await reviewer.page.route("**/api/catalog/requests/review-tab-error", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "跨分頁 A 審核失敗" }) });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const reviewStarted = reviewer.page.waitForRequest((candidate) => candidate.url().endsWith("/api/catalog/requests/review-tab-error"));
+    await reviewer.page.locator("article").filter({ hasText: payload.term }).getByRole("button", { name: /批准/ }).click();
+    await reviewStarted;
+    await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
+    await expect(reviewer.page.getByRole("heading", { name: /我的詞庫待辦|我的词库待办/ })).toBeVisible();
+
+    const notice = reviewer.page.getByTestId("catalog-review-action-notice");
+    await expect(notice).toContainText(payload.term);
+    await expect(notice).toContainText("跨分頁 A 審核失敗");
   } finally {
     await reviewer.context.close();
   }

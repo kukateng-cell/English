@@ -41,17 +41,9 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
   const currentKey = JSON.stringify({ senseKey: senseKey ?? null, payload, direction: effectiveDirection });
   const previewGenerationRef = useRef(0);
   const previewAbortRef = useRef<AbortController | null>(null);
-  const latestKeyRef = useRef(currentKey);
   const visiblePreview = previewKey === currentKey ? preview : null;
   const visibleError = error?.key === currentKey ? error.message : null;
   const loading = loadingKey === currentKey;
-
-  useEffect(() => {
-    latestKeyRef.current = currentKey;
-    previewGenerationRef.current += 1;
-    previewAbortRef.current?.abort();
-    previewAbortRef.current = null;
-  }, [currentKey]);
 
   useEffect(() => () => {
     previewGenerationRef.current += 1;
@@ -71,7 +63,6 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
 
   async function generate() {
     const requestKey = currentKey;
-    latestKeyRef.current = currentKey;
     const generation = ++previewGenerationRef.current;
     previewAbortRef.current?.abort();
     const controller = new AbortController();
@@ -85,12 +76,12 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
         signal: controller.signal,
         body: JSON.stringify({ payload, senseKey, direction: effectiveDirection, seed: window.crypto.randomUUID() }),
       });
-      if (generation !== previewGenerationRef.current || requestKey !== latestKeyRef.current) return;
+      if (generation !== previewGenerationRef.current) return;
       if (!response.ok) {
         throw new Error(await responseErrorMessage(response, tc));
       }
       const body = await response.json() as { preview: Preview };
-      if (generation !== previewGenerationRef.current || requestKey !== latestKeyRef.current) return;
+      if (generation !== previewGenerationRef.current) return;
       setPreview(body.preview);
       setPreviewKey(requestKey);
     } catch (cause) {
