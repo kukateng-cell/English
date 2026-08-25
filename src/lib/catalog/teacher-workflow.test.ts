@@ -76,6 +76,7 @@ test("only unsuperseded rejected or stale owner items remain actionable", () => 
   assert.equal(standaloneRequestNeedsRevision({ status: "REJECTED", proposerId: "teacher", actorId: "teacher", supersededById: null }), true);
   assert.equal(standaloneRequestNeedsRevision({ status: "REJECTED", proposerId: "teacher", actorId: "teacher", supersededById: "successor" }), false);
   assert.equal(batchNeedsRevision({ status: "STALE", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null }), true);
+  assert.equal(batchNeedsRevision({ status: "STALE", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, retryClosedAt: new Date() }), false);
   assert.equal(batchNeedsRevision({ status: "STALE", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: "retry-1" }), false);
   assert.equal(batchNeedsRevision({ status: "CANCELLED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, retryOfBatchId: "source" }), true);
   assert.equal(batchNeedsRevision({ status: "EXPIRED", proposerId: "teacher", resolutionOwnerId: null, actorId: "teacher", retriedById: null, retryOfBatchId: "source", contentPurgedAt: new Date() }), false);

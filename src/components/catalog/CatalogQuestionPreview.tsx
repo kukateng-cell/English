@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import { rosterFetch } from "@/lib/roster-client";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
@@ -21,38 +21,75 @@ type Preview = {
   itemConstructionVersion: string;
 };
 
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof DOMException && cause.name === "AbortError";
+}
+
 export default function CatalogQuestionPreview({ payload, senseKey }: { payload: Payload; senseKey?: string | null }) {
   const { tc } = useLocale();
   const titleId = useId();
   const [direction, setDirection] = useState<"en-zh" | "zh-en">(payload.enableEnToZh ? "en-zh" : "zh-en");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewKey, setPreviewKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const currentKey = JSON.stringify({ payload, direction });
+  const [error, setError] = useState<{ key: string; message: string } | null>(null);
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const effectiveDirection = direction === "en-zh" && !payload.enableEnToZh && payload.enableZhToEn
+    ? "zh-en"
+    : direction === "zh-en" && !payload.enableZhToEn && payload.enableEnToZh
+      ? "en-zh"
+      : direction;
+  const currentKey = JSON.stringify({ senseKey: senseKey ?? null, payload, direction: effectiveDirection });
+  const previewGenerationRef = useRef(0);
+  const previewAbortRef = useRef<AbortController | null>(null);
+  const latestKeyRef = useRef(currentKey);
   const visiblePreview = previewKey === currentKey ? preview : null;
+  const visibleError = error?.key === currentKey ? error.message : null;
+  const loading = loadingKey === currentKey;
+
+  useEffect(() => {
+    latestKeyRef.current = currentKey;
+    previewGenerationRef.current += 1;
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+  }, [currentKey]);
+
+  useEffect(() => () => {
+    previewGenerationRef.current += 1;
+    previewAbortRef.current?.abort();
+  }, []);
 
   async function generate() {
-    const requestKey = currentKey;
-    setLoading(true);
+    const requestKey = latestKeyRef.current;
+    const generation = ++previewGenerationRef.current;
+    previewAbortRef.current?.abort();
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
+    setLoadingKey(requestKey);
     setError(null);
     try {
       const response = await rosterFetch("/api/catalog/question-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payload, senseKey, direction, seed: window.crypto.randomUUID() }),
+        signal: controller.signal,
+        body: JSON.stringify({ payload, senseKey, direction: effectiveDirection, seed: window.crypto.randomUUID() }),
       });
+      if (generation !== previewGenerationRef.current || requestKey !== latestKeyRef.current) return;
       if (!response.ok) {
         throw new Error(await responseErrorMessage(response, tc));
       }
       const body = await response.json() as { preview: Preview };
+      if (generation !== previewGenerationRef.current || requestKey !== latestKeyRef.current) return;
       setPreview(body.preview);
       setPreviewKey(requestKey);
     } catch (cause) {
+      if (generation !== previewGenerationRef.current || isAbortError(cause)) return;
       setPreview(null);
-      setError(cause instanceof Error ? cause.message : tc(networkErrorMessage(cause)));
+      setError({ key: requestKey, message: cause instanceof Error ? cause.message : tc(networkErrorMessage(cause)) });
     } finally {
-      setLoading(false);
+      if (previewAbortRef.current === controller) previewAbortRef.current = null;
+      if (generation === previewGenerationRef.current) {
+        setLoadingKey((current) => current === requestKey ? null : current);
+      }
     }
   }
 
@@ -64,17 +101,17 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("預覽方向")}
-          <select className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={direction} onChange={(event) => { setDirection(event.target.value as "en-zh" | "zh-en"); setPreview(null); }}>
+          <select key={effectiveDirection} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" value={effectiveDirection} onChange={(event) => setDirection(event.target.value as "en-zh" | "zh-en")}>
             <option value="en-zh" disabled={!payload.enableEnToZh}>{tc("英譯中")}{!payload.enableEnToZh ? `（${tc("未啟用")}）` : ""}</option>
             <option value="zh-en" disabled={!payload.enableZhToEn}>{tc("中譯英")}{!payload.enableZhToEn ? `（${tc("未啟用")}）` : ""}</option>
           </select>
         </label>
-        <button type="button" className="ui-button ui-button-secondary ui-button-small" disabled={loading || (direction === "en-zh" ? !payload.enableEnToZh : !payload.enableZhToEn)} onClick={() => void generate()}>
+        <button type="button" className="ui-button ui-button-secondary ui-button-small" disabled={loading || (effectiveDirection === "en-zh" ? !payload.enableEnToZh : !payload.enableZhToEn)} onClick={() => void generate()}>
           {loading ? tc("正在出題…") : visiblePreview ? tc("再抽一組") : tc("產生預覽")}
         </button>
       </div>
     </div>
-    {error ? <p role="alert" className="mt-3 rounded-xl bg-[var(--danger-bg)] px-3 py-2 text-sm text-[var(--danger)]">{error}</p> : null}
+    {visibleError ? <p role="alert" className="mt-3 rounded-xl bg-[var(--danger-bg)] px-3 py-2 text-sm text-[var(--danger)]">{visibleError}</p> : null}
     {visiblePreview ? <div className="mx-auto mt-4 max-w-2xl rounded-[26px] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--primary)]">{visiblePreview.direction === "en-zh" ? tc("選出正確中文意思") : tc("選出正確英文詞")}</p>
       <p className="mt-3 text-center text-3xl font-bold tracking-[-0.03em] text-[var(--text)]">{visiblePreview.prompt}</p>

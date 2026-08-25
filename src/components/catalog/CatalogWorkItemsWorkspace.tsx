@@ -163,8 +163,18 @@ export default function CatalogWorkItemsWorkspace({ bulkEnabled, onOpenCatalog, 
         }
         throw new Error(await responseErrorMessage(response, tc));
       }
-      const body = await response.json() as { batch: { id: string } };
+      const body = await response.json() as {
+        batch?: { id: string };
+        closed?: boolean;
+        code?: string;
+      };
       delete retryOperationIdsRef.current[item.id];
+      if (body.closed && body.code === "CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE") {
+        setMessage(tc("重新比對後已沒有實際修改，項目已由待辦移除。"));
+        await load();
+        return;
+      }
+      if (!body.batch?.id) throw new Error(tc("建立修正版失敗"));
       onOpenBatch(body.batch.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc(networkErrorMessage(cause)));

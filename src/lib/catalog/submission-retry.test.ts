@@ -3,8 +3,7 @@ import test from "node:test";
 import { payloadToSourceRow, type CatalogGovernancePayload } from "./governance";
 import { threeWayMergeCatalogPayload } from "./retry-merge";
 import {
-  assertCatalogRetryPreviewActionable,
-  CatalogRetryPreviewBlockedError,
+  evaluateCatalogRetryPreviewActionability,
   type CatalogSubmissionPreview,
 } from "./submission";
 import {
@@ -130,22 +129,21 @@ test("batch retry preview fails closed for validation errors and empty rebases",
       rowRole: "EXCLUDED",
     }],
   };
-  assert.throws(
-    () => assertCatalogRetryPreviewActionable(blocked, [payloadToSourceRow(payload(), {
+  assert.deepEqual(
+    evaluateCatalogRetryPreviewActionability(blocked, [payloadToSourceRow(payload(), {
       sourceFile: "retry.csv",
       sourceRow: 2,
       catalogKey: "cat_run",
       senseKey: "sense_run_verb_a1",
     }, 1)]),
-    (error) => {
-      assert.ok(error instanceof CatalogRetryPreviewBlockedError);
-      assert.deepEqual(error.rows, [{
+    {
+      kind: "BLOCKED",
+      rows: [{
         rowNumber: 2,
         senseKey: "sense_run_verb_a1",
         term: "run",
         errors: ["目標詞條已有另一項待審核修改。 等待現有修改完成審核後，再重新建立修正版預覽。"],
-      }]);
-      return true;
+      }],
     },
   );
 
@@ -155,10 +153,7 @@ test("batch retry preview fails closed for validation errors and empty rebases",
     rows: [{ ...blocked.rows[0]!, primaryDisposition: "NO_CHANGE", errors: [] }],
     summary: { ...summary, validRows: 1, invalidRows: 0 },
   };
-  assert.throws(
-    () => assertCatalogRetryPreviewActionable(empty),
-    /CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE/u,
-  );
+  assert.deepEqual(evaluateCatalogRetryPreviewActionability(empty), { kind: "NO_CHANGES" });
 });
 
 test("an inherited retry conflict that rebases to NO_CHANGE does not block another actionable group", () => {
@@ -227,6 +222,7 @@ test("an inherited retry conflict that rebases to NO_CHANGE does not block anoth
     new Map([[2, ["definitionZh"]]]),
   );
 
+  assert.deepEqual(evaluateCatalogRetryPreviewActionability(preview), { kind: "ACTIONABLE" });
   assert.equal(conflictsByGroup.size, 0);
   assert.equal(preview.status, "PREVIEW");
   assert.equal(preview.summary.unresolvedGroups, 0);

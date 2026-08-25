@@ -1,6 +1,6 @@
 # 詞庫 CSV 批量提交及詞條修改歷史界面實施計劃
 
-> 狀態：已完成（本地 implementation／verification；staging／Vercel及production rollout仍另行處理）
+> 狀態：已完成（第 27 輪 retry closure 加固；staging／Vercel及production rollout仍另行處理）
 >
 > 日期：2026-08-22
 >
@@ -795,3 +795,20 @@ npm run check:catalog-governance
 - [x] 335 unit、zero-warning lint、TypeScript、83-route build、真實 DB checker及 catalog workspace Playwright 9／9 全部通過；GitHub push checks 狀態由本輪交付紀錄核對。
 
 本輪不改 schema、migration、批次審批語義或 production rollout 狀態。
+
+## 27. 全 `NO_CHANGE` retry source closure（2026-08-25，進行中）
+
+- [x] 新增 `CatalogRetryClosureReason.NO_LONGER_APPLICABLE`、`retryClosedAt`／`retryCloseReason` 及一致性 constraint；closure 只可由空值轉為完整值一次，batch revision 必須恰好加一，其他 terminal payload 不可同時改寫；
+- [x] 將 retry preview actionability 改成 `ACTIONABLE`／`BLOCKED`／`NO_CHANGES` 明確結果，只有前兩者分別繼續建立 preview或回結構化 blocker；
+- [x] `NO_CHANGES` 在同一 Serializable transaction 內關閉 source、保留 `retriedBy = null`、寫 `BATCH_RETRY_CLOSED_NO_CHANGES` audit及永久 `RETRY_CLOSE` receipt；
+- [x] 同 operation ID 重送回同一 closed result，不重複 closure或audit；不同 operation ID對已關閉 source fail closed；
+- [x] work-items排除已關閉 source，老師收到成功訊息後即時重新整理；正式history仍保留原batch及closure audit；
+- [x] 補 pure unit、migration replay、direct DB guard、transaction checker及browser待辦回歸，完成本地驗證後恢復「已完成」。
+
+### 第 27 輪實際驗證
+
+- 335個unit、zero-warning lint、TypeScript、83-route production build及`git diff --check`全部通過；
+- 66個ordinary migrations checksum、fresh／interrupted replay及本機development schema status通過；
+- 真實PostgreSQL submission checker證明closure只寫一次、其他terminal payload不可同時改寫、同operation ID安全重播、closed source不再actionable而原history仍存在；
+- catalog workspace Playwright 14／14通過；老師收到清晰完成訊息，source即時由待辦移除；
+- production／staging migration及deployment未執行，仍需另行授權。

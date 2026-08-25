@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma, prisma } from "@/lib/prisma";
+import type { CatalogRetryClosureReason, CatalogSubmissionStatus } from "@/generated/prisma";
 import {
   CATALOG_GOVERNANCE_MAX_BYTES,
   CATALOG_GOVERNANCE_HEADERS,
@@ -13,16 +14,17 @@ import {
 } from "./csv";
 import {
   catalogActorPseudonym,
-  assertCatalogRetryPreviewActionable,
   buildCatalogSubmissionPreview,
   buildCatalogPreviewDependencyDigests,
   catalogDependencyDigest,
+  CatalogRetryPreviewBlockedError,
   classifyCatalogReviewRisk,
   CATALOG_REVIEW_RISK_VERSION,
   CATALOG_SUBMISSION_VERSIONS,
   deterministicBatchRequestOperationId,
   deterministicSubmissionProposalGroupId,
   describeCatalogBatchError,
+  evaluateCatalogRetryPreviewActionability,
   isCanonicalUuid,
   refreshSubmissionExpiry,
   submissionExpiry,
@@ -65,6 +67,23 @@ const REVIEW_STATUSES = ["SUBMITTED", "REVIEWING", "REVIEWED"] as const;
 const CLAIMABLE_STATUSES = ["NEEDS_RESOLUTION", ...REVIEW_STATUSES] as const;
 const TERMINAL_STATUSES = ["COMMITTED", "REJECTED", "STALE", "EXPIRED", "CANCELLED", "SUPERSEDED"] as const;
 const REVIEW_CLAIM_TRANSACTION_ATTEMPTS = 3;
+const CATALOG_RETRY_CLOSE_CODE = "CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE" as const;
+
+type CatalogRetryClosedResult = {
+  replay: boolean;
+  closed: true;
+  code: typeof CATALOG_RETRY_CLOSE_CODE;
+  sourceBatchId: string;
+};
+
+function catalogRetryClosedResult(sourceBatchId: string, replay: boolean): CatalogRetryClosedResult {
+  return {
+    replay,
+    closed: true,
+    code: CATALOG_RETRY_CLOSE_CODE,
+    sourceBatchId,
+  };
+}
 
 async function withReviewClaimTransactionRetry<T>(operation: () => Promise<T>): Promise<T> {
   for (let attempt = 1; attempt <= REVIEW_CLAIM_TRANSACTION_ATTEMPTS; attempt += 1) {
@@ -216,14 +235,29 @@ export function decodeCatalogUploadName(value: string | null): string {
   return safeCatalogDownloadName(decoded);
 }
 
-export async function createCatalogSubmissionPreview(input: {
+type CreateCatalogSubmissionPreviewInput = {
   actorId: string;
   operationId: string;
   fileName: string;
   bytes: Uint8Array;
   retrySourceBatchId?: string;
   retryMergeConflicts?: ReadonlyMap<number, readonly string[]>;
-}) {
+};
+
+type CatalogSubmissionPreviewCreatedResult = {
+  replay: boolean;
+  batch: ReturnType<typeof submissionBatchDto>;
+};
+
+export function createCatalogSubmissionPreview(
+  input: CreateCatalogSubmissionPreviewInput & { retrySourceBatchId?: undefined },
+): Promise<CatalogSubmissionPreviewCreatedResult>;
+export function createCatalogSubmissionPreview(
+  input: CreateCatalogSubmissionPreviewInput & { retrySourceBatchId: string },
+): Promise<CatalogSubmissionPreviewCreatedResult | CatalogRetryClosedResult>;
+export async function createCatalogSubmissionPreview(
+  input: CreateCatalogSubmissionPreviewInput,
+): Promise<CatalogSubmissionPreviewCreatedResult | CatalogRetryClosedResult> {
   if (!isCanonicalUuid(input.operationId)) throw new Error("IDEMPOTENCY_KEY_INVALID");
   if (input.bytes.byteLength > CATALOG_GOVERNANCE_MAX_BYTES) throw new Error("CATALOG_CSV_TOO_LARGE");
   const rows = parseCatalogGovernanceCsv(input.bytes, input.fileName);
@@ -251,33 +285,67 @@ export async function createCatalogSubmissionPreview(input: {
       if (existing.requestDigest !== requestDigest) throw new Error("IDEMPOTENCY_CONFLICT");
       return { replay: true, batch: submissionBatchDto(await readBatchForDto(tx, existing.id)) };
     }
+    let retrySourceState: {
+      id: string;
+      proposerId: string;
+      resolutionOwnerId: string | null;
+      status: CatalogSubmissionStatus;
+      revision: number;
+      retryOfBatchId: string | null;
+      contentPurgedAt: Date | null;
+      retryClosedAt: Date | null;
+      retryCloseReason: CatalogRetryClosureReason | null;
+      retriedBy: { id: string } | null;
+    } | null = null;
     if (input.retrySourceBatchId) {
-      const retrySource = await tx.catalogSubmissionBatch.findUnique({
+      const closeReceipt = await tx.catalogSubmissionOperationReceipt.findUnique({
+        where: {
+          actorUserId_operationKind_operationId: {
+            actorUserId: input.actorId,
+            operationKind: "RETRY_CLOSE",
+            operationId: input.operationId,
+          },
+        },
+        select: { batchId: true, requestFingerprint: true },
+      });
+      if (closeReceipt) {
+        if (closeReceipt.batchId !== input.retrySourceBatchId || closeReceipt.requestFingerprint !== requestDigest) {
+          throw new Error("IDEMPOTENCY_CONFLICT");
+        }
+        return catalogRetryClosedResult(input.retrySourceBatchId, true);
+      }
+      retrySourceState = await tx.catalogSubmissionBatch.findUnique({
         where: { id: input.retrySourceBatchId },
         select: {
+          id: true,
           proposerId: true,
           resolutionOwnerId: true,
           status: true,
+          revision: true,
           retryOfBatchId: true,
           contentPurgedAt: true,
+          retryClosedAt: true,
+          retryCloseReason: true,
           retriedBy: { select: { id: true } },
         },
       });
-      if (!retrySource) throw new Error("CATALOG_BATCH_NOT_FOUND");
-      if (retrySource.proposerId !== input.actorId && retrySource.resolutionOwnerId !== input.actorId) {
+      if (!retrySourceState) throw new Error("CATALOG_BATCH_NOT_FOUND");
+      if (retrySourceState.proposerId !== input.actorId && retrySourceState.resolutionOwnerId !== input.actorId) {
         throw new Error("CATALOG_BATCH_FORBIDDEN");
       }
       if (
-        retrySource.contentPurgedAt
+        retrySourceState.contentPurgedAt
+        || retrySourceState.retryClosedAt
+        || retrySourceState.retryCloseReason
         || !isCatalogBatchRetrySourceStatus({
-          status: retrySource.status,
-          retryOfBatchId: retrySource.retryOfBatchId,
+          status: retrySourceState.status,
+          retryOfBatchId: retrySourceState.retryOfBatchId,
         })
       ) {
         throw new Error("CATALOG_BATCH_NOT_RETRYABLE");
       }
-      if (retrySource.retriedBy) {
-        return { replay: true, batch: submissionBatchDto(await readBatchForDto(tx, retrySource.retriedBy.id)) };
+      if (retrySourceState.retriedBy) {
+        return { replay: true, batch: submissionBatchDto(await readBatchForDto(tx, retrySourceState.retriedBy.id)) };
       }
     }
     const ready = await tx.catalogRevision.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
@@ -305,7 +373,54 @@ export async function createCatalogSubmissionPreview(input: {
       requestFingerprint: row.requestFingerprint,
     }));
     const preview = buildCatalogSubmissionPreview(rows, snapshots, pendingChanges);
-    if (input.retrySourceBatchId) assertCatalogRetryPreviewActionable(preview, rows);
+    if (input.retrySourceBatchId) {
+      const actionability = evaluateCatalogRetryPreviewActionability(preview, rows);
+      if (actionability.kind === "BLOCKED") {
+        throw new CatalogRetryPreviewBlockedError(actionability.rows);
+      }
+      if (actionability.kind === "NO_CHANGES") {
+        if (!retrySourceState) throw new Error("CATALOG_BATCH_RETRY_STALE");
+        const closedAt = new Date();
+        const closed = await tx.catalogSubmissionBatch.updateMany({
+          where: {
+            id: retrySourceState.id,
+            revision: retrySourceState.revision,
+            retryClosedAt: null,
+            retryCloseReason: null,
+            retriedBy: null,
+          },
+          data: {
+            retryClosedAt: closedAt,
+            retryCloseReason: "NO_LONGER_APPLICABLE",
+            revision: { increment: 1 },
+          },
+        });
+        if (closed.count !== 1) throw new Error("CATALOG_BATCH_RETRY_STALE");
+        await tx.catalogSubmissionOperationReceipt.create({
+          data: {
+            batchId: retrySourceState.id,
+            actorUserId: input.actorId,
+            operationKind: "RETRY_CLOSE",
+            operationId: input.operationId,
+            requestFingerprint: requestDigest,
+            outcomeStatus: retrySourceState.status,
+            summary: json({ code: CATALOG_RETRY_CLOSE_CODE, closedAt: closedAt.toISOString() }),
+          },
+        });
+        await tx.catalogAuditEvent.create({
+          data: {
+            actorUserId: input.actorId,
+            submissionBatchId: retrySourceState.id,
+            action: "BATCH_RETRY_CLOSED_NO_CHANGES",
+            fromStatus: retrySourceState.status,
+            toStatus: retrySourceState.status,
+            revision: retrySourceState.revision + 1,
+            metadata: json({ operationId: input.operationId }),
+          },
+        });
+        return catalogRetryClosedResult(retrySourceState.id, false);
+      }
+    }
     const retryMergeConflictFieldsByGroup = applyCatalogRetryMergeConflicts(preview, input.retryMergeConflicts);
     if (preview.summary.invalidRows > 0) preview.status = "NEEDS_RESOLUTION";
     const dependencyDigests = buildCatalogPreviewDependencyDigests(preview.groups, snapshots, pendingChanges);
@@ -417,6 +532,24 @@ export async function createCatalogSubmissionPreview(input: {
     return { replay: false, batch: submissionBatchDto(created) };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 });
   } catch (error) {
+    if (input.retrySourceBatchId) {
+      const closeReceipt = await prisma.catalogSubmissionOperationReceipt.findUnique({
+        where: {
+          actorUserId_operationKind_operationId: {
+            actorUserId: input.actorId,
+            operationKind: "RETRY_CLOSE",
+            operationId: input.operationId,
+          },
+        },
+        select: { batchId: true, requestFingerprint: true },
+      });
+      if (closeReceipt) {
+        if (closeReceipt.batchId !== input.retrySourceBatchId || closeReceipt.requestFingerprint !== requestDigest) {
+          throw new Error("IDEMPOTENCY_CONFLICT");
+        }
+        return catalogRetryClosedResult(input.retrySourceBatchId, true);
+      }
+    }
     if (
       isRetryableTransactionConflict(error)
       || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
@@ -450,6 +583,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
   actorId: string;
   operationId: string;
 }) {
+  if (!isCanonicalUuid(input.operationId)) throw new Error("IDEMPOTENCY_KEY_INVALID");
   const source = await prisma.catalogSubmissionBatch.findUnique({
     where: { id: input.sourceBatchId },
     select: {
@@ -460,6 +594,8 @@ export async function createRetryCatalogSubmissionPreview(input: {
       fileName: true,
       retryOfBatchId: true,
       contentPurgedAt: true,
+      retryClosedAt: true,
+      retryCloseReason: true,
       retriedBy: { select: { id: true } },
       proposalGroups: {
         orderBy: { groupNumber: "asc" },
@@ -490,12 +626,28 @@ export async function createRetryCatalogSubmissionPreview(input: {
   if (source.proposerId !== input.actorId && source.resolutionOwnerId !== input.actorId) {
     throw new Error("CATALOG_BATCH_FORBIDDEN");
   }
+  const closeReceipt = await prisma.catalogSubmissionOperationReceipt.findUnique({
+    where: {
+      actorUserId_operationKind_operationId: {
+        actorUserId: input.actorId,
+        operationKind: "RETRY_CLOSE",
+        operationId: input.operationId,
+      },
+    },
+    select: { batchId: true },
+  });
+  if (closeReceipt) {
+    if (closeReceipt.batchId !== source.id) throw new Error("IDEMPOTENCY_CONFLICT");
+    return catalogRetryClosedResult(source.id, true);
+  }
   if (source.retriedBy) {
     const batch = await prisma.$transaction((tx) => readBatchForDto(tx, source.retriedBy!.id));
     return { replay: true, batch: submissionBatchDto(batch) };
   }
   if (
     source.contentPurgedAt
+    || source.retryClosedAt
+    || source.retryCloseReason
     || !isCatalogBatchRetrySourceStatus({
       status: source.status,
       retryOfBatchId: source.retryOfBatchId,

@@ -57,6 +57,7 @@ export function catalogBatchNeedsRevisionWhere(actorId: string): Prisma.CatalogS
             ],
           },
           { OR: [{ proposerId: actorId }, { resolutionOwnerId: actorId }] },
+          { retryClosedAt: null },
         ],
         retriedBy: null,
         contentPurgedAt: null,
@@ -164,12 +165,14 @@ export function batchNeedsRevision(input: {
   retriedById: string | null;
   retryOfBatchId?: string | null;
   contentPurgedAt?: Date | null;
+  retryClosedAt?: Date | null;
   hasRetryableContent?: boolean;
 }): boolean {
   return isCatalogBatchRetrySourceStatus({ status: input.status, retryOfBatchId: input.retryOfBatchId ?? null })
     && (input.proposerId === input.actorId || input.resolutionOwnerId === input.actorId)
     && input.retriedById === null
     && (input.contentPurgedAt ?? null) === null
+    && (input.retryClosedAt ?? null) === null
     && (input.hasRetryableContent ?? true);
 }
 

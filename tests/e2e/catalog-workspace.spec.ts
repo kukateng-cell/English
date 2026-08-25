@@ -485,6 +485,127 @@ test("newer catalog detail selection survives an older delayed response and subm
   }
 });
 
+test("question preview is scoped to sense identity and ignores an older delayed response", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseA = "question-preview-sense-a";
+  const senseB = "question-preview-sense-b";
+  const sharedPayload = catalogRacePayload("sharedpreview", "相同內容預覽");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [
+      catalogRaceRow("question-preview-a", senseA, sharedPayload),
+      catalogRaceRow("question-preview-b", senseB, sharedPayload),
+    ]);
+    await reviewer.page.route(`**/api/catalog/${senseA}`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(catalogRaceDetailBody(senseA, sharedPayload)) });
+    });
+    await reviewer.page.route(`**/api/catalog/${senseB}`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(catalogRaceDetailBody(senseB, sharedPayload)) });
+    });
+    await reviewer.page.route("**/api/catalog/question-preview", async (route) => {
+      const body = route.request().postDataJSON() as { senseKey?: string };
+      if (body.senseKey === senseA) await new Promise((resolve) => setTimeout(resolve, 400));
+      const label = body.senseKey === senseA ? "A 舊題目" : "B 正確題目";
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            preview: {
+              prompt: label,
+              direction: "en-zh",
+              options: [
+                { id: "correct", text: "相同內容預覽" },
+                { id: "wrong-1", text: "干擾一" },
+                { id: "wrong-2", text: "干擾二" },
+                { id: "wrong-3", text: "干擾三" },
+              ],
+              correctOptionId: "correct",
+              correctAnswer: "相同內容預覽",
+              itemConstructionVersion: "catalog-preview-race-v1",
+            },
+          }),
+        });
+      } catch {
+        // The A request is expected to be aborted when the B dialog intent starts.
+      }
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const rowA = reviewer.page.locator("article").filter({ hasText: senseA });
+    const rowB = reviewer.page.locator("article").filter({ hasText: senseB });
+    await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    let dialog = reviewer.page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
+    await dialog.getByRole("button", { name: /關閉|关闭/ }).click();
+
+    await rowB.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    dialog = reviewer.page.getByRole("dialog");
+    await expect(dialog.getByText("A 舊題目")).toHaveCount(0);
+    await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
+    await expect(dialog.getByText("B 正確題目")).toBeVisible();
+    await reviewer.page.waitForTimeout(500);
+    await expect(dialog.getByText("B 正確題目")).toBeVisible();
+    await expect(dialog.getByText("A 舊題目")).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("question preview automatically selects the only enabled direction", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseKey = "question-preview-direction";
+  const payload = catalogRacePayload("directionpreview", "方向預覽");
+  let requestedDirection: string | null = null;
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [catalogRaceRow("question-preview-direction", senseKey, payload)]);
+    await reviewer.page.route(`**/api/catalog/${senseKey}`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(catalogRaceDetailBody(senseKey, payload)) });
+    });
+    await reviewer.page.route("**/api/catalog/question-preview", async (route) => {
+      const body = route.request().postDataJSON() as { direction?: string };
+      requestedDirection = body.direction ?? null;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          preview: {
+            prompt: "方向預覽",
+            direction: "zh-en",
+            options: [
+              { id: "correct", text: "directionpreview" },
+              { id: "wrong-1", text: "wrongone" },
+              { id: "wrong-2", text: "wrongtwo" },
+              { id: "wrong-3", text: "wrongthree" },
+            ],
+            correctOptionId: "correct",
+            correctAnswer: "directionpreview",
+            itemConstructionVersion: "catalog-preview-direction-v1",
+          },
+        }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await dialog.getByRole("checkbox", { name: /啟用英譯中|启用英译中/ }).uncheck();
+    await expect(dialog.getByLabel(/預覽方向|预览方向/)).toHaveValue("zh-en");
+    const generate = dialog.getByRole("button", { name: /產生預覽|产生预览/ });
+    await expect(generate).toBeEnabled();
+    await generate.click();
+    await expect(dialog.getByText("catalog-preview-direction-v1")).toBeVisible();
+    expect(requestedDirection).toBe("zh-en");
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
 test("opening a pending draft cancels an older delayed detail intent", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "Seeded admin credentials are required.");
@@ -524,6 +645,81 @@ test("opening a pending draft cancels an older delayed detail intent", async ({ 
     await reviewer.page.waitForTimeout(500);
     await expect(dialog.getByText(senseB)).toBeVisible();
     await expect(dialog.getByText(senseA)).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("a completed older review cannot close or clear a newer draft dialog", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const payloadA = catalogRacePayload("reviewracealpha", "審核競態甲");
+  const payloadB = catalogRacePayload("reviewracebeta", "審核競態乙");
+  const requestA = catalogRacePendingRequest("review-race-a", "review-sense-a", payloadA);
+  const requestB = catalogRacePendingRequest("review-race-b", "review-sense-b", payloadB);
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [], { canReview: true, pending: [requestA, requestB] });
+    await reviewer.page.route("**/api/catalog/requests/review-race-a", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ replay: false, request: { status: "APPROVED" } }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const cardA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
+    const cardB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    await cardA.getByRole("button", { name: /批准/ }).click();
+    const note = cardB.getByLabel(/審核備註|审核备注/);
+    await note.fill("B 草稿仍然要保留的審核備註");
+    await cardB.getByRole("button", { name: /查看草稿/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+
+    await reviewer.page.waitForTimeout(500);
+    await expect(dialog.getByText("review-sense-b")).toBeVisible();
+    await expect(note).toHaveValue("B 草稿仍然要保留的審核備註");
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("an older review error is not rendered as the newer draft error", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const payloadA = catalogRacePayload("reviewerroralpha", "錯誤競態甲");
+  const payloadB = catalogRacePayload("reviewerrorbeta", "錯誤競態乙");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await installCatalogRaceList(reviewer.page, [], {
+      canReview: true,
+      pending: [
+        catalogRacePendingRequest("review-error-a", "review-error-sense-a", payloadA),
+        catalogRacePendingRequest("review-error-b", "review-error-sense-b", payloadB),
+      ],
+    });
+    await reviewer.page.route("**/api/catalog/requests/review-error-a", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "A 專用審核錯誤" }) });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const cardA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
+    const cardB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    await cardA.getByRole("button", { name: /批准/ }).click();
+    const note = cardB.getByLabel(/審核備註|审核备注/);
+    await note.fill("B 錯誤競態備註");
+    await cardB.getByRole("button", { name: /查看草稿/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+
+    await reviewer.page.waitForTimeout(500);
+    await expect(dialog.getByText("review-error-sense-b")).toBeVisible();
+    await expect(note).toHaveValue("B 錯誤競態備註");
+    await expect(reviewer.page.getByText("A 專用審核錯誤")).toHaveCount(0);
   } finally {
     await reviewer.context.close();
   }
@@ -666,6 +862,62 @@ test("a completed submit does not reopen its old dialog after the user opens ano
     await reviewer.page.waitForTimeout(650);
     await expect(dialog.getByText(senseB)).toBeVisible();
     await expect(dialog.getByText(senseA)).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("a no-change batch retry closes the source and removes it from actionable work", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  let closed = false;
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: true, historyEnabled: false });
+    await reviewer.page.route("**/api/catalog/work-items?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          counts: { requestsToRevise: 0, batchesToRevise: closed ? 0 : 1, requestsToReview: 0, batchesToReview: 0, feedbackToReview: 0, totalActionable: closed ? 0 : 1 },
+          canReview: true,
+          bulkEnabled: true,
+          itemLimit: 12,
+          sectionTotals: { needsRevision: closed ? 0 : 1, toReview: 0, waiting: 0, recent: 0 },
+          needsRevision: closed ? [] : [{
+            type: "BATCH",
+            id: "no-change-retry-batch",
+            fileName: "no-change-retry.csv",
+            rowCount: 1,
+            status: "STALE",
+            updatedAt: "2026-08-25T04:00:00.000Z",
+          }],
+          toReview: [],
+          waiting: [],
+          recent: [],
+        }),
+      });
+    });
+    await reviewer.page.route("**/api/catalog/submissions/no-change-retry-batch/retry-preview", async (route) => {
+      closed = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          replay: false,
+          closed: true,
+          code: "CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE",
+          sourceBatchId: "no-change-retry-batch",
+        }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
+    await reviewer.page.getByRole("button", { name: /一鍵建立修正版預覽|一键建立修正版预览/ }).click();
+    await expect(reviewer.page.getByText(/重新比對後已沒有實際修改，項目已由待辦移除|重新比对后已没有实际修改，项目已由待办移除/)).toBeVisible();
+    await expect(reviewer.page.getByText("no-change-retry.csv")).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /一鍵建立修正版預覽|一键建立修正版预览/ })).toHaveCount(0);
   } finally {
     await reviewer.context.close();
   }

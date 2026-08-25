@@ -42,6 +42,8 @@ let retryBatchId: string | null = null;
 let retryRestartBatchId: string | null = null;
 let retryExpiredRestartBatchId: string | null = null;
 let blockedRetrySourceBatchId: string | null = null;
+let noChangeRetrySourceBatchId: string | null = null;
+let noChangeAppliedBatchId: string | null = null;
 let pendingRetryBlockerBatchId: string | null = null;
 let recoveredRetryBatchId: string | null = null;
 let duplicateBatchId: string | null = null;
@@ -53,6 +55,13 @@ let senseId: string | null = null;
 let createSenseId: string | null = null;
 const grantIds: string[] = [];
 const temporaryActorIds: string[] = [];
+
+function requireRetryBatch(
+  result: Awaited<ReturnType<typeof createRetryCatalogSubmissionPreview>>,
+) {
+  if ("closed" in result) throw new Error("catalog checker expected an actionable retry batch");
+  return result;
+}
 
 const basePayload: CatalogGovernancePayload = {
   term: `checkword${suffix}`,
@@ -155,7 +164,7 @@ async function cleanupStaleFixtures() {
 
 async function cleanup() {
   const visited = new Set<string>();
-  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, recoveredRetryBatchId, pendingRetryBlockerBatchId, blockedRetrySourceBatchId, retryExpiredRestartBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, conflictUnionBatchId, draftBatchId].filter((value): value is string => Boolean(value))) {
+  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, recoveredRetryBatchId, pendingRetryBlockerBatchId, blockedRetrySourceBatchId, noChangeAppliedBatchId, noChangeRetrySourceBatchId, retryExpiredRestartBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, conflictUnionBatchId, draftBatchId].filter((value): value is string => Boolean(value))) {
     await cleanupBatchTree(cleanupBatchId, visited);
   }
   if (senseId) {
@@ -326,6 +335,178 @@ async function main() {
     where: { id: sense.id },
     select: { approvedRevision: { select: { revision: true } } },
   });
+  const noChangePayload: CatalogGovernancePayload = {
+    ...updatedPayload,
+    exampleEn: "The approved content now matches the stale retry proposal exactly.",
+    exampleZh: "正式內容現已完全追上過時重試提案。",
+  };
+  const noChangeSourcePreview = await createCatalogSubmissionPreview({
+    actorId: proposer.id,
+    operationId: randomUUID(),
+    fileName: CATALOG_CHECKER_FILE_NAME,
+    bytes: new TextEncoder().encode(catalogRowsToCsv([{
+      ...sourceRow(noChangePayload),
+      record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+    }], CATALOG_GOVERNANCE_HEADERS)),
+  });
+  noChangeRetrySourceBatchId = noChangeSourcePreview.batch.id;
+  if (noChangeSourcePreview.batch.rows.some((row) => Array.isArray(row.errors) && row.errors.length > 0)) {
+    throw new Error(`no-change source preview errors: ${JSON.stringify(noChangeSourcePreview.batch.rows.map((row) => ({ rowNumber: row.rowNumber, errors: row.errors })))}`);
+  }
+  const noChangeSourceSubmitted = await submitCatalogSubmissionBatch({
+    batchId: noChangeRetrySourceBatchId,
+    actorId: proposer.id,
+    expectedRevision: noChangeSourcePreview.batch.revision,
+    operationId: randomUUID(),
+    reason: "prepare no-change retry closure source",
+  });
+  await claimCatalogSubmissionBatch({
+    batchId: noChangeRetrySourceBatchId,
+    actorId: reviewer.id,
+    expectedRevision: noChangeSourceSubmitted.patch.revision,
+    release: false,
+  });
+  const noChangeSourceClaimed = await getCatalogSubmissionBatch({
+    batchId: noChangeRetrySourceBatchId,
+    actorId: reviewer.id,
+    canReview: true,
+  });
+  const noChangeSourceRejected = await reviewCatalogSubmissionGroup({
+    batchId: noChangeRetrySourceBatchId,
+    groupId: noChangeSourceClaimed.groups[0]!.id,
+    actorId: reviewer.id,
+    expectedBatchRevision: noChangeSourceClaimed.revision,
+    expectedGroupRevision: noChangeSourceClaimed.groups[0]!.revision,
+    decision: "REJECT",
+    reviewNote: "reject source before another batch applies the same proposal",
+    acknowledgedPayloadDigest: noChangeSourceClaimed.groups[0]!.payloadDigest,
+  });
+  await finalizeCatalogSubmissionBatch({
+    batchId: noChangeRetrySourceBatchId,
+    actorId: reviewer.id,
+    expectedRevision: noChangeSourceRejected.patch.revision,
+    operationId: randomUUID(),
+    recentAuth: { grantId, tokenVersion: reviewer.tokenVersion, credentialRevision: reviewer.credentialRevision, reauthenticatedAt, expiresAt },
+  });
+  const noChangeAppliedPreview = await createCatalogSubmissionPreview({
+    actorId: proposer.id,
+    operationId: randomUUID(),
+    fileName: CATALOG_CHECKER_FILE_NAME,
+    bytes: new TextEncoder().encode(catalogRowsToCsv([{
+      ...sourceRow(noChangePayload),
+      record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+    }], CATALOG_GOVERNANCE_HEADERS)),
+  });
+  noChangeAppliedBatchId = noChangeAppliedPreview.batch.id;
+  if (noChangeAppliedPreview.batch.rows.some((row) => Array.isArray(row.errors) && row.errors.length > 0)) {
+    throw new Error(`no-change applied preview errors: ${JSON.stringify(noChangeAppliedPreview.batch.rows.map((row) => ({ rowNumber: row.rowNumber, errors: row.errors })))}`);
+  }
+  const noChangeAppliedSubmitted = await submitCatalogSubmissionBatch({
+    batchId: noChangeAppliedBatchId,
+    actorId: proposer.id,
+    expectedRevision: noChangeAppliedPreview.batch.revision,
+    operationId: randomUUID(),
+    reason: "apply the stale source proposal through an independent batch",
+  });
+  await claimCatalogSubmissionBatch({
+    batchId: noChangeAppliedBatchId,
+    actorId: reviewer.id,
+    expectedRevision: noChangeAppliedSubmitted.patch.revision,
+    release: false,
+  });
+  const noChangeAppliedClaimed = await getCatalogSubmissionBatch({
+    batchId: noChangeAppliedBatchId,
+    actorId: reviewer.id,
+    canReview: true,
+  });
+  const noChangeAppliedReviewed = await reviewCatalogSubmissionGroup({
+    batchId: noChangeAppliedBatchId,
+    groupId: noChangeAppliedClaimed.groups[0]!.id,
+    actorId: reviewer.id,
+    expectedBatchRevision: noChangeAppliedClaimed.revision,
+    expectedGroupRevision: noChangeAppliedClaimed.groups[0]!.revision,
+    decision: "APPROVE",
+    reviewNote: "approve matching content for retry closure regression",
+    acknowledgedPayloadDigest: noChangeAppliedClaimed.groups[0]!.payloadDigest,
+  });
+  await finalizeCatalogSubmissionBatch({
+    batchId: noChangeAppliedBatchId,
+    actorId: reviewer.id,
+    expectedRevision: noChangeAppliedReviewed.patch.revision,
+    operationId: randomUUID(),
+    recentAuth: { grantId, tokenVersion: reviewer.tokenVersion, credentialRevision: reviewer.credentialRevision, reauthenticatedAt, expiresAt },
+  });
+  const approvedAfterNoChange = await prisma.wordSense.findUniqueOrThrow({
+    where: { id: sense.id },
+    select: { approvedRevision: { select: { revision: true } } },
+  });
+
+  const noChangeSourceBeforeClosure = await prisma.catalogSubmissionBatch.findUniqueOrThrow({
+    where: { id: noChangeRetrySourceBatchId },
+    select: { revision: true, fileName: true },
+  });
+  let closurePayloadMutationBlocked = false;
+  try {
+    await prisma.catalogSubmissionBatch.update({
+      where: { id: noChangeRetrySourceBatchId },
+      data: {
+        fileName: `tampered-${noChangeSourceBeforeClosure.fileName}`,
+        retryClosedAt: new Date(),
+        retryCloseReason: "NO_LONGER_APPLICABLE",
+        revision: { increment: 1 },
+      },
+    });
+  } catch {
+    closurePayloadMutationBlocked = true;
+  }
+  if (!closurePayloadMutationBlocked) throw new Error("retry closure guard allowed terminal payload mutation");
+
+  const noChangeRetryOperationId = randomUUID();
+  const noChangeClosed = await createRetryCatalogSubmissionPreview({
+    sourceBatchId: noChangeRetrySourceBatchId,
+    actorId: proposer.id,
+    operationId: noChangeRetryOperationId,
+  });
+  if (!("closed" in noChangeClosed) || noChangeClosed.replay || noChangeClosed.sourceBatchId !== noChangeRetrySourceBatchId) {
+    throw new Error("no-change retry did not return an authoritative closure result");
+  }
+  const noChangeSourceAfterClosure = await prisma.catalogSubmissionBatch.findUniqueOrThrow({
+    where: { id: noChangeRetrySourceBatchId },
+    select: {
+      revision: true,
+      retryClosedAt: true,
+      retryCloseReason: true,
+      retriedBy: { select: { id: true } },
+    },
+  });
+  if (
+    !noChangeSourceAfterClosure.retryClosedAt
+    || noChangeSourceAfterClosure.retryCloseReason !== "NO_LONGER_APPLICABLE"
+    || noChangeSourceAfterClosure.retriedBy
+    || noChangeSourceAfterClosure.revision !== noChangeSourceBeforeClosure.revision + 1
+  ) {
+    throw new Error("no-change retry closure state is inconsistent");
+  }
+  const closedSourceActionable = await prisma.catalogSubmissionBatch.count({
+    where: { AND: [{ id: noChangeRetrySourceBatchId }, catalogBatchNeedsRevisionWhere(proposer.id)] },
+  });
+  if (closedSourceActionable !== 0) throw new Error("closed no-change source remained actionable");
+  const noChangeReplay = await createRetryCatalogSubmissionPreview({
+    sourceBatchId: noChangeRetrySourceBatchId,
+    actorId: proposer.id,
+    operationId: noChangeRetryOperationId,
+  });
+  if (!("closed" in noChangeReplay) || !noChangeReplay.replay || noChangeReplay.sourceBatchId !== noChangeRetrySourceBatchId) {
+    throw new Error("no-change retry operation did not replay its closure result");
+  }
+  const [noChangeClosureAudits, noChangeClosureReceipts, noChangeHistoryEntries] = await Promise.all([
+    prisma.catalogAuditEvent.count({ where: { submissionBatchId: noChangeRetrySourceBatchId, action: "BATCH_RETRY_CLOSED_NO_CHANGES" } }),
+    prisma.catalogSubmissionOperationReceipt.count({ where: { batchId: noChangeRetrySourceBatchId, operationKind: "RETRY_CLOSE" } }),
+    prisma.catalogHistoryFeedEntry.count({ where: { submissionBatchId: noChangeRetrySourceBatchId } }),
+  ]);
+  if (noChangeClosureAudits !== 1 || noChangeClosureReceipts !== 1 || noChangeHistoryEntries !== 1) {
+    throw new Error("no-change retry replay duplicated closure evidence or lost history");
+  }
   const blockedRetryPayload: CatalogGovernancePayload = {
     ...updatedPayload,
     definitionZh: "被 pending 修改暫時阻擋的 retry",
@@ -337,7 +518,7 @@ async function main() {
     fileName: CATALOG_CHECKER_FILE_NAME,
     bytes: new TextEncoder().encode(catalogRowsToCsv([{
       ...sourceRow(blockedRetryPayload),
-      record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+      record_revision: String(approvedAfterNoChange.approvedRevision!.revision),
     }], CATALOG_GOVERNANCE_HEADERS)),
   });
   blockedRetrySourceBatchId = blockedRetrySourcePreview.batch.id;
@@ -374,7 +555,7 @@ async function main() {
     fileName: CATALOG_CHECKER_FILE_NAME,
     bytes: new TextEncoder().encode(catalogRowsToCsv([{
       ...sourceRow(pendingBlockerPayload),
-      record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+      record_revision: String(approvedAfterNoChange.approvedRevision!.revision),
     }], CATALOG_GOVERNANCE_HEADERS)),
   });
   pendingRetryBlockerBatchId = pendingBlockerPreview.batch.id;
@@ -433,11 +614,11 @@ async function main() {
     where: { AND: [{ id: blockedRetrySourceBatchId }, catalogBatchNeedsRevisionWhere(proposer.id)] },
   });
   if (unblockedSourceActionable !== 1) throw new Error("retry source did not become actionable after pending blocker finished");
-  const recoveredRetry = await createRetryCatalogSubmissionPreview({
+  const recoveredRetry = requireRetryBatch(await createRetryCatalogSubmissionPreview({
     sourceBatchId: blockedRetrySourceBatchId,
     actorId: proposer.id,
     operationId: randomUUID(),
-  });
+  }));
   recoveredRetryBatchId = recoveredRetry.batch.id;
   if (recoveredRetry.batch.retryOfBatchId !== blockedRetrySourceBatchId || recoveredRetry.batch.groups.length !== 1) {
     throw new Error("retry source did not create a valid successor after pending blocker finished");
@@ -452,7 +633,7 @@ async function main() {
   const conflictUnionRows = [2, 3].map((rowNumber) => ({
     ...sourceRow(conflictUnionPayload),
     sourceRow: rowNumber,
-    record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+    record_revision: String(approvedAfterNoChange.approvedRevision!.revision),
   }));
   const conflictUnionPreview = await createCatalogSubmissionPreview({
     actorId: proposer.id,
@@ -472,19 +653,19 @@ async function main() {
   ) {
     throw new Error("multi-row retry conflicts were not unioned on the proposal group");
   }
-  const corrective = await createCorrectiveCatalogSubmissionPreview({ sourceBatchId: batchId, actorId: reviewer.id, operationId: randomUUID() });
+  const corrective = await createCorrectiveCatalogSubmissionPreview({ sourceBatchId: noChangeAppliedBatchId, actorId: reviewer.id, operationId: randomUUID() });
   correctiveBatchId = corrective.batch.id;
-  if (corrective.batch.status !== "PREVIEW" || corrective.batch.supersedesBatchId !== batchId || corrective.batch.groups[0]?.requestedAction !== "UPDATE") throw new Error("corrective preview contract failed");
+  if (corrective.batch.status !== "PREVIEW" || corrective.batch.supersedesBatchId !== noChangeAppliedBatchId || corrective.batch.groups[0]?.requestedAction !== "UPDATE") throw new Error("corrective preview contract failed");
   const correctivePayload = corrective.batch.groups[0]?.finalProposalPayload as { definitionZh?: string } | undefined;
-  if (correctivePayload?.definitionZh !== basePayload.definitionZh) throw new Error("corrective preview did not restore the previous payload");
+  if (correctivePayload?.definitionZh !== updatedPayload.definitionZh) throw new Error("corrective preview did not restore the previous payload");
   await cancelCatalogSubmissionBatch({
     batchId: corrective.batch.id,
     actorId: reviewer.id,
     expectedRevision: corrective.batch.revision,
   });
-  const secondCorrective = await createCorrectiveCatalogSubmissionPreview({ sourceBatchId: batchId, actorId: reviewer.id, operationId: randomUUID() });
+  const secondCorrective = await createCorrectiveCatalogSubmissionPreview({ sourceBatchId: noChangeAppliedBatchId, actorId: reviewer.id, operationId: randomUUID() });
   secondCorrectiveBatchId = secondCorrective.batch.id;
-  if (secondCorrective.batch.supersedesBatchId !== batchId) throw new Error("cancelled corrective preview permanently blocked a later corrective preview");
+  if (secondCorrective.batch.supersedesBatchId !== noChangeAppliedBatchId) throw new Error("cancelled corrective preview permanently blocked a later corrective preview");
 
   const createPayload: CatalogGovernancePayload = { ...basePayload, term: `checkcreate${suffix}`, lemma: `checkcreate${suffix}`, definitionZh: "新增測試詞", acceptedAnswersZh: ["新增測試詞"], exampleEn: "This is a newly created catalog check word.", exampleZh: "這是一個新增詞庫檢查詞。" };
   const createPreview = await createCatalogSubmissionPreview({ actorId: proposer.id, operationId: randomUUID(), fileName: CATALOG_CHECKER_FILE_NAME, bytes: new TextEncoder().encode(catalogRowsToCsv([sourceRow(createPayload, "CREATE")], CATALOG_GOVERNANCE_HEADERS)) });
@@ -522,10 +703,10 @@ async function main() {
   const resolutionStaleBatch = await getCatalogSubmissionBatch({ batchId: resolutionBatchId, actorId: reviewer.id, canReview: true });
   if (resolutionStale.batch.status !== "STALE" || resolutionStaleBatch.groups[0]!.resolution !== resolutionClaimed.groups[0]!.resolution) throw new Error("request-resolution did not preserve submitted payload and stale the batch");
   const retryOperationId = randomUUID();
-  const retryResults = await Promise.all([
+  const retryResults = (await Promise.all([
     createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: retryOperationId }),
     createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: retryOperationId }),
-  ]);
+  ])).map(requireRetryBatch);
   const retryPreview = retryResults[0]!;
   if (retryResults.filter((result) => result.replay).length !== 1 || retryResults[0]!.batch.id !== retryResults[1]!.batch.id) {
     throw new Error("concurrent retry idempotency did not replay the committed successor");
@@ -583,7 +764,7 @@ async function main() {
     where: { id: resolutionBatchId, status: { in: ["STALE", "REJECTED"] }, retriedBy: null },
   });
   if (staleSourceStillActionable !== 0) throw new Error("retried source remained actionable after successor creation");
-  const duplicateRetry = await createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: randomUUID() });
+  const duplicateRetry = requireRetryBatch(await createRetryCatalogSubmissionPreview({ sourceBatchId: resolutionBatchId, actorId: proposer.id, operationId: randomUUID() }));
   const duplicateRetryReplayed = duplicateRetry.replay && duplicateRetry.batch.id === retryPreview.batch.id;
   if (!duplicateRetryReplayed) throw new Error("request-resolution source did not replay the existing retry successor");
   const cancelledRetry = await cancelCatalogSubmissionBatch({
@@ -597,10 +778,10 @@ async function main() {
   });
   if (cancelledRetryActionable !== 1) throw new Error("cancelled retry successor did not return to the revision work queue");
   const restartOperationId = randomUUID();
-  const restartedResults = await Promise.all([
+  const restartedResults = (await Promise.all([
     createRetryCatalogSubmissionPreview({ sourceBatchId: retryPreview.batch.id, actorId: proposer.id, operationId: restartOperationId }),
     createRetryCatalogSubmissionPreview({ sourceBatchId: retryPreview.batch.id, actorId: proposer.id, operationId: restartOperationId }),
-  ]);
+  ])).map(requireRetryBatch);
   retryRestartBatchId = restartedResults[0]!.batch.id;
   if (
     restartedResults.filter((result) => result.replay).length !== 1
@@ -640,11 +821,11 @@ async function main() {
       data: { status: "EXPIRED", revision: { increment: 1 } },
     });
   });
-  const expiredRestart = await createRetryCatalogSubmissionPreview({
+  const expiredRestart = requireRetryBatch(await createRetryCatalogSubmissionPreview({
     sourceBatchId: retryRestartBatchId,
     actorId: proposer.id,
     operationId: randomUUID(),
-  });
+  }));
   retryExpiredRestartBatchId = expiredRestart.batch.id;
   if (
     expiredRestart.batch.status !== "NEEDS_RESOLUTION"
@@ -874,7 +1055,7 @@ async function main() {
     throw new Error("transfer/takeover race selected an unexpected reviewer");
   }
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, retryConflictMetadataBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, cancelledRetryRestarted: true, blockedRetryRecovered: true, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, retryConflictMetadataBlocked, retryNoChangeClosure: true, retryNoChangeReplay: true, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, cancelledRetryRestarted: true, blockedRetryRecovered: true, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

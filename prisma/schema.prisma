@@ -208,6 +208,11 @@ enum CatalogProposalContributionKind {
 enum CatalogSubmissionOperationKind {
   SUBMIT
   FINALIZE
+  RETRY_CLOSE
+}
+
+enum CatalogRetryClosureReason {
+  NO_LONGER_APPLICABLE
 }
 
 enum CatalogHistorySourceKind {
@@ -542,6 +547,8 @@ model CatalogSubmissionBatch {
   committedAt            DateTime?
   lastActivityAt         DateTime                            @default(now())
   contentPurgedAt        DateTime?
+  retryClosedAt          DateTime?
+  retryCloseReason       CatalogRetryClosureReason?
   supersedesBatchId      String?
   retryOfBatchId         String?                             @unique
   actorPseudonym         String?

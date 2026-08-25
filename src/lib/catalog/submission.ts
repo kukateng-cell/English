@@ -152,10 +152,15 @@ export class CatalogRetryPreviewBlockedError extends Error {
   }
 }
 
-export function assertCatalogRetryPreviewActionable(
+export type CatalogRetryPreviewActionability =
+  | { kind: "ACTIONABLE" }
+  | { kind: "BLOCKED"; rows: CatalogRetryPreviewBlockedRow[] }
+  | { kind: "NO_CHANGES" };
+
+export function evaluateCatalogRetryPreviewActionability(
   preview: CatalogSubmissionPreview,
   sourceRows: readonly CatalogSourceRow[] = [],
-): void {
+): CatalogRetryPreviewActionability {
   const sourceRowsByNumber = new Map(sourceRows.map((row) => [row.sourceRow, row]));
   const blockedRows = preview.rows
     .filter((row) => row.primaryDisposition === "VALIDATION_FAILED")
@@ -172,8 +177,9 @@ export function assertCatalogRetryPreviewActionable(
         errors,
       };
     });
-  if (blockedRows.length) throw new CatalogRetryPreviewBlockedError(blockedRows);
-  if (preview.groups.length === 0) throw new Error("CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE");
+  if (blockedRows.length) return { kind: "BLOCKED", rows: blockedRows };
+  if (preview.groups.length === 0) return { kind: "NO_CHANGES" };
+  return { kind: "ACTIONABLE" };
 }
 
 const MATERIAL_FIELDS: ReadonlySet<keyof CatalogGovernancePayload> = new Set([

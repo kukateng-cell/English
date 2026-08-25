@@ -1,6 +1,6 @@
 # 詞庫教師意見、真實題目預覽及工作待辦實施計劃
 
-狀態：已完成（2026-08-25 第六輪 dialog intent／retry blocked detail 加固完成；production rollout 仍延後）
+狀態：已完成（2026-08-25 第七輪 review intent／retry closure／question preview freshness 加固；production rollout 仍延後）
 
 建立日期：2026-08-24
 所屬分支：`codex/word-catalog-governance-and-lifecycle`
@@ -394,3 +394,32 @@
 - `npm run build`：83 routes production build 通過；首次沙箱內因 Turbopack helper 不可綁定 loopback port 失敗，以獲准本機權限重跑同一指令後通過。
 - `npm run test:e2e:catalog-workspace`：9／9 通過；新增 pending 草稿、slow retry、submit refresh 三種 dialog intent race，以及 blocked CSV row／term／中文原因顯示。
 - production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。
+
+## 2026-08-25 第七輪 review intent／retry closure／question preview freshness 加固
+
+固定 `75308cc` 的後續審核指出三個成立邊界：舊審核回應仍可改動其後打開的 dialog；全 `NO_CHANGE` retry 雖不建立空 successor，但原 source 會永久留在 actionable 待辦；題目預覽未將 sense identity 納入 freshness key，亦未取消舊請求。本輪採用以下 contract：
+
+- review mutation 只可清理開始時同一 dialog intent 的 review note／dialog error；全域成功訊息及清單刷新可照常完成，但舊 closure 不可關閉或污染後來開啟的詞條；
+- retry rebase 全部 `NO_CHANGE` 時，在建立 successor 前以普通 expand migration 新增的一次性 closure 欄位標記 source，保留原 terminal status、完整歷史及 `retriedBy = null`；同 operation ID 以永久 receipt 重播同一 closure，且只寫一次 audit；
+- work-items 只計 `retryClosedAt IS NULL` 的 retry source；前端把 closure 視為成功完成並重新整理待辦，而非持續顯示可重試錯誤；
+- 題目預覽 identity 同時包含 sense key、payload 及方向；任何 identity 改變均取消舊 request、清除舊 preview，並以 generation／key 雙重核對 response；已停用方向會自動切換到仍可用方向。
+
+### Checklist
+
+- [x] `reviewRequest()` 加入共用 dialog intent freshness，舊成功／失敗回應不得清空或關閉新 dialog。
+- [x] 新增 retry closure enum／欄位、consistency／one-way DB guard及 `RETRY_CLOSE` receipt operation。
+- [x] retry preview transaction 將全 `NO_CHANGE` source 原子關閉、寫一次 audit，並支援同 operation ID replay。
+- [x] work-items count／list、client retry UX及 API response同步處理已關閉 source。
+- [x] 題目預覽加入 sense-aware key、abort／generation guard、direction同步及 parent reset。
+- [x] 補 unit、migration、真實 PostgreSQL checker及 Playwright race／closure regression；完成 lint、TypeScript、build及差異檢查。
+- [x] 記錄實際驗證並恢復計劃「已完成」；production／staging rollout仍維持延後。
+
+### 實際驗證
+
+- `npm test`：335／335 通過；retry actionability、全 `NO_CHANGE`、混合 conflict rebase及 work-item closure pure contract均有回歸。
+- `npm run lint`、`npx tsc --noEmit`、`git diff --check`：通過。
+- `npm run build`：83 routes production build 通過；首次 sandbox 執行因 Turbopack helper 不可綁定 loopback port失敗，以獲准本機權限重跑後通過。
+- `npm run test:migration-checksums`：通過；`npm run test:migrations`：66個ordinary migrations fresh／interrupted replay通過；本機development database migration status為up to date。
+- `npm run check:catalog-submission`：一次性closure、terminal payload guard、`retriedBy=null`、待辦排除、歷史保留、單一audit／receipt及同operation ID replay全部通過。
+- `npm run test:e2e:catalog-workspace`：14／14通過，包括舊review成功／失敗不污染新dialog、sense-aware preview stale response、唯一可用方向自動切換及全 `NO_CHANGE` 待辦移除。
+- Staging、managed Vercel、production migration／deploy及真實老師UAT未執行，仍屬明確延後項目。

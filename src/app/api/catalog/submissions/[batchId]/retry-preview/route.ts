@@ -23,7 +23,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ batchId
       actorId: auth.actor.userId,
       operationId: req.headers.get("idempotency-key") ?? "",
     });
-    return NextResponse.json(result, { status: result.replay ? 200 : 201, headers: CATALOG_PRIVATE_HEADERS });
+    return NextResponse.json(result, {
+      status: "closed" in result ? 200 : result.replay ? 200 : 201,
+      headers: CATALOG_PRIVATE_HEADERS,
+    });
   } catch (error) {
     return catalogRouteError(error);
   }
