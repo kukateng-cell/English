@@ -1,6 +1,6 @@
 # 詞庫教師意見、真實題目預覽及工作待辦實施計劃
 
-狀態：已完成（2026-08-25 第四輪 pending baseline／retry conflict／actionability 加固完成；production rollout 仍延後）
+狀態：已完成（2026-08-25 第五輪 batch retry fail-closed／detail request race 加固完成；production rollout 仍延後）
 
 建立日期：2026-08-24
 所屬分支：`codex/word-catalog-governance-and-lifecycle`
@@ -186,6 +186,35 @@
 - `npm run check:catalog-submission`：同一 proposal group 多行 conflict union、`ESCALATE → cancel → retry` conflict 繼承、嚴格 fixture discovery 及 lineage cleanup 通過。
 - `npm run test:e2e:catalog-workspace`：4／4 通過；涵蓋 pending UPDATE baseline、手動內容修改阻止 status action、pending blocker 令 rejected retry 暫時退出待辦，及 blocker 完成後重新出現。
 - production／staging migration、production deploy 及真實老師 UAT 未執行，仍屬明確延後項目。
+
+## 2026-08-25 第五輪 batch retry fail-closed／detail request race 加固
+
+### 背景及決策
+
+後續審核指出兩個成立的邊界問題：批次一鍵 retry 在 target 已有 pending change 或 rebase 後全部變成 `NO_CHANGE` 時，仍可能先建立一個無 proposal group、不可提交的唯一 successor；完整詞庫的詞條 detail 請求亦未有 freshness guard，較慢的舊回應可以覆蓋較新的選擇。本輪採用以下 contract：
+
+- retry preview 只要有任何 `VALIDATION_FAILED` row，便在同一個 Serializable transaction、建立 `CatalogSubmissionBatch` 之前回 `409 CATALOG_BATCH_RETRY_BLOCKED` 及逐行錯誤；如 proposal groups 為零則回 `409 CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE`；兩者均不得寫入 successor lineage；
+- 工作待辦會暫時排除 target sense 已有 pending change 的 retry batch；pending 終結後，原 source 按同一查詢自動恢復可行動；endpoint 仍在交易內重新驗證，不能只信 UI／待辦；
+- detail fetch 使用 `AbortController`、monotonic generation 及 response freshness check；任何新 detail selection、開新詞、關閉 dialog、轉入歷史、成功關閉或 component unmount 都會令舊請求失效；
+- 瀏覽器回歸要同時證明 A 慢、B 快、A 最後返回時畫面仍為 B，而且提交 body 的 `senseKey` 必須是 B。
+
+### Checklist
+
+- [x] 新增 retry preview strict gate 及結構化 blocked rows error，位置在 batch insert 之前。
+- [x] `catalogRouteError()` 將 blocked、no-longer-applicable 及 pending blocker 統一映射為 409。
+- [x] `catalogBatchNeedsRevisionWhere()` 排除目前 target 有 pending request 的 retry source。
+- [x] detail request 加 abort／generation／freshness，所有關閉與 unmount 路徑取消舊請求。
+- [x] 補 unit、真實 PostgreSQL transaction 及 Playwright race regression。
+- [x] 執行 zero-warning lint、TypeScript、83-route production build及差異檢查。
+
+### 本輪實際驗證
+
+- `npm test`：334／334 通過；包含 validation-blocked rows 結構及全 `NO_CHANGE` empty rebase fail-closed。
+- `npm run lint`：零警告；`npx tsc --noEmit`、`git diff --check`：通過。
+- `npm run check:catalog-submission`：真實本機 PostgreSQL 證明 pending blocker 時 source 不出現在 actionable query、retry 不建立 `retriedBy`；blocker 完成後原 source 重新可見並成功建立一個有效 successor。
+- `npm run build`：83 個 App Router routes production build 通過。
+- `npm run test:e2e:catalog-workspace`：5／5 通過；新增 A detail 延遲、B 先返回、A 後返回仍保持 B，並核對 POST `senseKey` 為 B。
+- 本輪沒有 schema／migration 改動；production／staging deploy、managed database 及真實老師 UAT 未執行。
 
 ## 2026-08-25 第三輪 retry applicability／conflict persistence 加固
 

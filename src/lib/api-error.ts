@@ -153,6 +153,8 @@ const CODE_MESSAGES: Record<string, string> = {
   CATALOG_REQUEST_RETRY_PATCH_INVALID: "修正版內容同目前合併基線不一致，請重新開啟",
   CATALOG_STATUS_PAYLOAD_NOT_ALLOWED: "狀態申請不可同時修改詞條內容；請先提交內容修改並完成審核",
   CATALOG_BATCH_NOT_RETRYABLE: "這個批次目前不能建立修正版預覽",
+  CATALOG_BATCH_RETRY_BLOCKED: "批次內容或目標目前有阻擋問題；請按錯誤提示修正，或待其他審核完成後再試",
+  CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE: "批次重新比對後已沒有任何實際修改，毋須再建立修正版",
   CATALOG_BATCH_ALREADY_SUPERSEDED: "這個批次已經建立修正版預覽",
   CATALOG_REVIEW_NOTE_REQUIRED: "拒絕草稿時必須填寫審核備註",
   CATALOG_REQUEST_NOT_FOUND: "找不到這項詞庫審核申請",

@@ -6,6 +6,7 @@ import { consumeCatalogGovernanceLimit } from "@/lib/catalog-limiter";
 import { getClientIp } from "@/lib/login-limiter";
 import { Prisma } from "@/lib/prisma";
 import { CatalogCsvError } from "./csv";
+import { CatalogRetryPreviewBlockedError } from "./submission";
 import { isRetryableTransactionConflict } from "@/lib/transaction-retry";
 
 export const CATALOG_PRIVATE_HEADERS = {
@@ -79,6 +80,9 @@ export async function readLimitedBody(req: Request, maxBytes: number): Promise<U
 
 export function catalogRouteError(error: unknown): NextResponse {
   const code = error instanceof CatalogCsvError ? error.code : error instanceof Error ? error.message : "CATALOG_REQUEST_FAILED";
+  if (error instanceof CatalogRetryPreviewBlockedError) {
+    return catalogResponse(error.message, 409, { rows: error.rows });
+  }
   if (isRetryableTransactionConflict(error)) return catalogResponse("CATALOG_REQUEST_STALE", 409);
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return catalogResponse("CATALOG_IDENTITY_CONFLICT", 409);
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return catalogResponse("CATALOG_REQUEST_STALE", 409);
@@ -89,6 +93,9 @@ export function catalogRouteError(error: unknown): NextResponse {
   if (code === "RECENT_AUTH_REQUIRED") return catalogResponse(code, 401);
   if (code.includes("TOO_LARGE")) return catalogResponse(code, 413);
   if (code === "CATALOG_BATCH_EXPIRED") return catalogResponse(code, 410);
+  if (code === "CATALOG_CHANGE_PENDING" || code === "CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE") {
+    return catalogResponse(code, 409);
+  }
   if (code.startsWith("CATALOG_CSV_") || code.endsWith("_INVALID") || code.endsWith("_REQUIRED") || code === "CATALOG_BATCH_HAS_ERRORS" || code === "CATALOG_BATCH_NEEDS_RESOLUTION" || code === "CATALOG_BATCH_EMPTY") {
     return catalogResponse(code, 422, error instanceof CatalogCsvError ? { message: error.message } : undefined);
   }

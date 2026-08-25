@@ -112,6 +112,21 @@ test("a claimed resolution batch belongs to exactly one actionable bucket", () =
     status: "NEEDS_RESOLUTION",
     resolutionOwnerId: null,
   });
+  assert.deepEqual(
+    (revisionWhere.OR?.[0] as { proposalGroups?: { none?: unknown } }).proposalGroups?.none,
+    {
+      AND: [
+        { OR: [{ resolution: null }, { resolution: { not: "REJECT" } }] },
+        {
+          OR: [
+            { requestedAction: { in: ["RETIRE", "REACTIVATE"] } },
+            { changeRequest: { is: { kind: { in: ["RETIRE", "REACTIVATE"] } } } },
+            { targetSense: { is: { changeRequests: { some: { status: "PENDING" } } } } },
+          ],
+        },
+      ],
+    },
+  );
 });
 
 test("mixed work items are globally ordered and capped per section", () => {

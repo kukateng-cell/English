@@ -28,6 +28,15 @@ const retryableContentGroups: Prisma.CatalogSubmissionProposalGroupListRelationF
       { OR: [
         { requestedAction: { in: ["RETIRE", "REACTIVATE"] } },
         { changeRequest: { is: { kind: { in: ["RETIRE", "REACTIVATE"] } } } },
+        {
+          targetSense: {
+            is: {
+              changeRequests: {
+                some: { status: "PENDING" },
+              },
+            },
+          },
+        },
       ] },
     ],
   },

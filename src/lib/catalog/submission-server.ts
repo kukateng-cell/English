@@ -13,6 +13,7 @@ import {
 } from "./csv";
 import {
   catalogActorPseudonym,
+  assertCatalogRetryPreviewActionable,
   buildCatalogSubmissionPreview,
   buildCatalogPreviewDependencyDigests,
   catalogDependencyDigest,
@@ -303,6 +304,7 @@ export async function createCatalogSubmissionPreview(input: {
       requestFingerprint: row.requestFingerprint,
     }));
     const preview = buildCatalogSubmissionPreview(rows, snapshots, pendingChanges);
+    if (input.retrySourceBatchId) assertCatalogRetryPreviewActionable(preview);
     const retryMergeConflictFieldsByGroup = new Map<number, ReturnType<typeof parseCatalogRetryMergeConflictFields>>();
     if (input.retryMergeConflicts?.size) {
       for (const [sourceRowNumber, fields] of input.retryMergeConflicts) {

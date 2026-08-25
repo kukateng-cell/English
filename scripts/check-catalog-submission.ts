@@ -41,6 +41,9 @@ let resolutionBatchId: string | null = null;
 let retryBatchId: string | null = null;
 let retryRestartBatchId: string | null = null;
 let retryExpiredRestartBatchId: string | null = null;
+let blockedRetrySourceBatchId: string | null = null;
+let pendingRetryBlockerBatchId: string | null = null;
+let recoveredRetryBatchId: string | null = null;
 let duplicateBatchId: string | null = null;
 let draftBatchId: string | null = null;
 let conflictUnionBatchId: string | null = null;
@@ -152,7 +155,7 @@ async function cleanupStaleFixtures() {
 
 async function cleanup() {
   const visited = new Set<string>();
-  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, retryExpiredRestartBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, conflictUnionBatchId, draftBatchId].filter((value): value is string => Boolean(value))) {
+  for (const cleanupBatchId of [authorClaimRecoveryBatchId, claimRecoveryBatchId, secondCorrectiveBatchId, correctiveBatchId, duplicateBatchId, recoveredRetryBatchId, pendingRetryBlockerBatchId, blockedRetrySourceBatchId, retryExpiredRestartBatchId, retryRestartBatchId, retryBatchId, resolutionBatchId, createBatchId, batchId, conflictUnionBatchId, draftBatchId].filter((value): value is string => Boolean(value))) {
     await cleanupBatchTree(cleanupBatchId, visited);
   }
   if (senseId) {
@@ -323,6 +326,118 @@ async function main() {
     where: { id: sense.id },
     select: { approvedRevision: { select: { revision: true } } },
   });
+  const blockedRetryPayload: CatalogGovernancePayload = {
+    ...updatedPayload,
+    definitionZh: "被 pending 修改暫時阻擋的 retry",
+    acceptedAnswersZh: ["被 pending 修改暫時阻擋的 retry"],
+  };
+  const blockedRetrySourcePreview = await createCatalogSubmissionPreview({
+    actorId: proposer.id,
+    operationId: randomUUID(),
+    fileName: CATALOG_CHECKER_FILE_NAME,
+    bytes: new TextEncoder().encode(catalogRowsToCsv([{
+      ...sourceRow(blockedRetryPayload),
+      record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+    }], CATALOG_GOVERNANCE_HEADERS)),
+  });
+  blockedRetrySourceBatchId = blockedRetrySourcePreview.batch.id;
+  const blockedRetrySubmitted = await submitCatalogSubmissionBatch({
+    batchId: blockedRetrySourceBatchId,
+    actorId: proposer.id,
+    expectedRevision: blockedRetrySourcePreview.batch.revision,
+    operationId: randomUUID(),
+    reason: "prepare stale retry source for pending blocker regression",
+  });
+  await claimCatalogSubmissionBatch({
+    batchId: blockedRetrySourceBatchId,
+    actorId: reviewer.id,
+    expectedRevision: blockedRetrySubmitted.patch.revision,
+    release: false,
+  });
+  const blockedRetryClaimed = await getCatalogSubmissionBatch({ batchId: blockedRetrySourceBatchId, actorId: reviewer.id, canReview: true });
+  await requestCatalogSubmissionResolution({
+    batchId: blockedRetrySourceBatchId,
+    groupId: blockedRetryClaimed.groups[0]!.id,
+    actorId: reviewer.id,
+    expectedBatchRevision: blockedRetryClaimed.revision,
+    expectedGroupRevision: blockedRetryClaimed.groups[0]!.revision,
+    reason: "make source retryable before introducing a pending blocker",
+  });
+
+  const pendingBlockerPayload: CatalogGovernancePayload = {
+    ...updatedPayload,
+    exampleEn: "A pending request temporarily blocks creation of a retry successor.",
+  };
+  const pendingBlockerPreview = await createCatalogSubmissionPreview({
+    actorId: proposer.id,
+    operationId: randomUUID(),
+    fileName: CATALOG_CHECKER_FILE_NAME,
+    bytes: new TextEncoder().encode(catalogRowsToCsv([{
+      ...sourceRow(pendingBlockerPayload),
+      record_revision: String(approvedAfterFinalize.approvedRevision!.revision),
+    }], CATALOG_GOVERNANCE_HEADERS)),
+  });
+  pendingRetryBlockerBatchId = pendingBlockerPreview.batch.id;
+  const pendingBlockerSubmitted = await submitCatalogSubmissionBatch({
+    batchId: pendingRetryBlockerBatchId,
+    actorId: proposer.id,
+    expectedRevision: pendingBlockerPreview.batch.revision,
+    operationId: randomUUID(),
+    reason: "hold a pending request against the retry target",
+  });
+  const blockedSourceActionable = await prisma.catalogSubmissionBatch.count({
+    where: { AND: [{ id: blockedRetrySourceBatchId }, catalogBatchNeedsRevisionWhere(proposer.id)] },
+  });
+  if (blockedSourceActionable !== 0) throw new Error("pending target did not hide the blocked retry source from work items");
+  let retryBlockedRows: Array<{ rowNumber: number; errors: string[] }> | null = null;
+  try {
+    await createRetryCatalogSubmissionPreview({
+      sourceBatchId: blockedRetrySourceBatchId,
+      actorId: proposer.id,
+      operationId: randomUUID(),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "CATALOG_BATCH_RETRY_BLOCKED" && "rows" in error) {
+      retryBlockedRows = error.rows as Array<{ rowNumber: number; errors: string[] }>;
+    }
+  }
+  if (!retryBlockedRows?.some((row) => row.errors.includes("UPDATE target already has a pending request"))) {
+    throw new Error("retry preview did not report its pending target blocker");
+  }
+  const blockedSourceAfterFailure = await prisma.catalogSubmissionBatch.findUniqueOrThrow({
+    where: { id: blockedRetrySourceBatchId },
+    select: { retriedBy: { select: { id: true } } },
+  });
+  if (blockedSourceAfterFailure.retriedBy) throw new Error("blocked retry created an unusable successor");
+
+  await claimCatalogSubmissionBatch({
+    batchId: pendingRetryBlockerBatchId,
+    actorId: reviewer.id,
+    expectedRevision: pendingBlockerSubmitted.patch.revision,
+    release: false,
+  });
+  const pendingBlockerClaimed = await getCatalogSubmissionBatch({ batchId: pendingRetryBlockerBatchId, actorId: reviewer.id, canReview: true });
+  await requestCatalogSubmissionResolution({
+    batchId: pendingRetryBlockerBatchId,
+    groupId: pendingBlockerClaimed.groups[0]!.id,
+    actorId: reviewer.id,
+    expectedBatchRevision: pendingBlockerClaimed.revision,
+    expectedGroupRevision: pendingBlockerClaimed.groups[0]!.revision,
+    reason: "release pending blocker after retry regression",
+  });
+  const unblockedSourceActionable = await prisma.catalogSubmissionBatch.count({
+    where: { AND: [{ id: blockedRetrySourceBatchId }, catalogBatchNeedsRevisionWhere(proposer.id)] },
+  });
+  if (unblockedSourceActionable !== 1) throw new Error("retry source did not become actionable after pending blocker finished");
+  const recoveredRetry = await createRetryCatalogSubmissionPreview({
+    sourceBatchId: blockedRetrySourceBatchId,
+    actorId: proposer.id,
+    operationId: randomUUID(),
+  });
+  recoveredRetryBatchId = recoveredRetry.batch.id;
+  if (recoveredRetry.batch.retryOfBatchId !== blockedRetrySourceBatchId || recoveredRetry.batch.groups.length !== 1) {
+    throw new Error("retry source did not create a valid successor after pending blocker finished");
+  }
   const conflictUnionPayload: CatalogGovernancePayload = {
     ...updatedPayload,
     definitionZh: "多行衝突合併測試詞",
@@ -755,7 +870,7 @@ async function main() {
     throw new Error("transfer/takeover race selected an unexpected reviewer");
   }
 
-  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, retryConflictMetadataBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, cancelledRetryRestarted: true, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
+  console.log(JSON.stringify({ ready: true, draftBeforePayloadVisible: true, terminalAttachBlocked, bridgeBlocked, payloadBlocked, retryConflictMetadataBlocked, acknowledgementRequired, finalizerClaimRequired, rowReparentBlocked, authorReparentBlocked, terminalReopenBlocked, sourceSelectionRequired, duplicateRetryReplayed, cancelledRetryRestarted: true, blockedRetryRecovered: true, revokedReviewerTakeover: true, proposalAuthorClaimRejected: true, proposalAuthorClaimTakeover: true, transferTakeoverRace: true, createFinalStatus: createFinalized.patch.batch.status, resolutionStatus: resolutionStale.batch.status, retryStatus: retryPreview.batch.status, duplicateStatus: duplicateResolved.batch.status, finalStatus: finalized.patch.batch.status, childStatus: finalizedBatch.groups[0]?.changeRequest?.status, historyEntries: history, correctiveStatus: corrective.batch.status }, null, 2));
 }
 
 main().catch((error) => { console.error(error instanceof Error ? error.message : "catalog submission DB check failed"); process.exitCode = 1; }).finally(async () => { await cleanup().catch((error) => console.error("cleanup failed", error instanceof Error ? error.message : error)); await prisma.$disconnect(); });

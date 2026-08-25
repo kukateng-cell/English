@@ -3,6 +3,11 @@ import test from "node:test";
 import type { CatalogGovernancePayload } from "./governance";
 import { threeWayMergeCatalogPayload } from "./retry-merge";
 import {
+  assertCatalogRetryPreviewActionable,
+  CatalogRetryPreviewBlockedError,
+  type CatalogSubmissionPreview,
+} from "./submission";
+import {
   catalogRetryEffectiveKind,
   catalogRetryGroupsAreContentOnly,
   mergeCatalogRetryConflictFields,
@@ -93,5 +98,57 @@ test("batch retry conflict metadata is validated, de-duplicated, and kept in can
   assert.throws(
     () => parseCatalogRetryMergeConflictFields(["notAField"]),
     /CATALOG_BATCH_RETRY_STALE/u,
+  );
+});
+
+test("batch retry preview fails closed for validation errors and empty rebases", () => {
+  const summary = {
+    totalRows: 1,
+    validRows: 0,
+    invalidRows: 1,
+    proposalGroups: 0,
+    unresolvedGroups: 0,
+    createGroups: 0,
+    updateGroups: 0,
+  };
+  const blocked: CatalogSubmissionPreview = {
+    status: "NEEDS_RESOLUTION",
+    groups: [],
+    summary,
+    rows: [{
+      rowNumber: 2,
+      rowDigest: "blocked-row",
+      requestedAction: "UPDATE",
+      primaryDisposition: "VALIDATION_FAILED",
+      warnings: [],
+      errors: ["UPDATE target already has a pending request"],
+      normalizedTerm: "run",
+      normalizedLemma: "run",
+      normalizedSourcePayload: payload(),
+      proposalGroupNumber: null,
+      rowRole: "EXCLUDED",
+    }],
+  };
+  assert.throws(
+    () => assertCatalogRetryPreviewActionable(blocked),
+    (error) => {
+      assert.ok(error instanceof CatalogRetryPreviewBlockedError);
+      assert.deepEqual(error.rows, [{
+        rowNumber: 2,
+        errors: ["UPDATE target already has a pending request"],
+      }]);
+      return true;
+    },
+  );
+
+  const empty: CatalogSubmissionPreview = {
+    status: "PREVIEW",
+    groups: [],
+    rows: [{ ...blocked.rows[0]!, primaryDisposition: "NO_CHANGE", errors: [] }],
+    summary: { ...summary, validRows: 1, invalidRows: 0 },
+  };
+  assert.throws(
+    () => assertCatalogRetryPreviewActionable(empty),
+    /CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE/u,
   );
 });

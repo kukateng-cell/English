@@ -134,6 +134,29 @@ export interface CatalogSubmissionPreview {
   };
 }
 
+export type CatalogRetryPreviewBlockedRow = {
+  rowNumber: number;
+  errors: string[];
+};
+
+export class CatalogRetryPreviewBlockedError extends Error {
+  readonly rows: CatalogRetryPreviewBlockedRow[];
+
+  constructor(rows: CatalogRetryPreviewBlockedRow[]) {
+    super("CATALOG_BATCH_RETRY_BLOCKED");
+    this.name = "CatalogRetryPreviewBlockedError";
+    this.rows = rows;
+  }
+}
+
+export function assertCatalogRetryPreviewActionable(preview: CatalogSubmissionPreview): void {
+  const blockedRows = preview.rows
+    .filter((row) => row.primaryDisposition === "VALIDATION_FAILED")
+    .map((row) => ({ rowNumber: row.rowNumber, errors: [...row.errors] }));
+  if (blockedRows.length) throw new CatalogRetryPreviewBlockedError(blockedRows);
+  if (preview.groups.length === 0) throw new Error("CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE");
+}
+
 const MATERIAL_FIELDS: ReadonlySet<keyof CatalogGovernancePayload> = new Set([
   "term", "lemma", "partOfSpeech", "level", "category", "definitionZh",
   "acceptedAnswersZh", "phoneticIpa", "exampleEn", "exampleZh",

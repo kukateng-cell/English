@@ -280,7 +280,7 @@ function CatalogOverviewWorkspace({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Detail | null>(null);
+  const [selected, setSelectedState] = useState<Detail | null>(null);
   const [form, setForm] = useState<CatalogPayload>(EMPTY_PAYLOAD);
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
@@ -302,11 +302,34 @@ function CatalogOverviewWorkspace({
   const selectedPendingRequestIdRef = useRef<string | null>(null);
   const submitOperationRef = useRef<PendingClientOperation | null>(null);
   const formBaselineRef = useRef<CatalogPayload>(EMPTY_PAYLOAD);
+  const detailGenerationRef = useRef(0);
+  const detailAbortRef = useRef<AbortController | null>(null);
 
   const loadFormForDialog = useCallback((payload: CatalogPayload) => {
     formBaselineRef.current = payload;
     setForm(payload);
   }, []);
+
+  const cancelDetailRequest = useCallback(() => {
+    detailGenerationRef.current += 1;
+    detailAbortRef.current?.abort();
+    detailAbortRef.current = null;
+  }, []);
+
+  const setSelected = useCallback((value: Detail | null | ((current: Detail | null) => Detail | null)) => {
+    if (value === null || typeof value === "function") cancelDetailRequest();
+    setSelectedState(value);
+  }, [cancelDetailRequest]);
+
+  const closeDetailDialog = useCallback(() => {
+    setSelected(null);
+    setRetrySource(null);
+    submitOperationRef.current = null;
+  }, [setSelected]);
+
+  useEffect(() => () => {
+    cancelDetailRequest();
+  }, [cancelDetailRequest]);
 
   const catalogQueryKey = useMemo(() => JSON.stringify({ search, status, level, direction }), [direction, level, search, status]);
   useEffect(() => {
@@ -495,7 +518,7 @@ function CatalogOverviewWorkspace({
     } finally {
       pendingRefreshInFlightRef.current = false;
     }
-  }, [canReview, loadCatalog, saving, tc]);
+  }, [canReview, loadCatalog, saving, setSelected, tc]);
 
   useEffect(() => {
     if (!canReview) return;
@@ -514,6 +537,7 @@ function CatalogOverviewWorkspace({
   }, [canReview, refreshPending]);
 
   function startCreate() {
+    cancelDetailRequest();
     const identity = `governance_${window.crypto.randomUUID().replaceAll("-", "")}`;
     const initialPayload = { ...EMPTY_PAYLOAD, acceptedAnswersZh: [], acceptedFormsEn: [], synonymsEn: [], antonymsEn: [], distractorZh: [], distractorEn: [] };
     setSelected({ id: null, senseKey: identity, catalogKey: null, sourceFile: null, sourceRow: null, status: "DRAFT", revision: null, latestRevision: null, approvedRevisionId: null, primaryDisposition: "CREATED_DRAFT", eligibilityResult: "DRAFT_BLOCKED", hasSense: false, issues: null, payload: EMPTY_PAYLOAD, pendingRequest: null });
@@ -531,7 +555,7 @@ function CatalogOverviewWorkspace({
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        setSelected(null);
+        closeDetailDialog();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
@@ -544,7 +568,7 @@ function CatalogOverviewWorkspace({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => { window.clearTimeout(focusTimer); document.removeEventListener("keydown", handleKeyDown); previous?.focus(); };
-  }, [selected]);
+  }, [closeDetailDialog, selected]);
 
   useEffect(() => {
     const parentDialog = dialogRef.current?.parentElement;
@@ -565,11 +589,24 @@ function CatalogOverviewWorkspace({
   }, [feedbackTarget, selected]);
 
   const openDetailBySenseKey = useCallback(async (senseKey: string) => {
+    const generation = ++detailGenerationRef.current;
+    detailAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
     setError(null);
     try {
-      const response = await fetch(`/api/catalog/${encodeURIComponent(senseKey)}`, { cache: "no-store" });
-      if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+      const response = await fetch(`/api/catalog/${encodeURIComponent(senseKey)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (generation !== detailGenerationRef.current) return;
+      if (!response.ok) {
+        const message = await responseErrorMessage(response, tc);
+        if (generation !== detailGenerationRef.current) return;
+        throw new Error(message);
+      }
       const detail = await response.json() as Detail;
+      if (generation !== detailGenerationRef.current) return;
       const currentPayload = detail.payload ? normalizeCatalogPayload(detail.payload) : null;
       const pendingRequest = detail.pendingRequest && "payload" in detail.pendingRequest
         ? { ...detail.pendingRequest, payload: normalizeCatalogPayload(detail.pendingRequest.payload, currentPayload ?? EMPTY_PAYLOAD) }
@@ -581,9 +618,12 @@ function CatalogOverviewWorkspace({
       setRetrySource(null);
       submitOperationRef.current = null;
     } catch (cause) {
+      if (generation !== detailGenerationRef.current || isAbortError(cause)) return;
       setError(cause instanceof Error ? cause.message : tc("讀取詞條失敗"));
+    } finally {
+      if (detailAbortRef.current === controller) detailAbortRef.current = null;
     }
-  }, [loadFormForDialog, tc]);
+  }, [loadFormForDialog, setSelected, tc]);
 
   async function openDetail(row: CatalogRow) {
     if (row.senseKey) await openDetailBySenseKey(row.senseKey);
@@ -624,6 +664,7 @@ function CatalogOverviewWorkspace({
           return;
         }
         const retry = body.retry;
+        cancelDetailRequest();
         const retryPayload = normalizeCatalogPayload(retry.payload);
         setSelected({
           id: retry.sourceRowId,
@@ -662,7 +703,7 @@ function CatalogOverviewWorkspace({
       }
     })();
     return () => { cancelled = true; };
-  }, [initialRetryRequestId, loadFormForDialog, onRetryConsumed, openDetailBySenseKey, tc]);
+  }, [cancelDetailRequest, initialRetryRequestId, loadFormForDialog, onRetryConsumed, openDetailBySenseKey, setSelected, tc]);
 
   function openSelectedHistory() {
     if (!selected?.senseKey) return;
@@ -672,7 +713,7 @@ function CatalogOverviewWorkspace({
       || reviewNote.trim().length > 0;
     if (hasUnsavedInput && !window.confirm(tc("你尚有未提交的詞條內容；開啟修改歷史後，這些輸入不會保留。確定繼續？"))) return;
     const senseKey = selected.senseKey;
-    setSelected(null);
+    closeDetailDialog();
     onOpenHistory(senseKey);
   }
 
@@ -747,7 +788,7 @@ function CatalogOverviewWorkspace({
         ? tc("词义已停用；不会再出现在新学习题目，既有历史仍会保留。")
         : tc("已提交草稿，等待一位有权限的老师或管理员审核。"));
       const refreshedCatalog = await loadCatalog();
-      if (kind === "CREATE" || immediate) { setSelected(null); return; }
+      if (kind === "CREATE" || immediate) { closeDetailDialog(); return; }
       if (refreshedCatalog) await openDetailBySenseKey(selected.senseKey);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc("提交詞庫修改失敗"));
@@ -809,7 +850,7 @@ function CatalogOverviewWorkspace({
       setReviewNote("");
       setReviewNotes((current) => { const next = { ...current }; delete next[request.id]; return next; });
       await loadCatalog();
-      if (visiblePendingRequestId(selected?.pendingRequest ?? null) === request.id) setSelected(null);
+      if (visiblePendingRequestId(selected?.pendingRequest ?? null) === request.id) closeDetailDialog();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : tc("審核詞庫修改失敗"));
     } finally { setSaving(false); }

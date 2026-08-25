@@ -775,3 +775,13 @@ npm run check:catalog-governance
 - 自審發現catalog list同access polling可能以不同完成次序覆蓋flags；現改為只由專用access endpoint提供頂層reviewer／feature狀態，並以generation guard忽略舊access回應。catalog list只管理自己嘅queue狀態，唔再覆蓋頂層flags；bulk由開啟轉為關閉時亦會重置總覽選取狀態；
 - `git diff --check`通過，文件內已移除「34欄可以換序」的舊contract。既有本機`pg`會提示同一client並發query將於pg 9移除；目前不影響檢查結果，升級pg前應再整理checker連線使用方式；
 - 本輪沒有schema／migration改動，亦沒有執行staging、managed Vercel或production deploy；相關發布工作仍須另行授權及驗收。
+
+## 25. Batch retry successor fail-closed 加固（2026-08-25，已完成）
+
+- [x] retry preview 有任何 validation-failed row 時，在 Serializable transaction 內、建立 batch 之前回結構化 `CATALOG_BATCH_RETRY_BLOCKED`；
+- [x] rebase 後沒有 proposal group 時回 `CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE`，不建立空 PREVIEW；
+- [x] blocked／empty retry 均不寫 `retryOfBatchId` successor，原 source 保持可重試；
+- [x] 待辦暫時排除 target sense 已有 pending request 的 batch，pending 終結後自動恢復；
+- [x] unit 334／334、zero-warning lint、TypeScript、83-route build及真實 PostgreSQL submission checker通過；checker證明 blocked 時 `retriedBy=null`，解除後可建立有效 successor。
+
+本輪沒有資料模型、migration或 production rollout 改動；managed PostgreSQL／Vercel驗證仍維持 deferred。

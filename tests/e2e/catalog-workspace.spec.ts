@@ -220,6 +220,143 @@ async function installBulkWorkItemMock(page: Page) {
   });
 }
 
+function catalogRacePayload(term: string, definitionZh: string) {
+  return {
+    term,
+    lemma: term,
+    partOfSpeech: "noun",
+    level: "A1",
+    category: "other",
+    definitionZh,
+    acceptedAnswersZh: [definitionZh],
+    phoneticIpa: "/reɪs/",
+    exampleEn: `${term} is used in the detail race regression.`,
+    exampleZh: `${definitionZh}用於詞條詳情競態回歸。`,
+    acceptedFormsEn: [term],
+    synonymsEn: [],
+    antonymsEn: [],
+    enableEnToZh: true,
+    distractorZh: ["甲", "乙", "丙", "丁", "戊"],
+    enableZhToEn: true,
+    distractorEn: ["alpha", "beta", "gamma", "delta", "omega"],
+    sourceReference: null,
+    contributorRef: null,
+    changeNote: null,
+    retirementReason: null,
+  };
+}
+
+test("newer catalog detail selection survives an older delayed response and submits the selected sense", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseA = "catalog-detail-race-a";
+  const senseB = "catalog-detail-race-b";
+  const payloadA = catalogRacePayload("racealpha", "競態甲");
+  const payloadB = catalogRacePayload("racebeta", "競態乙");
+  let submittedSenseKey: string | null = null;
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: false });
+    await reviewer.page.route("**/api/catalog?*", async (route) => {
+      const rows = [
+        { id: "race-a", senseKey: senseA, payload: payloadA },
+        { id: "race-b", senseKey: senseB, payload: payloadB },
+      ].map((item, index) => ({
+        id: item.id,
+        senseKey: item.senseKey,
+        catalogKey: `catalog-${item.id}`,
+        sourceFile: "catalog-race.csv",
+        sourceRow: index + 2,
+        term: item.payload.term,
+        lemma: item.payload.lemma,
+        definitionZh: item.payload.definitionZh,
+        partOfSpeech: item.payload.partOfSpeech,
+        level: item.payload.level,
+        category: item.payload.category,
+        phoneticIpa: item.payload.phoneticIpa,
+        enableEnToZh: true,
+        enableZhToEn: true,
+        status: "ACTIVE",
+        revision: 1,
+        latestRevision: 1,
+        approvedRevisionId: `revision-${item.id}`,
+        primaryDisposition: "UPDATE",
+        eligibilityResult: null,
+        validationErrors: [],
+        validationWarnings: [],
+        pendingRequest: null,
+        hasSense: true,
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          rows,
+          counts: { all: 2, ACTIVE: 2 },
+          filteredTotal: 2,
+          nextCursor: null,
+          canReview: false,
+          mutationRevision: 1,
+          workspaceSignature: "catalog-detail-race",
+        }),
+      });
+    });
+    const detailBody = (senseKey: string, payload: ReturnType<typeof catalogRacePayload>) => ({
+      id: senseKey,
+      senseKey,
+      catalogKey: `catalog-${senseKey}`,
+      sourceFile: "catalog-race.csv",
+      sourceRow: 2,
+      status: "ACTIVE",
+      revision: 1,
+      latestRevision: 1,
+      approvedRevisionId: `revision-${senseKey}`,
+      primaryDisposition: "UPDATE",
+      eligibilityResult: null,
+      hasSense: true,
+      issues: null,
+      payload,
+      pendingRequest: null,
+    });
+    await reviewer.page.route(`**/api/catalog/${senseA}`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(detailBody(senseA, payloadA)) });
+    });
+    await reviewer.page.route(`**/api/catalog/${senseB}`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(detailBody(senseB, payloadB)) });
+    });
+    await reviewer.page.route("**/api/catalog", async (route) => {
+      const body = route.request().postDataJSON() as { senseKey?: string };
+      submittedSenseKey = body.senseKey ?? null;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "PENDING", immediate: false }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const rowA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
+    const rowB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    await rowB.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await reviewer.page.waitForTimeout(500);
+    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByText(senseA)).toHaveCount(0);
+    await dialog.getByLabel(/中文釋義|中文释义/).fill("競態乙修訂");
+    const submitted = reviewer.page.waitForResponse((response) => (
+      response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog"
+    ));
+    await dialog.getByRole("button", { name: /提交草稿/ }).click();
+    expect((await submitted).status()).toBe(200);
+    expect(submittedSenseKey).toBe(senseB);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
 test("catalog feature flags hide bulk, history and corrective entry points when both are disabled", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "Seeded admin credentials are required.");
