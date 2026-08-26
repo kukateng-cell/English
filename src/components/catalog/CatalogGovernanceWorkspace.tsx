@@ -2563,7 +2563,17 @@ function CatalogOverviewWorkspace({
           onOpenFullHistory={() => {
             const target = historyTarget;
             const nextState = {
-              ...persistedSnapshotRef.current,
+              initialized: catalogInitialized,
+              rows,
+              counts,
+              facets,
+              filters,
+              searchInput,
+              search,
+              selectedSenseKeys: [...exportSenseKeys],
+              filteredTotal,
+              nextCursor,
+              workspaceSignature: catalogWorkspaceSignatureRef.current,
               scrollY: target.scrollY,
               activeRowId: target.rowId,
             };
