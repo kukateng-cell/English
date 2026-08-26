@@ -1,9 +1,18 @@
 import { Prisma, prisma } from "@/lib/prisma";
-import type { CatalogWorkspaceFilters } from "@/lib/catalog/workspace-query";
+import type {
+  CatalogWorkspaceFilters,
+  CatalogWorkspaceSort,
+} from "@/lib/catalog/workspace-query";
 import {
   catalogPendingRequestForActor,
   type CatalogPendingSummary,
 } from "@/lib/catalog/pending-visibility";
+import type {
+  CatalogContentScope,
+  CatalogReadinessState,
+  CatalogStructuredIssue,
+  CatalogWorkflowState,
+} from "@/lib/catalog/teacher-presentation";
 
 export interface CatalogWorkspaceListRow {
   id: string;
@@ -14,6 +23,7 @@ export interface CatalogWorkspaceListRow {
   term: string;
   lemma: string;
   definitionZh: string;
+  displayIdentity: string;
   partOfSpeech: string;
   level: string;
   category: string;
@@ -21,34 +31,55 @@ export interface CatalogWorkspaceListRow {
   enableEnToZh: boolean;
   enableZhToEn: boolean;
   status: "DRAFT" | "ACTIVE" | "RETIRED";
+  lifecycleState: "DRAFT" | "ACTIVE" | "RETIRED";
+  workflowState: CatalogWorkflowState;
+  readinessState: CatalogReadinessState;
+  contentScope: CatalogContentScope;
+  issueCount: number;
+  structuredIssues: CatalogStructuredIssue[];
   revision: number | null;
   latestRevision: number | null;
+  currentRevisionNumber: number | null;
+  lastChangedAt: string;
   approvedRevisionId: string | null;
   primaryDisposition: string;
   eligibilityResult: string | null;
+  /** Compatibility only; teacher UI must use structuredIssues. */
   validationErrors: string[];
   validationWarnings: string[];
-  pendingRequest: CatalogPendingSummary | {
-    restricted?: false;
-    id: string;
-    kind: string;
-    status: string;
-    proposerId: string;
-    reviewerId: string | null;
-    baseRevision: number | null;
-    revision: number;
-    reason: string | null;
-    reviewNote: string | null;
-    createdAt: string;
-    reviewedAt: string | null;
-  } | null;
+  pendingRequest:
+    | CatalogPendingSummary
+    | {
+        restricted?: false;
+        id: string;
+        kind: string;
+        status: string;
+        proposerId: string;
+        reviewerId: string | null;
+        baseRevision: number | null;
+        revision: number;
+        reason: string | null;
+        reviewNote: string | null;
+        createdAt: string;
+        reviewedAt: string | null;
+      }
+    | null;
   hasSense: boolean;
+}
+
+export interface CatalogWorkspaceFacetValue {
+  value: string;
+  count: number;
 }
 
 export interface CatalogWorkspacePageResult {
   rows: CatalogWorkspaceListRow[];
   filteredTotal: number;
   counts: Record<string, number>;
+  facets: {
+    partOfSpeech: CatalogWorkspaceFacetValue[];
+    category: CatalogWorkspaceFacetValue[];
+  };
 }
 
 type RawCatalogWorkspaceResult = {
@@ -60,27 +91,91 @@ type RawCatalogWorkspaceResult = {
   validationFailedCount: number;
   pendingCount: number;
   filteredTotal: number;
+  partOfSpeechFacets: unknown;
+  categoryFacets: unknown;
   rows: unknown;
 };
 
-function filterSql(filters: CatalogWorkspaceFilters): Prisma.Sql {
+function filterSql(
+  filters: CatalogWorkspaceFilters,
+  exclude?: "partOfSpeech" | "category",
+): Prisma.Sql {
   const conditions: Prisma.Sql[] = [];
-  if (filters.status === "ACTIVE" || filters.status === "DRAFT" || filters.status === "RETIRED") {
-    conditions.push(Prisma.sql`"status" = ${filters.status}`);
-  } else if (filters.status === "BLOCKED") {
-    conditions.push(Prisma.sql`"eligibilityResult" = 'DRAFT_BLOCKED'`);
-  } else if (filters.status === "VALIDATION_FAILED") {
-    conditions.push(Prisma.sql`"primaryDisposition" = 'VALIDATION_FAILED'`);
-  } else if (filters.status === "PENDING") {
-    conditions.push(Prisma.sql`"pendingRequest" IS NOT NULL`);
+  if (filters.mode === "LEGACY_V1") {
+    if (
+      filters.status === "ACTIVE" ||
+      filters.status === "DRAFT" ||
+      filters.status === "RETIRED"
+    ) {
+      conditions.push(Prisma.sql`"status" = ${filters.status}`);
+    } else if (filters.status === "BLOCKED") {
+      conditions.push(Prisma.sql`"eligibilityResult" = 'DRAFT_BLOCKED'`);
+    } else if (filters.status === "VALIDATION_FAILED") {
+      conditions.push(Prisma.sql`"primaryDisposition" = 'VALIDATION_FAILED'`);
+    } else if (filters.status === "PENDING") {
+      conditions.push(Prisma.sql`"workflowState" = 'PENDING'`);
+    }
   }
-  if (filters.level !== "ALL") conditions.push(Prisma.sql`"level" = ${filters.level}`);
-  if (filters.direction === "EN_ZH") conditions.push(Prisma.sql`"enableEnToZh" = TRUE`);
-  if (filters.direction === "ZH_EN") conditions.push(Prisma.sql`"enableZhToEn" = TRUE`);
+  if (filters.lifecycle !== "ALL")
+    conditions.push(Prisma.sql`"status" = ${filters.lifecycle}`);
+  if (filters.workflow !== "ALL")
+    conditions.push(Prisma.sql`"workflowState" = ${filters.workflow}`);
+  if (filters.level !== "ALL")
+    conditions.push(Prisma.sql`"level" = ${filters.level}`);
+  if (filters.direction === "EN_ZH")
+    conditions.push(Prisma.sql`"enableEnToZh" = TRUE`);
+  if (filters.direction === "ZH_EN")
+    conditions.push(Prisma.sql`"enableZhToEn" = TRUE`);
+  if (filters.readiness !== "ALL")
+    conditions.push(Prisma.sql`"readinessState" = ${filters.readiness}`);
+  if (filters.issues === "NONE") conditions.push(Prisma.sql`"issueCount" = 0`);
+  else if (filters.issues !== "ALL")
+    conditions.push(
+      Prisma.sql`"issueScope" = ${filters.issues} AND "issueCount" > 0`,
+    );
+  if (exclude !== "partOfSpeech" && filters.partOfSpeech !== "ALL") {
+    if (filters.partOfSpeech === "UNCLASSIFIED")
+      conditions.push(Prisma.sql`btrim("partOfSpeech") = ''`);
+    else
+      conditions.push(
+        Prisma.sql`lower(btrim("partOfSpeech")) = lower(${filters.partOfSpeech})`,
+      );
+  }
+  if (filters.initial !== "ALL") {
+    if (filters.initial === "OTHER")
+      conditions.push(Prisma.sql`upper(left(btrim("term"), 1)) !~ '^[A-Z]$'`);
+    else
+      conditions.push(
+        Prisma.sql`upper(left(btrim("term"), 1)) = ${filters.initial}`,
+      );
+  }
+  if (exclude !== "category" && filters.category !== "ALL") {
+    if (filters.category === "UNCLASSIFIED")
+      conditions.push(Prisma.sql`btrim("category") = ''`);
+    else conditions.push(Prisma.sql`"category" = ${filters.category}`);
+  }
   if (filters.q) {
-    conditions.push(Prisma.sql`strpos(lower(concat_ws(' ', "term", "lemma", "definitionZh", "senseKey", "catalogKey", "category", "phoneticIpa")), lower(${filters.q})) > 0`);
+    conditions.push(
+      Prisma.sql`strpos(lower(concat_ws(' ', "term", "lemma", "definitionZh", "category", "phoneticIpa")), lower(${filters.q})) > 0`,
+    );
   }
-  return conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}` : Prisma.empty;
+  return conditions.length
+    ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
+    : Prisma.empty;
+}
+
+function orderSql(sort: CatalogWorkspaceSort): Prisma.Sql {
+  if (sort === "TERM_DESC")
+    return Prisma.sql`lower("term") DESC, lower("definitionZh"), "senseKey" NULLS LAST, "id"`;
+  if (sort === "UPDATED_DESC")
+    return Prisma.sql`"lastChangedAt" DESC, lower("term"), "senseKey" NULLS LAST, "id"`;
+  if (sort === "LEVEL_ASC")
+    return Prisma.sql`CASE "level" WHEN 'A1' THEN 1 WHEN 'A2' THEN 2 WHEN 'B1' THEN 3 WHEN 'B2' THEN 4 ELSE 5 END, lower("term"), lower("definitionZh"), "id"`;
+  if (sort === "ACTION_REQUIRED_FIRST")
+    return Prisma.sql`CASE WHEN "workflowState" = 'PENDING' OR "issueCount" > 0 OR "status" = 'DRAFT' THEN 0 ELSE 1 END, "lastChangedAt" DESC, lower("term"), "id"`;
+  if (sort === "SOURCE_ORDER")
+    return Prisma.sql`"sortGroup", "sourceFile" NULLS LAST, "sourceRow", lower("term"), "senseKey" NULLS LAST, "id"`;
+  return Prisma.sql`lower("term"), lower("definitionZh"), "senseKey" NULLS LAST, "id"`;
 }
 
 function stringValue(value: unknown): string {
@@ -92,11 +187,33 @@ function nullableString(value: unknown): string | null {
 }
 
 function nullableInteger(value: unknown): number | null {
-  return Number.isSafeInteger(value) ? value as number : null;
+  return Number.isSafeInteger(value) ? (value as number) : null;
 }
 
 function stringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function structuredIssueList(value: unknown): CatalogStructuredIssue[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.code !== "string") return [];
+    const direction =
+      row.direction === "EN_TO_ZH" || row.direction === "ZH_TO_EN"
+        ? row.direction
+        : null;
+    return [
+      {
+        code: row.code,
+        field: typeof row.field === "string" ? row.field : null,
+        direction,
+      },
+    ];
+  });
 }
 
 function normalizePendingRequest(
@@ -106,20 +223,32 @@ function normalizePendingRequest(
 ): CatalogWorkspaceListRow["pendingRequest"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
-  if (typeof row.id !== "string" || typeof row.kind !== "string" || typeof row.status !== "string" || typeof row.proposerId !== "string" || typeof row.revision !== "number" || typeof row.createdAt !== "string") return null;
-  return catalogPendingRequestForActor({
-    id: row.id,
-    kind: row.kind,
-    status: row.status,
-    proposerId: row.proposerId,
-    reviewerId: nullableString(row.reviewerId),
-    baseRevision: nullableInteger(row.baseRevision),
-    revision: row.revision,
-    reason: nullableString(row.reason),
-    reviewNote: nullableString(row.reviewNote),
-    createdAt: row.createdAt,
-    reviewedAt: nullableString(row.reviewedAt),
-  }, actorUserId, canReview);
+  if (
+    typeof row.id !== "string" ||
+    typeof row.kind !== "string" ||
+    typeof row.status !== "string" ||
+    typeof row.proposerId !== "string" ||
+    typeof row.revision !== "number" ||
+    typeof row.createdAt !== "string"
+  )
+    return null;
+  return catalogPendingRequestForActor(
+    {
+      id: row.id,
+      kind: row.kind,
+      status: row.status,
+      proposerId: row.proposerId,
+      reviewerId: nullableString(row.reviewerId),
+      baseRevision: nullableInteger(row.baseRevision),
+      revision: row.revision,
+      reason: nullableString(row.reason),
+      reviewNote: nullableString(row.reviewNote),
+      createdAt: row.createdAt,
+      reviewedAt: nullableString(row.reviewedAt),
+    },
+    actorUserId,
+    canReview,
+  );
 }
 
 function normalizeRows(
@@ -133,56 +262,106 @@ function normalizeRows(
     const row = item as Record<string, unknown>;
     if (typeof row.id !== "string") return [];
     const rawStatus = row.status;
-    const status = rawStatus === "ACTIVE" || rawStatus === "RETIRED" ? rawStatus : "DRAFT";
-    return [{
-      id: row.id,
-      senseKey: nullableString(row.senseKey),
-      catalogKey: nullableString(row.catalogKey),
-      sourceFile: nullableString(row.sourceFile),
-      sourceRow: nullableInteger(row.sourceRow) ?? 0,
-      term: stringValue(row.term),
-      lemma: stringValue(row.lemma),
-      definitionZh: stringValue(row.definitionZh),
-      partOfSpeech: stringValue(row.partOfSpeech),
-      level: stringValue(row.level),
-      category: stringValue(row.category),
-      phoneticIpa: nullableString(row.phoneticIpa),
-      enableEnToZh: row.enableEnToZh === true,
-      enableZhToEn: row.enableZhToEn === true,
-      status,
-      revision: nullableInteger(row.revision),
-      latestRevision: nullableInteger(row.latestRevision),
-      approvedRevisionId: nullableString(row.approvedRevisionId),
-      primaryDisposition: stringValue(row.primaryDisposition),
-      eligibilityResult: nullableString(row.eligibilityResult),
-      validationErrors: stringList(row.validationErrors),
-      validationWarnings: stringList(row.validationWarnings),
-      pendingRequest: normalizePendingRequest(row.pendingRequest, actorUserId, canReview),
-      hasSense: row.hasSense === true,
-    }];
+    const status =
+      rawStatus === "ACTIVE" || rawStatus === "RETIRED" ? rawStatus : "DRAFT";
+    const workflowState = row.workflowState === "PENDING" ? "PENDING" : "NONE";
+    const readinessState =
+      row.readinessState === "BOTH" ||
+      row.readinessState === "EN_TO_ZH_ONLY" ||
+      row.readinessState === "ZH_TO_EN_ONLY"
+        ? row.readinessState
+        : "UNAVAILABLE";
+    const contentScope =
+      row.contentScope === "PENDING_DRAFT" ||
+      row.contentScope === "IMPORT_DRAFT"
+        ? row.contentScope
+        : "CURRENT_CONTENT";
+    const term = stringValue(row.term);
+    const definitionZh = stringValue(row.definitionZh);
+    const partOfSpeech = stringValue(row.partOfSpeech);
+    const level = stringValue(row.level);
+    return [
+      {
+        id: row.id,
+        senseKey: nullableString(row.senseKey),
+        catalogKey: nullableString(row.catalogKey),
+        sourceFile: nullableString(row.sourceFile),
+        sourceRow: nullableInteger(row.sourceRow) ?? 0,
+        term,
+        lemma: stringValue(row.lemma),
+        definitionZh,
+        displayIdentity: [term, definitionZh, partOfSpeech, level]
+          .filter(Boolean)
+          .join(" · "),
+        partOfSpeech,
+        level,
+        category: stringValue(row.category),
+        phoneticIpa: nullableString(row.phoneticIpa),
+        enableEnToZh: row.enableEnToZh === true,
+        enableZhToEn: row.enableZhToEn === true,
+        status,
+        lifecycleState: status,
+        workflowState,
+        readinessState,
+        contentScope,
+        issueCount: nullableInteger(row.issueCount) ?? 0,
+        structuredIssues: structuredIssueList(row.structuredIssues),
+        revision: nullableInteger(row.revision),
+        latestRevision: nullableInteger(row.latestRevision),
+        currentRevisionNumber: nullableInteger(row.currentRevisionNumber),
+        lastChangedAt: stringValue(row.lastChangedAt),
+        approvedRevisionId: nullableString(row.approvedRevisionId),
+        primaryDisposition: stringValue(row.primaryDisposition),
+        eligibilityResult: nullableString(row.eligibilityResult),
+        validationErrors: stringList(row.validationErrors),
+        validationWarnings: stringList(row.validationWarnings),
+        pendingRequest: normalizePendingRequest(
+          row.pendingRequest,
+          actorUserId,
+          canReview,
+        ),
+        hasSense: row.hasSense === true,
+      },
+    ];
   });
 }
 
-export async function readCatalogWorkspacePage(input: {
+function normalizeFacets(value: unknown): CatalogWorkspaceFacetValue[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const row = item as Record<string, unknown>;
+    const count = nullableInteger(row.count);
+    return typeof row.value === "string" && count !== null
+      ? [{ value: row.value || "UNCLASSIFIED", count }]
+      : [];
+  });
+}
+
+export interface CatalogWorkspacePageInput {
   batchId: string;
   filters: CatalogWorkspaceFilters;
   limit: number;
   offset: number;
   canReview: boolean;
   actorUserId: string;
-}): Promise<CatalogWorkspacePageResult> {
+}
+
+export function catalogWorkspacePageSql(
+  input: CatalogWorkspacePageInput,
+): Prisma.Sql {
   const standaloneCreateScope = input.canReview
     ? Prisma.sql`TRUE`
     : Prisma.sql`request."proposerId" = ${input.actorUserId}`;
   const where = filterSql(input.filters);
-  const result = await prisma.$queryRaw<RawCatalogWorkspaceResult[]>(Prisma.sql`
-    WITH catalog_rows AS MATERIALIZED (
+  const partOfSpeechFacetWhere = filterSql(input.filters, "partOfSpeech");
+  const categoryFacetWhere = filterSql(input.filters, "category");
+  const order = orderSql(input.filters.sort);
+  return Prisma.sql`
+    WITH catalog_base AS MATERIALIZED (
       SELECT
-        import_row."id" AS "id",
-        import_row."senseKey" AS "senseKey",
-        import_row."catalogKey" AS "catalogKey",
-        import_row."sourceFile" AS "sourceFile",
-        import_row."sourceRow" AS "sourceRow",
+        import_row."id" AS "id", import_row."senseKey" AS "senseKey", import_row."catalogKey" AS "catalogKey",
+        import_row."sourceFile" AS "sourceFile", import_row."sourceRow" AS "sourceRow",
         COALESCE(approved_revision."term", latest_revision."term", import_row."sourceData"->>'term', '') AS "term",
         COALESCE(approved_revision."lemma", latest_revision."lemma", import_row."sourceData"->>'lemma', '') AS "lemma",
         COALESCE(approved_revision."definitionZh", latest_revision."definitionZh", import_row."sourceData"->>'definitionZh', '') AS "definitionZh",
@@ -194,145 +373,128 @@ export async function readCatalogWorkspacePage(input: {
         COALESCE(approved_revision."enableZhToEn", latest_revision."enableZhToEn", lower(import_row."sourceData"->>'enableZhToEn') = 'true', FALSE) AS "enableZhToEn",
         COALESCE(sense."status"::text, 'DRAFT') AS "status",
         COALESCE(approved_revision."revision", latest_revision."revision") AS "revision",
-        latest_revision."revision" AS "latestRevision",
-        sense."approvedRevisionId" AS "approvedRevisionId",
-        import_row."primaryDisposition" AS "primaryDisposition",
+        latest_revision."revision" AS "latestRevision", approved_revision."revision" AS "currentRevisionNumber",
+        sense."approvedRevisionId" AS "approvedRevisionId", import_row."primaryDisposition" AS "primaryDisposition",
         import_row."eligibilityResult" AS "eligibilityResult",
-        CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END AS "validationErrors",
+        CASE WHEN approved_revision."id" IS NOT NULL THEN '[]'::jsonb WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END AS "validationErrors",
         CASE WHEN jsonb_typeof(import_row."issues"->'warnings') = 'array' THEN import_row."issues"->'warnings' ELSE '[]'::jsonb END AS "validationWarnings",
+        CASE
+          WHEN approved_revision."id" IS NOT NULL THEN '[]'::jsonb
+          WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues'
+          WHEN jsonb_array_length(CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END) > 0
+            THEN jsonb_build_array(jsonb_build_object('code', 'CATALOG_CONTENT_REQUIRES_REVIEW', 'field', NULL, 'direction', NULL))
+          ELSE '[]'::jsonb
+        END AS "structuredIssues",
+        CASE WHEN approved_revision."id" IS NOT NULL THEN 0 ELSE jsonb_array_length(CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END) END AS "issueCount",
+        CASE WHEN sense."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "contentScope",
+        CASE WHEN sense."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "issueScope",
+        CASE WHEN pending."id" IS NULL THEN 'NONE' ELSE 'PENDING' END AS "workflowState",
         CASE WHEN pending."id" IS NULL THEN NULL ELSE jsonb_build_object(
           'id', pending."id", 'kind', pending."kind"::text, 'status', pending."status"::text,
-          'proposerId', pending."proposerId", 'reviewerId', pending."reviewerId",
-          'baseRevision', pending."baseRevision", 'revision', pending."revision",
-          'reason', pending."reason", 'reviewNote', pending."reviewNote",
+          'proposerId', pending."proposerId", 'reviewerId', pending."reviewerId", 'baseRevision', pending."baseRevision",
+          'revision', pending."revision", 'reason', pending."reason", 'reviewNote', pending."reviewNote",
           'createdAt', pending."createdAt", 'reviewedAt', pending."reviewedAt"
         ) END AS "pendingRequest",
         (sense."id" IS NOT NULL) AS "hasSense",
+        CASE
+          WHEN sense."id" IS NULL THEN import_batch."updatedAt"
+          ELSE GREATEST(COALESCE(approved_revision."createdAt", sense."updatedAt"), sense."updatedAt")
+        END AS "lastChangedAt",
         0 AS "sortGroup"
       FROM "CatalogImportRow" import_row
+      JOIN "CatalogImportBatch" import_batch ON import_batch."id" = import_row."batchId"
       LEFT JOIN "WordSense" sense ON sense."senseKey" = import_row."senseKey"
       LEFT JOIN "WordSenseRevision" approved_revision ON approved_revision."id" = sense."approvedRevisionId"
-      LEFT JOIN LATERAL (
-        SELECT revision.* FROM "WordSenseRevision" revision
-        WHERE revision."senseId" = sense."id"
-        ORDER BY revision."revision" DESC
-        LIMIT 1
-      ) latest_revision ON TRUE
+      LEFT JOIN LATERAL (SELECT revision.* FROM "WordSenseRevision" revision WHERE revision."senseId" = sense."id" ORDER BY revision."revision" DESC LIMIT 1) latest_revision ON TRUE
       LEFT JOIN LATERAL (
         SELECT request.* FROM "CatalogChangeRequest" request
-        WHERE request."status"::text = 'PENDING'
-          AND request."submissionProposalGroupId" IS NULL
+        WHERE request."status"::text = 'PENDING' AND request."submissionProposalGroupId" IS NULL
           AND ((sense."id" IS NOT NULL AND request."senseId" = sense."id") OR request."sourceImportRowId" = import_row."id")
-        ORDER BY request."createdAt" DESC, request."id" DESC
-        LIMIT 1
+        ORDER BY request."createdAt" DESC, request."id" DESC LIMIT 1
       ) pending ON TRUE
       WHERE import_row."batchId" = ${input.batchId}
 
       UNION ALL
 
       SELECT
-        sense."id" AS "id",
-        sense."senseKey" AS "senseKey",
-        entry."catalogKey" AS "catalogKey",
-        'governance'::text AS "sourceFile",
-        0 AS "sourceRow",
-        COALESCE(approved_revision."term", latest_revision."term", sense."term", '') AS "term",
-        COALESCE(approved_revision."lemma", latest_revision."lemma", entry."lemma", '') AS "lemma",
-        COALESCE(approved_revision."definitionZh", latest_revision."definitionZh", '') AS "definitionZh",
-        COALESCE(approved_revision."pos", latest_revision."pos", sense."pos", '') AS "partOfSpeech",
-        COALESCE(approved_revision."level"::text, latest_revision."level"::text, sense."level"::text) AS "level",
-        COALESCE(approved_revision."category", latest_revision."category", sense."category", '') AS "category",
-        COALESCE(approved_revision."phoneticIpa", latest_revision."phoneticIpa") AS "phoneticIpa",
-        COALESCE(approved_revision."enableEnToZh", latest_revision."enableEnToZh", FALSE) AS "enableEnToZh",
-        COALESCE(approved_revision."enableZhToEn", latest_revision."enableZhToEn", FALSE) AS "enableZhToEn",
-        sense."status"::text AS "status",
-        COALESCE(approved_revision."revision", latest_revision."revision") AS "revision",
-        latest_revision."revision" AS "latestRevision",
-        sense."approvedRevisionId" AS "approvedRevisionId",
-        'NO_CHANGE'::text AS "primaryDisposition",
-        CASE WHEN sense."status"::text = 'ACTIVE' THEN 'ACTIVATION_ELIGIBLE' ELSE 'DRAFT_BLOCKED' END AS "eligibilityResult",
-        '[]'::jsonb AS "validationErrors",
-        '[]'::jsonb AS "validationWarnings",
+        sense."id", sense."senseKey", entry."catalogKey", 'governance'::text, 0,
+        COALESCE(approved_revision."term", latest_revision."term", sense."term", ''),
+        COALESCE(approved_revision."lemma", latest_revision."lemma", entry."lemma", ''),
+        COALESCE(approved_revision."definitionZh", latest_revision."definitionZh", ''),
+        COALESCE(approved_revision."pos", latest_revision."pos", sense."pos", ''),
+        COALESCE(approved_revision."level"::text, latest_revision."level"::text, sense."level"::text),
+        COALESCE(approved_revision."category", latest_revision."category", sense."category", ''),
+        COALESCE(approved_revision."phoneticIpa", latest_revision."phoneticIpa"),
+        COALESCE(approved_revision."enableEnToZh", latest_revision."enableEnToZh", FALSE),
+        COALESCE(approved_revision."enableZhToEn", latest_revision."enableZhToEn", FALSE),
+        sense."status"::text, COALESCE(approved_revision."revision", latest_revision."revision"), latest_revision."revision", approved_revision."revision",
+        sense."approvedRevisionId", 'NO_CHANGE'::text,
+        CASE WHEN sense."status"::text = 'ACTIVE' THEN 'ACTIVATION_ELIGIBLE' ELSE 'DRAFT_BLOCKED' END,
+        '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 0, 'CURRENT_CONTENT'::text, 'CURRENT_CONTENT'::text,
+        CASE WHEN pending."id" IS NULL THEN 'NONE' ELSE 'PENDING' END,
         CASE WHEN pending."id" IS NULL THEN NULL ELSE jsonb_build_object(
           'id', pending."id", 'kind', pending."kind"::text, 'status', pending."status"::text,
-          'proposerId', pending."proposerId", 'reviewerId', pending."reviewerId",
-          'baseRevision', pending."baseRevision", 'revision', pending."revision",
-          'reason', pending."reason", 'reviewNote', pending."reviewNote",
+          'proposerId', pending."proposerId", 'reviewerId', pending."reviewerId", 'baseRevision', pending."baseRevision",
+          'revision', pending."revision", 'reason', pending."reason", 'reviewNote', pending."reviewNote",
           'createdAt', pending."createdAt", 'reviewedAt', pending."reviewedAt"
-        ) END AS "pendingRequest",
-        TRUE AS "hasSense",
-        1 AS "sortGroup"
+        ) END,
+        TRUE,
+        GREATEST(COALESCE(approved_revision."createdAt", sense."updatedAt"), sense."updatedAt"),
+        1
       FROM "WordSense" sense
       JOIN "CatalogEntry" entry ON entry."id" = sense."catalogEntryId"
       LEFT JOIN "WordSenseRevision" approved_revision ON approved_revision."id" = sense."approvedRevisionId"
-      LEFT JOIN LATERAL (
-        SELECT revision.* FROM "WordSenseRevision" revision
-        WHERE revision."senseId" = sense."id"
-        ORDER BY revision."revision" DESC
-        LIMIT 1
-      ) latest_revision ON TRUE
+      LEFT JOIN LATERAL (SELECT revision.* FROM "WordSenseRevision" revision WHERE revision."senseId" = sense."id" ORDER BY revision."revision" DESC LIMIT 1) latest_revision ON TRUE
       LEFT JOIN LATERAL (
         SELECT request.* FROM "CatalogChangeRequest" request
-        WHERE request."status"::text = 'PENDING'
-          AND request."submissionProposalGroupId" IS NULL
-          AND request."senseId" = sense."id"
-        ORDER BY request."createdAt" DESC, request."id" DESC
-        LIMIT 1
+        WHERE request."status"::text = 'PENDING' AND request."submissionProposalGroupId" IS NULL AND request."senseId" = sense."id"
+        ORDER BY request."createdAt" DESC, request."id" DESC LIMIT 1
       ) pending ON TRUE
-      WHERE NOT EXISTS (
-        SELECT 1 FROM "CatalogImportRow" import_row
-        WHERE import_row."batchId" = ${input.batchId} AND import_row."senseKey" = sense."senseKey"
-      )
+      WHERE NOT EXISTS (SELECT 1 FROM "CatalogImportRow" import_row WHERE import_row."batchId" = ${input.batchId} AND import_row."senseKey" = sense."senseKey")
 
       UNION ALL
 
       SELECT
-        request."id" AS "id",
-        request."senseKey" AS "senseKey",
-        request."catalogKey" AS "catalogKey",
-        NULL::text AS "sourceFile",
-        0 AS "sourceRow",
-        COALESCE(request."payload"->>'term', '') AS "term",
-        COALESCE(request."payload"->>'lemma', '') AS "lemma",
-        COALESCE(request."payload"->>'definitionZh', '') AS "definitionZh",
-        COALESCE(request."payload"->>'partOfSpeech', request."payload"->>'pos', '') AS "partOfSpeech",
-        COALESCE(request."payload"->>'level', '') AS "level",
-        COALESCE(request."payload"->>'category', '') AS "category",
-        request."payload"->>'phoneticIpa' AS "phoneticIpa",
-        COALESCE(lower(request."payload"->>'enableEnToZh') = 'true', FALSE) AS "enableEnToZh",
-        COALESCE(lower(request."payload"->>'enableZhToEn') = 'true', FALSE) AS "enableZhToEn",
-        'DRAFT'::text AS "status",
-        NULL::integer AS "revision",
-        NULL::integer AS "latestRevision",
-        NULL::text AS "approvedRevisionId",
-        'CREATED_DRAFT'::text AS "primaryDisposition",
-        'DRAFT_BLOCKED'::text AS "eligibilityResult",
-        jsonb_build_array('PENDING_CREATE') AS "validationErrors",
-        '[]'::jsonb AS "validationWarnings",
+        request."id", request."senseKey", request."catalogKey", NULL::text, 0,
+        COALESCE(request."payload"->>'term', ''), COALESCE(request."payload"->>'lemma', ''), COALESCE(request."payload"->>'definitionZh', ''),
+        COALESCE(request."payload"->>'partOfSpeech', request."payload"->>'pos', ''), COALESCE(request."payload"->>'level', ''),
+        COALESCE(request."payload"->>'category', ''), request."payload"->>'phoneticIpa',
+        COALESCE(lower(request."payload"->>'enableEnToZh') = 'true', FALSE), COALESCE(lower(request."payload"->>'enableZhToEn') = 'true', FALSE),
+        'DRAFT'::text, NULL::integer, NULL::integer, NULL::integer, NULL::text, 'CREATED_DRAFT'::text, 'DRAFT_BLOCKED'::text,
+        '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 0, 'PENDING_DRAFT'::text, 'PENDING_DRAFT'::text, 'PENDING'::text,
         jsonb_build_object(
           'id', request."id", 'kind', request."kind"::text, 'status', request."status"::text,
-          'proposerId', request."proposerId", 'reviewerId', request."reviewerId",
-          'baseRevision', request."baseRevision", 'revision', request."revision",
-          'reason', request."reason", 'reviewNote', request."reviewNote",
+          'proposerId', request."proposerId", 'reviewerId', request."reviewerId", 'baseRevision', request."baseRevision",
+          'revision', request."revision", 'reason', request."reason", 'reviewNote', request."reviewNote",
           'createdAt', request."createdAt", 'reviewedAt', request."reviewedAt"
-        ) AS "pendingRequest",
-        FALSE AS "hasSense",
-        2 AS "sortGroup"
+        ),
+        FALSE, request."updatedAt", 2
       FROM "CatalogChangeRequest" request
-      WHERE request."status"::text = 'PENDING'
-        AND request."kind"::text = 'CREATE'
-        AND request."submissionProposalGroupId" IS NULL
-        AND request."senseId" IS NULL
-        AND request."sourceImportRowId" IS NULL
+      WHERE request."status"::text = 'PENDING' AND request."kind"::text = 'CREATE'
+        AND request."submissionProposalGroupId" IS NULL AND request."senseId" IS NULL AND request."sourceImportRowId" IS NULL
         AND ${standaloneCreateScope}
+    ), catalog_rows AS MATERIALIZED (
+      SELECT catalog_base.*,
+        CASE
+          WHEN "issueCount" > 0 THEN 'UNAVAILABLE'
+          WHEN "enableEnToZh" AND "enableZhToEn" THEN 'BOTH'
+          WHEN "enableEnToZh" THEN 'EN_TO_ZH_ONLY'
+          WHEN "enableZhToEn" THEN 'ZH_TO_EN_ONLY'
+          ELSE 'UNAVAILABLE'
+        END AS "readinessState"
+      FROM catalog_base
     ), filtered_rows AS MATERIALIZED (
-      SELECT * FROM catalog_rows
-      ${where}
-    ), page_rows AS (
-      SELECT * FROM filtered_rows
-      ORDER BY "sortGroup", "sourceFile" NULLS LAST, "sourceRow", lower("term"), "senseKey" NULLS LAST, "id"
-      OFFSET ${input.offset}
-      LIMIT ${input.limit}
+      SELECT * FROM catalog_rows ${where}
+    ), page_rows AS MATERIALIZED (
+      SELECT * FROM filtered_rows ORDER BY ${order} OFFSET ${input.offset} LIMIT ${input.limit}
+    ), part_of_speech_facets AS (
+      SELECT COALESCE(NULLIF(lower(btrim("partOfSpeech")), ''), 'UNCLASSIFIED') AS value, COUNT(*)::integer AS count
+      FROM catalog_rows ${partOfSpeechFacetWhere}
+      GROUP BY value ORDER BY count DESC, value
+    ), category_facets AS (
+      SELECT COALESCE(NULLIF(btrim("category"), ''), 'UNCLASSIFIED') AS value, COUNT(*)::integer AS count
+      FROM catalog_rows ${categoryFacetWhere}
+      GROUP BY value ORDER BY count DESC, value
     )
     SELECT
       COUNT(*)::integer AS "allCount",
@@ -341,16 +503,21 @@ export async function readCatalogWorkspacePage(input: {
       COUNT(*) FILTER (WHERE "status" = 'RETIRED')::integer AS "retiredCount",
       COUNT(*) FILTER (WHERE "eligibilityResult" = 'DRAFT_BLOCKED')::integer AS "blockedCount",
       COUNT(*) FILTER (WHERE "primaryDisposition" = 'VALIDATION_FAILED')::integer AS "validationFailedCount",
-      COUNT(*) FILTER (WHERE "pendingRequest" IS NOT NULL)::integer AS "pendingCount",
+      COUNT(*) FILTER (WHERE "workflowState" = 'PENDING')::integer AS "pendingCount",
       (SELECT COUNT(*)::integer FROM filtered_rows) AS "filteredTotal",
-      COALESCE((
-        SELECT jsonb_agg(
-          to_jsonb(page_rows) - 'sortGroup'
-          ORDER BY "sortGroup", "sourceFile" NULLS LAST, "sourceRow", lower("term"), "senseKey" NULLS LAST, "id"
-        ) FROM page_rows
-      ), '[]'::jsonb) AS "rows"
+      COALESCE((SELECT jsonb_agg(to_jsonb(part_of_speech_facets) ORDER BY count DESC, value) FROM part_of_speech_facets), '[]'::jsonb) AS "partOfSpeechFacets",
+      COALESCE((SELECT jsonb_agg(to_jsonb(category_facets) ORDER BY count DESC, value) FROM category_facets), '[]'::jsonb) AS "categoryFacets",
+      COALESCE((SELECT jsonb_agg(to_jsonb(page_rows) - 'sortGroup' ORDER BY ${order}) FROM page_rows), '[]'::jsonb) AS "rows"
     FROM catalog_rows
-  `);
+  `;
+}
+
+export async function readCatalogWorkspacePage(
+  input: CatalogWorkspacePageInput,
+): Promise<CatalogWorkspacePageResult> {
+  const result = await prisma.$queryRaw<RawCatalogWorkspaceResult[]>(
+    catalogWorkspacePageSql(input),
+  );
   const row = result[0];
   if (!row) throw new Error("CATALOG_WORKSPACE_QUERY_EMPTY");
   return {
@@ -364,6 +531,10 @@ export async function readCatalogWorkspacePage(input: {
       blocked: row.blockedCount,
       validationFailed: row.validationFailedCount,
       pending: row.pendingCount,
+    },
+    facets: {
+      partOfSpeech: normalizeFacets(row.partOfSpeechFacets),
+      category: normalizeFacets(row.categoryFacets),
     },
   };
 }

@@ -155,8 +155,17 @@ export interface NormalizedCatalogRow {
 export interface CatalogRowValidation {
   errors: string[];
   warnings: string[];
+  /** Stable, presentation-safe issue contract. Raw strings remain for CSV compatibility only. */
+  issues: CatalogValidationIssue[];
   directionEligible: boolean;
   eligibility: CatalogActivationResult;
+}
+
+export interface CatalogValidationIssue {
+  code: string;
+  field: string | null;
+  direction: "EN_TO_ZH" | "ZH_TO_EN" | null;
+  severity: "ERROR" | "WARNING";
 }
 
 export interface CatalogImportReport {
@@ -483,57 +492,80 @@ export function validateCatalogRow(
 ): CatalogRowValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
-  errors.push(...row.parseErrors);
-  if (row.schemaVersion !== CATALOG_SCHEMA_VERSION) errors.push("unsupported schema_version");
-  if (!row.term) errors.push("term is required");
-  if (!row.lemma) errors.push("lemma is required");
-  if (!row.partOfSpeech) errors.push("part_of_speech is required");
-  if (!validLevel(row.level)) errors.push("level must be A1, A2, B1 or B2");
-  if (!row.category) errors.push("category is required");
-  if (!row.definitionZh) errors.push("definition_zh is required");
-  if (row.promptEn || row.promptZh) errors.push("prompt_en/prompt_zh must be empty; prompts are server-owned");
+  const issues: CatalogValidationIssue[] = [];
+  const addError = (
+    message: string,
+    code: string,
+    field: string | null = null,
+    direction: CatalogValidationIssue["direction"] = null,
+  ) => {
+    errors.push(message);
+    issues.push({ code, field, direction, severity: "ERROR" });
+  };
+  const addWarning = (
+    message: string,
+    code: string,
+    field: string | null = null,
+    direction: CatalogValidationIssue["direction"] = null,
+  ) => {
+    warnings.push(message);
+    issues.push({ code, field, direction, severity: "WARNING" });
+  };
+
+  for (const parseError of row.parseErrors) addError(parseError, "CATALOG_PARSE_INVALID");
+  if (row.schemaVersion !== CATALOG_SCHEMA_VERSION) addError("unsupported schema_version", "CATALOG_SCHEMA_UNSUPPORTED");
+  if (!row.term) addError("term is required", "CATALOG_TERM_REQUIRED", "term");
+  if (!row.lemma) addError("lemma is required", "CATALOG_LEMMA_REQUIRED", "lemma");
+  if (!row.partOfSpeech) addError("part_of_speech is required", "CATALOG_POS_REQUIRED", "partOfSpeech");
+  if (!validLevel(row.level)) addError("level must be A1, A2, B1 or B2", "CATALOG_LEVEL_INVALID", "level");
+  if (!row.category) addError("category is required", "CATALOG_CATEGORY_REQUIRED", "category");
+  if (!row.definitionZh) addError("definition_zh is required", "CATALOG_DEFINITION_REQUIRED", "definitionZh");
+  if (row.promptEn || row.promptZh) addError("prompt_en/prompt_zh must be empty; prompts are server-owned", "CATALOG_PROMPT_NOT_EMPTY");
   if (mode === "bootstrap") {
-    if (row.catalogStatus && row.catalogStatus !== "DRAFT") errors.push("catalog_status must be empty or DRAFT for CSV bootstrap");
-    if (row.requestedAction !== "CREATE_DRAFT") errors.push("requested_action must be CREATE_DRAFT for CSV bootstrap");
+    if (row.catalogStatus && row.catalogStatus !== "DRAFT") addError("catalog_status must be empty or DRAFT for CSV bootstrap", "CATALOG_BOOTSTRAP_STATUS_INVALID");
+    if (row.requestedAction !== "CREATE_DRAFT") addError("requested_action must be CREATE_DRAFT for CSV bootstrap", "CATALOG_BOOTSTRAP_ACTION_INVALID");
   } else {
-    if (row.requestedAction !== "CREATE" && row.requestedAction !== "UPDATE") errors.push("requested_action must be CREATE or UPDATE for governance submission");
-    if (row.retirementReason) errors.push("retirement_reason must be empty for CREATE/UPDATE governance submission");
+    if (row.requestedAction !== "CREATE" && row.requestedAction !== "UPDATE") addError("requested_action must be CREATE or UPDATE for governance submission", "CATALOG_GOVERNANCE_ACTION_INVALID");
+    if (row.retirementReason) addError("retirement_reason must be empty for CREATE/UPDATE governance submission", "CATALOG_RETIREMENT_REASON_INVALID");
     if (!sourceRow) {
-      errors.push("governance validation requires source metadata");
+      addError("governance validation requires source metadata", "CATALOG_SOURCE_METADATA_REQUIRED");
     } else if (row.requestedAction === "CREATE") {
       if ([sourceRow.catalog_key, sourceRow.sense_key, sourceRow.record_revision, sourceRow.catalog_status].some((value) => clean(value) !== "")) {
-        errors.push("CREATE system identity fields must be empty");
+        addError("CREATE system identity fields must be empty", "CATALOG_CREATE_IDENTITY_INVALID");
       }
     } else if (row.requestedAction === "UPDATE") {
-      if (!clean(sourceRow.catalog_key) || !clean(sourceRow.sense_key)) errors.push("UPDATE requires catalog_key and sense_key");
-      if (row.recordRevision === null) errors.push("UPDATE requires record_revision");
-      if (!(["ACTIVE", "DRAFT", "RETIRED"] as string[]).includes(row.catalogStatus)) errors.push("UPDATE catalog_status must be ACTIVE, DRAFT or RETIRED");
+      if (!clean(sourceRow.catalog_key) || !clean(sourceRow.sense_key)) addError("UPDATE requires catalog_key and sense_key", "CATALOG_UPDATE_IDENTITY_REQUIRED");
+      if (row.recordRevision === null) addError("UPDATE requires record_revision", "CATALOG_UPDATE_REVISION_REQUIRED");
+      if (!(["ACTIVE", "DRAFT", "RETIRED"] as string[]).includes(row.catalogStatus)) addError("UPDATE catalog_status must be ACTIVE, DRAFT or RETIRED", "CATALOG_UPDATE_STATUS_INVALID");
     }
   }
-  if (row.exampleEn && !row.exampleZh) errors.push("example_zh is required when example_en is present");
-  if (row.exampleZh && !row.exampleEn) errors.push("example_en is required when example_zh is present");
+  if (row.exampleEn && !row.exampleZh) addError("example_zh is required when example_en is present", "CATALOG_EXAMPLE_ZH_REQUIRED", "exampleZh");
+  if (row.exampleZh && !row.exampleEn) addError("example_en is required when example_zh is present", "CATALOG_EXAMPLE_EN_REQUIRED", "exampleEn");
 
   const directionChecks: Array<[CatalogDirection, boolean]> = [["en-zh", row.enableEnToZh], ["zh-en", row.enableZhToEn]];
   for (const [direction, enabled] of directionChecks) {
     if (!enabled) continue;
+    const issueDirection = direction === "en-zh" ? "EN_TO_ZH" : "ZH_TO_EN";
+    const distractorField = direction === "en-zh" ? "distractorZh" : "distractorEn";
     const candidates = directionCandidates(row, direction);
     const normalizedCandidates = candidates.map(normalizeCatalogText);
     const answer = normalizeCatalogText(directionAnswer(row, direction));
-    if (candidates.length < 5 || candidates.length > 6) errors.push(`${direction} requires 5 or 6 distractors`);
-    if (new Set(normalizedCandidates).size !== normalizedCandidates.length) errors.push(`${direction} has duplicate distractors`);
-    if (normalizedCandidates.includes(answer)) errors.push(`${direction} distractor collides with canonical answer`);
+    if (candidates.length < 5 || candidates.length > 6) addError(`${direction} requires 5 or 6 distractors`, "CATALOG_DISTRACTOR_COUNT", distractorField, issueDirection);
+    if (new Set(normalizedCandidates).size !== normalizedCandidates.length) addError(`${direction} has duplicate distractors`, "CATALOG_DISTRACTOR_DUPLICATE", distractorField, issueDirection);
+    if (normalizedCandidates.includes(answer)) addError(`${direction} distractor collides with canonical answer`, "CATALOG_DISTRACTOR_CANONICAL_COLLISION", distractorField, issueDirection);
     const sameRowAnswers = direction === "en-zh"
       ? row.acceptedAnswersZh
       : [row.acceptedFormsEn, row.synonymsEn, row.antonymsEn].flat();
-    if (normalizedCandidates.some((candidate) => sameRowAnswers.map(normalizeCatalogText).includes(candidate))) errors.push(`${direction} distractor collides with an accepted answer or answer-safety synonym/antonym`);
+    if (normalizedCandidates.some((candidate) => sameRowAnswers.map(normalizeCatalogText).includes(candidate))) addError(`${direction} distractor collides with an accepted answer or answer-safety synonym/antonym`, "CATALOG_DISTRACTOR_ACCEPTED_COLLISION", distractorField, issueDirection);
     const siblingAnswers = siblingRows.flatMap((sibling) => [directionAnswer(sibling, direction), ...(direction === "en-zh" ? sibling.acceptedAnswersZh : [sibling.acceptedFormsEn, sibling.synonymsEn, sibling.antonymsEn].flat())]).map(normalizeCatalogText);
-    if (normalizedCandidates.some((candidate) => siblingAnswers.includes(candidate))) errors.push(`${direction} distractor collides with a sibling-sense answer`);
+    if (normalizedCandidates.some((candidate) => siblingAnswers.includes(candidate))) addError(`${direction} distractor collides with a sibling-sense answer`, "CATALOG_DISTRACTOR_SIBLING_COLLISION", distractorField, issueDirection);
   }
-  if (!row.enableEnToZh && !row.enableZhToEn) warnings.push("both directions are disabled");
+  if (!row.enableEnToZh && !row.enableZhToEn) addWarning("both directions are disabled", "CATALOG_DIRECTIONS_DISABLED");
   const directionEligible = (row.enableEnToZh || row.enableZhToEn) && errors.length === 0;
   return {
     errors,
     warnings,
+    issues,
     directionEligible,
     eligibility: directionEligible
       ? "ACTIVATION_ELIGIBLE"

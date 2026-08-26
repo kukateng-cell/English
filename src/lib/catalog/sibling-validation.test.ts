@@ -83,4 +83,5 @@ test("preview and submission sibling loader exposes latest sibling answers to th
     sourceRow: 2,
   }, 3, siblingRows);
   assert.match(validation.errors.join("\n"), /en-zh distractor collides with a sibling-sense answer/u);
+  assert.ok(validation.issues.some((issue) => issue.code === "CATALOG_DISTRACTOR_SIBLING_COLLISION" && issue.field === "distractorZh" && issue.direction === "EN_TO_ZH"));
 });

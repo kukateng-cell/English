@@ -91,6 +91,7 @@ export async function GET(req: Request) {
       return NextResponse.json({
         rows: [],
         counts: { all: 0, ACTIVE: 0, DRAFT: 0, RETIRED: 0, blocked: 0, validationFailed: 0, pending: 0 },
+        facets: { partOfSpeech: [], category: [] },
         filteredTotal: 0,
         nextCursor: null,
         mutationRevision: version.mutationRevision,
@@ -107,9 +108,13 @@ export async function GET(req: Request) {
     const fingerprint = catalogWorkspaceQueryFingerprint(query.filters, query.limit, scope);
     const cursor = query.cursor ? decodeCatalogWorkspaceCursor(query.cursor) : null;
     if (query.cursor && !cursor) return errorResponse("CATALOG_CURSOR_INVALID", 422);
-    if (cursor && (cursor.fingerprint !== fingerprint || cursor.batchId !== batch.id)) {
-      return errorResponse("CATALOG_CURSOR_INVALID", 422);
+    if (cursor && ((query.filters.mode === "LEGACY_V1" && cursor.v !== 1) || (query.filters.mode === "WORKSPACE_V2" && cursor.v !== 2))) {
+      return errorResponse("CATALOG_CURSOR_CONTEXT_MISMATCH", 409, { recoverable: true });
     }
+    if (cursor && (cursor.fingerprint !== fingerprint || cursor.batchId !== batch.id)) {
+      return errorResponse("CATALOG_CURSOR_CONTEXT_MISMATCH", 409, { recoverable: true });
+    }
+    if (cursor?.v === 2 && cursor.sort !== query.filters.sort) return errorResponse("CATALOG_CURSOR_CONTEXT_MISMATCH", 409, { recoverable: true });
     if (cursor && cursor.workspaceSignature !== initialVersion.signature) {
       return errorResponse("CATALOG_CURSOR_STALE", 409);
     }
@@ -126,18 +131,29 @@ export async function GET(req: Request) {
     const version = await readCatalogWorkspaceVersion();
     if (version.signature !== initialVersion.signature) return errorResponse("CATALOG_READ_STALE", 409);
     const nextOffset = offset + page.rows.length;
+    const snapshotCutoff = cursor?.v === 2 ? cursor.snapshotCutoff : new Date().toISOString();
     const nextCursor = nextOffset < page.filteredTotal
-      ? encodeCatalogWorkspaceCursor({
-          offset: nextOffset,
-          fingerprint,
-          workspaceSignature: version.signature,
-          batchId: batch.id,
-        })
+      ? query.filters.mode === "LEGACY_V1"
+        ? encodeCatalogWorkspaceCursor({
+            offset: nextOffset,
+            fingerprint,
+            workspaceSignature: version.signature,
+            batchId: batch.id,
+          })
+        : encodeCatalogWorkspaceCursor({
+            offset: nextOffset,
+            fingerprint,
+            workspaceSignature: version.signature,
+            batchId: batch.id,
+            sort: query.filters.sort,
+            snapshotCutoff,
+          })
       : null;
 
     return NextResponse.json({
       rows: page.rows,
       counts: page.counts,
+      facets: page.facets,
       filteredTotal: page.filteredTotal,
       nextCursor,
       mutationRevision: version.mutationRevision,

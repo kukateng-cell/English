@@ -143,6 +143,7 @@ export async function seedCatalog(
     const validation = validateCatalogRow(row, siblings);
     if (!isCatalogCategory(row.category)) {
       validation.errors.push(`unknown category: ${row.category}`);
+      validation.issues.push({ code: "CATALOG_CATEGORY_UNKNOWN", field: "category", direction: null, severity: "ERROR" });
       validation.directionEligible = false;
       validation.eligibility = "DRAFT_BLOCKED";
     }
@@ -277,7 +278,7 @@ export async function seedCatalog(
       eligibilityResult: eligibility,
       catalogKey: row.catalogKey,
       senseKey: row.senseKey,
-      issues: json({ errors: validation.errors, warnings: validation.warnings }),
+      issues: json({ errors: validation.errors, warnings: validation.warnings, structuredIssues: validation.issues }),
       sourceData: json(row),
     });
     if (validation.errors.length > 0 || assignment.resolution === "MERGE" || assignment.resolution === "CONFLICT") continue;

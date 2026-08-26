@@ -15,6 +15,7 @@ const operationPrefix = `${fixture}_operation`;
 async function main() {
   const { prisma } = await import("../src/lib/prisma");
   const { readCatalogWorkspacePage } = await import("../src/lib/catalog/workspace-read");
+  const { parseCatalogWorkspaceQuery } = await import("../src/lib/catalog/workspace-query");
   const { readCatalogWorkspaceVersion } = await import("../src/lib/catalog/workspace-version");
   const metadata = await prisma.databaseMetadata.findUnique({ where: { key: "environment" }, select: { value: true } });
   if (metadata?.value === "production") throw new Error("Refusing catalog pagination fixture on production metadata.");
@@ -239,7 +240,7 @@ async function main() {
     const versionAfterTailMutation = await readCatalogWorkspaceVersion();
     assert.notEqual(versionAfterTailMutation.signature, versionWithOverflow.signature, "mutating a request beyond the old cutoff must stale existing cursors");
 
-    const filters = { q: fixture, status: "ALL", level: "ALL", direction: "ALL" } as const;
+    const filters = parseCatalogWorkspaceQuery(new URLSearchParams({ q: fixture, status: "ALL", level: "ALL", direction: "ALL" })).filters;
     const beforeFixture = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: { ...filters, q: `${fixture}_not_found` }, limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
     const reviewer = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters, limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
     const proposerView = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters, limit: 10, offset: 0, canReview: false, actorUserId: proposerId });
@@ -258,6 +259,26 @@ async function main() {
     assert.equal(pendingOnly.filteredTotal, 1, "only standalone pending CREATE belongs to the governance pending filter");
     assert.equal(enToZh.filteredTotal, 2, "direction filter should run in PostgreSQL across import and standalone sense rows");
     assert.equal(wrongLevel.filteredTotal, 0, "level filter should preserve zero-result semantics");
+
+    const v2Filters = (value: Record<string, string>) => parseCatalogWorkspaceQuery(new URLSearchParams({ q: fixture, ...value })).filters;
+    const lifecycleDraft = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ lifecycle: "DRAFT" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    const workflowPending = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ workflow: "PENDING" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    const nounOnly = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ partOfSpeech: "noun" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    const cInitial = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ initial: "C" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    const otherCategory = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ category: "other" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    const enToZhReady = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ readiness: "EN_TO_ZH_ONLY" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    const noIssues = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ issues: "NONE" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    const descending = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: v2Filters({ sort: "TERM_DESC" }), limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
+    assert.equal(lifecycleDraft.filteredTotal, 3, "orthogonal lifecycle filter should include all three draft fixtures");
+    assert.equal(workflowPending.filteredTotal, 1, "orthogonal workflow filter should find the actor-visible pending request");
+    assert.equal(nounOnly.filteredTotal, 3, "part-of-speech filter should apply to the complete server-side result");
+    assert.equal(cInitial.filteredTotal, 3, "initial filter should use the displayed term");
+    assert.equal(otherCategory.filteredTotal, 3, "category filter should apply server-side");
+    assert.equal(enToZhReady.filteredTotal, 2, "readiness filter should distinguish exact direction availability");
+    assert.equal(noIssues.filteredTotal, 3, "issue filter should use structured issue counts");
+    assert.deepEqual(descending.rows.map((row) => row.term), [`${fixture}_sense`, `${fixture}_pending`, `${fixture}_import`], "teacher Z-A sort should be deterministic");
+    assert.deepEqual(nounOnly.facets.partOfSpeech, [{ value: "noun", count: 3 }], "part-of-speech facet should self-exclude its own selected value");
+    assert.deepEqual(otherCategory.facets.category, [{ value: "other", count: 3 }], "category facet should self-exclude its own selected value");
 
     const page1 = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters, limit: 1, offset: 0, canReview: true, actorUserId: proposerId });
     const page2 = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters, limit: 1, offset: 1, canReview: true, actorUserId: proposerId });

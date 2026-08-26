@@ -9,7 +9,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ senseKey
   if (!catalogHistoryEnabled()) return NextResponse.json({ code: "CATALOG_HISTORY_DISABLED" }, { status: 404, headers: CATALOG_PRIVATE_HEADERS });
   try {
     const { senseKey } = await params;
-    const items = await getCatalogSenseHistory({ senseKey, actorId: auth.actor.userId, canReview: auth.canReview });
-    return NextResponse.json({ items }, { headers: CATALOG_PRIVATE_HEADERS });
+    const searchParams = new URL(req.url).searchParams;
+    for (const key of searchParams.keys()) {
+      if ((key !== "cursor" && key !== "limit") || searchParams.getAll(key).length !== 1) throw new Error("CATALOG_HISTORY_FILTER_INVALID");
+    }
+    const rawLimit = searchParams.get("limit");
+    if (rawLimit !== null && !/^\d{1,2}$/u.test(rawLimit)) throw new Error("CATALOG_HISTORY_FILTER_INVALID");
+    const page = await getCatalogSenseHistory({
+      senseKey,
+      actorId: auth.actor.userId,
+      canReview: auth.canReview,
+      cursor: searchParams.get("cursor"),
+      limit: rawLimit === null ? undefined : Number(rawLimit),
+    });
+    return NextResponse.json(page, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) { return catalogRouteError(error); }
 }

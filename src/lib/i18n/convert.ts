@@ -70,8 +70,15 @@ function getHansConverter(): (s: string) => string {
  */
 export function convertText(text: string, locale: Locale): string {
   if (!text) return text;
-  if (locale === "zh-Hans") return getHansConverter()(text);
-  return getHantConverter()(text);
+  if (locale === "zh-Hans") {
+    return getHansConverter()(text)
+      .replaceAll("幹扰项", "干扰项")
+      .replaceAll("幹擾項", "干扰项");
+  }
+  return getHantConverter()(text)
+    .replaceAll("幹擾項", "干擾項")
+    .replaceAll("幹扰項", "干擾項")
+    .replaceAll("干扰项", "干擾項");
 }
 
 /**

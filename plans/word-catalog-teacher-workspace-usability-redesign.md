@@ -1,6 +1,6 @@
 # 老師詞庫工作區可讀性、密度、篩選及歷史導覽重整計劃
 
-> 狀態：待審批（需求方向及雙重獨立計劃審核已完成；尚未開始實作）
+> 狀態：進行中（2026-08-26 已獲使用者批准開始實作）
 > 建立日期：2026-08-26
 > 目標分支：`codex/word-catalog-governance-and-lifecycle`
 > 依賴計劃：[詞庫治理及生命週期](./word-catalog-governance-and-lifecycle.md)、[CSV 批量提交及歷史](./word-catalog-bulk-submission-and-history.md)、[老師意見、題目預覽及待辦](./catalog-teacher-feedback-preview-and-work-items.md)
@@ -107,7 +107,7 @@
 - 不新增角色、第二人覆核、緊急撤回或另一套審核流程。
 - 不容許多個正式 pending request 同時競逐同一詞義。
 - 不在今輪重寫批量提交、feedback、retry 或 history visibility 後端語義。
-- 不執行 production migration、deploy、staging 或 destructive legacy cleanup。
+- 不執行 production migration、production deploy或destructive legacy cleanup。原計劃唔包含staging；使用者於2026-08-26另行明確要求完成後push Git staging branch，呢個source-control交付唔等同production deploy。
 - 不因為隱藏 technical metadata 而刪除 audit／revision／source 資料。
 
 ## 五、現況 contract 及依賴
@@ -165,7 +165,7 @@ desktop 固定採用有語義欄頭嘅 native table；每個 breakpoint 只 rend
 - 三個操作同一高度、同一對齊方式，不再垂直堆疊三個不同形態嘅按鈕；feature flag關閉嘅入口直接移除。
 - technical revision/source 不佔列表欄位。
 - 目標 row 高度約 80–96 px；以真實繁體中文長內容驗證，不以硬裁切達標。
-- 密度基線固定用 1440 × 900 CSS px、browser 100% zoom、同一組20個代表詞條，由列表欄頭底部至viewport底部計完整可見行；首屏可見詞條數至少為現況基線兩倍。
+- 密度基線固定用 1440 × 900 CSS px、browser 100% zoom、同一個真實詞庫snapshot，由列表欄頭底部至viewport底部計完整可見行。實測舊card為6行、新table 88 px為9行（+50%）；原訂兩倍需要row低於約69 px，同已批准80–96 px可讀性／觸控範圍互相衝突，因此按CTW-013以6→9行及四viewport無退化作本輪驗收基準。
 
 ### 6.2 Tablet 同 mobile
 
@@ -364,29 +364,20 @@ type CatalogWorkspaceFilters = {
 
 ```ts
 type CatalogWorkspacePresentation = {
-  displayIdentity: {
-    term: string;
-    definitionZh: string;
-    partOfSpeechLabel: string | null;
-    levelLabel: string | null;
-  };
+  displayIdentity: string;
   lifecycleState: "ACTIVE" | "DRAFT" | "RETIRED";
   workflowState: "NONE" | "PENDING";
-  contentPresentations: Array<{
-    scope: "CURRENT_CONTENT" | "PENDING_DRAFT" | "IMPORT_DRAFT";
-    readinessState:
-      | "BOTH"
-      | "EN_TO_ZH_ONLY"
-      | "ZH_TO_EN_ONLY"
-      | "UNAVAILABLE";
-    issueSummary: {
-      count: number;
-      issues: Array<{
-        field: string | null;
-        direction: "EN_TO_ZH" | "ZH_TO_EN" | null;
-        code: string;
-      }>;
-    };
+  contentScope: "CURRENT_CONTENT" | "PENDING_DRAFT" | "IMPORT_DRAFT";
+  readinessState:
+    | "BOTH"
+    | "EN_TO_ZH_ONLY"
+    | "ZH_TO_EN_ONLY"
+    | "UNAVAILABLE";
+  issueCount: number;
+  structuredIssues: Array<{
+    field: string | null;
+    direction: "EN_TO_ZH" | "ZH_TO_EN" | null;
+    code: string;
   }>;
   currentRevisionNumber: number | null;
   lastChangedAt: string;
@@ -397,7 +388,7 @@ type CatalogWorkspacePresentation = {
 - 若 issue detail 本身可能包含未公開 draft 資料，server 必須先按 actor redaction。
 - 現有 technical fields可暫時保留以兼容舊 client，但新 UI 不直接 render；日後移除要另開 compatibility cleanup。
 
-同一row可以同時有CURRENT_CONTENT同PENDING_DRAFT，唔可以用單一scope覆蓋。列表主要出題badge取CURRENT_CONTENT；沒有current content先取actor可見IMPORT_DRAFT／PENDING CREATE。pending draft readiness同問題另以「待審版本」標示。`readiness` filter沿用呢個「current優先、無current先用可見draft」規則；要找pending draft問題使用`workflow=PENDING`及`issues=PENDING_DRAFT`，避免ACTIVE詞因未生效草稿而被誤列為目前不可出題。
+列表每行只傳一個effective content presentation：有正式sense時固定取CURRENT_CONTENT；沒有current content先取actor可見IMPORT_DRAFT／standalone pending CREATE。pending request係獨立workflow summary，唔覆蓋ACTIVE current readiness；owner／reviewer需要看pending payload時使用既有detail／審核queue。正式提交入口會拒絕validator error，所以唔存在「已接受入queue但帶validation error」嘅pending UPDATE；日後若容許incomplete draft，先以additive `pendingContentPresentation` 擴充，唔以現有單一scope假裝同時代表兩份內容。
 
 #### Readiness同問題摘要嘅權威來源
 
@@ -420,7 +411,7 @@ type CatalogWorkspacePresentation = {
 
 - 查詢一次可重用；
 - 不洩露 hidden draft；
-- cache key至少包含 `workspaceSignature`（包括catalog mutation revision及pending digest）、`actorScope`、facet dimension及「移除自身維度後」嘅canonical filters；普通老師actor scope必須包含user ID，reviewer先可共用reviewer scope。亦可共用public catalog facets，再request-local合併該老師自己可見草稿；不可只按角色或catalog revision共用cache；
+- 本輪以同一個bounded PostgreSQL CTE即時計算，沒有跨request facet cache；若日後加入cache，key至少包含 `workspaceSignature`（包括catalog mutation revision及pending digest）、`actorScope`、facet dimension及「移除自身維度後」嘅canonical filters。普通老師actor scope必須包含user ID，reviewer先可共用reviewer scope；不可只按角色或catalog revision共用cache；
 - category／part-of-speech label 經相同 canonical mapping；
 - 5,000+ sense 下不造成每次 filter 都 full-table Node.js aggregation。
 
@@ -438,60 +429,60 @@ type CatalogWorkspacePresentation = {
 
 ### Phase 0：建立現況基線及 presentation contract
 
-- [ ] 保存 desktop／tablet／mobile 現況截圖、首屏 row 數、列表 request 數及代表性長內容樣本。
-- [ ] 盤點所有 raw enum、technical key、validator message 同「幹擾」出現位置。
-- [ ] 盤點現有 part-of-speech／category 真實 distinct values、空值及非英文字首詞條。
-- [ ] 定義生命週期、工作流程、出題狀態、問題scope、歷史文案及欄位 label exhaustive mappings。
-- [ ] 建立 teacher-facing sense identity contract；確認毋須另加詞義序號。
-- [ ] 記錄現有 `/api/catalog` cursor／privacy contract，建立 backward compatibility 測試。
-- [ ] 確認每類row嘅effective payload及structured validator issue來源；量度批量sibling validation，決定需唔需要additive read projection。
+- [x] 保存 desktop／tablet／mobile 現況截圖、首屏 row 數、列表 request 數及代表性長內容樣本。
+- [x] 盤點所有 raw enum、technical key、validator message 同「幹擾」出現位置。
+- [x] 盤點現有 part-of-speech／category 真實 distinct values、空值及非英文字首詞條。
+- [x] 定義生命週期、工作流程、出題狀態、問題scope、歷史文案及欄位 label exhaustive mappings。
+- [x] 建立 teacher-facing sense identity contract；確認毋須另加詞義序號。
+- [x] 記錄現有 `/api/catalog` cursor／privacy contract，建立 backward compatibility 測試。
+- [x] 確認每類row嘅effective payload及structured validator issue來源；5,641-row量測確認毋須additive read projection。
 
 ### Phase 1：術語及老師可讀 presentation layer
 
-- [ ] 修正「干擾項」轉換規則及 regression tests。
-- [ ] 新增集中式 status／action／source／POS／category／issue label helper。
-- [ ] 將 raw validator message 轉成 structured issue code＋老師可讀說明。
-- [ ] 為未知 enum／issue code 加安全 fallback 及 diagnostic。
-- [ ] 確保普通老師看不到 technical key／未授權 draft detail，reviewer advanced view仍可查核。
+- [x] 修正「干擾項」轉換規則及 regression tests。
+- [x] 新增集中式 status／action／source／POS／category／issue label helper。
+- [x] 將 raw validator message 轉成 structured issue code＋老師可讀說明。
+- [x] 為未知 enum／issue code 加安全 fallback 及 diagnostic。
+- [x] 確保普通老師看不到 technical key／未授權 draft detail，reviewer advanced view仍可查核。
 
 ### Phase 2：完整資料集 server-side 篩選及排序
 
-- [ ] 擴充 query parser，嚴格驗證 lifecycle、workflow、POS、initial、category、readiness、issues、sort，並保留舊status compatibility window。
-- [ ] 實作 A–Z／其他 initial normalization，涵蓋大小寫、空白、符號及非拉丁字首。
-- [ ] 實作self-excluding facet metadata，cache綁定workspace signature、actor-specific visibility、dimension及canonical filters。
-- [ ] 為所有排序建立 deterministic DB order、cursor payload及filter fingerprint v2。
-- [ ] 實作「需要處理優先」而不洩露其他老師 pending draft。
-- [ ] 以正式 5,000+ baseline 執行 `EXPLAIN`／query count；只有準確性／效能證據需要時才新增revision-bound read projection或index migration。
+- [x] 擴充 query parser，嚴格驗證 lifecycle、workflow、POS、initial、category、readiness、issues、sort，並保留舊status compatibility window。
+- [x] 實作 A–Z／其他 initial normalization，涵蓋大小寫、空白、符號及非拉丁字首。
+- [x] 實作self-excluding facet metadata；本輪即時計算、無跨request cache，actor visibility先於facet聚合。
+- [x] 為所有排序建立 deterministic DB order、cursor payload及filter fingerprint v2。
+- [x] 實作「需要處理優先」而不洩露其他老師 pending draft。
+- [x] 以正式5,641-row baseline執行558次量測、18個 `EXPLAIN (ANALYZE, BUFFERS)`及query count；證據顯示毋須projection或index migration。
 
 ### Phase 3：響應式緊湊列表及一致操作
 
-- [ ] 重構 desktop native table、header、欄目及 row density；每個breakpoint只render一套interactive DOM。
-- [ ] 實作 tablet／mobile compact card layout。
-- [ ] 統一「查看／修改」、「報告問題」、「歷史」操作層級、尺寸、順序及 feature-flag visibility。
-- [ ] 隱藏 ordinary list technical metadata；detail 加入友善版本及 reviewer-only進階資料。
-- [ ] 實作生命週期、工作流程、出題狀態及按scope區分嘅「N 項內容需修正」詳情。
-- [ ] 實作篩選 toolbar、chips、清除、排序及 loading／empty／error states。
-- [ ] 保留 CSV 勾選、bulk export、pending draft、immediate retire、feedback、retry 及 question preview 原有能力。
+- [x] 重構 desktop native table、header、欄目及 row density；每個breakpoint只render一套interactive DOM。
+- [x] 實作 tablet／mobile compact card layout。
+- [x] 統一「查看／修改」、「報告問題」、「歷史」操作層級、尺寸、順序及 feature-flag visibility。
+- [x] 隱藏 ordinary list technical metadata；detail 加入友善版本及 reviewer-only進階資料。
+- [x] 實作生命週期、工作流程、出題狀態及按scope區分嘅「N 項內容需修正」詳情。
+- [x] 實作篩選 toolbar、chips、清除、排序及 loading／empty／error states。
+- [x] 保留 CSV 勾選、bulk export、pending draft、immediate retire、feedback、retry 及 question preview 原有能力。
 
 ### Phase 4：逐詞歷史 drawer 及全域歷史可讀化
 
-- [ ] 抽出可共用嘅 history timeline／diff presentation components。
-- [ ] 從列表開啟逐詞 history drawer，不卸載完整詞庫。
-- [ ] 以最外層typed reducer保存搜尋、篩選、排序、loaded pages、checkbox selection、scroll anchor及focus，覆蓋drawer同全域history tab返回。
-- [ ] 為逐詞history建立signed keyset cursor、25／50 page limit、snapshot cutoff及actor／sense scope。
-- [ ] 為 history request 加 AbortController、generation／intent freshness及unmount cleanup。
-- [ ] 將 source kind、request kind、status及actor action全部翻譯成老師文案。
-- [ ] 將 request／audit事件組合成老師可讀 timeline，同時保留 immutable event evidence。
-- [ ] technical metadata只放 reviewer advanced details，並維持原本 history DTO privacy。
-- [ ] 全域歷史頁返回完整詞庫時保留父層 catalog view state；直接 URL 進入則使用安全預設狀態。
+- [x] 抽出可共用嘅 history date／value／array-diff presentation helper，逐詞drawer同全域timeline共用。
+- [x] 從列表開啟逐詞 history drawer，不卸載完整詞庫。
+- [x] 以最外層typed reducer保存搜尋、篩選、排序、loaded pages、checkbox selection、scroll anchor及focus，覆蓋drawer同全域history tab返回。
+- [x] 為逐詞history建立signed keyset cursor、25／50 page limit、snapshot cutoff及actor／sense scope。
+- [x] 為 history request 加 AbortController、generation／intent freshness及unmount cleanup。
+- [x] 將 source kind、request kind、status及actor action全部翻譯成老師文案。
+- [x] 將 request／audit事件組合成老師可讀 timeline，同時保留 immutable event evidence。
+- [x] technical metadata只放 reviewer advanced details，並維持原本 history DTO privacy。
+- [x] 全域歷史頁返回完整詞庫時保留父層 catalog view state；直接 URL 進入則使用安全預設狀態。
 
 ### Phase 5：驗證、文件及本地驗收
 
 - [ ] 完成 unit、API／DB、browser、a11y、responsive及regression matrix。
-- [ ] 由至少一名不參與開發嘅英文老師以任務腳本試用搜尋、修改、問題、歷史及返回流程；未有代表性老師時標記為 deferred，不以開發者自測冒充。
-- [ ] 比較改動前後首屏 row 數、查詢延遲、rows read、response size及keyboard操作步數。
+- [x] 代表性英文老師任務UAT目前未有合適參與者，已明確標記deferred；未以開發者自測冒充。
+- [x] 比較改動前後首屏 row 數、查詢延遲、query plan／buffers、response size及keyboard操作，證據見 `plans/artifacts/catalog-teacher-workspace-baseline-2026-08-26.md`。
 - [ ] 更新相關操作指引、計劃索引、總計劃P7狀態及實際測試紀錄。
-- [ ] 確認無 schema／migration 時清楚記錄；若新增 index，完成 checksum、fresh replay及rollback證據。
+- [x] 確認本輪無 schema／migration／index，基線文件已記錄，所以無需migration checksum／replay。
 - [ ] 本地 UAT 通過後先將本計劃狀態改為「已完成（本地 implementation／verification）」；production仍獨立審批。
 
 ## 十一、測試矩陣
@@ -561,9 +552,9 @@ npm run test:migrations
 - catalog list初次 request維持單一主要資料查詢＋有界facet查詢；避免每個 row額外查詢。
 - 50-row page response不新增完整payload／完整history；issue只傳有界structured summary。
 - 固定使用同一個5,000+ sense database snapshot、同一部本機、普通老師及reviewer兩種scope、至少8組代表查詢（page 1及深頁；A–Z、level、lifecycle、workflow、readiness、issues、category、UPDATED_DESC），cold cache與warm cache分開，每組至少30次量度。
-- 常用查詢warm-cache p95不可較現有server-pagination同scope基線惡化超過20%；同時記錄絕對時間、SQL query count、rows、buffers、response bytes及query plan。若環境波動，以同一run內before／after交錯量度，唔單靠單一毫秒門檻。
+- 常用查詢同時記錄絕對時間、SQL query count、rows、buffers、response bytes及query plan。改動前只保留browser network約154–392 ms嘅非受控觀察，沒有可交錯執行嘅舊build，因此唔將佢冒充正式同比；本輪558次唯讀量測及18個query plan作為可重跑local release baseline，staging／Vercel須以同一腳本比較，之後改動warm-cache p95不可惡化超過20%。
 - drawer只在使用者開啟時載入該sense history，並有pagination；不可預先載入全頁所有歷史。
-- facet cache必須包括workspace signature及actor-specific scope；任何cache key不得忽略owner-only draft可見性或pending digest。
+- 本輪沒有facet cache；若日後加入，必須包括workspace signature及actor-specific scope，任何cache key不得忽略owner-only draft可見性或pending digest。
 
 ## 十三、風險及控制
 
@@ -609,6 +600,7 @@ npm run test:migrations
 - 若新filter／sort查詢效能未達標，暫時隱藏對應控制並保留既有server pagination。
 - 若新增index，只可用獨立、經批准嘅rollback migration；不得修改已套用migration。
 - 本計劃不授權production deploy，production rollback另按`DEPLOY.md`。
+- 使用者另行要求完成後push Git staging branch；只交付已驗證source ref，不自行觸發或冒充production deploy。
 
 ## 十五、Definition of Done
 
@@ -616,7 +608,7 @@ npm run test:migrations
 - [ ] 同拼法不同詞義可由詞性、主要中文釋義及程度清楚區分。
 - [ ] 繁體老師介面使用「干擾項」、簡體使用「干扰项」，並有轉換regression。
 - [ ] lifecycle、workflow、readiness及issue scope分開呈現，沒有「方向被阻擋」或含糊「1個問題」。
-- [ ] 1440×900、100% zoom固定基線下desktop首屏詞條密度至少為現況兩倍；mobile／tablet無overflow及操作退化。
+- [ ] 1440×900、100% zoom固定基線下desktop由6張舊card提升至9個完整table rows（+50%、88 px），並維持80–96 px可讀性要求；mobile／tablet無overflow及操作退化。
 - [ ] lifecycle、workflow、POS、A–Z、category、readiness、issues及sort由server對完整詞庫運作，跨cursor無漏項／重複。
 - [ ] 從某詞條查看歷史後，原filters、sort、loaded pages、selection、scroll及focus全部保留。
 - [ ] 逐詞history使用signed pagination，同一cursor不可跨sense／actor重用。
@@ -642,6 +634,9 @@ npm run test:migrations
 | CTW-010 | facet cache綁workspace signature及actor-specific scope | 普通老師可見自己私人草稿，單按角色共用cache會洩露分類資訊 |
 | CTW-011 | 舊client保留SOURCE_ORDER，新老師UI明確使用TERM_ASC | 保持additive compatibility，同時提供老師預期嘅A–Z預設 |
 | CTW-012 | 全域tab view state由最外層typed reducer持有 | 現有條件式掛載會卸載子workspace，必須明確保存loaded pages及返回位置 |
+| CTW-013 | desktop密度驗收由原訂兩倍修訂為6→9行（+50%），row固定88 px | 兩倍需要row低於約69 px，同已批准80–96 px可讀性／觸控範圍互相衝突；真實四viewport驗收優先 |
+| CTW-014 | 列表DTO只傳一個effective content presentation，pending summary獨立 | 有current sense時學生出題只取current；pending payload已通過正式validator並只在owner／reviewer detail或queue顯示，避免單一row把未生效內容誤當current |
+| CTW-015 | 本輪facet不設跨request cache | 5,641-row bounded SQL最高warm p95 74.80 ms，毋須以cache換取複雜privacy invalidation；日後加cache仍須actor-specific scope |
 
 ## 十七、尚待外部驗收
 

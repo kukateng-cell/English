@@ -6,6 +6,7 @@ import {
   type CatalogSourceRow,
   type CatalogLevel,
   type NormalizedCatalogRow,
+  type CatalogValidationIssue,
 } from "./csv";
 import { isCatalogCategory } from "./taxonomy";
 
@@ -45,6 +46,7 @@ export interface CatalogPayloadValidation {
   row: NormalizedCatalogRow;
   errors: string[];
   warnings: string[];
+  issues: CatalogValidationIssue[];
 }
 
 const MAX_TEXT = 500;
@@ -179,8 +181,12 @@ export function validateCatalogGovernancePayload(
   const row = normalizeCatalogRow(payloadToSourceRow(payload, identity, revision), 0);
   const result = validateCatalogRow(row, siblings);
   const errors = [...result.errors];
-  if (!isCatalogCategory(row.category)) errors.push(`unknown category: ${row.category}`);
-  return { payload, row, errors, warnings: result.warnings };
+  const issues = [...result.issues];
+  if (!isCatalogCategory(row.category)) {
+    errors.push(`unknown category: ${row.category}`);
+    issues.push({ code: "CATALOG_CATEGORY_UNKNOWN", field: "category", direction: null, severity: "ERROR" });
+  }
+  return { payload, row, errors, warnings: result.warnings, issues };
 }
 
 /** CatalogEntry is the stable headword boundary shared by all of its senses. */

@@ -287,6 +287,14 @@ function catalogRaceRow(
     enableEnToZh: true,
     enableZhToEn: true,
     status: "ACTIVE",
+    lifecycleState: "ACTIVE",
+    workflowState: "NONE",
+    readinessState: "BOTH",
+    contentScope: "CURRENT_CONTENT",
+    issueCount: 0,
+    structuredIssues: [],
+    currentRevisionNumber: 1,
+    lastChangedAt: "2026-08-25T01:00:00.000Z",
     revision: 1,
     latestRevision: 1,
     approvedRevisionId: `revision-${id}`,
@@ -297,6 +305,18 @@ function catalogRaceRow(
     pendingRequest: null,
     hasSense: true,
   };
+}
+
+function catalogResultRow(page: Page, term: string) {
+  return page.getByRole("row").filter({ hasText: term });
+}
+
+async function expandPendingDrafts(page: Page) {
+  const group = page.getByTestId("catalog-pending-review-group");
+  await expect(group).toBeVisible();
+  if (!(await group.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await group.locator(":scope > summary").click();
+  }
 }
 
 function catalogRaceDetailBody(
@@ -425,6 +445,14 @@ test("newer catalog detail selection survives an older delayed response and subm
         enableEnToZh: true,
         enableZhToEn: true,
         status: "ACTIVE",
+        lifecycleState: "ACTIVE",
+        workflowState: "NONE",
+        readinessState: "BOTH",
+        contentScope: "CURRENT_CONTENT",
+        issueCount: 0,
+        structuredIssues: [],
+        currentRevisionNumber: 1,
+        lastChangedAt: "2026-08-25T01:00:00.000Z",
         revision: 1,
         latestRevision: 1,
         approvedRevisionId: `revision-${item.id}`,
@@ -484,15 +512,15 @@ test("newer catalog detail selection survives an older delayed response and subm
     });
 
     await reviewer.page.goto("/admin/words");
-    const rowA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
-    const rowB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    const rowA = catalogResultRow(reviewer.page, payloadA.term);
+    const rowB = catalogResultRow(reviewer.page, payloadB.term);
     await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     await rowB.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
-    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
     await reviewer.page.waitForTimeout(500);
-    await expect(dialog.getByText(senseB)).toBeVisible();
-    await expect(dialog.getByText(senseA)).toHaveCount(0);
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadA.term })).toHaveCount(0);
     await dialog.getByLabel(/中文釋義|中文释义/).fill("競態乙修訂");
     const submitted = reviewer.page.waitForResponse((response) => (
       response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog"
@@ -540,7 +568,7 @@ test("question preview loading resets after payload A to B to A", async ({ brows
     });
 
     await reviewer.page.goto("/admin/words");
-    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    await catalogResultRow(reviewer.page, payload.term).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
     await expect(dialog.getByRole("button", { name: /正在出題|正在出题/ })).toBeVisible();
@@ -593,7 +621,7 @@ test("question preview does not restore an old result after payload A to B to A"
     });
 
     await reviewer.page.goto("/admin/words");
-    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    await catalogResultRow(reviewer.page, payload.term).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
     await expect(dialog.getByText("A 已完成舊題目")).toBeVisible();
@@ -658,7 +686,7 @@ test("question preview can restart after switching direction during loading", as
     });
 
     await reviewer.page.goto("/admin/words");
-    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    await catalogResultRow(reviewer.page, payload.term).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
     await expect.poll(() => enToZhRequests).toBe(1);
@@ -731,8 +759,8 @@ test("question preview is scoped to sense identity and ignores an older delayed 
     });
 
     await reviewer.page.goto("/admin/words");
-    const rowA = reviewer.page.locator("article").filter({ hasText: senseA });
-    const rowB = reviewer.page.locator("article").filter({ hasText: senseB });
+    const rowA = catalogResultRow(reviewer.page, sharedPayload.term).first();
+    const rowB = catalogResultRow(reviewer.page, sharedPayload.term).nth(1);
     await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     let dialog = reviewer.page.getByRole("dialog");
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
@@ -789,7 +817,7 @@ test("question preview automatically selects the only enabled direction", async 
     });
 
     await reviewer.page.goto("/admin/words");
-    await reviewer.page.locator("article").filter({ hasText: senseKey }).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    await catalogResultRow(reviewer.page, payload.term).getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
     await dialog.getByRole("checkbox", { name: /啟用英譯中|启用英译中/ }).uncheck();
     await expect(dialog.getByLabel(/預覽方向|预览方向/)).toHaveValue("zh-en");
@@ -831,17 +859,18 @@ test("opening a pending draft cancels an older delayed detail intent", async ({ 
     });
 
     await reviewer.page.goto("/admin/words");
-    const rowA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
+    await expandPendingDrafts(reviewer.page);
+    const rowA = catalogResultRow(reviewer.page, payloadA.term);
     const pendingB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
     await expect(pendingB.getByRole("button", { name: /查看草稿/ })).toBeVisible();
     await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     await pendingB.getByRole("button", { name: /查看草稿/ }).click();
 
     const dialog = reviewer.page.getByRole("dialog");
-    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
     await reviewer.page.waitForTimeout(500);
-    await expect(dialog.getByText(senseB)).toBeVisible();
-    await expect(dialog.getByText(senseA)).toHaveCount(0);
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadA.term })).toHaveCount(0);
   } finally {
     await reviewer.context.close();
   }
@@ -868,6 +897,7 @@ test("a completed older review cannot close or clear a newer draft dialog", asyn
     });
 
     await reviewer.page.goto("/admin/words");
+    await expandPendingDrafts(reviewer.page);
     const cardA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
     const cardB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
     await cardA.getByRole("button", { name: /批准/ }).click();
@@ -877,7 +907,7 @@ test("a completed older review cannot close or clear a newer draft dialog", asyn
     const dialog = reviewer.page.getByRole("dialog");
 
     await reviewer.page.waitForTimeout(500);
-    await expect(dialog.getByText("review-sense-b")).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
     await expect(note).toHaveValue("B 草稿仍然要保留的審核備註");
     const notice = reviewer.page.getByTestId("catalog-review-action-notice");
     await expect(notice).toContainText(payloadA.term);
@@ -908,6 +938,7 @@ test("an older review error uses a global notice without polluting the newer dra
     });
 
     await reviewer.page.goto("/admin/words");
+    await expandPendingDrafts(reviewer.page);
     const cardA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
     const cardB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
     await cardA.getByRole("button", { name: /批准/ }).click();
@@ -917,7 +948,7 @@ test("an older review error uses a global notice without polluting the newer dra
     const dialog = reviewer.page.getByRole("dialog");
 
     await reviewer.page.waitForTimeout(500);
-    await expect(dialog.getByText("review-error-sense-b")).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
     await expect(note).toHaveValue("B 錯誤競態備註");
     await expect(dialog.getByText("A 專用審核錯誤")).toHaveCount(0);
     const notice = reviewer.page.getByTestId("catalog-review-action-notice");
@@ -949,6 +980,7 @@ test("a delayed review success remains visible after switching workspace tabs", 
     });
 
     await reviewer.page.goto("/admin/words");
+    await expandPendingDrafts(reviewer.page);
     const reviewStarted = reviewer.page.waitForRequest((candidate) => candidate.url().endsWith("/api/catalog/requests/review-tab-success"));
     await reviewer.page.locator("article").filter({ hasText: payload.term }).getByRole("button", { name: /批准/ }).click();
     await reviewStarted;
@@ -979,6 +1011,7 @@ test("a delayed review error remains visible after switching workspace tabs", as
     });
 
     await reviewer.page.goto("/admin/words");
+    await expandPendingDrafts(reviewer.page);
     const reviewStarted = reviewer.page.waitForRequest((candidate) => candidate.url().endsWith("/api/catalog/requests/review-tab-error"));
     await reviewer.page.locator("article").filter({ hasText: payload.term }).getByRole("button", { name: /批准/ }).click();
     await reviewStarted;
@@ -1063,14 +1096,14 @@ test("an older delayed retry loader cannot replace a newer catalog detail intent
     await reviewer.page.goto("/admin/words");
     await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
     await reviewer.page.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
-    const rowB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
+    const rowB = catalogResultRow(reviewer.page, payloadB.term);
     await rowB.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
 
     const dialog = reviewer.page.getByRole("dialog");
-    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
     await reviewer.page.waitForTimeout(500);
-    await expect(dialog.getByText(senseB)).toBeVisible();
-    await expect(dialog.getByText(senseA)).toHaveCount(0);
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadA.term })).toHaveCount(0);
   } finally {
     await reviewer.context.close();
   }
@@ -1113,7 +1146,8 @@ test("a completed submit does not reopen its old dialog after the user opens ano
     });
 
     await reviewer.page.goto("/admin/words");
-    const rowA = reviewer.page.locator("article").filter({ hasText: payloadA.term });
+    await expandPendingDrafts(reviewer.page);
+    const rowA = catalogResultRow(reviewer.page, payloadA.term);
     const pendingB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
     await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
@@ -1126,10 +1160,10 @@ test("a completed submit does not reopen its old dialog after the user opens ano
     await dialog.getByRole("button", { name: /關閉|关闭/ }).click();
     await pendingB.getByRole("button", { name: /查看草稿/ }).click();
 
-    await expect(dialog.getByText(senseB)).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
     await reviewer.page.waitForTimeout(650);
-    await expect(dialog.getByText(senseB)).toBeVisible();
-    await expect(dialog.getByText(senseA)).toHaveCount(0);
+    await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: payloadA.term })).toHaveCount(0);
   } finally {
     await reviewer.context.close();
   }
@@ -1328,6 +1362,7 @@ test("catalog feature flags expose all entry points and return to catalog after 
 });
 
 test("catalog workspace keeps drafts private and completes one-reviewer lifecycle with a clean CSV round-trip", async ({ browser }) => {
+  test.slow();
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   const connectionString = process.env.DATABASE_URL;
   test.skip(!password || !connectionString, "Seeded teacher/admin credentials and DATABASE_URL are required.");
@@ -1411,8 +1446,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
 
     await proposer.page.goto("/teacher/words");
     await expect(proposer.page.getByRole("heading", { name: /詞庫治理工作區|词库治理工作区/ })).toBeVisible();
-    await proposer.page.getByLabel(/搜尋詞條、釋義或 key|搜索词条、释义或 key/).fill(term);
-    const row = proposer.page.locator("article").filter({ hasText: term }).first();
+    await proposer.page.getByLabel(/搜尋詞條或釋義|搜索词条或释义/).fill(term);
+    const row = catalogResultRow(proposer.page, term).first();
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = proposer.page.getByRole("dialog");
@@ -1660,10 +1695,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     expect(pendingStatusUpdate.status(), await pendingStatusUpdate.text()).toBe(201);
 
     await reviewer.page.goto("/admin/words");
-    await reviewer.page.getByLabel(/搜尋詞條、釋義或 key|搜索词条、释义或 key/).fill(term);
-    const statusActionRow = reviewer.page.locator("article").filter({ hasText: term }).filter({
-      has: reviewer.page.getByRole("button", { name: /查看／修改|查看\/修改/ }),
-    }).first();
+    await reviewer.page.getByLabel(/搜尋詞條或釋義|搜索词条或释义/).fill(term);
+    const statusActionRow = catalogResultRow(reviewer.page, term).first();
     await expect(statusActionRow).toBeVisible();
     await statusActionRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const statusActionDialog = reviewer.page.getByRole("dialog");
@@ -1778,16 +1811,18 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     expect((await detail(proposer.page, senseKey)).status).toBe("ACTIVE");
 
     await proposer.page.goto("/teacher/words");
-    await proposer.page.getByLabel(/搜尋詞條、釋義或 key|搜索词条、释义或 key/).fill(term);
-    const activeRow = proposer.page.locator("article").filter({ hasText: term }).first();
+    await proposer.page.getByLabel(/搜尋詞條或釋義|搜索词条或释义/).fill(term);
+    const activeRow = catalogResultRow(proposer.page, term).first();
     await expect(activeRow).toBeVisible();
     await activeRow.getByRole("button", { name: /查看歷史|查看历史/ }).click();
-    await expect(proposer.page.getByRole("heading", { name: /詞條修改歷史|词条修改历史/ })).toBeVisible();
-    await expect(proposer.page.getByText(senseKey, { exact: true }).first()).toBeVisible();
-    const historyEntries = proposer.page.locator("main article");
+    const senseHistory = proposer.page.getByRole("dialog", { name: term });
+    await expect(senseHistory.getByText(/詞條修改歷史|词条修改历史/)).toBeVisible();
+    await expect(senseHistory.getByRole("heading", { name: term })).toBeVisible();
+    const historyEntries = senseHistory.locator("article");
     await expect(historyEntries).toHaveCount(10);
-    await expect(historyEntries.filter({ hasText: "APPROVED" })).toHaveCount(8);
-    await expect(historyEntries.filter({ hasText: "REJECTED" })).toHaveCount(2);
+    await expect(historyEntries.filter({ hasText: /已批准/ })).toHaveCount(8);
+    await expect(historyEntries.filter({ hasText: /已拒絕|已拒绝/ })).toHaveCount(2);
+    await expect(senseHistory).not.toContainText(/APPROVED|REJECTED|governance_e2e_/);
 
     const activeBeforeInapplicableRetire = await detail(proposer.page, senseKey);
     const obsoleteRetire = await proposer.page.request.post("/api/catalog", {

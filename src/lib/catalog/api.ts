@@ -96,6 +96,9 @@ export function catalogRouteError(error: unknown): NextResponse {
   if (code === "CATALOG_CHANGE_PENDING" || code === "CATALOG_BATCH_RETRY_NO_LONGER_APPLICABLE") {
     return catalogResponse(code, 409);
   }
+  if (code === "CATALOG_HISTORY_CURSOR_CONTEXT_MISMATCH") {
+    return catalogResponse(code, 409, { recoverable: true });
+  }
   if (code.startsWith("CATALOG_CSV_") || code.endsWith("_INVALID") || code.endsWith("_REQUIRED") || code === "CATALOG_BATCH_HAS_ERRORS" || code === "CATALOG_BATCH_NEEDS_RESOLUTION" || code === "CATALOG_BATCH_EMPTY") {
     return catalogResponse(code, 422, error instanceof CatalogCsvError ? { message: error.message } : undefined);
   }

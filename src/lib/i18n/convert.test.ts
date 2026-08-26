@@ -24,3 +24,13 @@ test("server conversion follows the locale cookie without changing non-Chinese d
   assert.equal(convertForServer("学习 A1 · Common Verbs", "locale=zh-Hans"), "学习 A1 · Common Verbs");
   assert.equal(convertForServer("学习 A1 · Common Verbs", "locale=invalid"), "學習 A1 · Common Verbs");
 });
+
+test("catalog distractor terminology stays canonical after conversion", () => {
+  for (const source of ["干擾項", "幹擾項", "干扰项", "幹扰項"]) {
+    assert.equal(convertText(`英譯中${source}：需要修正`, "zh-Hant"), "英譯中干擾項：需要修正");
+    assert.equal(convertText(`英譯中${source}：需要修正`, "zh-Hans"), "英译中干扰项：需要修正");
+  }
+  // OpenCC may use the Taiwan glyph「幹預」; the catalog-specific correction
+  // must not rewrite unrelated occurrences of 干/幹.
+  assert.equal(convertText("干預及干涉不應被任意替換", "zh-Hant"), "幹預及干涉不應被任意替換");
+});
