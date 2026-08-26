@@ -6,6 +6,7 @@ import type { Prisma } from "../../generated/prisma";
 import {
   CATALOG_NORMALIZATION_VERSION,
   CATALOG_VALIDATOR_VERSION,
+  CATALOG_STRUCTURED_ISSUE_VERSION,
   type CatalogActivationResult,
   type CatalogPrimaryDisposition,
   type CatalogSourceRow,
@@ -278,7 +279,12 @@ export async function seedCatalog(
       eligibilityResult: eligibility,
       catalogKey: row.catalogKey,
       senseKey: row.senseKey,
-      issues: json({ errors: validation.errors, warnings: validation.warnings, structuredIssues: validation.issues }),
+      issues: json({
+        errors: validation.errors,
+        warnings: validation.warnings,
+        structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+        structuredIssues: validation.issues,
+      }),
       sourceData: json(row),
     });
     if (validation.errors.length > 0 || assignment.resolution === "MERGE" || assignment.resolution === "CONFLICT") continue;

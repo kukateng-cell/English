@@ -222,7 +222,7 @@ export function catalogSenseHistoryScope(
   workspaceSignature: string,
 ): string {
   return createHash("sha256")
-    .update(canReview ? "REVIEWER:" : `TEACHER:${actorId}:`)
+    .update(canReview ? `REVIEWER:${actorId}:` : `TEACHER:${actorId}:`)
     .update(workspaceSignature)
     .digest("hex");
 }

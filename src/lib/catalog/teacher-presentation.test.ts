@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CATALOG_VALIDATION_ISSUE_CODES,
+  catalogLegacyValidationIssue,
+} from "./csv";
+import {
   catalogCategoryLabel,
   catalogHistorySourceLabel,
   catalogIssuePresentation,
@@ -11,6 +15,7 @@ import {
   catalogSourceSummary,
   catalogWorkflowLabel,
 } from "./teacher-presentation";
+import { CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE } from "./validation-issue-contract";
 
 test("catalog teacher presentation keeps lifecycle, workflow and readiness orthogonal", () => {
   assert.equal(catalogLifecycleLabel("ACTIVE"), "已啟用");
@@ -19,7 +24,29 @@ test("catalog teacher presentation keeps lifecycle, workflow and readiness ortho
 });
 
 test("catalog teacher presentation maps taxonomy and safely falls back", () => {
-  assert.equal(catalogPartOfSpeechLabel("noun"), "名詞");
+  const canonicalPartOfSpeechLabels = {
+    noun: "名詞",
+    verb: "動詞",
+    adjective: "形容詞",
+    adverb: "副詞",
+    pronoun: "代詞",
+    determiner: "限定詞",
+    preposition: "介詞",
+    conjunction: "連詞",
+    interjection: "感嘆詞",
+    auxiliary: "助動詞",
+    modal: "情態動詞",
+    numeral: "數詞",
+    particle: "助詞",
+    phrasal_verb: "短語動詞",
+    phrase: "短語",
+    proper_noun: "專有名詞",
+    abbreviation: "縮寫",
+    other: "其他詞性",
+  } as const;
+  for (const [value, label] of Object.entries(canonicalPartOfSpeechLabels)) {
+    assert.equal(catalogPartOfSpeechLabel(value), label);
+  }
   assert.equal(
     catalogPartOfSpeechLabel("unexpected-internal-enum"),
     "其他詞性",
@@ -35,6 +62,7 @@ test("catalog issue presentation gives a field, reason and next step without raw
     code: "CATALOG_DISTRACTOR_COUNT",
     field: "distractorEn",
     direction: "ZH_TO_EN",
+    severity: "ERROR",
   });
   assert.equal(issue.fieldLabel, "中譯英干擾項");
   assert.equal(issue.directionLabel, "中譯英");
@@ -44,8 +72,40 @@ test("catalog issue presentation gives a field, reason and next step without raw
     code: "RAW_INTERNAL_EXCEPTION",
     field: null,
     direction: null,
+    severity: "ERROR",
   });
   assert.doesNotMatch(unknown.reason, /RAW_INTERNAL_EXCEPTION/u);
+});
+
+test("every structured validator code has actionable teacher copy and legacy rows are upgraded", () => {
+  for (const code of CATALOG_VALIDATION_ISSUE_CODES) {
+    const copy = catalogIssuePresentation({
+      code,
+      field: null,
+      direction: null,
+      severity: code === "CATALOG_DIRECTIONS_DISABLED" ? "WARNING" : "ERROR",
+    });
+    assert.notEqual(copy.reason, "內容出現未能識別的檢查結果。", code);
+    assert.ok(copy.fix.length > 0, code);
+  }
+  assert.equal(
+    catalogLegacyValidationIssue("en-zh requires 5 or 6 distractors").code,
+    "CATALOG_DISTRACTOR_COUNT",
+  );
+  assert.equal(
+    catalogLegacyValidationIssue("both directions are disabled", "WARNING")
+      .severity,
+    "WARNING",
+  );
+  assert.notEqual(
+    catalogIssuePresentation({
+      code: CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE,
+      field: null,
+      direction: null,
+      severity: "ERROR",
+    }).reason,
+    "內容出現未能識別的檢查結果。",
+  );
 });
 
 test("catalog source summary hides raw paths from ordinary presentation", () => {

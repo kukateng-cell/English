@@ -69,6 +69,19 @@ test("catalog workspace query supports orthogonal filters and teacher sorting", 
       ),
     /CATALOG_QUERY_INVALID/,
   );
+  assert.equal(
+    parseCatalogWorkspaceQuery(
+      new URLSearchParams("partOfSpeech=phrasal_verb"),
+    ).filters.partOfSpeech,
+    "phrasal_verb",
+  );
+  assert.throws(
+    () =>
+      parseCatalogWorkspaceQuery(
+        new URLSearchParams("partOfSpeech=raw-database-value"),
+      ),
+    /CATALOG_QUERY_INVALID/,
+  );
 });
 
 test("legacy status cannot be mixed with v2 filters or sorting", () => {

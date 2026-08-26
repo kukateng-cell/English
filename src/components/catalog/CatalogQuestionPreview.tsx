@@ -3,7 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import { rosterFetch } from "@/lib/roster-client";
-import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
+import { networkErrorMessage } from "@/lib/api-error";
+import { catalogValidationResponseErrorMessage } from "@/lib/catalog/client-validation";
 
 type Payload = {
   term: string;
@@ -78,7 +79,9 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
       });
       if (generation !== previewGenerationRef.current) return;
       if (!response.ok) {
-        throw new Error(await responseErrorMessage(response, tc));
+        throw new Error(
+          await catalogValidationResponseErrorMessage(response, tc),
+        );
       }
       const body = await response.json() as { preview: Preview };
       if (generation !== previewGenerationRef.current) return;

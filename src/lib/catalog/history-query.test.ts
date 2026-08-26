@@ -17,6 +17,10 @@ test("sense history visibility scope is opaque and actor/workspace bound", () =>
   assert.match(teacherA, /^[a-f0-9]{64}$/u);
   assert.notEqual(teacherA, teacherB);
   assert.notEqual(teacherA, changedWorkspace);
+  assert.notEqual(
+    catalogSenseHistoryScope(true, "reviewer-1", "workspace-a"),
+    catalogSenseHistoryScope(true, "reviewer-2", "workspace-a"),
+  );
   assert.equal(teacherA.includes("user-1"), false);
 });
 

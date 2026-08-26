@@ -15,6 +15,7 @@ import {
   catalogHistoryDate,
   catalogHistoryValueText,
 } from "@/components/catalog/catalogHistoryPresentation";
+import { useCatalogModalFocus } from "./useCatalogModalFocus";
 
 type HistorySnapshot = {
   term: string | null;
@@ -88,6 +89,7 @@ export default function CatalogSenseHistoryDrawer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const generationRef = useRef(0);
   const loadRef = useRef<(cursor?: string | null) => Promise<void>>(
@@ -171,52 +173,25 @@ export default function CatalogSenseHistoryDrawer({
     };
   }, [load]);
 
-  useEffect(() => {
-    const previous =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const timer = window.setTimeout(() => panelRef.current?.focus(), 0);
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab" || !panelRef.current) return;
-      const focusable = [
-        ...panelRef.current.querySelectorAll<HTMLElement>(
-          "button, a[href], [tabindex]:not([tabindex='-1'])",
-        ),
-      ].filter((element) => !element.hasAttribute("disabled"));
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("keydown", onKeyDown);
-      previous?.focus();
-    };
-  }, [onClose]);
+  useCatalogModalFocus({
+    open: true,
+    onClose,
+    panelRef,
+    rootRef,
+  });
 
   return (
     <div
+      ref={rootRef}
       className="fixed inset-0 z-[60] bg-black/35"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="catalog-sense-history-title"
+      aria-labelledby="catalog-sense-history-purpose catalog-sense-history-title"
+      aria-describedby="catalog-sense-history-description"
     >
       <button
         type="button"
+        tabIndex={-1}
         className="absolute inset-0 cursor-default"
         aria-label={tc("關閉詞條歷史") as string}
         onClick={onClose}
@@ -228,7 +203,10 @@ export default function CatalogSenseHistoryDrawer({
       >
         <header className="sticky top-0 z-10 -mx-5 -mt-5 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:-mx-6 sm:-mt-6 sm:px-6">
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-[var(--muted)]">
+            <p
+              id="catalog-sense-history-purpose"
+              className="text-xs font-semibold text-[var(--muted)]"
+            >
               {tc("詞條修改歷史")}
             </p>
             <h2
@@ -240,6 +218,7 @@ export default function CatalogSenseHistoryDrawer({
           </div>
           <button
             type="button"
+            autoFocus
             className="ui-button ui-button-quiet ui-button-small"
             onClick={onClose}
             aria-label={tc("關閉") as string}
@@ -247,7 +226,10 @@ export default function CatalogSenseHistoryDrawer({
             ×
           </button>
         </header>
-        <p className="mt-5 text-sm text-[var(--muted)]">
+        <p
+          id="catalog-sense-history-description"
+          className="mt-5 text-sm text-[var(--muted)]"
+        >
           {tc("這裡只顯示此詞義的提交、審核和正式套用記錄。")}
         </p>
         {error ? (

@@ -1,6 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
+import { CATALOG_STRUCTURED_ISSUE_VERSION } from "../../src/lib/catalog/validation-issue-contract";
 
 const ORIGIN = "http://127.0.0.1:3100";
 
@@ -377,6 +378,7 @@ async function installCatalogRaceList(
     canReview?: boolean;
     pending?: Array<ReturnType<typeof catalogRacePendingRequest>>;
     beforeCatalogResponse?: (requestNumber: number) => Promise<void>;
+    structuredIssueVersion?: string;
   } = {},
 ) {
   const signature = "catalog-dialog-intent-race";
@@ -389,6 +391,8 @@ async function installCatalogRaceList(
       contentType: "application/json",
       body: JSON.stringify({
         rows,
+        structuredIssueVersion:
+          options.structuredIssueVersion ?? CATALOG_STRUCTURED_ISSUE_VERSION,
         counts: { all: rows.length, ACTIVE: rows.length, pending: options.pending?.length ?? 0 },
         filteredTotal: rows.length,
         nextCursor: null,
@@ -468,6 +472,7 @@ test("newer catalog detail selection survives an older delayed response and subm
         contentType: "application/json",
         body: JSON.stringify({
           rows,
+          structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
           counts: { all: 2, ACTIVE: 2 },
           filteredTotal: 2,
           nextCursor: null,
@@ -1361,6 +1366,279 @@ test("catalog feature flags expose all entry points and return to catalog after 
   }
 });
 
+test("catalog compact overlays trap focus and expose complete keyboard menus without overflow", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseKey = "catalog-responsive-accessibility";
+  const payload = catalogRacePayload("responsiveword", "響應式詞條");
+  try {
+    await reviewer.page.setViewportSize({ width: 1024, height: 900 });
+    await installCatalogFeatureAccessMock(reviewer.page, {
+      bulkEnabled: false,
+      historyEnabled: true,
+    });
+    await installCatalogRaceList(reviewer.page, [
+      catalogRaceRow("responsive-accessibility", senseKey, payload),
+    ]);
+    await reviewer.page.route(
+      `**/api/catalog/${senseKey}/history?*`,
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            items: [],
+            snapshotCutoff: "2026-08-26T09:00:00.000Z",
+            nextCursor: null,
+          }),
+        });
+      },
+    );
+
+    await reviewer.page.goto("/admin/words");
+    await expect(reviewer.page.locator("table")).toHaveCount(0);
+    await expect(
+      reviewer.page.locator("article").filter({ hasText: payload.term }),
+    ).toBeVisible();
+    for (const width of [320, 768, 1024]) {
+      await reviewer.page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => reviewer.page.evaluate(() => window.innerWidth)).toBe(width);
+      const geometry = await reviewer.page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }));
+      expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+      await expect(reviewer.page.locator("table")).toHaveCount(0);
+    }
+
+    const filterTrigger = reviewer.page.getByRole("button", {
+      name: /^篩選|^筛选/,
+    });
+    await filterTrigger.click();
+    const filterDialog = reviewer.page.getByRole("dialog", {
+      name: /篩選詞庫|筛选词库/,
+    });
+    await expect(filterDialog).toBeVisible();
+    await expect(
+      filterDialog.getByRole("button", {
+        name: /^(關閉|关闭)$/,
+        exact: true,
+      }),
+    ).toBeFocused();
+    expect(
+      await filterTrigger.evaluate((element) =>
+        Boolean(element.closest("[inert]")),
+      ),
+    ).toBe(true);
+    await reviewer.page.keyboard.press("Shift+Tab");
+    expect(
+      await filterDialog.evaluate((element) =>
+        element.contains(document.activeElement),
+      ),
+    ).toBe(true);
+
+    await reviewer.page.setViewportSize({ width: 1440, height: 900 });
+    await expect(filterDialog).toHaveCount(0);
+    await expect
+      .poll(() =>
+        reviewer.page.evaluate(() => ({
+          bodyOverflow: document.body.style.overflow,
+          inertCount: document.querySelectorAll("[inert]").length,
+        })),
+      )
+      .toEqual({ bodyOverflow: "", inertCount: 0 });
+    const desktopSearch = reviewer.page.getByRole("textbox", {
+      name: /搜尋詞條或釋義|搜索词条或释义/,
+    });
+    await desktopSearch.focus();
+    await expect(desktopSearch).toBeFocused();
+
+    await reviewer.page.setViewportSize({ width: 1024, height: 900 });
+    await filterTrigger.click();
+    await expect(filterDialog).toBeVisible();
+    await reviewer.page.keyboard.press("Escape");
+    await expect(filterTrigger).toBeFocused();
+
+    const more = reviewer.page.getByRole("button", {
+      name: new RegExp(`更多操作.*${payload.term}`),
+    });
+    await more.press("ArrowDown");
+    const menu = reviewer.page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /報告問題|报告问题/ })).toBeFocused();
+    await reviewer.page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: /查看歷史|查看历史/ })).toBeFocused();
+    await reviewer.page.keyboard.press("Home");
+    await expect(menu.getByRole("menuitem", { name: /報告問題|报告问题/ })).toBeFocused();
+    await reviewer.page.keyboard.press("End");
+    await expect(menu.getByRole("menuitem", { name: /查看歷史|查看历史/ })).toBeFocused();
+    await reviewer.page.keyboard.press("Escape");
+    await expect(more).toBeFocused();
+
+    await more.press("ArrowUp");
+    await menu.getByRole("menuitem", { name: /查看歷史|查看历史/ }).click();
+    const historyDialog = reviewer.page.getByRole("dialog", {
+      name: new RegExp(`詞條修改歷史.*${payload.term}|词条修改历史.*${payload.term}`),
+    });
+    await expect(historyDialog).toBeVisible();
+    await expect(historyDialog).toHaveAccessibleDescription(
+      /只顯示此詞義的提交、審核和正式套用記錄|只显示此词义的提交、审核和正式套用记录/,
+    );
+    await expect(
+      historyDialog.getByRole("button", {
+        name: /^(關閉|关闭)$/,
+        exact: true,
+      }),
+    ).toBeFocused();
+    await reviewer.page.keyboard.press("Shift+Tab");
+    expect(
+      await historyDialog.evaluate((element) =>
+        element.contains(document.activeElement),
+      ),
+    ).toBe(true);
+    await reviewer.page.keyboard.press("Escape");
+    await expect(more).toBeFocused();
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("catalog list fails closed before rendering an unknown structured issue contract", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const payload = catalogRacePayload("futurecontractword", "未來格式詞條");
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, {
+      bulkEnabled: false,
+      historyEnabled: true,
+    });
+    await installCatalogRaceList(
+      reviewer.page,
+      [catalogRaceRow("future-contract", "future-contract-sense", payload)],
+      { structuredIssueVersion: "catalog-structured-issues-v999" },
+    );
+    await reviewer.page.goto("/admin/words");
+    await expect(
+      reviewer.page.getByText(
+        /詞庫檢查格式已更新|词库检查格式已更新/,
+      ),
+    ).toBeVisible();
+    await expect(reviewer.page.getByText(payload.term, { exact: true })).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("catalog to global history restores loaded rows, filters, selection, scroll and focus once", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const rows = Array.from({ length: 16 }, (_, index) => {
+    const number = String(index + 1).padStart(2, "0");
+    const payload = catalogRacePayload(
+      `restoreword${number}`,
+      `狀態還原詞條 ${number}`,
+    );
+    return catalogRaceRow(`restore-${number}`, `restore-sense-${number}`, payload);
+  });
+  const firstPage = rows.slice(0, 8);
+  const secondPage = rows.slice(8);
+  const target = rows[12]!;
+  const signature = "catalog-state-restoration-signature";
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, {
+      bulkEnabled: true,
+      historyEnabled: true,
+    });
+    await installCommittedHistoryMock(reviewer.page);
+    await reviewer.page.route("**/api/catalog?*", async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get("cursor");
+      const responseRows = cursor ? secondPage : firstPage;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          rows: responseRows,
+          structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+          counts: { all: rows.length, ACTIVE: rows.length, pending: 0 },
+          facets: {
+            partOfSpeech: [{ value: "noun", count: rows.length }],
+            category: [{ value: "other", count: rows.length }],
+          },
+          filteredTotal: rows.length,
+          nextCursor: cursor ? null : "restore-page-2",
+          canReview: false,
+          mutationRevision: 1,
+          workspaceSignature: signature,
+        }),
+      });
+    });
+    await reviewer.page.route(
+      `**/api/catalog/${target.senseKey}/history?*`,
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            items: [],
+            snapshotCutoff: "2026-08-26T09:00:00.000Z",
+            nextCursor: null,
+          }),
+        });
+      },
+    );
+
+    await reviewer.page.goto("/admin/words");
+    const search = reviewer.page.getByLabel(/搜尋詞條或釋義|搜索词条或释义/);
+    await search.fill("restoreword");
+    const sortSelect = reviewer.page.getByRole("combobox", { name: /^排序/ });
+    await sortSelect.selectOption("UPDATED_DESC");
+    await expect(reviewer.page.getByRole("button", { name: /載入更多/ })).toBeVisible();
+    await reviewer.page.getByRole("button", { name: /載入更多/ }).click();
+    await expect(reviewer.page.locator("[data-catalog-row]")).toHaveCount(16);
+
+    const targetRow = reviewer.page.locator(`[data-catalog-row="${target.id}"]`);
+    const checkbox = targetRow.getByRole("checkbox", { name: /選取匯出|选取导出/ });
+    await checkbox.check();
+    await targetRow.scrollIntoViewIfNeeded();
+    const savedScrollY = await reviewer.page.evaluate(() => window.scrollY);
+    const historyTrigger = targetRow.getByRole("button", {
+      name: /查看歷史|查看历史/,
+    });
+    await historyTrigger.click();
+    const drawer = reviewer.page.getByRole("dialog", { name: target.term });
+    await drawer.getByRole("button", { name: /在完整歷史中查看|在完整历史中查看/ }).click();
+    await expect(
+      reviewer.page.getByRole("heading", { name: /詞條修改歷史|词条修改历史/ }),
+    ).toBeVisible();
+    await reviewer.page.getByRole("button", { name: /返回完整詞庫|返回完整词库/ }).click();
+
+    await expect(reviewer.page.locator("[data-catalog-row]")).toHaveCount(16);
+    await expect(search).toHaveValue("restoreword");
+    await expect(sortSelect).toHaveValue("UPDATED_DESC");
+    await expect(checkbox).toBeChecked();
+    await expect(historyTrigger).toBeFocused();
+    await expect
+      .poll(() => reviewer.page.evaluate(() => window.scrollY))
+      .toBe(savedScrollY);
+
+    await reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ }).click();
+    await expect(
+      reviewer.page.getByRole("heading", { name: /詞條修改歷史|词条修改历史/ }),
+    ).toBeVisible();
+    await reviewer.page.getByRole("button", { name: /返回完整詞庫|返回完整词库/ }).click();
+    await expect(reviewer.page.locator("[data-catalog-row]")).toHaveCount(16);
+    await expect(historyTrigger).not.toBeFocused();
+    await expect(
+      reviewer.page.getByText(/原詞條已不在目前結果|原词条已不在目前结果/),
+    ).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
 test("catalog workspace keeps drafts private and completes one-reviewer lifecycle with a clean CSV round-trip", async ({ browser }) => {
   test.slow();
   const password = process.env.INITIAL_ADMIN_PASSWORD;
@@ -1414,11 +1692,27 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
   };
 
   try {
+    const cursorPage = await reviewer.page.request.get(
+      "/api/catalog?limit=1&sort=TERM_ASC",
+    );
+    expect(cursorPage.ok(), await cursorPage.text()).toBeTruthy();
+    const cursorBeforeMutation = (await cursorPage.json()) as {
+      nextCursor: string | null;
+    };
+    expect(cursorBeforeMutation.nextCursor).toBeTruthy();
+
     const create = await proposer.page.request.post("/api/catalog", {
       headers: proposerHeaders,
       data: { operationId: randomUUID(), kind: "CREATE", senseKey, payload },
     });
     expect(create.status(), await create.text()).toBe(201);
+    const staleCursor = await reviewer.page.request.get(
+      `/api/catalog?limit=1&sort=TERM_ASC&cursor=${encodeURIComponent(cursorBeforeMutation.nextCursor!)}`,
+    );
+    expect(staleCursor.status()).toBe(409);
+    expect(await staleCursor.json()).toMatchObject({
+      code: "CATALOG_CURSOR_STALE",
+    });
     await approvePending(reviewer.page, reviewerHeaders, senseKey);
     expect((await detail(proposer.page, senseKey)).status).toBe("ACTIVE");
 

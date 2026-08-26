@@ -1,4 +1,9 @@
 import { Prisma, prisma } from "@/lib/prisma";
+import { catalogLegacyValidationIssue } from "@/lib/catalog/csv";
+import {
+  CATALOG_STRUCTURED_ISSUE_VERSION,
+  CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE,
+} from "@/lib/catalog/validation-issue-contract";
 import type {
   CatalogWorkspaceFilters,
   CatalogWorkspaceSort,
@@ -196,24 +201,58 @@ function stringList(value: unknown): string[] {
     : [];
 }
 
-function structuredIssueList(value: unknown): CatalogStructuredIssue[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
+export function catalogStoredStructuredIssues(
+  value: unknown,
+  legacyErrors: string[],
+  legacyWarnings: string[],
+): CatalogStructuredIssue[] {
+  const contract =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const version = nullableString(contract.version);
+  const stored = Array.isArray(contract.issues) ? contract.issues : [];
+  const parsed = stored.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const row = item as Record<string, unknown>;
     if (typeof row.code !== "string") return [];
-    const direction =
+    const direction: CatalogStructuredIssue["direction"] =
       row.direction === "EN_TO_ZH" || row.direction === "ZH_TO_EN"
         ? row.direction
         : null;
+    const severity: CatalogStructuredIssue["severity"] =
+      row.severity === "WARNING" ? "WARNING" : "ERROR";
     return [
       {
         code: row.code,
         field: typeof row.field === "string" ? row.field : null,
         direction,
+        severity,
       },
     ];
   });
+  if (version === CATALOG_STRUCTURED_ISSUE_VERSION) return parsed;
+  if (version !== null) {
+    return [
+      {
+        code: CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE,
+        field: null,
+        direction: null,
+        severity: "ERROR",
+      },
+    ];
+  }
+  // Bounded compatibility adapter for pre-contract import rows. Only this
+  // server-side boundary applies the allowlisted legacy message patterns; the
+  // API and UI always receive structured issues.
+  return [
+    ...legacyErrors.map((message) =>
+      catalogLegacyValidationIssue(message, "ERROR"),
+    ),
+    ...legacyWarnings.map((message) =>
+      catalogLegacyValidationIssue(message, "WARNING"),
+    ),
+  ];
 }
 
 function normalizePendingRequest(
@@ -280,6 +319,13 @@ function normalizeRows(
     const definitionZh = stringValue(row.definitionZh);
     const partOfSpeech = stringValue(row.partOfSpeech);
     const level = stringValue(row.level);
+    const validationErrors = stringList(row.validationErrors);
+    const validationWarnings = stringList(row.validationWarnings);
+    const structuredIssues = catalogStoredStructuredIssues(
+      row.structuredIssuePayload,
+      validationErrors,
+      validationWarnings,
+    );
     return [
       {
         id: row.id,
@@ -304,8 +350,10 @@ function normalizeRows(
         workflowState,
         readinessState,
         contentScope,
-        issueCount: nullableInteger(row.issueCount) ?? 0,
-        structuredIssues: structuredIssueList(row.structuredIssues),
+        issueCount: structuredIssues.filter(
+          (issue) => issue.severity === "ERROR",
+        ).length,
+        structuredIssues,
         revision: nullableInteger(row.revision),
         latestRevision: nullableInteger(row.latestRevision),
         currentRevisionNumber: nullableInteger(row.currentRevisionNumber),
@@ -313,8 +361,8 @@ function normalizeRows(
         approvedRevisionId: nullableString(row.approvedRevisionId),
         primaryDisposition: stringValue(row.primaryDisposition),
         eligibilityResult: nullableString(row.eligibilityResult),
-        validationErrors: stringList(row.validationErrors),
-        validationWarnings: stringList(row.validationWarnings),
+        validationErrors,
+        validationWarnings,
         pendingRequest: normalizePendingRequest(
           row.pendingRequest,
           actorUserId,
@@ -336,6 +384,15 @@ function normalizeFacets(value: unknown): CatalogWorkspaceFacetValue[] {
       ? [{ value: row.value || "UNCLASSIFIED", count }]
       : [];
   });
+}
+
+function retainSelectedFacet(
+  facets: CatalogWorkspaceFacetValue[],
+  selected: string,
+): CatalogWorkspaceFacetValue[] {
+  if (selected === "ALL" || facets.some((facet) => facet.value === selected))
+    return facets;
+  return [...facets, { value: selected, count: 0 }];
 }
 
 export interface CatalogWorkspacePageInput {
@@ -379,15 +436,27 @@ export function catalogWorkspacePageSql(
         CASE WHEN approved_revision."id" IS NOT NULL THEN '[]'::jsonb WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END AS "validationErrors",
         CASE WHEN jsonb_typeof(import_row."issues"->'warnings') = 'array' THEN import_row."issues"->'warnings' ELSE '[]'::jsonb END AS "validationWarnings",
         CASE
-          WHEN approved_revision."id" IS NOT NULL THEN '[]'::jsonb
-          WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues'
-          WHEN jsonb_array_length(CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END) > 0
-            THEN jsonb_build_array(jsonb_build_object('code', 'CATALOG_CONTENT_REQUIRES_REVIEW', 'field', NULL, 'direction', NULL))
-          ELSE '[]'::jsonb
-        END AS "structuredIssues",
-        CASE WHEN approved_revision."id" IS NOT NULL THEN 0 ELSE jsonb_array_length(CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END) END AS "issueCount",
-        CASE WHEN sense."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "contentScope",
-        CASE WHEN sense."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "issueScope",
+          WHEN approved_revision."id" IS NOT NULL THEN jsonb_build_object('version', CAST(${CATALOG_STRUCTURED_ISSUE_VERSION} AS text), 'issues', '[]'::jsonb)
+          ELSE jsonb_build_object(
+            'version', import_row."issues"->>'structuredIssueVersion',
+            'issues', CASE WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues' ELSE '[]'::jsonb END
+          )
+        END AS "structuredIssuePayload",
+        CASE
+          WHEN approved_revision."id" IS NOT NULL THEN 0
+          WHEN import_row."issues"->>'structuredIssueVersion' IS NOT NULL
+            AND import_row."issues"->>'structuredIssueVersion' <> ${CATALOG_STRUCTURED_ISSUE_VERSION} THEN 1
+          WHEN import_row."issues"->>'structuredIssueVersion' = ${CATALOG_STRUCTURED_ISSUE_VERSION} THEN (
+            SELECT COUNT(*)::integer
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues' ELSE '[]'::jsonb END
+            ) issue
+            WHERE COALESCE(issue->>'severity', 'ERROR') <> 'WARNING'
+          )
+          ELSE jsonb_array_length(CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END)
+        END AS "issueCount",
+        CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "contentScope",
+        CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "issueScope",
         CASE WHEN pending."id" IS NULL THEN 'NONE' ELSE 'PENDING' END AS "workflowState",
         CASE WHEN pending."id" IS NULL THEN NULL ELSE jsonb_build_object(
           'id', pending."id", 'kind', pending."kind"::text, 'status', pending."status"::text,
@@ -430,7 +499,9 @@ export function catalogWorkspacePageSql(
         sense."status"::text, COALESCE(approved_revision."revision", latest_revision."revision"), latest_revision."revision", approved_revision."revision",
         sense."approvedRevisionId", 'NO_CHANGE'::text,
         CASE WHEN sense."status"::text = 'ACTIVE' THEN 'ACTIVATION_ELIGIBLE' ELSE 'DRAFT_BLOCKED' END,
-        '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 0, 'CURRENT_CONTENT'::text, 'CURRENT_CONTENT'::text,
+        '[]'::jsonb, '[]'::jsonb, jsonb_build_object('version', CAST(${CATALOG_STRUCTURED_ISSUE_VERSION} AS text), 'issues', '[]'::jsonb), 0,
+        CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END,
+        CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END,
         CASE WHEN pending."id" IS NULL THEN 'NONE' ELSE 'PENDING' END,
         CASE WHEN pending."id" IS NULL THEN NULL ELSE jsonb_build_object(
           'id', pending."id", 'kind', pending."kind"::text, 'status', pending."status"::text,
@@ -461,7 +532,7 @@ export function catalogWorkspacePageSql(
         COALESCE(request."payload"->>'category', ''), request."payload"->>'phoneticIpa',
         COALESCE(lower(request."payload"->>'enableEnToZh') = 'true', FALSE), COALESCE(lower(request."payload"->>'enableZhToEn') = 'true', FALSE),
         'DRAFT'::text, NULL::integer, NULL::integer, NULL::integer, NULL::text, 'CREATED_DRAFT'::text, 'DRAFT_BLOCKED'::text,
-        '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 0, 'PENDING_DRAFT'::text, 'PENDING_DRAFT'::text, 'PENDING'::text,
+        '[]'::jsonb, '[]'::jsonb, jsonb_build_object('version', CAST(${CATALOG_STRUCTURED_ISSUE_VERSION} AS text), 'issues', '[]'::jsonb), 0, 'PENDING_DRAFT'::text, 'PENDING_DRAFT'::text, 'PENDING'::text,
         jsonb_build_object(
           'id', request."id", 'kind', request."kind"::text, 'status', request."status"::text,
           'proposerId', request."proposerId", 'reviewerId', request."reviewerId", 'baseRevision', request."baseRevision",
@@ -533,8 +604,14 @@ export async function readCatalogWorkspacePage(
       pending: row.pendingCount,
     },
     facets: {
-      partOfSpeech: normalizeFacets(row.partOfSpeechFacets),
-      category: normalizeFacets(row.categoryFacets),
+      partOfSpeech: retainSelectedFacet(
+        normalizeFacets(row.partOfSpeechFacets),
+        input.filters.partOfSpeech,
+      ),
+      category: retainSelectedFacet(
+        normalizeFacets(row.categoryFacets),
+        input.filters.category,
+      ),
     },
   };
 }

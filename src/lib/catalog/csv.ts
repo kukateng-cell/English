@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { isCatalogPartOfSpeech } from "./taxonomy";
+export { CATALOG_STRUCTURED_ISSUE_VERSION } from "./validation-issue-contract";
 
 export const CATALOG_SCHEMA_VERSION = "word-catalog-v1" as const;
 export const CATALOG_VALIDATOR_VERSION = "catalog-validator-v1" as const;
@@ -166,6 +168,108 @@ export interface CatalogValidationIssue {
   field: string | null;
   direction: "EN_TO_ZH" | "ZH_TO_EN" | null;
   severity: "ERROR" | "WARNING";
+}
+
+export const CATALOG_VALIDATION_ISSUE_CODES = [
+  "CATALOG_PARSE_INVALID",
+  "CATALOG_SCHEMA_UNSUPPORTED",
+  "CATALOG_TERM_REQUIRED",
+  "CATALOG_LEMMA_REQUIRED",
+  "CATALOG_POS_REQUIRED",
+  "CATALOG_POS_UNKNOWN",
+  "CATALOG_LEVEL_INVALID",
+  "CATALOG_CATEGORY_REQUIRED",
+  "CATALOG_CATEGORY_UNKNOWN",
+  "CATALOG_DEFINITION_REQUIRED",
+  "CATALOG_PROMPT_NOT_EMPTY",
+  "CATALOG_BOOTSTRAP_STATUS_INVALID",
+  "CATALOG_BOOTSTRAP_ACTION_INVALID",
+  "CATALOG_GOVERNANCE_ACTION_INVALID",
+  "CATALOG_RETIREMENT_REASON_INVALID",
+  "CATALOG_SOURCE_METADATA_REQUIRED",
+  "CATALOG_CREATE_IDENTITY_INVALID",
+  "CATALOG_UPDATE_IDENTITY_REQUIRED",
+  "CATALOG_UPDATE_REVISION_REQUIRED",
+  "CATALOG_UPDATE_STATUS_INVALID",
+  "CATALOG_EXAMPLE_ZH_REQUIRED",
+  "CATALOG_EXAMPLE_EN_REQUIRED",
+  "CATALOG_DISTRACTOR_COUNT",
+  "CATALOG_DISTRACTOR_DUPLICATE",
+  "CATALOG_DISTRACTOR_CANONICAL_COLLISION",
+  "CATALOG_DISTRACTOR_ACCEPTED_COLLISION",
+  "CATALOG_DISTRACTOR_SIBLING_COLLISION",
+  "CATALOG_DIRECTIONS_DISABLED",
+] as const;
+
+export function catalogLegacyValidationIssue(
+  message: string,
+  severity: CatalogValidationIssue["severity"] = "ERROR",
+): CatalogValidationIssue {
+  const normalized = message.trim();
+  const direction = normalized.startsWith("en-zh")
+    ? "EN_TO_ZH"
+    : normalized.startsWith("zh-en")
+      ? "ZH_TO_EN"
+      : null;
+  const distractorField =
+    direction === "EN_TO_ZH"
+      ? "distractorZh"
+      : direction === "ZH_TO_EN"
+        ? "distractorEn"
+        : null;
+  if (normalized === "unsupported schema_version")
+    return { code: "CATALOG_SCHEMA_UNSUPPORTED", field: null, direction: null, severity };
+  if (normalized === "term is required")
+    return { code: "CATALOG_TERM_REQUIRED", field: "term", direction: null, severity };
+  if (normalized === "lemma is required")
+    return { code: "CATALOG_LEMMA_REQUIRED", field: "lemma", direction: null, severity };
+  if (normalized === "part_of_speech is required")
+    return { code: "CATALOG_POS_REQUIRED", field: "partOfSpeech", direction: null, severity };
+  if (normalized.startsWith("part_of_speech must be one of"))
+    return { code: "CATALOG_POS_UNKNOWN", field: "partOfSpeech", direction: null, severity };
+  if (normalized.startsWith("level must be"))
+    return { code: "CATALOG_LEVEL_INVALID", field: "level", direction: null, severity };
+  if (normalized === "category is required")
+    return { code: "CATALOG_CATEGORY_REQUIRED", field: "category", direction: null, severity };
+  if (normalized === "definition_zh is required")
+    return { code: "CATALOG_DEFINITION_REQUIRED", field: "definitionZh", direction: null, severity };
+  if (normalized.startsWith("prompt_en/prompt_zh"))
+    return { code: "CATALOG_PROMPT_NOT_EMPTY", field: null, direction: null, severity };
+  if (normalized === "catalog_status must be empty or DRAFT for CSV bootstrap")
+    return { code: "CATALOG_BOOTSTRAP_STATUS_INVALID", field: null, direction: null, severity };
+  if (normalized === "requested_action must be CREATE_DRAFT for CSV bootstrap")
+    return { code: "CATALOG_BOOTSTRAP_ACTION_INVALID", field: null, direction: null, severity };
+  if (normalized === "requested_action must be CREATE or UPDATE for governance submission")
+    return { code: "CATALOG_GOVERNANCE_ACTION_INVALID", field: null, direction: null, severity };
+  if (normalized.startsWith("retirement_reason must be empty"))
+    return { code: "CATALOG_RETIREMENT_REASON_INVALID", field: "retirementReason", direction: null, severity };
+  if (normalized === "governance validation requires source metadata")
+    return { code: "CATALOG_SOURCE_METADATA_REQUIRED", field: null, direction: null, severity };
+  if (normalized === "CREATE system identity fields must be empty")
+    return { code: "CATALOG_CREATE_IDENTITY_INVALID", field: null, direction: null, severity };
+  if (normalized === "UPDATE requires catalog_key and sense_key")
+    return { code: "CATALOG_UPDATE_IDENTITY_REQUIRED", field: null, direction: null, severity };
+  if (normalized === "UPDATE requires record_revision")
+    return { code: "CATALOG_UPDATE_REVISION_REQUIRED", field: null, direction: null, severity };
+  if (normalized.startsWith("UPDATE catalog_status must be"))
+    return { code: "CATALOG_UPDATE_STATUS_INVALID", field: null, direction: null, severity };
+  if (normalized === "example_zh is required when example_en is present")
+    return { code: "CATALOG_EXAMPLE_ZH_REQUIRED", field: "exampleZh", direction: null, severity };
+  if (normalized === "example_en is required when example_zh is present")
+    return { code: "CATALOG_EXAMPLE_EN_REQUIRED", field: "exampleEn", direction: null, severity };
+  if (normalized.includes("requires 5 or 6 distractors"))
+    return { code: "CATALOG_DISTRACTOR_COUNT", field: distractorField, direction, severity };
+  if (normalized.includes("has duplicate distractors"))
+    return { code: "CATALOG_DISTRACTOR_DUPLICATE", field: distractorField, direction, severity };
+  if (normalized.includes("collides with canonical answer"))
+    return { code: "CATALOG_DISTRACTOR_CANONICAL_COLLISION", field: distractorField, direction, severity };
+  if (normalized.includes("collides with an accepted answer"))
+    return { code: "CATALOG_DISTRACTOR_ACCEPTED_COLLISION", field: distractorField, direction, severity };
+  if (normalized.includes("collides with a sibling-sense answer"))
+    return { code: "CATALOG_DISTRACTOR_SIBLING_COLLISION", field: distractorField, direction, severity };
+  if (normalized === "both directions are disabled")
+    return { code: "CATALOG_DIRECTIONS_DISABLED", field: null, direction: null, severity };
+  return { code: "CATALOG_PARSE_INVALID", field: null, direction: null, severity };
 }
 
 export interface CatalogImportReport {
@@ -517,6 +621,11 @@ export function validateCatalogRow(
   if (!row.term) addError("term is required", "CATALOG_TERM_REQUIRED", "term");
   if (!row.lemma) addError("lemma is required", "CATALOG_LEMMA_REQUIRED", "lemma");
   if (!row.partOfSpeech) addError("part_of_speech is required", "CATALOG_POS_REQUIRED", "partOfSpeech");
+  else if (!isCatalogPartOfSpeech(row.partOfSpeech)) addError(
+    "part_of_speech must be one of the canonical values",
+    "CATALOG_POS_UNKNOWN",
+    "partOfSpeech",
+  );
   if (!validLevel(row.level)) addError("level must be A1, A2, B1 or B2", "CATALOG_LEVEL_INVALID", "level");
   if (!row.category) addError("category is required", "CATALOG_CATEGORY_REQUIRED", "category");
   if (!row.definitionZh) addError("definition_zh is required", "CATALOG_DEFINITION_REQUIRED", "definitionZh");

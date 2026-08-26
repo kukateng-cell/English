@@ -18,6 +18,7 @@ import { normalizeCatalogText } from "@/lib/catalog/csv";
 import { catalogPayloadToQuestionWord } from "@/lib/catalog/question-preview";
 import { buildObjectiveQuestion, type QuestionDirection } from "@/lib/learning-policy/question";
 import { loadCatalogSiblingValidationRows } from "@/lib/catalog/sibling-validation";
+import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -46,6 +47,8 @@ export async function POST(req: Request) {
       return catalogResponse("CATALOG_QUESTION_PREVIEW_VALIDATION_FAILED", 422, {
         errors: validation.errors,
         warnings: validation.warnings,
+        issues: validation.issues,
+        structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
       });
     }
 
@@ -116,6 +119,7 @@ export async function POST(req: Request) {
         itemConstructionVersion: question.itemConstructionVersion,
       },
       warnings: validation.warnings,
+      structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
     }, { headers: CATALOG_PRIVATE_HEADERS });
   } catch (error) {
     return catalogRouteError(error);

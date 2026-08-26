@@ -64,6 +64,17 @@ function IssueSummary({
       : row.contentScope === "IMPORT_DRAFT"
         ? "匯入草稿"
         : "目前正式版本";
+  const issues = row.structuredIssues.filter(
+    (issue) => issue.severity === "ERROR",
+  );
+  const explanation =
+    row.contentScope === "PENDING_DRAFT" && row.lifecycleState === "ACTIVE"
+      ? "目前正式版本仍可正常使用；待審版本尚待老師補充。"
+      : row.contentScope === "PENDING_DRAFT"
+        ? "待審版本尚待老師補充，批准前不會取代正式內容。"
+        : row.contentScope === "IMPORT_DRAFT"
+          ? "匯入草稿尚待老師補充，未供學生使用。"
+          : "目前正式版本需要修正，請按以下提示處理。";
   return (
     <details className="mt-1 text-xs text-[var(--danger)]">
       <summary className="cursor-pointer font-semibold">
@@ -71,7 +82,8 @@ function IssueSummary({
         {tc("有")} {row.issueCount} {tc("項內容需修正")}
       </summary>
       <div className="mt-2 space-y-2 rounded-xl bg-[var(--danger-bg)] p-3">
-        {row.structuredIssues.map((issue, index) => {
+        <p>{tc(explanation)}</p>
+        {issues.map((issue, index) => {
           const copy = catalogIssuePresentation(issue);
           return (
             <div key={`${issue.code}:${index}`}>
@@ -99,23 +111,62 @@ function MoreMenu({
   onReport,
   onHistory,
   historyEnabled,
+  rowLabel,
 }: {
   onReport: () => void;
   onHistory: () => void;
   historyEnabled: boolean;
+  rowLabel: string;
 }) {
   const { tc } = useLocale();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const initialFocusRef = useRef<"first" | "last">("first");
   useEffect(() => {
     if (!open) return;
+    const items = () =>
+      Array.from(
+        menuRef.current?.querySelectorAll<HTMLButtonElement>(
+          "[role='menuitem']:not(:disabled)",
+        ) ?? [],
+      );
+    const timer = window.setTimeout(() => {
+      const available = items();
+      (initialFocusRef.current === "last"
+        ? available.at(-1)
+        : available[0]
+      )?.focus();
+    }, 0);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         setOpen(false);
         buttonRef.current?.focus();
+        return;
       }
+      if (event.key === "Tab") {
+        setOpen(false);
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
+        return;
+      const available = items();
+      if (!available.length) return;
+      event.preventDefault();
+      const current = available.indexOf(
+        document.activeElement as HTMLButtonElement,
+      );
+      const next =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? available.length - 1
+            : event.key === "ArrowUp"
+              ? (current - 1 + available.length) % available.length
+              : (current + 1) % available.length;
+      available[next]?.focus();
     };
     const onPointer = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
@@ -123,6 +174,7 @@ function MoreMenu({
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointer);
     return () => {
+      window.clearTimeout(timer);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointer);
     };
@@ -136,17 +188,30 @@ function MoreMenu({
         className="ui-button ui-button-quiet ui-button-small"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        aria-label={`${tc("更多操作")}：${rowLabel}`}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          initialFocusRef.current =
+            event.key === "ArrowUp" ? "last" : "first";
+          setOpen(true);
+        }}
+        onClick={() => {
+          initialFocusRef.current = "first";
+          setOpen((value) => !value);
+        }}
       >
         {tc("更多操作")}
       </button>
       {open ? (
         <div
+          ref={menuRef}
           role="menu"
           className="absolute bottom-full right-0 z-20 mb-2 min-w-40 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl"
         >
           <button
             role="menuitem"
+            aria-label={`${tc("報告問題")}：${rowLabel}`}
             type="button"
             className="block min-h-11 w-full rounded-lg px-3 text-left text-sm text-[var(--text)] hover:bg-[var(--border-soft)]"
             onClick={() => {
@@ -159,6 +224,7 @@ function MoreMenu({
           {historyEnabled ? (
             <button
               role="menuitem"
+              aria-label={`${tc("查看歷史")}：${rowLabel}`}
               type="button"
               className="block min-h-11 w-full rounded-lg px-3 text-left text-sm text-[var(--text)] hover:bg-[var(--border-soft)]"
               onClick={() => {
@@ -300,14 +366,14 @@ export default function CatalogWorkspaceResults({
                   <div className="flex flex-nowrap justify-end gap-1">
                     <button
                       type="button"
-                      className="min-h-9 whitespace-nowrap rounded-lg border border-[var(--border)] px-2 text-xs font-semibold text-[var(--text)]"
+                      className="min-h-11 whitespace-nowrap rounded-lg border border-[var(--border)] px-2 text-xs font-semibold text-[var(--text)]"
                       onClick={() => onEdit(row)}
                     >
                       {tc("查看／修改")}
                     </button>
                     <button
                       type="button"
-                      className="min-h-9 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-[var(--primary)]"
+                      className="min-h-11 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-[var(--primary)]"
                       onClick={() => onReport(row)}
                     >
                       {tc("報告問題")}
@@ -315,7 +381,7 @@ export default function CatalogWorkspaceResults({
                     {historyEnabled ? (
                       <button
                         type="button"
-                        className="min-h-9 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-[var(--primary)]"
+                        className="min-h-11 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-[var(--primary)]"
                         onClick={() => onHistory(row)}
                       >
                         {tc("查看歷史")}
@@ -400,6 +466,7 @@ export default function CatalogWorkspaceResults({
               </button>
               <MoreMenu
                 historyEnabled={historyEnabled}
+                rowLabel={`${row.term} · ${row.definitionZh}`}
                 onReport={() => onReport(row)}
                 onHistory={() => onHistory(row)}
               />

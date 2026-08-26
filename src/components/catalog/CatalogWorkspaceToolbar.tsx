@@ -8,6 +8,7 @@ import {
   catalogPartOfSpeechLabel,
 } from "@/lib/catalog/teacher-presentation";
 import { useCatalogMediaQuery } from "./useCatalogMediaQuery";
+import { useCatalogModalFocus } from "./useCatalogModalFocus";
 
 export type CatalogClientFilters = {
   lifecycle: string;
@@ -87,6 +88,7 @@ function FilterSelect({
   filterKey,
   value,
   options,
+  optionCounts,
   onChange,
   allLabel,
 }: {
@@ -94,6 +96,7 @@ function FilterSelect({
   filterKey: keyof CatalogClientFilters;
   value: string;
   options: string[];
+  optionCounts?: Record<string, number>;
   onChange: (value: string) => void;
   allLabel: string;
 }) {
@@ -110,6 +113,9 @@ function FilterSelect({
         {options.map((option) => (
           <option key={option} value={option}>
             {tc(optionLabel(filterKey, option))}
+            {optionCounts && option in optionCounts
+              ? ` (${optionCounts[option]})`
+              : ""}
           </option>
         ))}
       </select>
@@ -165,6 +171,9 @@ function AllFilters({
         filterKey="partOfSpeech"
         value={filters.partOfSpeech}
         options={facets.partOfSpeech.map((item) => item.value)}
+        optionCounts={Object.fromEntries(
+          facets.partOfSpeech.map((item) => [item.value, item.count]),
+        )}
         onChange={(value) => setFilter("partOfSpeech", value)}
         allLabel="全部詞性"
       />
@@ -185,6 +194,9 @@ function AllFilters({
             ? facets.category.map((item) => item.value)
             : [...CATALOG_CATEGORIES]
         }
+        optionCounts={Object.fromEntries(
+          facets.category.map((item) => [item.value, item.count]),
+        )}
         onChange={(value) => setFilter("category", value)}
         allLabel="全部主題"
       />
@@ -227,6 +239,8 @@ export default function CatalogWorkspaceToolbar({
   const desktop = useCatalogMediaQuery("(min-width: 1100px)");
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetRef = useRef<HTMLElement | null>(null);
+  const sheetRootRef = useRef<HTMLDivElement | null>(null);
+  const sheetTriggerRef = useRef<HTMLButtonElement | null>(null);
   const setFilter = (key: keyof CatalogClientFilters, value: string) =>
     onFilters({ ...filters, [key]: value });
   const activeFilters = (
@@ -236,42 +250,20 @@ export default function CatalogWorkspaceToolbar({
   );
 
   useEffect(() => {
-    if (!sheetOpen) return;
-    const previous =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const timer = window.setTimeout(() => sheetRef.current?.focus(), 0);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSheetOpen(false);
-        return;
-      }
-      if (event.key !== "Tab" || !sheetRef.current) return;
-      const focusable = Array.from(
-        sheetRef.current.querySelectorAll<HTMLElement>(
-          "button, input, select, [href], [tabindex]:not([tabindex='-1'])",
-        ),
-      ).filter((element) => !element.hasAttribute("disabled"));
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("keydown", onKeyDown);
-      previous?.focus();
-    };
-  }, [sheetOpen]);
+    if (!desktop) return;
+    const frame = window.requestAnimationFrame(() => {
+      setSheetOpen(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [desktop]);
+
+  useCatalogModalFocus({
+    open: sheetOpen && !desktop,
+    onClose: () => setSheetOpen(false),
+    panelRef: sheetRef,
+    rootRef: sheetRootRef,
+    returnFocusRef: sheetTriggerRef,
+  });
 
   return (
     <section
@@ -358,6 +350,7 @@ export default function CatalogWorkspaceToolbar({
               allLabel="A–Z"
             />
             <button
+              ref={sheetTriggerRef}
               type="button"
               className="ui-button ui-button-secondary self-end"
               onClick={() => setSheetOpen(true)}
@@ -377,6 +370,7 @@ export default function CatalogWorkspaceToolbar({
             <button
               key={key}
               type="button"
+              aria-label={`${tc("移除篩選")}：${tc(optionLabel(key, filters[key]))}`}
               className="rounded-full border border-[var(--border)] bg-[var(--border-soft)] px-3 py-1.5 text-xs text-[var(--text)]"
               onClick={() => setFilter(key, DEFAULT_CATALOG_FILTERS[key])}
             >
@@ -397,6 +391,7 @@ export default function CatalogWorkspaceToolbar({
       ) : null}
       {sheetOpen && !desktop ? (
         <div
+          ref={sheetRootRef}
           className="fixed inset-0 z-[65] bg-black/35"
           role="dialog"
           aria-modal="true"
@@ -404,6 +399,7 @@ export default function CatalogWorkspaceToolbar({
         >
           <button
             type="button"
+            tabIndex={-1}
             className="absolute inset-0"
             aria-label={tc("關閉篩選") as string}
             onClick={() => setSheetOpen(false)}
@@ -422,6 +418,7 @@ export default function CatalogWorkspaceToolbar({
               </h2>
               <button
                 type="button"
+                autoFocus
                 className="ui-button ui-button-quiet ui-button-small"
                 onClick={() => setSheetOpen(false)}
                 aria-label={tc("關閉") as string}

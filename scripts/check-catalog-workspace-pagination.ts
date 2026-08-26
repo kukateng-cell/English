@@ -17,6 +17,7 @@ async function main() {
   const { readCatalogWorkspacePage } = await import("../src/lib/catalog/workspace-read");
   const { parseCatalogWorkspaceQuery } = await import("../src/lib/catalog/workspace-query");
   const { readCatalogWorkspaceVersion } = await import("../src/lib/catalog/workspace-version");
+  const { getCatalogSenseHistory } = await import("../src/lib/catalog/history");
   const metadata = await prisma.databaseMetadata.findUnique({ where: { key: "environment" }, select: { value: true } });
   if (metadata?.value === "production") throw new Error("Refusing catalog pagination fixture on production metadata.");
   const readyBatch = await prisma.catalogImportBatch.findFirst({ where: { status: "READY" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true } });
@@ -239,6 +240,9 @@ async function main() {
     await prisma.catalogChangeRequest.update({ where: { id: requestBeyondOldCutoff.id }, data: { revision: { increment: 1 } } });
     const versionAfterTailMutation = await readCatalogWorkspaceVersion();
     assert.notEqual(versionAfterTailMutation.signature, versionWithOverflow.signature, "mutating a request beyond the old cutoff must stale existing cursors");
+    await prisma.catalogChangeRequest.deleteMany({
+      where: { operationId: { startsWith: overflowOperationPrefix } },
+    });
 
     const filters = parseCatalogWorkspaceQuery(new URLSearchParams({ q: fixture, status: "ALL", level: "ALL", direction: "ALL" })).filters;
     const beforeFixture = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters: { ...filters, q: `${fixture}_not_found` }, limit: 10, offset: 0, canReview: true, actorUserId: proposerId });
@@ -248,6 +252,11 @@ async function main() {
     assert.equal(reviewer.filteredTotal, 3, "reviewer should see import, standalone sense and standalone pending CREATE only");
     assert.deepEqual(reviewer.rows.map((row) => row.term), [`${fixture}_import`, `${fixture}_sense`, `${fixture}_pending`]);
     assert.equal(reviewer.rows[1]!.pendingRequest, null, "batch UPDATE child must not mark a sense as standalone pending");
+    assert.equal(
+      reviewer.rows[1]!.contentScope,
+      "IMPORT_DRAFT",
+      "a DRAFT sense without an approved revision must not claim current content",
+    );
     assert.equal(proposerView.filteredTotal, 3, "ordinary proposer should see their own standalone CREATE");
     assert.equal(otherView.filteredTotal, 2, "another ordinary teacher must not see someone else's standalone CREATE");
     assert.equal(beforeFixture.filteredTotal, 0, "zero-result query must remain empty");
@@ -280,12 +289,177 @@ async function main() {
     assert.deepEqual(nounOnly.facets.partOfSpeech, [{ value: "noun", count: 3 }], "part-of-speech facet should self-exclude its own selected value");
     assert.deepEqual(otherCategory.facets.category, [{ value: "other", count: 3 }], "category facet should self-exclude its own selected value");
 
+    const zeroPosFacet = await readCatalogWorkspacePage({
+      batchId: readyBatch.id,
+      filters: v2Filters({ level: "B1", partOfSpeech: "noun" }),
+      limit: 10,
+      offset: 0,
+      canReview: true,
+      actorUserId: proposerId,
+    });
+    const zeroCategoryFacet = await readCatalogWorkspacePage({
+      batchId: readyBatch.id,
+      filters: v2Filters({ level: "B1", category: "other" }),
+      limit: 10,
+      offset: 0,
+      canReview: true,
+      actorUserId: proposerId,
+    });
+    assert.equal(zeroPosFacet.filteredTotal, 0);
+    assert.deepEqual(
+      zeroPosFacet.facets.partOfSpeech,
+      [{ value: "noun", count: 0 }],
+      "a selected zero-result POS must remain visible",
+    );
+    assert.equal(zeroCategoryFacet.filteredTotal, 0);
+    assert.deepEqual(
+      zeroCategoryFacet.facets.category,
+      [{ value: "other", count: 0 }],
+      "a selected zero-result category must remain visible",
+    );
+
     const page1 = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters, limit: 1, offset: 0, canReview: true, actorUserId: proposerId });
     const page2 = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters, limit: 1, offset: 1, canReview: true, actorUserId: proposerId });
     const page3 = await readCatalogWorkspacePage({ batchId: readyBatch.id, filters, limit: 1, offset: 2, canReview: true, actorUserId: proposerId });
     assert.deepEqual(new Set([...page1.rows, ...page2.rows, ...page3.rows].map((row) => row.id)).size, 3, "stable paging must have no duplicate or omitted fixture rows");
 
-    console.log(JSON.stringify({ ready: true, fixtureRows: reviewer.filteredTotal, proposerRows: proposerView.filteredTotal, otherTeacherRows: otherView.filteredTotal, pendingRows: pendingOnly.filteredTotal, enToZhRows: enToZh.filteredTotal, zeroRows: beforeFixture.filteredTotal, overflowRequests: 1002, tailMutationStaledSignature: true }, null, 2));
+    const sortTraversal: Record<string, number> = {};
+    for (const sort of [
+      "TERM_ASC",
+      "TERM_DESC",
+      "UPDATED_DESC",
+      "LEVEL_ASC",
+      "ACTION_REQUIRED_FIRST",
+    ] as const) {
+      const sortFilters = parseCatalogWorkspaceQuery(
+        new URLSearchParams({ sort }),
+      ).filters;
+      const ids = new Set<string>();
+      let offset = 0;
+      let expectedTotal: number | null = null;
+      while (true) {
+        const page = await readCatalogWorkspacePage({
+          batchId: readyBatch.id,
+          filters: sortFilters,
+          limit: 100,
+          offset,
+          canReview: true,
+          actorUserId: proposerId,
+        });
+        expectedTotal ??= page.filteredTotal;
+        for (const row of page.rows) {
+          assert.equal(ids.has(row.id), false, `${sort} repeated row ${row.id}`);
+          ids.add(row.id);
+        }
+        offset += page.rows.length;
+        if (!page.rows.length || offset >= page.filteredTotal) break;
+      }
+      assert.equal(ids.size, expectedTotal, `${sort} traversal omitted rows`);
+      sortTraversal[sort] = ids.size;
+    }
+
+    const historyOperationPrefix = `${operationPrefix}_history`;
+    const historyCreatedAt = new Date(Date.now() - 60_000);
+    await prisma.catalogChangeRequest.createMany({
+      data: Array.from({ length: 30 }, (_, index) => ({
+        operationId: `${historyOperationPrefix}_${index}`,
+        requestFingerprint: `${fixture}_history_fingerprint_${index}`,
+        kind: "UPDATE" as const,
+        status: "APPROVED" as const,
+        catalogKey: `${fixture}_catalog`,
+        senseKey: `${fixture}_sense`,
+        senseId,
+        proposerId,
+        reviewerId: otherId,
+        baseRevision: 1,
+        baseStatus: "DRAFT" as const,
+        revision: index,
+        payload: payload(`${fixture}_sense`, `歷史分頁 ${index}`, true),
+        createdAt: new Date(historyCreatedAt.getTime() - index * 1_000),
+        reviewedAt: new Date(historyCreatedAt.getTime() - index * 1_000 + 100),
+      })),
+    });
+    const fixtureHistoryIds = new Set(
+      (
+        await prisma.catalogChangeRequest.findMany({
+          where: { operationId: { startsWith: historyOperationPrefix } },
+          select: { id: true },
+        })
+      ).map((request) => request.id),
+    );
+    const historyPage1 = await getCatalogSenseHistory({
+      senseKey: `${fixture}_sense`,
+      actorId: proposerId,
+      canReview: true,
+      limit: 25,
+    });
+    assert.ok(historyPage1.nextCursor, "25-row history page must have a cursor");
+    await assert.rejects(
+      () =>
+        getCatalogSenseHistory({
+          senseKey: `${fixture}_sense`,
+          actorId: otherId,
+          canReview: true,
+          cursor: historyPage1.nextCursor,
+          limit: 25,
+        }),
+      /CATALOG_HISTORY_CURSOR_CONTEXT_MISMATCH/,
+      "reviewer A's cursor must not be reusable by reviewer B",
+    );
+    await assert.rejects(
+      () =>
+        getCatalogSenseHistory({
+          senseKey: `${fixture}_different_sense`,
+          actorId: proposerId,
+          canReview: true,
+          cursor: historyPage1.nextCursor,
+          limit: 25,
+        }),
+      /CATALOG_HISTORY_CURSOR_CONTEXT_MISMATCH/,
+      "a sense history cursor must not be reusable for another sense",
+    );
+    const insertedAfterSnapshot = await prisma.catalogChangeRequest.create({
+      data: {
+        operationId: `${historyOperationPrefix}_after_snapshot`,
+        requestFingerprint: `${fixture}_history_fingerprint_after_snapshot`,
+        kind: "UPDATE",
+        status: "APPROVED",
+        catalogKey: `${fixture}_catalog`,
+        senseKey: `${fixture}_sense`,
+        senseId,
+        proposerId,
+        reviewerId: otherId,
+        baseRevision: 1,
+        baseStatus: "DRAFT",
+        revision: 31,
+        payload: payload(`${fixture}_sense`, "快照後新增歷史", true),
+        createdAt: new Date(Date.parse(historyPage1.snapshotCutoff) + 1_000),
+        reviewedAt: new Date(Date.parse(historyPage1.snapshotCutoff) + 1_100),
+      },
+      select: { id: true },
+    });
+    const historyPage2 = await getCatalogSenseHistory({
+      senseKey: `${fixture}_sense`,
+      actorId: proposerId,
+      canReview: true,
+      cursor: historyPage1.nextCursor,
+      limit: 25,
+    });
+    const pagedFixtureHistoryIds = new Set(
+      [...historyPage1.items, ...historyPage2.items]
+        .map((item) => item.id)
+        .filter((id) => fixtureHistoryIds.has(id)),
+    );
+    assert.equal(pagedFixtureHistoryIds.size, 30);
+    assert.equal(
+      [...historyPage1.items, ...historyPage2.items].some(
+        (item) => item.id === insertedAfterSnapshot.id,
+      ),
+      false,
+      "an item inserted after the first-page snapshot must not enter later pages",
+    );
+
+    console.log(JSON.stringify({ ready: true, fixtureRows: reviewer.filteredTotal, proposerRows: proposerView.filteredTotal, otherTeacherRows: otherView.filteredTotal, pendingRows: pendingOnly.filteredTotal, enToZhRows: enToZh.filteredTotal, zeroRows: beforeFixture.filteredTotal, overflowRequests: 1002, tailMutationStaledSignature: true, zeroResultFacetsRetained: true, sortTraversal, pagedSenseHistoryRows: pagedFixtureHistoryIds.size, reviewerCursorIsolation: true, crossSenseCursorIsolation: true, historySnapshotInsertionExcluded: true }, null, 2));
   } finally {
     await prisma.catalogChangeRequest.deleteMany({ where: { operationId: { startsWith: operationPrefix } } });
     if (submissionBatchId) {

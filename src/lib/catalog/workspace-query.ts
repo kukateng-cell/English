@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { isCatalogCategory } from "./taxonomy";
+import { isCatalogCategory, isCatalogPartOfSpeech } from "./taxonomy";
 
 export const CATALOG_WORKSPACE_DEFAULT_LIMIT = 100;
 export const CATALOG_WORKSPACE_MAX_LIMIT = 100;
@@ -217,7 +217,7 @@ function enumValue<T extends string>(
 function stringFilter(value: string | null, max: number): string {
   const normalized = (value ?? "ALL").normalize("NFKC").trim();
   if (!normalized) return "ALL";
-  if (normalized.length > max || !/^[\p{L}\p{N}' -]+$/u.test(normalized))
+  if (normalized.length > max || !/^[\p{L}\p{N}' _-]+$/u.test(normalized))
     throw new Error("CATALOG_QUERY_INVALID");
   return normalized;
 }
@@ -276,6 +276,13 @@ export function parseCatalogWorkspaceQuery(
     INITIAL_VALUE_SET,
     "ALL",
   ) as CatalogWorkspaceInitial;
+  const partOfSpeech = stringFilter(searchParams.get("partOfSpeech"), 80);
+  if (
+    partOfSpeech !== "ALL" &&
+    partOfSpeech !== "UNCLASSIFIED" &&
+    !isCatalogPartOfSpeech(partOfSpeech)
+  )
+    throw new Error("CATALOG_QUERY_INVALID");
 
   return {
     filters: {
@@ -293,7 +300,7 @@ export function parseCatalogWorkspaceQuery(
         DIRECTION_VALUES,
         "ALL",
       ),
-      partOfSpeech: stringFilter(searchParams.get("partOfSpeech"), 80),
+      partOfSpeech,
       initial,
       category,
       readiness: enumValue(

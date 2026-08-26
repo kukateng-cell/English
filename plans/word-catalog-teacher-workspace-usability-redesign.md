@@ -1,6 +1,6 @@
 # 老師詞庫工作區可讀性、密度、篩選及歷史導覽重整計劃
 
-> 狀態：進行中（2026-08-26 已獲使用者批准開始實作）
+> 狀態：已完成（本地 implementation／verification；2026-08-26；external gates deferred）
 > 建立日期：2026-08-26
 > 目標分支：`codex/word-catalog-governance-and-lifecycle`
 > 依賴計劃：[詞庫治理及生命週期](./word-catalog-governance-and-lifecycle.md)、[CSV 批量提交及歷史](./word-catalog-bulk-submission-and-history.md)、[老師意見、題目預覽及待辦](./catalog-teacher-feedback-preview-and-work-items.md)
@@ -392,13 +392,13 @@ type CatalogWorkspacePresentation = {
 
 #### Readiness同問題摘要嘅權威來源
 
-列表不得解析現有英文 `validationErrors` 字串或只靠enable flags推斷「安全出題」。各類row採用以下effective payload：
+列表 UI、Route Handler及一般presentation code不得解析英文 `validationErrors` 字串或只靠enable flags推斷「安全出題」。正式issue contract係`catalog-structured-issues-v1`：seed持久化version＋structured issues，workspace reader驗證exact version，未知future version fail closed，API envelope亦帶相同version，client只render支援版本。現有READY baseline仍有pre-contract import JSON；只准由workspace reader內單一、bounded allowlisted-pattern、server-side legacy adapter轉成structured issues，其他層不得接觸或顯示raw字串。下次明確獲准reseed／backfill後可另行移除adapter，毋須為本輪新增schema migration。各類row採用以下effective payload：
 
 - 已建立sense：目前approved revision係CURRENT_CONTENT；actor可見pending request另作PENDING_DRAFT，兩者分開驗證及顯示。
 - source-only baseline draft：以目前import row payload作IMPORT_DRAFT。
 - standalone pending CREATE：只對owner／reviewer以request payload作PENDING_DRAFT；其他老師完全不可見。
 
-正式catalog validator要原生回傳stable structured issue code、field及direction；preview、submit、finalize、reactivate同workspace presentation共用同一validator入口。page rows嘅sibling context要一次批量載入／normalize，禁止逐row N+1。完整資料集readiness／facet若無法由現有projection準確、安全且有界地計算，就按第5.4節建立revision-bound可重建read projection；唔可以以不完整嘅 `validationErrors=[]` 當作「沒有問題」。
+正式catalog validator要原生回傳stable structured issue code、field及direction；preview、submit、finalize、reactivate同workspace presentation共用同一validator入口。只有上述pre-contract compatibility boundary可讀legacy raw字串，而且versioned payload即使structured issues為空亦不得fallback解析raw欄位。page rows嘅sibling context要一次批量載入／normalize，禁止逐row N+1。完整資料集readiness／facet若無法由現有projection準確、安全且有界地計算，就按第5.4節建立revision-bound可重建read projection；唔可以以不完整嘅 `validationErrors=[]` 當作「沒有問題」。
 
 ### 8.4 Filter option metadata
 
@@ -452,7 +452,7 @@ type CatalogWorkspacePresentation = {
 - [x] 實作self-excluding facet metadata；本輪即時計算、無跨request cache，actor visibility先於facet聚合。
 - [x] 為所有排序建立 deterministic DB order、cursor payload及filter fingerprint v2。
 - [x] 實作「需要處理優先」而不洩露其他老師 pending draft。
-- [x] 以正式5,641-row baseline執行558次量測、18個 `EXPLAIN (ANALYZE, BUFFERS)`及query count；證據顯示毋須projection或index migration。
+- [x] 以正式5,641-row baseline執行558次inner data／facet SQL量測及18個 `EXPLAIN (ANALYZE, BUFFERS)`；每個measured call固定一個bounded SQL，證據顯示本輪毋須projection或index migration。完整GET access／version／batch／feature query count及cold-cache isolation留待staging HTTP量測。
 
 ### Phase 3：響應式緊湊列表及一致操作
 
@@ -478,12 +478,12 @@ type CatalogWorkspacePresentation = {
 
 ### Phase 5：驗證、文件及本地驗收
 
-- [ ] 完成 unit、API／DB、browser、a11y、responsive及regression matrix。
+- [x] 完成 unit、API／DB、browser、a11y、responsive及regression matrix。
 - [x] 代表性英文老師任務UAT目前未有合適參與者，已明確標記deferred；未以開發者自測冒充。
 - [x] 比較改動前後首屏 row 數、查詢延遲、query plan／buffers、response size及keyboard操作，證據見 `plans/artifacts/catalog-teacher-workspace-baseline-2026-08-26.md`。
-- [ ] 更新相關操作指引、計劃索引、總計劃P7狀態及實際測試紀錄。
+- [x] 更新相關操作指引、計劃索引、總計劃P7狀態及實際測試紀錄。
 - [x] 確認本輪無 schema／migration／index，基線文件已記錄，所以無需migration checksum／replay。
-- [ ] 本地 UAT 通過後先將本計劃狀態改為「已完成（本地 implementation／verification）」；production仍獨立審批。
+- [x] 本地開發者驗收、兩位獨立sub-agent implementation review及相應修正完成，計劃狀態改為「已完成（本地 implementation／verification）」；代表性老師UAT及production仍屬獨立external gate。
 
 ## 十一、測試矩陣
 
@@ -495,7 +495,7 @@ type CatalogWorkspacePresentation = {
 - initial normalization：A／a、前置空白、hyphen、數字、中文、空值。
 - 每個 sort 嘅 filter fingerprint、cursor version及tie-breaker穩定。
 - teacher-facing identity對同拼法不同詞義有足夠辨識度。
-- structured validator issue直接由共用validator產生，不解析raw英文錯誤字串。
+- structured validator issue直接由共用validator產生；versioned payload不解析raw英文錯誤字串，未知future version fail closed；只有pre-contract READY rows可經單一bounded compatibility adapter升級。
 
 ### 11.2 API／DB
 
@@ -534,6 +534,9 @@ npm run check:catalog-workspace-pagination
 npm run check:catalog-governance
 DATABASE_ENVIRONMENT=development \
 CONFIRM_DATABASE_ENVIRONMENT=development \
+npm run check:catalog-workspace-performance
+DATABASE_ENVIRONMENT=development \
+CONFIRM_DATABASE_ENVIRONMENT=development \
 npm run test:e2e:catalog-workspace
 git diff --check
 ```
@@ -551,8 +554,8 @@ npm run test:migrations
 
 - catalog list初次 request維持單一主要資料查詢＋有界facet查詢；避免每個 row額外查詢。
 - 50-row page response不新增完整payload／完整history；issue只傳有界structured summary。
-- 固定使用同一個5,000+ sense database snapshot、同一部本機、普通老師及reviewer兩種scope、至少8組代表查詢（page 1及深頁；A–Z、level、lifecycle、workflow、readiness、issues、category、UPDATED_DESC），cold cache與warm cache分開，每組至少30次量度。
-- 常用查詢同時記錄絕對時間、SQL query count、rows、buffers、response bytes及query plan。改動前只保留browser network約154–392 ms嘅非受控觀察，沒有可交錯執行嘅舊build，因此唔將佢冒充正式同比；本輪558次唯讀量測及18個query plan作為可重跑local release baseline，staging／Vercel須以同一腳本比較，之後改動warm-cache p95不可惡化超過20%。
+- 固定使用同一個5,000+ sense database snapshot、同一部本機、普通老師及reviewer兩種scope、至少8組代表查詢（page 1及深頁；A–Z、level、lifecycle、workflow、readiness、issues、category、UPDATED_DESC）。每組記錄1次非受控first call及至少30次warm inner-SQL量度；本機腳本不聲稱已隔離PostgreSQL／OS cold cache。
+- inner data／facet SQL同時記錄絕對時間、每個measured call嘅SQL數（固定1個）、rows、buffers、serialized page bytes及query plan；不將結果冒充完整`GET /api/catalog` HTTP response或其access、version、batch、feature queries。改動前只保留browser network約154–392 ms嘅非受控觀察，沒有可交錯執行嘅舊build，因此唔將佢冒充正式同比；本輪558次唯讀inner-SQL量測及18個query plan作為可重跑local release baseline。staging／Vercel須補完整route query count、受控cold／warm及network量測，之後同方法warm p95不可惡化超過20%。
 - drawer只在使用者開啟時載入該sense history，並有pagination；不可預先載入全頁所有歷史。
 - 本輪沒有facet cache；若日後加入，必須包括workspace signature及actor-specific scope，任何cache key不得忽略owner-only draft可見性或pending digest。
 
@@ -604,19 +607,19 @@ npm run test:migrations
 
 ## 十五、Definition of Done
 
-- [ ] 一般老師完整詞庫畫面不再顯示 raw `senseKey`、raw enum、raw revision或完整source path。
-- [ ] 同拼法不同詞義可由詞性、主要中文釋義及程度清楚區分。
-- [ ] 繁體老師介面使用「干擾項」、簡體使用「干扰项」，並有轉換regression。
-- [ ] lifecycle、workflow、readiness及issue scope分開呈現，沒有「方向被阻擋」或含糊「1個問題」。
-- [ ] 1440×900、100% zoom固定基線下desktop由6張舊card提升至9個完整table rows（+50%、88 px），並維持80–96 px可讀性要求；mobile／tablet無overflow及操作退化。
-- [ ] lifecycle、workflow、POS、A–Z、category、readiness、issues及sort由server對完整詞庫運作，跨cursor無漏項／重複。
-- [ ] 從某詞條查看歷史後，原filters、sort、loaded pages、selection、scroll及focus全部保留。
-- [ ] 逐詞history使用signed pagination，同一cursor不可跨sense／actor重用。
-- [ ] 歷史顯示老師可讀事件、狀態及before／after差異；technical資料只在適當進階區。
-- [ ] 普通老師／owner／reviewer可見性同現有privacy contract一致。
-- [ ] 原有提交、單人審核、immediate retire、feedback、retry、題目預覽及CSV流程無回歸。
-- [ ] unit、lint、typecheck、build、catalog DB checks及代表browser matrix通過；未執行external gate清楚記錄。
-- [ ] 相關操作指引、計劃索引及總計劃P7已同步更新。
+- [x] 一般老師完整詞庫畫面不再顯示 raw `senseKey`、raw enum、raw revision或完整source path。
+- [x] 同拼法不同詞義可由詞性、主要中文釋義及程度清楚區分。
+- [x] 繁體老師介面使用「干擾項」、簡體使用「干扰项」，並有轉換regression。
+- [x] lifecycle、workflow、readiness及issue scope分開呈現，沒有「方向被阻擋」或含糊「1個問題」。
+- [x] 1440×900、100% zoom固定基線下desktop由6張舊card提升至9個完整table rows（+50%、88 px），並維持80–96 px可讀性要求；mobile／tablet無overflow及操作退化。
+- [x] lifecycle、workflow、POS、A–Z、category、readiness、issues及sort由server對完整詞庫運作，跨cursor無漏項／重複。
+- [x] 從某詞條查看歷史後，原filters、sort、loaded pages、selection、scroll及focus全部保留。
+- [x] 逐詞history使用signed pagination，同一cursor不可跨sense／actor重用。
+- [x] 歷史顯示老師可讀事件、狀態及before／after差異；technical資料只在適當進階區。
+- [x] 普通老師／owner／reviewer可見性同現有privacy contract一致。
+- [x] 原有提交、單人審核、immediate retire、feedback、retry、題目預覽及CSV流程無回歸。
+- [x] unit、lint、typecheck、build、catalog DB checks及代表browser matrix通過；未執行external gate清楚記錄。
+- [x] 相關操作指引、計劃索引及總計劃P7已同步更新。
 
 ## 十六、決策紀錄
 
@@ -636,7 +639,7 @@ npm run test:migrations
 | CTW-012 | 全域tab view state由最外層typed reducer持有 | 現有條件式掛載會卸載子workspace，必須明確保存loaded pages及返回位置 |
 | CTW-013 | desktop密度驗收由原訂兩倍修訂為6→9行（+50%），row固定88 px | 兩倍需要row低於約69 px，同已批准80–96 px可讀性／觸控範圍互相衝突；真實四viewport驗收優先 |
 | CTW-014 | 列表DTO只傳一個effective content presentation，pending summary獨立 | 有current sense時學生出題只取current；pending payload已通過正式validator並只在owner／reviewer detail或queue顯示，避免單一row把未生效內容誤當current |
-| CTW-015 | 本輪facet不設跨request cache | 5,641-row bounded SQL最高warm p95 74.80 ms，毋須以cache換取複雜privacy invalidation；日後加cache仍須actor-specific scope |
+| CTW-015 | 本輪facet不設跨request cache | 5,641-row bounded SQL最高warm p95 77.11 ms，毋須以cache換取複雜privacy invalidation；日後加cache仍須actor-specific scope |
 
 ## 十七、尚待外部驗收
 
@@ -665,3 +668,23 @@ npm run test:migrations
 - 確認不修改既有審批、權限、revision、學生學習或詞庫生命週期。
 
 兩位reviewer其後再對修訂版進行delta覆核，最終均判定`PASS`，沒有未解決blocker；最後一輪非阻擋精確化（正式狀態名稱、舊status原predicate、`lastChangedAt`公式、timeline group cursor及DoD欄位）亦已納入本版。
+
+## 十九、實作驗收及 reviewer 收尾紀錄
+
+2026-08-26 完成實作後，按使用者要求由同兩個指定sub-agents再以唯讀方式審核完整工作樹，主agent逐輪修正後要求final sign-off：
+
+- UX reviewer先指出canonical POS mapping、modal focus trap／inert／body scroll lock、全域history一次性state restore、scope文案、compact menu keyboard／ARIA／44 px觸控面積，以及responsive證據不足；修正後再發現desktop breakpoint resize會遺留sheet inert／scroll lock，以及history dialog缺少完整accessible description。最終覆核為`PASS`。
+- Backend reviewer先指出structured issue version contract、reviewer-bound history cursor、strict POS、ERROR-only issue count、approved-revision DRAFT語義、selected zero facets、排序／history／stale cursor測試及效能描述需要加固；修正後再要求所有list envelope帶version、client render前fail closed，以及文件準確描述legacy bounded allowlisted-pattern adapter。最終覆核為`PASS`。
+
+實際完成嘅本地驗證：
+
+- `npm test`：352／352 tests通過；
+- `npm run lint -- --max-warnings=0`、`npx tsc --noEmit`、`npm run build`：通過；
+- `npm run test:e2e:catalog-workspace`：22／22 Chromium tests通過；
+- `npm run check:catalog-workspace-pagination`：五種排序全量traversal、zero facet、stale signature、30-row history、actor／sense cursor isolation及snapshot insertion exclusion通過；
+- `npm run check:catalog-governance`：5,469 ACTIVE／107 DRAFT governed senses，0 invariant failures；
+- `npm run check:catalog-workspace-performance`：`LOCAL_BASELINE_PASS`，5,641 rows、558 calls、18 plans、最高非受控first 106.06 ms、最高warm inner-SQL p95 77.11 ms、最大response result 57,719 bytes；
+- 320／768／1024／1440 Chromium visual、responsive、keyboard及console review通過，最終0 errors／0 warnings；
+- 既有廣域`npm run test:catalog:performance`以exit 0完成，但status為`NEEDS_HARDENING`：global history exact-search local p95 330.05 ms高於250 ms提示門檻。呢項唔係本輪workspace inner-SQL gate，亦無冒充PASS，已列入外部／後續效能工作。
+
+本輪沒有改Prisma schema、migration或index，沒有執行production migration／deploy。Source按使用者另行授權交付到Git `staging` branch；該push唔代表production release。

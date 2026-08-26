@@ -12,7 +12,9 @@ import { useLocale } from "@/components/LocaleProvider";
 import ErrorBanner from "@/components/ErrorBanner";
 import { rosterFetch } from "@/lib/roster-client";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
+import { catalogValidationResponseErrorMessage } from "@/lib/catalog/client-validation";
 import { CATALOG_CATEGORIES } from "@/lib/catalog/taxonomy";
+import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
 import CatalogBulkSubmissionWorkspace from "@/components/catalog/CatalogBulkSubmissionWorkspace";
 import CatalogHistoryWorkspace from "@/components/catalog/CatalogHistoryWorkspace";
 import CatalogQuestionPreviewComponent from "@/components/catalog/CatalogQuestionPreview";
@@ -96,6 +98,7 @@ type CatalogRow = {
     code: string;
     field: string | null;
     direction: "EN_TO_ZH" | "ZH_TO_EN" | null;
+    severity: "ERROR" | "WARNING";
   }>;
   currentRevisionNumber: number | null;
   lastChangedAt: string;
@@ -193,6 +196,7 @@ type PendingResponse = {
 };
 type CatalogListResponse = {
   rows: CatalogRow[];
+  structuredIssueVersion: string;
   counts: Record<string, number>;
   filteredTotal: number;
   facets: {
@@ -558,6 +562,7 @@ function CatalogOverviewWorkspace({
     senseKey: string;
     term: string;
     rowId: string;
+    scrollY: number;
   } | null>(null);
   const [retrySource, setRetrySource] = useState<RetrySource | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -643,6 +648,20 @@ function CatalogOverviewWorkspace({
     [filters, search],
   );
 
+  const consumeRestoreIntent = useCallback(
+    (nextMessage: string | null) => {
+      if (!persistedSnapshotRef.current.activeRowId) return;
+      setMessage(nextMessage);
+      const nextState = {
+        ...persistedSnapshotRef.current,
+        activeRowId: null,
+      };
+      persistedSnapshotRef.current = nextState;
+      onPersistedState(nextState);
+    },
+    [onPersistedState],
+  );
+
   useEffect(() => {
     const timer = window.setTimeout(
       () => setSearch(searchInput.normalize("NFKC").trim()),
@@ -678,8 +697,20 @@ function CatalogOverviewWorkspace({
           });
           if (response.status === 409 && attempt < 2) continue;
           if (!response.ok)
-            throw new Error(await responseErrorMessage(response, tc));
+            throw new Error(
+              await catalogValidationResponseErrorMessage(response, tc),
+            );
           const payload = (await response.json()) as CatalogListResponse;
+          if (
+            payload.structuredIssueVersion !==
+            CATALOG_STRUCTURED_ISSUE_VERSION
+          ) {
+            throw new Error(
+              tc(
+                "詞庫檢查格式已更新，請重新載入；如持續出現，請通知管理員。",
+              ),
+            );
+          }
           let reviewPayload: PendingResponse | null = null;
           let effectiveCanReview = payload.canReview;
           if (
@@ -713,11 +744,28 @@ function CatalogOverviewWorkspace({
             }
           }
           if (generation !== catalogLoadGenerationRef.current) return null;
-          setRows(payload.rows);
+          const savedState = persistedSnapshotRef.current;
+          const retainLoadedPages =
+            options?.background === true &&
+            savedState.workspaceSignature === payload.workspaceSignature;
+          const nextRows = retainLoadedPages
+            ? [
+                ...payload.rows,
+                ...savedState.rows.filter(
+                  (persistedRow) =>
+                    !payload.rows.some(
+                      (freshRow) => freshRow.id === persistedRow.id,
+                    ),
+                ),
+              ]
+            : payload.rows;
+          setRows(nextRows);
           setCounts(payload.counts);
           setFacets(payload.facets ?? { partOfSpeech: [], category: [] });
           setFilteredTotal(payload.filteredTotal);
-          setNextCursor(payload.nextCursor);
+          setNextCursor(
+            retainLoadedPages ? savedState.nextCursor : payload.nextCursor,
+          );
           catalogWorkspaceSignatureRef.current = payload.workspaceSignature;
           setCatalogInitialized(true);
           setCanReview(effectiveCanReview);
@@ -730,18 +778,8 @@ function CatalogOverviewWorkspace({
             setPendingHasMore(false);
             pendingSignatureRef.current = "";
           }
-          if (options?.background && persistedState.activeRowId) {
-            scheduleCatalogViewRestore({
-              rowId: persistedState.activeRowId,
-              scrollY: persistedState.scrollY,
-              historyLabel: tc("查看歷史"),
-              onRestored: () => setMessage(null),
-              onMissing: () =>
-                setMessage(tc("原詞條已不在目前結果；篩選條件仍然保留。")),
-            });
-          }
           return {
-            rows: payload.rows,
+            rows: nextRows,
             pending: reviewPayload?.requests ?? null,
           };
         }
@@ -770,7 +808,7 @@ function CatalogOverviewWorkspace({
         }
       }
     },
-    [catalogUrl, persistedState.activeRowId, persistedState.scrollY, tc],
+    [catalogUrl, tc],
   );
 
   useEffect(() => {
@@ -801,7 +839,11 @@ function CatalogOverviewWorkspace({
       filteredTotal,
       nextCursor,
       workspaceSignature: catalogWorkspaceSignatureRef.current,
-      scrollY: window.scrollY,
+      scrollY:
+        historyTarget?.scrollY ??
+        (persistedState.activeRowId
+          ? persistedState.scrollY
+          : window.scrollY),
       activeRowId:
         historyTarget?.rowId ?? persistedSnapshotRef.current.activeRowId,
     };
@@ -813,7 +855,10 @@ function CatalogOverviewWorkspace({
     filteredTotal,
     filters,
     historyTarget?.rowId,
+    historyTarget?.scrollY,
     nextCursor,
+    persistedState.activeRowId,
+    persistedState.scrollY,
     rows,
     search,
     searchInput,
@@ -829,14 +874,17 @@ function CatalogOverviewWorkspace({
       rowId: persistedState.activeRowId,
       scrollY: persistedState.scrollY,
       historyLabel: tc("查看歷史"),
-      onRestored: () => setMessage(null),
+      onRestored: () => consumeRestoreIntent(null),
       onMissing: () =>
-        setMessage(tc("原詞條已不在目前結果；篩選條件仍然保留。")),
+        consumeRestoreIntent(
+          tc("原詞條已不在目前結果；篩選條件仍然保留。"),
+        ),
     });
   }, [
     persistedState.activeRowId,
     persistedState.initialized,
     persistedState.scrollY,
+    consumeRestoreIntent,
     tc,
   ]);
 
@@ -844,7 +892,9 @@ function CatalogOverviewWorkspace({
     () => () => {
       onPersistedState({
         ...persistedSnapshotRef.current,
-        scrollY: window.scrollY,
+        scrollY: persistedSnapshotRef.current.activeRowId
+          ? persistedSnapshotRef.current.scrollY
+          : window.scrollY,
       });
     },
     [onPersistedState],
@@ -877,8 +927,19 @@ function CatalogOverviewWorkspace({
         return;
       }
       if (!response.ok)
-        throw new Error(await responseErrorMessage(response, tc));
+        throw new Error(
+          await catalogValidationResponseErrorMessage(response, tc),
+        );
       const payload = (await response.json()) as CatalogListResponse;
+      if (
+        payload.structuredIssueVersion !== CATALOG_STRUCTURED_ISSUE_VERSION
+      ) {
+        throw new Error(
+          tc(
+            "詞庫檢查格式已更新，請重新載入；如持續出現，請通知管理員。",
+          ),
+        );
+      }
       if (
         generation !== catalogLoadMoreGenerationRef.current ||
         requestQueryKey !== catalogQueryKeyRef.current ||
@@ -1097,7 +1158,10 @@ function CatalogOverviewWorkspace({
         );
         if (!isCurrentDialogIntent(intent)) return;
         if (!response.ok) {
-          const message = await responseErrorMessage(response, tc);
+          const message = await catalogValidationResponseErrorMessage(
+            response,
+            tc,
+          );
           if (!isCurrentDialogIntent(intent)) return;
           throw new Error(message);
         }
@@ -1178,7 +1242,10 @@ function CatalogOverviewWorkspace({
         );
         if (!isCurrentDialogIntent(intent)) return;
         if (!response.ok) {
-          const message = await responseErrorMessage(response, tc);
+          const message = await catalogValidationResponseErrorMessage(
+            response,
+            tc,
+          );
           if (!isCurrentDialogIntent(intent)) return;
           throw new Error(message);
         }
@@ -1414,7 +1481,9 @@ function CatalogOverviewWorkspace({
         }),
       });
       if (!response.ok)
-        throw new Error(await responseErrorMessage(response, tc));
+        throw new Error(
+          await catalogValidationResponseErrorMessage(response, tc),
+        );
       const result = (await response.json()) as {
         status: string;
         immediate?: boolean;
@@ -1908,6 +1977,7 @@ function CatalogOverviewWorkspace({
                 senseKey: row.senseKey,
                 term: row.term,
                 rowId: row.id,
+                scrollY: window.scrollY,
               })
             }
           />
@@ -2478,6 +2548,7 @@ function CatalogOverviewWorkspace({
             const target = historyTarget;
             setHistoryTarget(null);
             window.setTimeout(() => {
+              window.scrollTo({ top: target.scrollY });
               const row = focusCatalogHistoryTrigger(
                 target.rowId,
                 tc("查看歷史"),
@@ -2491,11 +2562,13 @@ function CatalogOverviewWorkspace({
           }}
           onOpenFullHistory={() => {
             const target = historyTarget;
-            onPersistedState({
+            const nextState = {
               ...persistedSnapshotRef.current,
-              scrollY: window.scrollY,
+              scrollY: target.scrollY,
               activeRowId: target.rowId,
-            });
+            };
+            persistedSnapshotRef.current = nextState;
+            onPersistedState(nextState);
             setHistoryTarget(null);
             onOpenHistory(target.senseKey);
           }}

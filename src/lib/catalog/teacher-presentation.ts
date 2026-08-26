@@ -1,4 +1,8 @@
-import { CATALOG_CATEGORIES } from "./taxonomy";
+import {
+  CATALOG_CATEGORIES,
+  type CatalogPartOfSpeech,
+} from "./taxonomy";
+import { CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE } from "./validation-issue-contract";
 
 export type CatalogLifecycleState = "ACTIVE" | "DRAFT" | "RETIRED";
 export type CatalogWorkflowState = "NONE" | "PENDING";
@@ -17,6 +21,7 @@ export type CatalogStructuredIssue = {
   code: string;
   field: string | null;
   direction: CatalogIssueDirection;
+  severity: "ERROR" | "WARNING";
 };
 
 export type CatalogIssuePresentation = CatalogStructuredIssue & {
@@ -26,7 +31,7 @@ export type CatalogIssuePresentation = CatalogStructuredIssue & {
   fix: string;
 };
 
-const POS_LABELS = {
+const POS_LABELS: Record<CatalogPartOfSpeech, string> = {
   noun: "名詞",
   verb: "動詞",
   adjective: "形容詞",
@@ -38,10 +43,21 @@ const POS_LABELS = {
   interjection: "感嘆詞",
   numeral: "數詞",
   phrase: "短語",
-  "phrasal verb": "短語動詞",
-  "modal verb": "情態動詞",
-  "auxiliary verb": "助動詞",
+  phrasal_verb: "短語動詞",
+  proper_noun: "專有名詞",
+  abbreviation: "縮寫",
+  auxiliary: "助動詞",
+  modal: "情態動詞",
+  particle: "助詞",
+  other: "其他詞性",
 } as const;
+
+const LEGACY_POS_ALIASES: Record<string, CatalogPartOfSpeech> = {
+  "phrasal verb": "phrasal_verb",
+  "proper noun": "proper_noun",
+  "modal verb": "modal",
+  "auxiliary verb": "auxiliary",
+};
 
 const CATEGORY_LABELS: Record<(typeof CATALOG_CATEGORIES)[number], string> = {
   "people-family": "人物與家庭",
@@ -91,6 +107,10 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const ISSUE_COPY: Record<string, { reason: string; fix: string }> = {
+  [CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE]: {
+    reason: "內容使用了未支援的檢查結果版本。",
+    fix: "請重新匯入或重新儲存內容；如持續出現，請通知詞庫管理員。",
+  },
   CATALOG_CONTENT_REQUIRES_REVIEW: {
     reason: "內容未符合目前詞庫要求。",
     fix: "請打開「查看／修改」，按欄位提示補充或更正內容。",
@@ -115,6 +135,10 @@ const ISSUE_COPY: Record<string, { reason: string; fix: string }> = {
     reason: "尚未選擇詞性。",
     fix: "請選擇最符合這個詞義的詞性。",
   },
+  CATALOG_POS_UNKNOWN: {
+    reason: "詞性不是目前詞庫支援的分類。",
+    fix: "請從詞性選單重新選擇最合適的分類。",
+  },
   CATALOG_LEVEL_INVALID: {
     reason: "程度不是目前支援的 A1 至 B2。",
     fix: "請重新選擇 A1、A2、B1 或 B2。",
@@ -134,6 +158,42 @@ const ISSUE_COPY: Record<string, { reason: string; fix: string }> = {
   CATALOG_PROMPT_NOT_EMPTY: {
     reason: "題幹由系統建立，不能另填自訂提示。",
     fix: "請清除自訂題幹內容。",
+  },
+  CATALOG_BOOTSTRAP_STATUS_INVALID: {
+    reason: "匯入草稿包含不適用的正式狀態。",
+    fix: "請清除狀態欄，或只使用匯入範本容許的草稿值。",
+  },
+  CATALOG_BOOTSTRAP_ACTION_INVALID: {
+    reason: "匯入草稿使用了不適用的操作類型。",
+    fix: "請以目前匯入範本的新增草稿操作重新提交。",
+  },
+  CATALOG_GOVERNANCE_ACTION_INVALID: {
+    reason: "修改內容使用了不支援的提交操作。",
+    fix: "請重新開啟詞條，並使用新增或修改流程提交。",
+  },
+  CATALOG_RETIREMENT_REASON_INVALID: {
+    reason: "新增或修改內容不應包含停用原因。",
+    fix: "請清除停用原因；如需停用詞義，請使用停用操作。",
+  },
+  CATALOG_SOURCE_METADATA_REQUIRED: {
+    reason: "提交記錄欠缺必要的來源資料。",
+    fix: "請重新載入詞條後再次提交。",
+  },
+  CATALOG_CREATE_IDENTITY_INVALID: {
+    reason: "新增詞義包含只適用於現有詞條的系統資料。",
+    fix: "請重新建立新增草稿，不要沿用舊詞條識別資料。",
+  },
+  CATALOG_UPDATE_IDENTITY_REQUIRED: {
+    reason: "修改詞義欠缺原詞條識別資料。",
+    fix: "請由完整詞庫重新開啟該詞條後提交。",
+  },
+  CATALOG_UPDATE_REVISION_REQUIRED: {
+    reason: "修改詞義欠缺要比對的版本。",
+    fix: "請重新載入最新版本，再次提交修改。",
+  },
+  CATALOG_UPDATE_STATUS_INVALID: {
+    reason: "修改內容帶有未能識別的詞條狀態。",
+    fix: "請重新載入詞條，確認狀態後再提交。",
   },
   CATALOG_EXAMPLE_ZH_REQUIRED: {
     reason: "已有英文例句，但欠缺中文例句。",
@@ -198,7 +258,11 @@ export function catalogPartOfSpeechLabel(
   const normalized =
     value?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
   if (!normalized) return "未分類";
-  return POS_LABELS[normalized as keyof typeof POS_LABELS] ?? "其他詞性";
+  const canonical =
+    normalized in POS_LABELS
+      ? (normalized as CatalogPartOfSpeech)
+      : LEGACY_POS_ALIASES[normalized];
+  return canonical ? POS_LABELS[canonical] : "其他詞性";
 }
 
 export function catalogCategoryLabel(value: string | null | undefined): string {

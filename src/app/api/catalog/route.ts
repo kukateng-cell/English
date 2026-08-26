@@ -40,6 +40,7 @@ import {
   threeWayMergeCatalogPayload,
 } from "@/lib/catalog/retry-merge";
 import { loadCatalogSiblingValidationRows } from "@/lib/catalog/sibling-validation";
+import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
 const CHANGE_KINDS = ["UPDATE", "CREATE", "RETIRE", "REACTIVATE"] as const;
@@ -90,6 +91,7 @@ export async function GET(req: Request) {
       if (version.signature !== initialVersion.signature) return errorResponse("CATALOG_READ_STALE", 409);
       return NextResponse.json({
         rows: [],
+        structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
         counts: { all: 0, ACTIVE: 0, DRAFT: 0, RETIRED: 0, blocked: 0, validationFailed: 0, pending: 0 },
         facets: { partOfSpeech: [], category: [] },
         filteredTotal: 0,
@@ -104,7 +106,9 @@ export async function GET(req: Request) {
       }, { headers: privateHeaders() });
     }
 
-    const scope = access.canReview ? "catalog-reviewer" : `catalog-teacher:${auth.userId}`;
+    const scope = access.canReview
+      ? `catalog-reviewer:${auth.userId}`
+      : `catalog-teacher:${auth.userId}`;
     const fingerprint = catalogWorkspaceQueryFingerprint(query.filters, query.limit, scope);
     const cursor = query.cursor ? decodeCatalogWorkspaceCursor(query.cursor) : null;
     if (query.cursor && !cursor) return errorResponse("CATALOG_CURSOR_INVALID", 422);
@@ -152,6 +156,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       rows: page.rows,
+      structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
       counts: page.counts,
       facets: page.facets,
       filteredTotal: page.filteredTotal,
@@ -419,7 +424,11 @@ export async function POST(req: Request) {
         };
         const siblingRows = await loadCatalogSiblingValidationRows(tx, payload, targetSense?.senseKey);
         const validation = validateCatalogGovernancePayload(payload, identity, (latest?.revision ?? 0) + 1, siblingRows);
-        if (validation.errors.length) throw new Error(`CATALOG_PAYLOAD_REJECTED:${JSON.stringify(validation.errors)}`);
+        if (validation.errors.length) throw new Error(`CATALOG_PAYLOAD_REJECTED:${JSON.stringify({
+          errors: validation.errors,
+          warnings: validation.warnings,
+          issues: validation.issues,
+        })}`);
         validationWarnings = validation.warnings;
       }
       const created = await tx.catalogChangeRequest.create({
@@ -516,8 +525,39 @@ export async function POST(req: Request) {
     if (message === "CATALOG_REQUEST_NOT_FOUND") return errorResponse(message, 404);
     if (message.startsWith("CATALOG_PAYLOAD_REJECTED:")) {
       let errors: string[] = [];
-      try { errors = JSON.parse(message.slice("CATALOG_PAYLOAD_REJECTED:".length)) as string[]; } catch { errors = ["payload rejected"]; }
-      return errorResponse("CATALOG_PAYLOAD_REJECTED", 422, { errors });
+      let warnings: string[] = [];
+      let issues: Array<{
+        code: string;
+        field: string | null;
+        direction: "EN_TO_ZH" | "ZH_TO_EN" | null;
+        severity: "ERROR" | "WARNING";
+      }> = [];
+      try {
+        const parsed = JSON.parse(
+          message.slice("CATALOG_PAYLOAD_REJECTED:".length),
+        ) as unknown;
+        if (Array.isArray(parsed)) errors = parsed as string[];
+        else if (parsed && typeof parsed === "object") {
+          const payload = parsed as {
+            errors?: unknown;
+            warnings?: unknown;
+            issues?: unknown;
+          };
+          if (Array.isArray(payload.errors)) errors = payload.errors as string[];
+          if (Array.isArray(payload.warnings))
+            warnings = payload.warnings as string[];
+          if (Array.isArray(payload.issues))
+            issues = payload.issues as typeof issues;
+        }
+      } catch {
+        errors = ["payload rejected"];
+      }
+      return errorResponse("CATALOG_PAYLOAD_REJECTED", 422, {
+        errors,
+        warnings,
+        issues,
+        structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+      });
     }
     if (["CATALOG_NOT_READY", "CATALOG_SENSE_REQUIRED", "CATALOG_SENSE_NOT_FOUND", "CATALOG_REVISION_REQUIRED", "CATALOG_REVISION_INVALID", "CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE", "CATALOG_REQUEST_RETRY_RESOLUTION_INVALID", "CATALOG_REQUEST_RETRY_PATCH_INVALID", "CATALOG_STATUS_PAYLOAD_NOT_ALLOWED"].includes(message)) return errorResponse(message, 422);
     console.error("[catalog] request failed", error instanceof Error ? { name: error.name } : { name: "UnknownError" });
