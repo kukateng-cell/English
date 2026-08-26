@@ -1554,8 +1554,14 @@ test("catalog to global history restores loaded rows, filters, selection, scroll
     });
     await installCommittedHistoryMock(reviewer.page);
     await reviewer.page.route("**/api/catalog?*", async (route) => {
-      const cursor = new URL(route.request().url()).searchParams.get("cursor");
-      const responseRows = cursor ? secondPage : firstPage;
+      const url = new URL(route.request().url());
+      const cursor = url.searchParams.get("cursor");
+      const hasRestorationQuery = url.searchParams.get("q") === "restoreword";
+      const responseRows = hasRestorationQuery
+        ? cursor
+          ? secondPage
+          : firstPage
+        : [];
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -1567,8 +1573,9 @@ test("catalog to global history restores loaded rows, filters, selection, scroll
             partOfSpeech: [{ value: "noun", count: rows.length }],
             category: [{ value: "other", count: rows.length }],
           },
-          filteredTotal: rows.length,
-          nextCursor: cursor ? null : "restore-page-2",
+          filteredTotal: hasRestorationQuery ? rows.length : 0,
+          nextCursor:
+            hasRestorationQuery && !cursor ? "restore-page-2" : null,
           canReview: false,
           mutationRevision: 1,
           workspaceSignature: signature,
@@ -1595,6 +1602,10 @@ test("catalog to global history restores loaded rows, filters, selection, scroll
     await search.fill("restoreword");
     const sortSelect = reviewer.page.getByRole("combobox", { name: /^排序/ });
     await sortSelect.selectOption("UPDATED_DESC");
+    await expect(
+      reviewer.page.getByText(firstPage[0]!.term, { exact: true }),
+    ).toBeVisible();
+    await expect(reviewer.page.locator("[data-catalog-row]")).toHaveCount(8);
     await expect(reviewer.page.getByRole("button", { name: /載入更多/ })).toBeVisible();
     await reviewer.page.getByRole("button", { name: /載入更多/ }).click();
     await expect(reviewer.page.locator("[data-catalog-row]")).toHaveCount(16);
