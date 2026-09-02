@@ -2,6 +2,7 @@ import { Prisma } from "@/lib/prisma";
 import {
   normalizeCatalogText,
 } from "./csv";
+import { catalogSameSense } from "./duplicate";
 import {
   catalogEntryAcceptsLemma,
   parseCatalogGovernancePayload,
@@ -186,17 +187,6 @@ async function writeStandaloneHistory(tx: Tx, request: LoadedRequest, occurredAt
   });
 }
 
-function sameSense(payload: CatalogGovernancePayload, candidate: unknown): boolean {
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
-  const value = candidate as Record<string, unknown>;
-  const candidateLemma = typeof value.lemma === "string" ? value.lemma : typeof value.term === "string" ? value.term : "";
-  const candidateDefinition = typeof value.definitionZh === "string" ? value.definitionZh : "";
-  const candidatePos = typeof value.partOfSpeech === "string" ? value.partOfSpeech : typeof value.pos === "string" ? value.pos : "";
-  return normalizeCatalogText(candidateLemma) === normalizeCatalogText(payload.lemma)
-    && normalizeCatalogText(candidateDefinition) === normalizeCatalogText(payload.definitionZh)
-    && normalizeCatalogText(candidatePos) === normalizeCatalogText(payload.partOfSpeech);
-}
-
 export async function validateAndPlanCatalogChange(
   tx: Tx,
   requestId: string,
@@ -267,7 +257,7 @@ export async function validateAndPlanCatalogChange(
       },
       include: { approvedRevision: true, revisions: { orderBy: { revision: "desc" }, take: 1 } },
     });
-    if (duplicateCandidates.some((candidate) => sameSense(payload, candidate.approvedRevision ?? candidate.revisions[0]))) {
+    if (duplicateCandidates.some((candidate) => catalogSameSense(payload, candidate.approvedRevision ?? candidate.revisions[0]))) {
       throw new Error("CATALOG_ALREADY_EXISTS");
     }
   }
@@ -285,7 +275,7 @@ export async function validateAndPlanCatalogChange(
       if (!currentBatchId) return true;
       return candidate.submissionProposalGroup?.batchId !== currentBatchId;
     });
-    if (conflictingPending.some((candidate) => candidate.senseKey === identity.senseKey || sameSense(payload, candidate.payload))) {
+    if (conflictingPending.some((candidate) => candidate.senseKey === identity.senseKey || catalogSameSense(payload, candidate.payload))) {
       throw new Error("CATALOG_PENDING_SENSE_CONFLICT");
     }
     const existingSenses = await tx.wordSense.findMany({
@@ -297,7 +287,7 @@ export async function validateAndPlanCatalogChange(
       },
       include: { approvedRevision: true, revisions: { orderBy: { revision: "desc" }, take: 1 } },
     });
-    if (existingSenses.some((candidate) => sameSense(payload, candidate.approvedRevision ?? candidate.revisions[0]))) {
+    if (existingSenses.some((candidate) => catalogSameSense(payload, candidate.approvedRevision ?? candidate.revisions[0]))) {
       throw new Error("CATALOG_ALREADY_EXISTS");
     }
   }

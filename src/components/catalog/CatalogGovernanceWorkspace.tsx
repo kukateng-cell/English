@@ -13,7 +13,10 @@ import ErrorBanner from "@/components/ErrorBanner";
 import { rosterFetch } from "@/lib/roster-client";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { catalogValidationResponseErrorMessage } from "@/lib/catalog/client-validation";
-import { CATALOG_CATEGORIES } from "@/lib/catalog/taxonomy";
+import {
+  CATALOG_CATEGORIES,
+  CATALOG_PARTS_OF_SPEECH,
+} from "@/lib/catalog/taxonomy";
 import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
 import CatalogBulkSubmissionWorkspace from "@/components/catalog/CatalogBulkSubmissionWorkspace";
 import CatalogHistoryWorkspace from "@/components/catalog/CatalogHistoryWorkspace";
@@ -40,6 +43,8 @@ import {
 } from "@/lib/catalog/client-operation";
 import {
   catalogLifecycleLabel,
+  catalogCategoryLabel,
+  catalogPartOfSpeechLabel,
   catalogRequestKindLabel,
   catalogSourceSummary,
 } from "@/lib/catalog/teacher-presentation";
@@ -224,6 +229,20 @@ type ReviewActionNotice = {
   type: "success" | "error";
   message: string;
 };
+type CatalogPrecheckMatch = {
+  kind: "SENSE" | "IMPORT_DRAFT" | "PENDING_CREATE";
+  senseKey: string | null;
+  term: string;
+  definitionZh: string;
+  partOfSpeech: string;
+  level: string;
+  status: string;
+};
+type CatalogPrecheckResponse = {
+  normalizedTerm: string;
+  matches: CatalogPrecheckMatch[];
+  exactConflict: "EXISTING" | "PENDING" | null;
+};
 
 function CatalogQuestionPreview({
   payload,
@@ -274,6 +293,14 @@ const EMPTY_PAYLOAD: CatalogPayload = {
   changeNote: null,
   retirementReason: null,
 };
+
+function normalizeCatalogClientText(value: string) {
+  return value
+    .normalize("NFKC")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
+}
 
 function parseList(value: string) {
   return value
@@ -553,6 +580,21 @@ function CatalogOverviewWorkspace({
   const [selected, setSelectedState] = useState<Detail | null>(null);
   const [form, setForm] = useState<CatalogPayload>(EMPTY_PAYLOAD);
   const [reason, setReason] = useState("");
+  const [statusReason, setStatusReason] = useState("");
+  const [createStep, setCreateStep] = useState<"TERM" | "FORM" | null>(null);
+  const [createTerm, setCreateTerm] = useState("");
+  const [createPrecheck, setCreatePrecheck] =
+    useState<CatalogPrecheckResponse | null>(null);
+  const [createPrecheckLoading, setCreatePrecheckLoading] = useState(false);
+  const [createPrecheckError, setCreatePrecheckError] = useState<string | null>(
+    null,
+  );
+  const [createPrecheckRetryNonce, setCreatePrecheckRetryNonce] = useState(0);
+  const [createExactConflict, setCreateExactConflict] = useState<
+    "EXISTING" | "PENDING" | null
+  >(null);
+  const [createExactPrecheckLoading, setCreateExactPrecheckLoading] =
+    useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -566,6 +608,8 @@ function CatalogOverviewWorkspace({
   } | null>(null);
   const [retrySource, setRetrySource] = useState<RetrySource | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
+  const dialogErrorRef = useRef<HTMLDivElement | null>(null);
+  const createTermInputRef = useRef<HTMLInputElement | null>(null);
   const pendingSignatureRef = useRef("");
   const pendingRefreshInFlightRef = useRef(false);
   const pendingBackoffUntilRef = useRef(0);
@@ -584,6 +628,8 @@ function CatalogOverviewWorkspace({
   const dialogIntentRef = useRef(0);
   const detailAbortRef = useRef<AbortController | null>(null);
   const retryAbortRef = useRef<AbortController | null>(null);
+  const createPrecheckAbortRef = useRef<AbortController | null>(null);
+  const createPrecheckGenerationRef = useRef(0);
   const initialBackgroundRefreshRef = useRef(persistedState.initialized);
   const persistedSnapshotRef = useRef(persistedState);
 
@@ -594,10 +640,13 @@ function CatalogOverviewWorkspace({
 
   const beginDialogIntent = useCallback(() => {
     const intent = ++dialogIntentRef.current;
+    createPrecheckGenerationRef.current += 1;
     detailAbortRef.current?.abort();
     retryAbortRef.current?.abort();
+    createPrecheckAbortRef.current?.abort();
     detailAbortRef.current = null;
     retryAbortRef.current = null;
+    createPrecheckAbortRef.current = null;
     return intent;
   }, []);
 
@@ -615,8 +664,16 @@ function CatalogOverviewWorkspace({
   );
 
   const closeDetailDialog = useCallback(() => {
+    createPrecheckGenerationRef.current += 1;
+    createPrecheckAbortRef.current?.abort();
+    createPrecheckAbortRef.current = null;
     setSelected(null);
     setRetrySource(null);
+    setCreateStep(null);
+    setCreatePrecheck(null);
+    setCreateExactConflict(null);
+    setCreateExactPrecheckLoading(false);
+    setError(null);
     submitOperationRef.current = null;
   }, [setSelected]);
 
@@ -669,6 +726,147 @@ function CatalogOverviewWorkspace({
     );
     return () => window.clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (!selected || createStep !== "TERM") return;
+    const term = createTerm.normalize("NFKC").trim();
+    if (!term) return;
+    const generation = ++createPrecheckGenerationRef.current;
+    const dialogIntent = dialogIntentRef.current;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      if (
+        generation !== createPrecheckGenerationRef.current ||
+        dialogIntent !== dialogIntentRef.current
+      )
+        return;
+      createPrecheckAbortRef.current?.abort();
+      createPrecheckAbortRef.current = controller;
+      setCreatePrecheckLoading(true);
+      setCreatePrecheckError(null);
+      void (async () => {
+        try {
+          const response = await fetch(
+            `/api/catalog/precheck?term=${encodeURIComponent(term)}`,
+            { cache: "no-store", signal: controller.signal },
+          );
+          if (!response.ok) {
+            throw new Error(
+              await catalogValidationResponseErrorMessage(response, tc),
+            );
+          }
+          const result = (await response.json()) as CatalogPrecheckResponse;
+          if (
+            generation !== createPrecheckGenerationRef.current ||
+            dialogIntent !== dialogIntentRef.current
+          )
+            return;
+          setCreatePrecheck(result);
+        } catch (cause) {
+          if (
+            !isAbortError(cause) &&
+            generation === createPrecheckGenerationRef.current &&
+            dialogIntent === dialogIntentRef.current
+          ) {
+            setCreatePrecheck(null);
+            setCreatePrecheckError(
+              cause instanceof Error
+                ? cause.message
+                : tc("未能檢查重複詞，請再試一次。"),
+            );
+          }
+        } finally {
+          if (createPrecheckAbortRef.current === controller) {
+            createPrecheckAbortRef.current = null;
+            if (
+              generation === createPrecheckGenerationRef.current &&
+              dialogIntent === dialogIntentRef.current
+            )
+              setCreatePrecheckLoading(false);
+          }
+        }
+      })();
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (createPrecheckAbortRef.current === controller)
+        createPrecheckAbortRef.current = null;
+    };
+  }, [createPrecheckRetryNonce, createStep, createTerm, selected, tc]);
+
+  useEffect(() => {
+    if (!selected || selected.hasSense || createStep !== "FORM") return;
+    const term = form.term.normalize("NFKC").trim();
+    const lemma = form.lemma.normalize("NFKC").trim();
+    const partOfSpeech = form.partOfSpeech.normalize("NFKC").trim();
+    const definitionZh = form.definitionZh.normalize("NFKC").trim();
+    if (!term || !lemma || !partOfSpeech || !definitionZh) return;
+    const generation = ++createPrecheckGenerationRef.current;
+    const dialogIntent = dialogIntentRef.current;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      if (
+        generation !== createPrecheckGenerationRef.current ||
+        dialogIntent !== dialogIntentRef.current
+      )
+        return;
+      const params = new URLSearchParams({
+        term,
+        lemma,
+        partOfSpeech,
+        definitionZh,
+      });
+      createPrecheckAbortRef.current?.abort();
+      createPrecheckAbortRef.current = controller;
+      setCreateExactPrecheckLoading(true);
+      void (async () => {
+        try {
+          const response = await fetch(`/api/catalog/precheck?${params}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          if (!response.ok) return;
+          const result = (await response.json()) as CatalogPrecheckResponse;
+          if (
+            generation !== createPrecheckGenerationRef.current ||
+            dialogIntent !== dialogIntentRef.current
+          )
+            return;
+          setCreateExactConflict(result.exactConflict);
+        } catch (cause) {
+          if (
+            !isAbortError(cause) &&
+            generation === createPrecheckGenerationRef.current &&
+            dialogIntent === dialogIntentRef.current
+          )
+            setCreateExactConflict(null);
+        } finally {
+          if (createPrecheckAbortRef.current === controller) {
+            createPrecheckAbortRef.current = null;
+            if (
+              generation === createPrecheckGenerationRef.current &&
+              dialogIntent === dialogIntentRef.current
+            )
+              setCreateExactPrecheckLoading(false);
+          }
+        }
+      })();
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (createPrecheckAbortRef.current === controller)
+        createPrecheckAbortRef.current = null;
+    };
+  }, [
+    createStep,
+    form.definitionZh,
+    form.lemma,
+    form.partOfSpeech,
+    form.term,
+    selected,
+  ]);
 
   const loadCatalog = useCallback(
     async (options?: { background?: boolean }) => {
@@ -1052,6 +1250,7 @@ function CatalogOverviewWorkspace({
 
   function startCreate() {
     beginDialogIntent();
+    setError(null);
     const identity = `governance_${window.crypto.randomUUID().replaceAll("-", "")}`;
     const initialPayload = {
       ...EMPTY_PAYLOAD,
@@ -1081,9 +1280,65 @@ function CatalogOverviewWorkspace({
     });
     loadFormForDialog(initialPayload);
     setReason("");
+    setStatusReason("");
     setReviewNote("");
     setRetrySource(null);
+    setCreateTerm("");
+    setCreatePrecheck(null);
+    setCreatePrecheckError(null);
+    setCreateExactConflict(null);
+    setCreateExactPrecheckLoading(false);
+    setCreateStep("TERM");
     submitOperationRef.current = null;
+  }
+
+  function continueCreateWithTerm() {
+    const term = createTerm.normalize("NFKC").trim();
+    if (!term || createPrecheckLoading || createPrecheckError) return;
+    const previousNormalizedTerm = normalizeCatalogClientText(form.term);
+    const nextNormalizedTerm = normalizeCatalogClientText(term);
+    const headwordChanged =
+      Boolean(previousNormalizedTerm) &&
+      previousNormalizedTerm !== nextNormalizedTerm;
+    const formWithoutIdentity = { ...form, term: "", lemma: "" };
+    const hasDependentContent =
+      clientOperationFingerprint(formWithoutIdentity) !==
+      clientOperationFingerprint(EMPTY_PAYLOAD);
+    if (
+      headwordChanged &&
+      hasDependentContent &&
+      !window.confirm(
+        tc(
+          "英文詞已經改變。為免混合兩個詞的資料，系統會清除之前填寫的詞義、例句及題目設定。確定繼續？",
+        ),
+      )
+    )
+      return;
+    createPrecheckGenerationRef.current += 1;
+    createPrecheckAbortRef.current?.abort();
+    createPrecheckAbortRef.current = null;
+    setForm((current) => {
+      if (headwordChanged) {
+        const next = { ...EMPTY_PAYLOAD, term, lemma: term };
+        formBaselineRef.current = next;
+        return next;
+      }
+      const previousTerm = current.term.normalize("NFKC").trim();
+      const shouldUpdateLemma =
+        !current.lemma.trim() ||
+        current.lemma.normalize("NFKC").trim().toLocaleLowerCase("en-US") ===
+          previousTerm.toLocaleLowerCase("en-US");
+      const next = {
+        ...current,
+        term,
+        lemma: shouldUpdateLemma ? term : current.lemma,
+      };
+      formBaselineRef.current = next;
+      return next;
+    });
+    setCreateExactConflict(null);
+    setCreateExactPrecheckLoading(false);
+    setCreateStep("FORM");
   }
 
   useEffect(() => {
@@ -1094,6 +1349,9 @@ function CatalogOverviewWorkspace({
         : null;
     const focusTimer = window.setTimeout(() => dialogRef.current?.focus(), 0);
     function handleKeyDown(event: KeyboardEvent) {
+      // A feedback dialog can be layered above this editor. Its own focus trap
+      // must be the only active one while the parent dialog is inert.
+      if (dialogRef.current?.closest("[inert]")) return;
       if (event.key === "Escape") {
         event.preventDefault();
         closeDetailDialog();
@@ -1108,6 +1366,11 @@ function CatalogOverviewWorkspace({
       if (!focusable.length) return;
       const first = focusable[0]!;
       const last = focusable.at(-1)!;
+      if (!dialogRef.current.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -1123,6 +1386,12 @@ function CatalogOverviewWorkspace({
       previous?.focus();
     };
   }, [closeDetailDialog, selected]);
+
+  useEffect(() => {
+    if (!selected || !error) return;
+    const timer = window.setTimeout(() => dialogErrorRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [error, selected]);
 
   useEffect(() => {
     const parentDialog = dialogRef.current?.parentElement;
@@ -1191,8 +1460,13 @@ function CatalogOverviewWorkspace({
             EMPTY_PAYLOAD,
         );
         setReason("");
+        setStatusReason("");
         setReviewNote("");
         setRetrySource(null);
+        setCreateStep(null);
+        setCreatePrecheck(null);
+        setCreateExactConflict(null);
+        setCreateExactPrecheckLoading(false);
         submitOperationRef.current = null;
       } catch (cause) {
         if (!isCurrentDialogIntent(intent) || isAbortError(cause)) return;
@@ -1294,7 +1568,13 @@ function CatalogOverviewWorkspace({
           pendingRequest: null,
         });
         loadFormForDialog(retryPayload);
-        setReason(retry.previousReason ?? "");
+        if (retry.kind === "RETIRE" || retry.kind === "REACTIVATE") {
+          setReason("");
+          setStatusReason(retry.previousReason ?? "");
+        } else {
+          setReason(retry.previousReason ?? "");
+          setStatusReason("");
+        }
         setReviewNote("");
         setRetrySource({
           id: retry.supersedesRequestId,
@@ -1305,11 +1585,15 @@ function CatalogOverviewWorkspace({
           conflicts: retry.conflicts,
           choices: {},
         });
+        setCreateStep(null);
+        setCreatePrecheck(null);
+        setCreateExactConflict(null);
+        setCreateExactPrecheckLoading(false);
         submitOperationRef.current = null;
       } catch (cause) {
         if (isCurrentDialogIntent(intent) && !isAbortError(cause)) {
           setError(
-            cause instanceof Error ? cause.message : tc("讀取重新提交草稿失敗"),
+            cause instanceof Error ? cause.message : tc("讀取重新提交申請失敗"),
           );
         }
       } finally {
@@ -1341,6 +1625,7 @@ function CatalogOverviewWorkspace({
       clientOperationFingerprint(form) !==
         clientOperationFingerprint(loadedFormBaseline) ||
       reason.trim().length > 0 ||
+      statusReason.trim().length > 0 ||
       reviewNote.trim().length > 0;
     if (
       hasUnsavedInput &&
@@ -1360,7 +1645,55 @@ function CatalogOverviewWorkspace({
     key: K,
     value: CatalogPayload[K],
   ) {
+    if (
+      key === "term" ||
+      key === "lemma" ||
+      key === "partOfSpeech" ||
+      key === "definitionZh"
+    ) {
+      createPrecheckGenerationRef.current += 1;
+      createPrecheckAbortRef.current?.abort();
+      createPrecheckAbortRef.current = null;
+      setCreateExactConflict(null);
+      const next = { ...form, [key]: value };
+      setCreateExactPrecheckLoading(
+        createStep === "FORM" && selected?.hasSense === false
+          ? Boolean(
+              next.term.normalize("NFKC").trim() &&
+                next.lemma.normalize("NFKC").trim() &&
+                next.partOfSpeech.normalize("NFKC").trim() &&
+                next.definitionZh.normalize("NFKC").trim(),
+            )
+          : false,
+      );
+    }
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateDistractorSlot(
+    key: "distractorZh" | "distractorEn",
+    index: number,
+    value: string,
+  ) {
+    setForm((current) => {
+      if (index > current[key].length) return current;
+      const next = [...current[key]];
+      if (index === next.length) next.push(value);
+      else next[index] = value;
+      return {
+        ...current,
+        [key]: next,
+      };
+    });
+  }
+
+  function compactDistractorSlots(key: "distractorZh" | "distractorEn") {
+    setForm((current) => ({
+      ...current,
+      [key]: current[key]
+        .map((item) => item.normalize("NFKC").trim())
+        .filter(Boolean),
+    }));
   }
 
   async function submitChange(
@@ -1374,7 +1707,24 @@ function CatalogOverviewWorkspace({
       return;
     }
     const immediate = kind === "RETIRE" && canReview;
-    const trimmedReason = reason.trim();
+    const trimmedReason =
+      kind === "RETIRE" || kind === "REACTIVATE"
+        ? statusReason.trim()
+        : reason.trim();
+    if (kind === "CREATE" && createExactPrecheckLoading) {
+      setError(tc("正在檢查有冇相同詞義，請稍候再提交。"));
+      return;
+    }
+    if (kind === "CREATE" && createExactConflict) {
+      setError(
+        tc(
+          createExactConflict === "PENDING"
+            ? "已有相同詞義的新增申請等待審核，不能重複提交。"
+            : "詞庫已經有相同英文、詞性及中文主要釋義，請修改原有詞義。",
+        ),
+      );
+      return;
+    }
     if (
       (kind === "RETIRE" || kind === "REACTIVATE") &&
       trimmedReason.length < 3
@@ -1495,7 +1845,7 @@ function CatalogOverviewWorkspace({
       setMessage(
         result.immediate && result.status === "APPROVED"
           ? tc("詞義已停用；不會再出現在新學習題目，既有歷史仍會保留。")
-          : tc("已提交草稿，等待一位有權限的老師或管理員審核。"),
+          : tc("申請已送交審核；批准前不會改變學生使用的正式版本。"),
       );
       if (kind === "CREATE" || immediate) {
         closeDetailDialog();
@@ -1717,7 +2067,7 @@ function CatalogOverviewWorkspace({
           {tc("完整詞庫")}：{counts.all ?? rows.length} {tc("條")}
         </div>
       </div>
-      {error ? (
+      {error && !selected ? (
         <ErrorBanner message={error} onRetry={() => void loadCatalog()} />
       ) : null}
       {message ? (
@@ -2006,6 +2356,7 @@ function CatalogOverviewWorkspace({
         >
           <section
             ref={dialogRef}
+            data-testid="catalog-dialog-panel"
             tabIndex={-1}
             className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-t-3xl bg-[var(--surface)] p-5 shadow-2xl sm:rounded-3xl"
           >
@@ -2015,13 +2366,21 @@ function CatalogOverviewWorkspace({
                   id="catalog-dialog-title"
                   className="text-xl font-bold text-[var(--text)]"
                 >
-                  {form.term || tc("詞條內容")}
+                  {createStep === "TERM"
+                    ? tc("新增詞義")
+                    : form.term || tc("詞條內容")}
                 </h2>
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  {tc(catalogLifecycleLabel(selected.status))} ·{" "}
-                  {selected.revision === null
-                    ? tc("未有正式版本")
-                    : `${tc("目前正式版本")}：${tc("第")} ${selected.revision} ${tc("版")}`}
+                  {createStep === "TERM" ? (
+                    tc("步驟 1 / 2 · 先輸入英文串法並檢查詞庫")
+                  ) : (
+                    <>
+                      {tc(catalogLifecycleLabel(selected.status))} ·{" "}
+                      {selected.revision === null
+                        ? tc("未有正式版本")
+                        : `${tc("目前正式版本")}：${tc("第")} ${selected.revision} ${tc("版")}`}
+                    </>
+                  )}
                 </p>
                 {canReview ? (
                   <details className="mt-2 text-xs text-[var(--muted)]">
@@ -2063,19 +2422,21 @@ function CatalogOverviewWorkspace({
                 ) : null}
               </div>
               <div className="flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  className="ui-button ui-button-quiet ui-button-small"
-                  onClick={() =>
-                    setFeedbackTarget({
-                      senseKey: selected.senseKey,
-                      term: form.term,
-                    })
-                  }
-                >
-                  {tc("報告問題")}
-                </button>
-                {historyEnabled ? (
+                {createStep === null ? (
+                  <button
+                    type="button"
+                    className="ui-button ui-button-quiet ui-button-small"
+                    onClick={() =>
+                      setFeedbackTarget({
+                        senseKey: selected.senseKey,
+                        term: form.term,
+                      })
+                    }
+                  >
+                    {tc("報告問題")}
+                  </button>
+                ) : null}
+                {historyEnabled && createStep === null ? (
                   <button
                     type="button"
                     className="ui-button ui-button-quiet ui-button-small"
@@ -2087,16 +2448,190 @@ function CatalogOverviewWorkspace({
                 <button
                   type="button"
                   className="ui-button ui-button-quiet ui-button-small"
-                  onClick={() => {
-                    setSelected(null);
-                    setRetrySource(null);
-                  }}
+                  onClick={closeDetailDialog}
                   aria-label={tc("關閉") as string}
                 >
                   ×
                 </button>
               </div>
             </div>
+            {error ? (
+              <div
+                ref={dialogErrorRef}
+                tabIndex={-1}
+                role="alert"
+                className="mt-4 rounded-xl border border-[var(--danger)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--danger)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p>{error}</p>
+                  <button
+                    type="button"
+                    className="shrink-0 font-semibold underline underline-offset-2"
+                    onClick={() => {
+                      setError(null);
+                      window.requestAnimationFrame(() =>
+                        dialogRef.current?.focus(),
+                      );
+                    }}
+                  >
+                    {tc("關閉提示")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {createStep === "TERM" ? (
+              <section className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--border-soft)] p-4 sm:p-5">
+                <h3 className="text-base font-bold text-[var(--text)]">
+                  {tc("先檢查英文詞")}
+                </h3>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {tc(
+                    "輸入學生會見到的英文串法。系統會先列出同一英文的現有詞義，避免不小心重複新增。",
+                  )}
+                </p>
+                <label className="mt-4 grid gap-1.5 text-sm font-semibold text-[var(--text)]">
+                  {tc("英文詞（必填）")}
+                  <input
+                    ref={createTermInputRef}
+                    autoFocus
+                    required
+                    maxLength={120}
+                    className="h-12 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-base text-[var(--text)]"
+                    value={createTerm}
+                    onChange={(event) => {
+                      createPrecheckGenerationRef.current += 1;
+                      createPrecheckAbortRef.current?.abort();
+                      createPrecheckAbortRef.current = null;
+                      setCreateTerm(event.target.value);
+                      setCreatePrecheck(null);
+                      setCreatePrecheckError(null);
+                      setCreatePrecheckLoading(false);
+                    }}
+                    placeholder={tc("例如：run")}
+                  />
+                  <small className="font-normal text-[var(--muted)]">
+                    {tc("暫時只需要填英文；確認冇重複後先填其餘內容。")}
+                  </small>
+                </label>
+                {createPrecheckLoading ? (
+                  <p className="mt-4 text-sm text-[var(--muted)]" role="status">
+                    {tc("正在檢查詞庫…")}
+                  </p>
+                ) : null}
+                {createPrecheckError ? (
+                  <div className="mt-4 rounded-xl bg-[var(--danger-bg)] px-3 py-2 text-sm text-[var(--danger)]">
+                    <p role="alert">{createPrecheckError}</p>
+                    <button
+                      type="button"
+                      className="ui-button ui-button-secondary ui-button-small mt-3"
+                      onClick={() => {
+                        createPrecheckGenerationRef.current += 1;
+                        setCreatePrecheck(null);
+                        setCreatePrecheckError(null);
+                        setCreatePrecheckRetryNonce((current) => current + 1);
+                        window.requestAnimationFrame(() =>
+                          createTermInputRef.current?.focus(),
+                        );
+                      }}
+                    >
+                      {tc("重新檢查")}
+                    </button>
+                  </div>
+                ) : null}
+                {createPrecheck && !createPrecheckLoading ? (
+                  <div className="mt-4">
+                    <p
+                      className="sr-only"
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
+                      {createPrecheck.matches.length
+                        ? tc(
+                            `找到 ${createPrecheck.matches.length} 個同一英文的詞義。`,
+                          )
+                        : tc("詞庫暫時未有呢個英文詞，可以繼續新增。")}
+                    </p>
+                    {createPrecheck.matches.length ? (
+                      <>
+                        <p className="text-sm font-bold text-[var(--text)]">
+                          {tc("詞庫已有同一英文的詞義")}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          {tc("如果以下已有你想加的意思，請直接查看或修改原有詞義。")}
+                        </p>
+                        <div className="mt-3 grid gap-2">
+                          {createPrecheck.matches.map((match, index) => (
+                            <article
+                              key={`${match.kind}:${match.senseKey ?? index}`}
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"
+                            >
+                              <div>
+                                <p className="font-bold text-[var(--text)]">
+                                  {match.definitionZh || tc("未填中文釋義")}
+                                </p>
+                                <p className="mt-1 text-xs text-[var(--muted)]">
+                                  {tc(catalogPartOfSpeechLabel(match.partOfSpeech))} ·{" "}
+                                  {match.level} ·{" "}
+                                  {tc(
+                                    match.status === "PENDING"
+                                      ? "等待審核"
+                                      : catalogLifecycleLabel(
+                                          match.status as CatalogStatus,
+                                        ),
+                                  )}
+                                </p>
+                              </div>
+                              {match.senseKey ? (
+                                <button
+                                  type="button"
+                                  className="ui-button ui-button-secondary ui-button-small"
+                                  aria-label={tc(
+                                    `${match.status === "PENDING" ? "查看申請" : "查看／修改"}：${match.definitionZh || "未填中文釋義"}`,
+                                  )}
+                                  onClick={() =>
+                                    void openDetailBySenseKey(match.senseKey!)
+                                  }
+                                >
+                                  {tc(
+                                    match.status === "PENDING"
+                                      ? "查看申請"
+                                      : "查看／修改",
+                                  )}
+                                </button>
+                              ) : null}
+                            </article>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="rounded-xl bg-[var(--success-bg)] px-3 py-2 text-sm text-[var(--success)]">
+                        {tc("詞庫暫時未有呢個英文詞，可以繼續新增。")}
+                      </p>
+                    )}
+                    <div className="mt-5 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        className="ui-button ui-button-quiet"
+                        onClick={closeDetailDialog}
+                      >
+                        {tc("取消")}
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-button ui-button-primary"
+                        onClick={continueCreateWithTerm}
+                      >
+                        {createPrecheck.matches.length
+                          ? tc(`新增「${createTerm.normalize("NFKC").trim()}」的另一個意思`)
+                          : tc("繼續填寫詞義")}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            ) : (
+              <>
             {statusOnlyRetry ? (
               <p
                 role="note"
@@ -2112,23 +2647,54 @@ function CatalogOverviewWorkspace({
               className="m-0 min-w-0 border-0 p-0 disabled:opacity-70"
             >
               <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <h3 className="text-base font-bold text-[var(--text)]">
+                    {tc("基本資料")}
+                  </h3>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {tc("先交代呢個詞義的英文身份、詞性、程度同主題。")}
+                  </p>
+                </div>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("英文詞")}
+                  {tc("英文詞（必填）")}
                   <input
-                    className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
+                    required
+                    className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)] read-only:cursor-not-allowed read-only:bg-[var(--border-soft)]"
                     value={form.term}
+                    readOnly={createStep === "FORM" && !selected.hasSense}
                     onChange={(event) => updateForm("term", event.target.value)}
+                    placeholder={tc("例如：run")}
                   />
+                  {createStep === "FORM" && !selected.hasSense ? (
+                    <button
+                      type="button"
+                      className="w-fit font-normal text-[var(--primary)] underline underline-offset-2"
+                      onClick={() => {
+                        createPrecheckGenerationRef.current += 1;
+                        createPrecheckAbortRef.current?.abort();
+                        createPrecheckAbortRef.current = null;
+                        setCreateTerm(form.term);
+                        setCreatePrecheck(null);
+                        setCreateExactConflict(null);
+                        setCreateExactPrecheckLoading(false);
+                        setCreateStep("TERM");
+                      }}
+                    >
+                      {tc("更改英文詞並重新檢查")}
+                    </button>
+                  ) : null}
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("Lemma")}
+                  {tc("詞頭（必填）")}
                   <input
+                    required
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)] disabled:cursor-not-allowed disabled:bg-[var(--border-soft)]"
                     value={form.lemma}
                     disabled={selected.hasSense}
                     onChange={(event) =>
                       updateForm("lemma", event.target.value)
                     }
+                    placeholder={tc("例如：run；過去式 ran 的詞頭亦是 run")}
                   />
                   {selected.hasSense ? (
                     <small className="font-normal text-[var(--muted)]">
@@ -2136,20 +2702,32 @@ function CatalogOverviewWorkspace({
                         "Lemma 屬於穩定詞頭身份；如要改成另一個詞頭，請新增詞義並停用舊詞義。",
                       )}
                     </small>
-                  ) : null}
+                  ) : (
+                    <small className="font-normal text-[var(--muted)]">
+                      {tc("詞頭係字典用的基本形式；系統已按英文詞預填，可按需要修改。")}
+                    </small>
+                  )}
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("詞性")}
-                  <input
+                  {tc("詞性（必填）")}
+                  <select
+                    required
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
                     value={form.partOfSpeech}
                     onChange={(event) =>
                       updateForm("partOfSpeech", event.target.value)
                     }
-                  />
+                  >
+                    <option value="">{tc("請選擇詞性")}</option>
+                    {CATALOG_PARTS_OF_SPEECH.map((item) => (
+                      <option key={item} value={item}>
+                        {tc(catalogPartOfSpeechLabel(item))}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("程度")}
+                  {tc("程度（必填）")}
                   <select
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
                     value={form.level}
@@ -2168,7 +2746,7 @@ function CatalogOverviewWorkspace({
                   </select>
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("Category")}
+                  {tc("主題（必填）")}
                   <select
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
                     value={form.category}
@@ -2185,53 +2763,73 @@ function CatalogOverviewWorkspace({
                     )}
                     {CATALOG_CATEGORIES.map((item) => (
                       <option key={item} value={item}>
-                        {item}
+                        {tc(catalogCategoryLabel(item))}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("音標")}
+                  {tc("音標（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
                     value={form.phoneticIpa ?? ""}
                     onChange={(event) =>
                       updateForm("phoneticIpa", event.target.value || null)
                     }
+                    placeholder={tc("例如：rʌn（不用輸入 / /）")}
                   />
                 </label>
+                <div className="mt-2 border-t border-[var(--border)] pt-4 md:col-span-2">
+                  <h3 className="text-base font-bold text-[var(--text)]">
+                    {tc("學習內容")}
+                  </h3>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {tc("中文釋義係學生答題時的主要正確答案；例句用嚟展示實際用法。")}
+                  </p>
+                </div>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">
-                  {tc("中文釋義")}
+                  {tc("中文釋義（必填）")}
                   <textarea
+                    required
+                    data-testid="catalog-definition-zh"
                     className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
                     value={form.definitionZh}
                     onChange={(event) =>
                       updateForm("definitionZh", event.target.value)
                     }
+                    placeholder={tc("例如：跑步（只填呢個詞義的主要意思）")}
                   />
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("例句英文")}
+                  {tc("英文例句（選填）")}
                   <textarea
                     className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
                     value={form.exampleEn ?? ""}
                     onChange={(event) =>
                       updateForm("exampleEn", event.target.value || null)
                     }
+                    placeholder={tc("例如：I run in the park every morning.")}
                   />
+                  <small className="font-normal text-[var(--muted)]">
+                    {tc("如填英文例句，必須同時填寫對應中文例句。")}
+                  </small>
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("例句中文")}
+                  {tc("中文例句（選填）")}
                   <textarea
                     className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
                     value={form.exampleZh ?? ""}
                     onChange={(event) =>
                       updateForm("exampleZh", event.target.value || null)
                     }
+                    placeholder={tc("例如：我每天早上在公園跑步。")}
                   />
+                  <small className="font-normal text-[var(--muted)]">
+                    {tc("如填中文例句，必須同時填寫對應英文例句。")}
+                  </small>
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("中文正確答案（用 | 分隔）")}
+                  {tc("其他可接受中文譯法（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
                     value={listText(form.acceptedAnswersZh)}
@@ -2241,10 +2839,16 @@ function CatalogOverviewWorkspace({
                         parseList(event.target.value),
                       )
                     }
+                    placeholder={tc("例如：奔跑 | 跑（多個答案用 | 分隔）")}
                   />
+                  <small className="font-normal text-[var(--muted)]">
+                    {tc(
+                      "多個譯法用 | 分隔。記錄其他合理譯法，避免被誤當成錯誤選項；學生題目仍以主要中文釋義顯示唯一正確選項。",
+                    )}
+                  </small>
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("英文正確形式（用 | 分隔）")}
+                  {tc("其他可接受英文形式（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
                     value={listText(form.acceptedFormsEn)}
@@ -2254,48 +2858,120 @@ function CatalogOverviewWorkspace({
                         parseList(event.target.value),
                       )
                     }
+                    placeholder={tc("例如：runs | running（多個形式用 | 分隔）")}
                   />
+                  <small className="font-normal text-[var(--muted)]">
+                    {tc(
+                      "多個形式用 | 分隔。記錄其他合理英文形式，避免被誤當成錯誤選項；學生題目仍以上方英文詞顯示唯一正確選項。",
+                    )}
+                  </small>
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("英文近義詞（用 | 分隔）")}
+                  {tc("英文近義詞（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
                     value={listText(form.synonymsEn)}
                     onChange={(event) =>
                       updateForm("synonymsEn", parseList(event.target.value))
                     }
+                    placeholder={tc("例如：sprint | jog（多個詞用 | 分隔）")}
                   />
                 </label>
                 <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-                  {tc("英文反義詞（用 | 分隔）")}
+                  {tc("英文反義詞（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
                     value={listText(form.antonymsEn)}
                     onChange={(event) =>
                       updateForm("antonymsEn", parseList(event.target.value))
                     }
+                    placeholder={tc("例如：walk | stop（多個詞用 | 分隔）")}
                   />
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">
-                  {tc("英譯中干擾項（用 | 分隔；5–6 個）")}
-                  <input
-                    className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
-                    value={listText(form.distractorZh)}
-                    onChange={(event) =>
-                      updateForm("distractorZh", parseList(event.target.value))
-                    }
-                  />
-                </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">
-                  {tc("中譯英干擾項（用 | 分隔；5–6 個）")}
-                  <input
-                    className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
-                    value={listText(form.distractorEn)}
-                    onChange={(event) =>
-                      updateForm("distractorEn", parseList(event.target.value))
-                    }
-                  />
-                </label>
+                <div className="mt-2 border-t border-[var(--border)] pt-4 md:col-span-2">
+                  <h3 className="text-base font-bold text-[var(--text)]">
+                    {tc("題目設定")}
+                  </h3>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {tc("干擾項係錯誤選項來源；系統出題時只會從已填的項目抽選。")}
+                  </p>
+                </div>
+                <fieldset className="grid gap-2 rounded-xl border border-[var(--border)] p-3 md:col-span-2">
+                  <legend className="px-1 text-xs font-semibold text-[var(--muted)]">
+                    {tc("英譯中干擾項（5–6 個）")}
+                  </legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {["步行", "停止", "跳躍", "坐下", "游泳", "慢慢地"].map(
+                      (example, index) => (
+                        <label
+                          key={`distractor-zh-${index}`}
+                          className="grid gap-1 text-xs font-normal text-[var(--muted)]"
+                        >
+                          {tc(`中文錯誤選項 ${index + 1}`)}
+                          <input
+                            className="h-10 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--text)]"
+                            value={form.distractorZh[index] ?? ""}
+                            disabled={index > form.distractorZh.length}
+                            onChange={(event) =>
+                              updateDistractorSlot(
+                                "distractorZh",
+                                index,
+                                event.target.value,
+                              )
+                            }
+                            onBlur={() =>
+                              compactDistractorSlots("distractorZh")
+                            }
+                            placeholder={tc(`例如：${example}`)}
+                          />
+                        </label>
+                      ),
+                    )}
+                  </div>
+                  <small className="font-normal text-[var(--muted)]">
+                    {tc(
+                      `已填 ${form.distractorZh.filter((item) => item.normalize("NFKC").trim()).length} 個；請順序填寫 5–6 個錯誤但合理的中文選項。`,
+                    )}
+                  </small>
+                </fieldset>
+                <fieldset className="grid gap-2 rounded-xl border border-[var(--border)] p-3 md:col-span-2">
+                  <legend className="px-1 text-xs font-semibold text-[var(--muted)]">
+                    {tc("中譯英干擾項（5–6 個）")}
+                  </legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {["walk", "stop", "jump", "sit", "swim", "slowly"].map(
+                      (example, index) => (
+                        <label
+                          key={`distractor-en-${index}`}
+                          className="grid gap-1 text-xs font-normal text-[var(--muted)]"
+                        >
+                          {tc(`英文錯誤選項 ${index + 1}`)}
+                          <input
+                            className="h-10 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--text)]"
+                            value={form.distractorEn[index] ?? ""}
+                            disabled={index > form.distractorEn.length}
+                            onChange={(event) =>
+                              updateDistractorSlot(
+                                "distractorEn",
+                                index,
+                                event.target.value,
+                              )
+                            }
+                            onBlur={() =>
+                              compactDistractorSlots("distractorEn")
+                            }
+                            placeholder={tc(`例如：${example}`)}
+                          />
+                        </label>
+                      ),
+                    )}
+                  </div>
+                  <small className="font-normal text-[var(--muted)]">
+                    {tc(
+                      `已填 ${form.distractorEn.filter((item) => item.normalize("NFKC").trim()).length} 個；請順序填寫 5–6 個錯誤但合理的英文選項。`,
+                    )}
+                  </small>
+                </fieldset>
               </div>
               <div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-[var(--border)] p-3 text-sm text-[var(--text)]">
                 <label className="flex items-center gap-2">
@@ -2325,6 +3001,26 @@ function CatalogOverviewWorkspace({
                 senseKey={selected.senseKey}
               />
             </fieldset>
+            {createExactConflict ? (
+              <div
+                role="alert"
+                className="mt-4 rounded-2xl border border-[var(--danger)] bg-[var(--danger-bg)] p-4 text-sm text-[var(--danger)]"
+              >
+                <p className="font-bold">{tc("不能重複新增相同詞義")}</p>
+                <p className="mt-1">
+                  {tc(
+                    createExactConflict === "PENDING"
+                      ? "已有相同英文、詞性及中文主要釋義的申請等待審核。請稍後再試；如需確認，請聯絡詞庫審核員。"
+                      : "詞庫已經有相同英文、詞性及中文主要釋義。請返回檢查結果並修改原有詞義。",
+                  )}
+                </p>
+              </div>
+            ) : null}
+            {createExactPrecheckLoading ? (
+              <p className="mt-4 text-sm text-[var(--muted)]" role="status">
+                {tc("正在檢查有冇相同詞義…")}
+              </p>
+            ) : null}
             {retrySource?.conflicts.length ? (
               <section className="mt-4 rounded-2xl border border-[var(--warning)] bg-[var(--warning-bg)] p-4">
                 <h3 className="font-bold text-[var(--warning)]">
@@ -2422,22 +3118,6 @@ function CatalogOverviewWorkspace({
                 {tc("提交後會建立新申請，舊紀錄會保留。")}
               </p>
             ) : null}
-            <label className="mt-4 grid gap-1 text-xs font-semibold text-[var(--muted)]">
-              {tc("修改／停用理由")}
-              <textarea
-                className="min-h-16 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                placeholder={tc("簡單說明修改原因，停用時必須填寫。")}
-              />
-            </label>
-            {selected.status === "ACTIVE" && canReview ? (
-              <p className="mt-2 text-xs text-[var(--danger)]">
-                {tc(
-                  "按下「立即停用」並確認後會即時生效；學生歷史及審核記錄會保留。",
-                )}
-              </p>
-            ) : null}
             {selected.pendingRequest ? (
               <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]">
                 {tc(
@@ -2447,18 +3127,40 @@ function CatalogOverviewWorkspace({
                 )}
               </p>
             ) : null}
-            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4">
-              <button
-                type="button"
-                className="ui-button ui-button-quiet"
-                onClick={() => {
-                  setSelected(null);
-                  setRetrySource(null);
-                }}
-              >
-                {tc("取消")}
-              </button>
-              {retrySource ? (
+            {retrySource ? (
+              <section className="mt-5 rounded-2xl border border-[var(--border)] p-4">
+                <h3 className="font-bold text-[var(--text)]">
+                  {tc(
+                    statusOnlyRetry
+                      ? "重新提交狀態申請"
+                      : "重新提交內容申請",
+                  )}
+                </h3>
+                <label className="mt-3 grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                  {tc(statusOnlyRetry ? "狀態變更理由（必填）" : "修改理由（選填）")}
+                  <textarea
+                    className="min-h-16 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
+                    value={statusOnlyRetry ? statusReason : reason}
+                    onChange={(event) =>
+                      statusOnlyRetry
+                        ? setStatusReason(event.target.value)
+                        : setReason(event.target.value)
+                    }
+                    placeholder={tc(
+                      statusOnlyRetry
+                        ? "請說明點解需要改變學生可用狀態（至少三個字）。"
+                        : "簡單說明今次修改內容的原因。",
+                    )}
+                  />
+                </label>
+                <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4">
+                  <button
+                    type="button"
+                    className="ui-button ui-button-quiet"
+                    onClick={closeDetailDialog}
+                  >
+                    {tc("取消")}
+                  </button>
                 <button
                   type="button"
                   className="ui-button ui-button-primary"
@@ -2477,55 +3179,143 @@ function CatalogOverviewWorkspace({
                       ? tc("重新提交狀態申請")
                       : tc("修改後重新提交")}
                 </button>
-              ) : selected.status === "RETIRED" ? (
-                <>
+                </div>
+              </section>
+            ) : (
+              <>
+                <section className="mt-5 rounded-2xl border border-[var(--border)] p-4">
+                  <h3 className="font-bold text-[var(--text)]">
+                    {tc(
+                      selected.hasSense === false
+                        ? "提交新詞義"
+                        : "提交內容修改",
+                    )}
+                  </h3>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {tc(
+                      "提交後會送交有權限的老師或管理員審核；批准前不會改變學生使用的正式版本。",
+                    )}
+                  </p>
+                  <label className="mt-3 grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                    {tc(
+                      selected.hasSense === false
+                        ? "新增說明（選填）"
+                        : "修改理由（選填）",
+                    )}
+                    <textarea
+                      className="min-h-16 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
+                      value={reason}
+                      onChange={(event) => setReason(event.target.value)}
+                      placeholder={tc(
+                        selected.hasSense === false
+                          ? "例如：補充課堂需要的新詞義。"
+                          : "簡單說明今次修改內容的原因。",
+                      )}
+                    />
+                  </label>
+                  <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4">
+                    <button
+                      type="button"
+                      className="ui-button ui-button-quiet"
+                      onClick={closeDetailDialog}
+                    >
+                      {tc("取消")}
+                    </button>
                   <button
                     type="button"
-                    className="ui-button ui-button-secondary"
-                    disabled={saving || Boolean(selected.pendingRequest)}
-                    onClick={() => void submitChange("UPDATE")}
-                  >
-                    {saving ? tc("提交中…") : tc("提交內容修改草稿")}
-                  </button>
-                  <button
-                    type="button"
-                    className="ui-button ui-button-secondary"
-                    disabled={saving || Boolean(selected.pendingRequest)}
-                    onClick={() => void submitChange("REACTIVATE")}
-                  >
-                    {tc("提交重新啟用申請")}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="ui-button ui-button-secondary"
-                    disabled={saving || Boolean(selected.pendingRequest)}
+                    className="ui-button ui-button-primary"
+                    disabled={
+                      saving ||
+                      Boolean(selected.pendingRequest) ||
+                      Boolean(createExactConflict) ||
+                      createExactPrecheckLoading
+                    }
                     onClick={() =>
                       void submitChange(
                         selected.hasSense === false ? "CREATE" : "UPDATE",
                       )
                     }
                   >
-                    {saving ? tc("提交中…") : tc("提交草稿")}
+                    {saving
+                      ? tc("提交中…")
+                      : tc(
+                          selected.hasSense === false
+                            ? "提交新詞義，送交審核"
+                            : "提交內容修改，送交審核",
+                        )}
                   </button>
-                  {selected.status === "ACTIVE" ? (
-                    <button
-                      type="button"
-                      className="ui-button ui-button-danger"
-                      disabled={
-                        saving ||
-                        (!canReview && Boolean(selected.pendingRequest))
+                  </div>
+                </section>
+                {selected.status === "ACTIVE" ||
+                selected.status === "RETIRED" ? (
+                  <section className="mt-4 rounded-2xl border border-[var(--danger)] bg-[var(--danger-bg)] p-4">
+                    <h3 className="font-bold text-[var(--danger)]">
+                      {tc("狀態管理")}
+                    </h3>
+                    <p className="mt-1 text-xs text-[var(--danger)]">
+                      {tc(
+                        selected.status === "ACTIVE"
+                          ? "停用只會改變呢個詞義可唔可以出現在新學習題目；上方未提交的內容修改唔會一併送出。"
+                          : "重新啟用只會申請恢復學生使用；上方未提交的內容修改唔會一併送出。",
+                      )}
+                    </p>
+                    <label className="mt-3 grid gap-1 text-xs font-semibold text-[var(--danger)]">
+                      {tc(
+                        selected.status === "ACTIVE"
+                          ? "停用理由（必填）"
+                          : "重新啟用理由（必填）",
+                      )}
+                      <textarea
+                        className="min-h-16 rounded-xl border border-[var(--danger)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)]"
+                        value={statusReason}
+                        onChange={(event) => setStatusReason(event.target.value)}
+                        placeholder={tc(
+                          selected.status === "ACTIVE"
+                            ? "請說明點解唔應該再俾學生學習呢個詞義（至少三個字）。"
+                            : "請說明點解可以重新俾學生使用呢個詞義（至少三個字）。",
+                        )}
+                      />
+                    </label>
+                    {selected.status === "ACTIVE" && canReview ? (
+                      <p className="mt-2 text-xs font-semibold text-[var(--danger)]">
+                        {tc(
+                          "你有審核權限：按下「立即停用」並確認後會即時生效；學生歷史及審核記錄會保留。",
+                        )}
+                      </p>
+                    ) : null}
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        className="ui-button ui-button-danger"
+                        disabled={
+                          saving ||
+                          (!canReview && Boolean(selected.pendingRequest)) ||
+                          (selected.status === "RETIRED" &&
+                            Boolean(selected.pendingRequest))
+                        }
+                      onClick={() =>
+                        void submitChange(
+                          selected.status === "ACTIVE"
+                            ? "RETIRE"
+                            : "REACTIVATE",
+                        )
                       }
-                      onClick={() => void submitChange("RETIRE")}
                     >
-                      {tc(canReview ? "立即停用" : "提交停用申請")}
+                      {tc(
+                        selected.status === "ACTIVE"
+                          ? canReview
+                            ? "立即停用"
+                            : "提交停用申請"
+                          : "提交重新啟用申請",
+                      )}
                     </button>
-                  ) : null}
-                </>
-              )}
-            </div>
+                    </div>
+                  </section>
+                ) : null}
+              </>
+            )}
+              </>
+            )}
           </section>
         </div>
       ) : null}

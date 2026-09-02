@@ -6,6 +6,7 @@ import {
 } from "./csv";
 import {
   catalogCategoryLabel,
+  catalogFieldLabel,
   catalogHistorySourceLabel,
   catalogIssuePresentation,
   catalogLifecycleLabel,
@@ -53,6 +54,14 @@ test("catalog teacher presentation maps taxonomy and safely falls back", () => {
   );
   assert.equal(catalogCategoryLabel("people-family"), "人物與家庭");
   assert.equal(catalogCategoryLabel("unexpected-internal-enum"), "其他主題");
+  assert.equal(
+    catalogFieldLabel("acceptedAnswersZh"),
+    "其他可接受中文譯法",
+  );
+  assert.equal(
+    catalogFieldLabel("acceptedFormsEn"),
+    "其他可接受英文形式",
+  );
   assert.equal(catalogRequestStatusLabel("UNKNOWN"), "未能識別的記錄狀態");
   assert.equal(catalogHistorySourceLabel("UNKNOWN"), "未能識別的記錄來源");
 });

@@ -15,6 +15,7 @@ import {
   type CatalogGovernancePayload,
 } from "@/lib/catalog/governance";
 import { normalizeCatalogText } from "@/lib/catalog/csv";
+import { catalogSameSense } from "@/lib/catalog/duplicate";
 import { isRetryableTransactionConflict } from "@/lib/transaction-retry";
 import { catalogActorPseudonym } from "@/lib/catalog/submission";
 import { consumeCatalogGovernanceLimit } from "@/lib/catalog-limiter";
@@ -390,19 +391,10 @@ export async function POST(req: Request) {
 
       if (kind === "CREATE" && payload) {
         const pendingCreates = await tx.catalogChangeRequest.findMany({ where: { status: "PENDING", kind: "CREATE" }, select: { id: true, senseKey: true, payload: true } });
-        const sameSense = (candidate: unknown) => {
-          if (!isRecord(candidate)) return false;
-          const candidateLemma = typeof candidate.lemma === "string" ? candidate.lemma : typeof candidate.term === "string" ? candidate.term : "";
-          const candidateDefinition = typeof candidate.definitionZh === "string" ? candidate.definitionZh : "";
-          const candidatePos = typeof candidate.partOfSpeech === "string" ? candidate.partOfSpeech : typeof candidate.pos === "string" ? candidate.pos : "";
-          return normalizeCatalogText(candidateLemma) === normalizeCatalogText(payload!.lemma)
-            && normalizeCatalogText(candidateDefinition) === normalizeCatalogText(payload!.definitionZh)
-            && normalizeCatalogText(candidatePos) === normalizeCatalogText(payload!.partOfSpeech);
-        };
-        if (pendingCreates.some((candidate) => candidate.senseKey === resolvedSenseKey || sameSense(candidate.payload))) throw new Error("CATALOG_PENDING_SENSE_CONFLICT");
+        if (pendingCreates.some((candidate) => candidate.senseKey === resolvedSenseKey || catalogSameSense(payload!, candidate.payload))) throw new Error("CATALOG_PENDING_SENSE_CONFLICT");
         if (!targetSense) {
           const existingSenses = await tx.wordSense.findMany({ where: { OR: [{ normalizedTerm: normalizeCatalogText(payload.term) }, { catalogEntry: { normalizedLemma: normalizeCatalogText(payload.lemma) } }] }, include: { approvedRevision: true, revisions: { orderBy: { revision: "desc" }, take: 1 } } });
-          if (existingSenses.some((candidate) => sameSense(candidate.approvedRevision ?? candidate.revisions[0]))) throw new Error("CATALOG_ALREADY_EXISTS");
+          if (existingSenses.some((candidate) => catalogSameSense(payload!, candidate.approvedRevision ?? candidate.revisions[0]))) throw new Error("CATALOG_ALREADY_EXISTS");
         }
       }
 

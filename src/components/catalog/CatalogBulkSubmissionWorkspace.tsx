@@ -437,8 +437,8 @@ function BatchList({ title, items, empty, onOpen, hasMore, onLoadMore, loading }
 
 const PAYLOAD_LABELS: Record<keyof Payload, string> = {
   term: "英文詞語", lemma: "Lemma", partOfSpeech: "詞性", level: "程度", category: "分類", definitionZh: "中文釋義",
-  acceptedAnswersZh: "可接受中文答案", phoneticIpa: "音標", exampleEn: "英文例句", exampleZh: "中文例句",
-  acceptedFormsEn: "可接受英文形式", synonymsEn: "同義詞", antonymsEn: "反義詞", enableEnToZh: "啟用英譯中",
+  acceptedAnswersZh: "其他可接受中文譯法", phoneticIpa: "音標", exampleEn: "英文例句", exampleZh: "中文例句",
+  acceptedFormsEn: "其他可接受英文形式", synonymsEn: "同義詞", antonymsEn: "反義詞", enableEnToZh: "啟用英譯中",
   distractorZh: "英譯中干擾項", enableZhToEn: "啟用中譯英", distractorEn: "中譯英干擾項",
   sourceReference: "來源參考", contributorRef: "貢獻者參考", changeNote: "內容備註", retirementReason: "停用原因",
 };

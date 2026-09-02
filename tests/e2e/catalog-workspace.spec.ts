@@ -418,6 +418,173 @@ async function installCatalogRaceList(
   }
 }
 
+test("new catalog entry starts with spelling precheck and explains the authoring fields", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseKey = "catalog-create-precheck-run";
+  const payload = {
+    ...catalogRacePayload("run", "跑步"),
+    partOfSpeech: "verb",
+  };
+  let brokenPrecheckAttempts = 0;
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, {
+      bulkEnabled: false,
+      historyEnabled: false,
+    });
+    await installCatalogRaceList(reviewer.page, [
+      catalogRaceRow("create-precheck-run", senseKey, payload),
+    ]);
+    await reviewer.page.route("**/api/catalog/precheck?*", async (route) => {
+      const url = new URL(route.request().url());
+      const checkedTerm = url.searchParams.get("term")?.trim().toLowerCase();
+      if (checkedTerm === "brokenword" && brokenPrecheckAttempts++ === 0) {
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "CATALOG_READ_FAILED" }),
+        });
+        return;
+      }
+      if (checkedTerm === "slowword") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      const isRun = checkedTerm === "run";
+      const isSlow = checkedTerm === "slowword";
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          normalizedTerm: "run",
+          matches: isRun || isSlow
+            ? [
+                {
+                  kind: "SENSE",
+                  senseKey: isRun ? senseKey : "stale-slow-sense",
+                  term: isRun ? "run" : "slowword",
+                  definitionZh: isRun ? "跑步" : "過時詞義",
+                  partOfSpeech: "verb",
+                  level: "A1",
+                  status: "ACTIVE",
+                },
+              ]
+            : [],
+          exactConflict: isRun && url.searchParams.has("definitionZh")
+            ? "EXISTING"
+            : null,
+        }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    await reviewer.page.getByRole("button", { name: /新增詞條|新增词条/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await expect(dialog.getByText(/步驟 1 \/ 2|步骤 1 \/ 2/)).toBeVisible();
+    await expect(dialog.getByLabel(/英文詞（必填）|英文词（必填）/)).toBeVisible();
+    await expect(dialog.getByTestId("catalog-definition-zh")).toHaveCount(0);
+
+    const spelling = dialog.getByLabel(/英文詞（必填）|英文词（必填）/);
+    await spelling.fill("brandnewword");
+    await expect(
+      dialog
+        .getByRole("paragraph")
+        .filter({ hasText: /詞庫暫時未有呢個英文詞|词库暂时未有呢个英文词/ }),
+    ).toBeVisible();
+    await spelling.fill("run");
+    await expect(dialog.getByText(/詞庫已有同一英文的詞義|词库已有同一英文的词义/)).toBeVisible();
+    await expect(dialog.getByText("跑步", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: /新增「run」的另一個意思|新增“run”的另一个意思/ }).click();
+
+    await expect(dialog.getByLabel(/英文詞（必填）|英文词（必填）/)).toHaveValue("run");
+    await expect(dialog.getByLabel(/詞頭（必填）|词头（必填）/)).toHaveValue("run");
+    await expect(dialog.getByLabel(/其他可接受中文譯法|其他可接受中文译法/)).toBeVisible();
+    await expect(dialog.getByLabel(/其他可接受英文形式/)).toBeVisible();
+    await expect(dialog.getByText(/如填英文例句，必須同時填寫對應中文例句/)).toBeVisible();
+    await expect(dialog.getByText(/多個譯法用 \| 分隔/)).toBeVisible();
+    await expect(dialog.getByLabel(/中文錯誤選項 1|中文错误选项 1/)).toBeVisible();
+    await expect(dialog.getByLabel(/英文錯誤選項 6|英文错误选项 6/)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /提交新詞義，送交審核|提交新词义，送交审核/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /停用/ })).toHaveCount(0);
+
+    await dialog.getByLabel(/詞性（必填）|词性（必填）/).selectOption("verb");
+    await dialog.getByTestId("catalog-definition-zh").fill("跑步");
+    await expect(dialog.getByText(/不能重複新增相同詞義|不能重复新增相同词义/)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /提交新詞義，送交審核|提交新词义，送交审核/ })).toBeDisabled();
+
+    for (const width of [320, 768, 1024, 1440]) {
+      await reviewer.page.setViewportSize({ width, height: 900 });
+      const geometry = await reviewer.page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }));
+      expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+    }
+
+    await dialog.getByRole("button", { name: /更改英文詞並重新檢查/ }).click();
+    await dialog.getByLabel(/英文詞（必填）|英文词（必填）/).fill("walk");
+    await expect(
+      dialog
+        .getByRole("paragraph")
+        .filter({ hasText: /詞庫暫時未有呢個英文詞|词库暂时未有呢个英文词/ }),
+    ).toBeVisible();
+    reviewer.page.once("dialog", (confirmation) => confirmation.accept());
+    await dialog.getByRole("button", { name: /繼續填寫詞義|继续填写词义/ }).click();
+    await expect(dialog.getByLabel(/英文詞（必填）|英文词（必填）/)).toHaveValue("walk");
+    await expect(dialog.getByTestId("catalog-definition-zh")).toHaveValue("");
+
+    await dialog.getByRole("button", { name: /更改英文詞並重新檢查/ }).click();
+    await dialog.getByLabel(/英文詞（必填）|英文词（必填）/).fill("brokenword");
+    await expect(dialog.getByRole("button", { name: /重新檢查|重新检查/ })).toBeVisible();
+    await dialog.getByRole("button", { name: /重新檢查|重新检查/ }).click();
+    await expect(spelling).toBeFocused();
+    await expect(
+      dialog
+        .getByRole("paragraph")
+        .filter({ hasText: /詞庫暫時未有呢個英文詞|词库暂时未有呢个英文词/ }),
+    ).toBeVisible();
+
+    await dialog.getByLabel(/英文詞（必填）|英文词（必填）/).fill("slowword");
+    await reviewer.page.waitForTimeout(400);
+    await dialog.getByLabel(/英文詞（必填）|英文词（必填）/).fill("run");
+    await expect(dialog.getByText("跑步", { exact: true })).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: /查看／修改：跑步|查看\/修改：跑步/ }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole("status").filter({ hasText: /找到 1 個|找到 1 个/ }),
+    ).toHaveText(/找到 1 個|找到 1 个/);
+    await reviewer.page.waitForTimeout(550);
+    await expect(dialog.getByText("過時詞義", { exact: true })).toHaveCount(0);
+
+    await reviewer.context.addCookies([
+      { name: "locale", value: "zh-Hans", url: ORIGIN },
+    ]);
+    await reviewer.page.evaluate(() => localStorage.setItem("theme", "dark"));
+    await reviewer.page.setViewportSize({ width: 320, height: 844 });
+    await reviewer.page.reload();
+    await expect(reviewer.page.locator("html")).toHaveAttribute("lang", "zh-Hans");
+    await expect
+      .poll(() =>
+        reviewer.page
+          .locator("html")
+          .evaluate((element) => element.classList.contains("dark")),
+      )
+      .toBe(true);
+    await reviewer.page.getByRole("button", { name: /新增词条/ }).click();
+    const simplifiedDialog = reviewer.page.getByRole("dialog");
+    await expect(simplifiedDialog.getByText(/步骤 1 \/ 2/)).toBeVisible();
+    await simplifiedDialog.getByLabel(/英文词（必填）/).fill("run");
+    await expect(simplifiedDialog.getByText(/词库已有同一英文的词义/)).toBeVisible();
+    await reviewer.page.screenshot({
+      path: "test-results/catalog-authoring-zh-hans-dark-320.png",
+      fullPage: true,
+    });
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
 test("newer catalog detail selection survives an older delayed response and submits the selected sense", async ({ browser }) => {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   test.skip(!password, "Seeded admin credentials are required.");
@@ -526,11 +693,11 @@ test("newer catalog detail selection survives an older delayed response and subm
     await reviewer.page.waitForTimeout(500);
     await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
     await expect(dialog.getByRole("heading", { name: payloadA.term })).toHaveCount(0);
-    await dialog.getByLabel(/中文釋義|中文释义/).fill("競態乙修訂");
+    await dialog.getByTestId("catalog-definition-zh").fill("競態乙修訂");
     const submitted = reviewer.page.waitForResponse((response) => (
       response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog"
     ));
-    await dialog.getByRole("button", { name: /提交草稿/ }).click();
+    await dialog.getByRole("button", { name: /提交內容修改，送交審核/ }).click();
     expect((await submitted).status()).toBe(200);
     expect(submittedSenseKey).toBe(senseB);
   } finally {
@@ -578,7 +745,7 @@ test("question preview loading resets after payload A to B to A", async ({ brows
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
     await expect(dialog.getByRole("button", { name: /正在出題|正在出题/ })).toBeVisible();
 
-    const definition = dialog.getByLabel(/中文釋義|中文释义/);
+    const definition = dialog.getByTestId("catalog-definition-zh");
     await definition.fill("預覽載入乙");
     await definition.fill(payload.definitionZh);
     await reviewer.page.waitForTimeout(500);
@@ -631,7 +798,7 @@ test("question preview does not restore an old result after payload A to B to A"
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
     await expect(dialog.getByText("A 已完成舊題目")).toBeVisible();
 
-    const definition = dialog.getByLabel(/中文釋義|中文释义/);
+    const definition = dialog.getByTestId("catalog-definition-zh");
     await definition.fill("預覽結果乙");
     await definition.fill(payload.definitionZh);
 
@@ -769,7 +936,7 @@ test("question preview is scoped to sense identity and ignores an older delayed 
     await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     let dialog = reviewer.page.getByRole("dialog");
     await dialog.getByRole("button", { name: /產生預覽|产生预览/ }).click();
-    await dialog.getByRole("button", { name: /關閉|关闭/ }).click();
+    await dialog.getByRole("button", { name: /^(關閉|关闭)$/ }).click();
 
     await rowB.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     dialog = reviewer.page.getByRole("dialog");
@@ -1156,13 +1323,13 @@ test("a completed submit does not reopen its old dialog after the user opens ano
     const pendingB = reviewer.page.locator("article").filter({ hasText: payloadB.term });
     await rowA.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const dialog = reviewer.page.getByRole("dialog");
-    await dialog.getByLabel(/中文釋義|中文释义/).fill("提交競態甲修訂");
+    await dialog.getByTestId("catalog-definition-zh").fill("提交競態甲修訂");
     const submitted = reviewer.page.waitForResponse((response) => (
       response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog"
     ));
-    await dialog.getByRole("button", { name: /提交草稿/ }).click();
+    await dialog.getByRole("button", { name: /提交內容修改，送交審核/ }).click();
     expect((await submitted).status()).toBe(200);
-    await dialog.getByRole("button", { name: /關閉|关闭/ }).click();
+    await dialog.getByRole("button", { name: /^(關閉|关闭)$/ }).click();
     await pendingB.getByRole("button", { name: /查看草稿/ }).click();
 
     await expect(dialog.getByRole("heading", { name: payloadB.term })).toBeVisible();
@@ -1663,6 +1830,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
   const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
   const term = `e2ecatalog${suffix}`;
   const senseKey = `governance_e2e_${suffix}`;
+  const pendingLemma = `e2epending${suffix}`;
+  const pendingVariantSenseKey = `governance_pending_variant_${suffix}`;
   let previewBatchId: string | null = null;
   const client = new Client({ connectionString: connectionString! });
   await client.connect();
@@ -1703,6 +1872,83 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
   };
 
   try {
+    const pendingVariantPayload = {
+      ...payload,
+      term: `${pendingLemma}past`,
+      lemma: pendingLemma,
+      definitionZh: "只供pending lemma變體及私隱回歸使用",
+      acceptedAnswersZh: [],
+    };
+    const pendingVariantCreate = await proposer.page.request.post(
+      "/api/catalog",
+      {
+        headers: proposerHeaders,
+        data: {
+          operationId: randomUUID(),
+          kind: "CREATE",
+          senseKey: pendingVariantSenseKey,
+          payload: pendingVariantPayload,
+        },
+      },
+    );
+    expect(
+      pendingVariantCreate.status(),
+      await pendingVariantCreate.text(),
+    ).toBe(201);
+    const pendingVariantParams = new URLSearchParams({
+      term: `${pendingLemma}ing`,
+      lemma: pendingLemma,
+      partOfSpeech: pendingVariantPayload.partOfSpeech,
+      definitionZh: pendingVariantPayload.definitionZh,
+    });
+    const privatePendingPrecheck = await unrelatedTeacher.page.request.get(
+      `/api/catalog/precheck?${pendingVariantParams}`,
+    );
+    expect(
+      privatePendingPrecheck.ok(),
+      await privatePendingPrecheck.text(),
+    ).toBeTruthy();
+    const privatePendingBody = (await privatePendingPrecheck.json()) as {
+      exactConflict: string | null;
+      matches: Array<{ senseKey: string | null; definitionZh: string }>;
+    };
+    expect(privatePendingBody.exactConflict).toBe("PENDING");
+    expect(
+      privatePendingBody.matches.some(
+        (match) => match.senseKey === pendingVariantSenseKey,
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(privatePendingBody)).not.toContain(
+      pendingVariantPayload.definitionZh,
+    );
+    const ownerPendingPrecheck = await proposer.page.request.get(
+      `/api/catalog/precheck?${pendingVariantParams}`,
+    );
+    expect(
+      ownerPendingPrecheck.ok(),
+      await ownerPendingPrecheck.text(),
+    ).toBeTruthy();
+    expect(await ownerPendingPrecheck.json()).toMatchObject({
+      exactConflict: "PENDING",
+      matches: [
+        expect.objectContaining({
+          kind: "PENDING_CREATE",
+          senseKey: pendingVariantSenseKey,
+        }),
+      ],
+    });
+    await rejectPending(
+      reviewer.page,
+      reviewerHeaders,
+      pendingVariantSenseKey,
+      "完成pending lemma變體及私隱回歸",
+    );
+    await cleanupFixture({
+      connectionString: connectionString!,
+      senseKey: pendingVariantSenseKey,
+      batchId: null,
+    });
+
     const cursorPage = await reviewer.page.request.get(
       "/api/catalog?limit=1&sort=TERM_ASC",
     );
@@ -1726,6 +1972,48 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     });
     await approvePending(reviewer.page, reviewerHeaders, senseKey);
     expect((await detail(proposer.page, senseKey)).status).toBe("ACTIVE");
+
+    const spellingPrecheck = await proposer.page.request.get(
+      `/api/catalog/precheck?term=${encodeURIComponent(term)}`,
+    );
+    expect(spellingPrecheck.ok(), await spellingPrecheck.text()).toBeTruthy();
+    const spellingPrecheckBody = (await spellingPrecheck.json()) as {
+      matches: Array<{ senseKey: string | null }>;
+      exactConflict: string | null;
+    };
+    expect(
+      spellingPrecheckBody.matches.some((match) => match.senseKey === senseKey),
+    ).toBe(true);
+    expect(spellingPrecheckBody.exactConflict).toBeNull();
+    const exactPrecheckParams = new URLSearchParams({
+      term,
+      lemma: term,
+      partOfSpeech: payload.partOfSpeech,
+      definitionZh: payload.definitionZh,
+    });
+    const exactPrecheck = await proposer.page.request.get(
+      `/api/catalog/precheck?${exactPrecheckParams}`,
+    );
+    expect(exactPrecheck.ok(), await exactPrecheck.text()).toBeTruthy();
+    expect(await exactPrecheck.json()).toMatchObject({
+      exactConflict: "EXISTING",
+    });
+    const inflectedTermPrecheck = new URLSearchParams({
+      term: `${term}ing`,
+      lemma: term,
+      partOfSpeech: payload.partOfSpeech,
+      definitionZh: payload.definitionZh,
+    });
+    const inflectedTermResponse = await proposer.page.request.get(
+      `/api/catalog/precheck?${inflectedTermPrecheck}`,
+    );
+    expect(
+      inflectedTermResponse.ok(),
+      await inflectedTermResponse.text(),
+    ).toBeTruthy();
+    expect(await inflectedTermResponse.json()).toMatchObject({
+      exactConflict: "EXISTING",
+    });
 
     const concurrentOperationId = randomUUID();
     const concurrentPayload = { ...payload, definitionZh: "並發冪等性驗證後的瀏覽器詞庫回歸測試詞", acceptedAnswersZh: ["並發冪等性驗證後的瀏覽器詞庫回歸測試詞"] };
@@ -1780,7 +2068,25 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await dialog.getByRole("button", { name: /報告問題|报告问题/ }).click();
     const parentDialog = proposer.page.locator('[aria-labelledby="catalog-dialog-title"]');
     await expect(parentDialog).toHaveAttribute("aria-hidden", "true");
+    await expect(parentDialog).toHaveAttribute("inert", "");
     const feedbackDialog = proposer.page.getByRole("dialog").filter({ has: proposer.page.getByRole("heading", { name: /提出詞庫意見|提出词库意见/ }) });
+    await expect
+      .poll(() =>
+        feedbackDialog.evaluate((panel) => panel.contains(document.activeElement)),
+      )
+      .toBe(true);
+    await proposer.page.keyboard.press("Tab");
+    await expect
+      .poll(() =>
+        feedbackDialog.evaluate((panel) => panel.contains(document.activeElement)),
+      )
+      .toBe(true);
+    await proposer.page.keyboard.press("Shift+Tab");
+    await expect
+      .poll(() =>
+        feedbackDialog.evaluate((panel) => panel.contains(document.activeElement)),
+      )
+      .toBe(true);
     await feedbackDialog.getByLabel(/問題類型|问题类型/).selectOption("DISTRACTOR");
     await feedbackDialog.getByLabel(/發現咗咩問題|发现咗咩问题/).fill("呢組干擾項對學生嚟講太容易");
     await feedbackDialog.getByLabel(/建議點改|建议点改/).fill("改用同一語境但意思不同的詞");
@@ -1830,10 +2136,24 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     });
     expect(concurrentFeedbackResponse.status(), await concurrentFeedbackResponse.text()).toBe(201);
     const concurrentFeedback = await concurrentFeedbackResponse.json() as { feedback: { id: string; revision: number } };
-    await dialog.getByLabel(/中文釋義|中文释义/).fill("已由老師修改的瀏覽器詞庫回歸測試詞");
-    await dialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("驗證一般老師提交修改草稿");
+    await dialog.getByRole("button", { name: /提交停用申請|提交停用申请/ }).click();
+    const dialogMutationAlert = dialog.getByRole("alert");
+    await expect(dialogMutationAlert).toContainText(/至少三個字|至少三个字/);
+    await expect(dialogMutationAlert).toBeFocused();
+    await dialog.getByRole("button", { name: /關閉提示|关闭提示/ }).click();
+    await expect(dialogMutationAlert).toHaveCount(0);
+    const dialogPanel = dialog.getByTestId("catalog-dialog-panel");
+    await expect(dialogPanel).toBeFocused();
+    await proposer.page.keyboard.press("Tab");
+    await expect
+      .poll(() =>
+        dialogPanel.evaluate((panel) => panel.contains(document.activeElement)),
+      )
+      .toBe(true);
+    await dialog.getByTestId("catalog-definition-zh").fill("已由老師修改的瀏覽器詞庫回歸測試詞");
+    await dialog.getByLabel(/修改理由/).fill("驗證一般老師提交修改草稿");
     const updateResponse = proposer.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog");
-    await dialog.getByRole("button", { name: /提交草稿/ }).click();
+    await dialog.getByRole("button", { name: /提交內容修改，送交審核/ }).click();
     expect((await updateResponse).status()).toBe(201);
     await proposer.page.keyboard.press("Escape");
 
@@ -1909,8 +2229,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await expect(retryDialog.getByText(/重新提交修正版/)).toBeVisible();
     await expect(retryDialog.getByText(/正式版本同原提案有欄位衝突|正式版本同原提案有栏位冲突/)).toBeVisible();
     await retryDialog.getByLabel(/衝突欄位 definitionZh|冲突栏位 definitionZh/).selectOption("PROPOSAL");
-    await retryDialog.getByLabel(/中文釋義|中文释义/).fill("按審核意見修正的瀏覽器詞庫回歸測試詞");
-    await retryDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("已按審核意見修正中文釋義");
+    await retryDialog.getByTestId("catalog-definition-zh").fill("按審核意見修正的瀏覽器詞庫回歸測試詞");
+    await retryDialog.getByLabel(/修改理由/).fill("已按審核意見修正中文釋義");
     const retryOperationIds: string[] = [];
     let hideFirstRetryResponse = true;
     await proposer.page.route("**/api/catalog", async (route) => {
@@ -2005,15 +2325,15 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await expect(statusActionRow).toBeVisible();
     await statusActionRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
     const statusActionDialog = reviewer.page.getByRole("dialog");
-    await statusActionDialog.getByLabel(/例句英文/).fill("This unsaved edit must not be dropped by a status action.");
-    await statusActionDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("驗證狀態操作不會靜默丟棄內容修改");
+    await statusActionDialog.getByLabel(/^英文例句/).fill("This unsaved edit must not be dropped by a status action.");
+    await statusActionDialog.getByLabel(/停用理由/).fill("驗證狀態操作不會靜默丟棄內容修改");
     await statusActionDialog.getByRole("button", { name: /立即停用/ }).click();
     await expect(reviewer.page.getByText(/請先提交 UPDATE 並完成審核|请先提交 UPDATE 并完成审核/)).toBeVisible();
-    await statusActionDialog.getByRole("button", { name: /關閉|关闭/ }).click();
+    await statusActionDialog.getByRole("button", { name: /^(關閉|关闭)$/ }).click();
     await expect(statusActionDialog).toHaveCount(0);
     await statusActionRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
-    await expect(statusActionDialog.getByLabel(/例句英文/)).toHaveValue(pendingStatusPayload.exampleEn);
-    await statusActionDialog.getByLabel(/修改／停用理由|修改\/停用理由/).fill("驗證 pending UPDATE baseline 不會阻止即時停用");
+    await expect(statusActionDialog.getByLabel(/^英文例句/)).toHaveValue(pendingStatusPayload.exampleEn);
+    await statusActionDialog.getByLabel(/停用理由/).fill("驗證 pending UPDATE baseline 不會阻止即時停用");
     const immediateRetireResponsePromise = reviewer.page.waitForResponse(
       (response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog",
       { timeout: 5_000 },
@@ -2104,9 +2424,9 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await reactivateRetryItem.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
     const reactivateRetryDialog = proposer.page.getByRole("dialog");
     await expect(reactivateRetryDialog.getByText(/狀態變更申請|状态变更申请/)).toBeVisible();
-    await expect(reactivateRetryDialog.getByLabel(/中文釋義|中文释义/)).toBeDisabled();
-    await expect(reactivateRetryDialog.getByLabel(/例句英文/)).toHaveValue(statusRetryCurrentPayload.exampleEn);
-    const reactivateReason = reactivateRetryDialog.getByLabel(/修改／停用理由|修改\/停用理由/);
+    await expect(reactivateRetryDialog.getByTestId("catalog-definition-zh")).toBeDisabled();
+    await expect(reactivateRetryDialog.getByLabel(/^英文例句/)).toHaveValue(statusRetryCurrentPayload.exampleEn);
+    const reactivateReason = reactivateRetryDialog.getByLabel(/狀態變更理由|重新啟用理由/);
     await expect(reactivateReason).toBeEnabled();
     await reactivateReason.fill("已補充重新啟用理由並重新提交");
     const reactivateRetryResponse = proposer.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/catalog");
@@ -2201,11 +2521,18 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     });
   } finally {
     try {
-      await cleanupFixture({
-        connectionString: connectionString!,
-        senseKey,
-        batchId: previewBatchId,
-      });
+      await Promise.all([
+        cleanupFixture({
+          connectionString: connectionString!,
+          senseKey,
+          batchId: previewBatchId,
+        }),
+        cleanupFixture({
+          connectionString: connectionString!,
+          senseKey: pendingVariantSenseKey,
+          batchId: null,
+        }),
+      ]);
     } finally {
       await Promise.allSettled([proposer.context.close(), unrelatedTeacher.context.close(), reviewer.context.close()]);
     }
