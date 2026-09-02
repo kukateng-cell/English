@@ -1,51 +1,50 @@
 /**
- * 语言/地区配置（集中管理）。
+ * 語言／地區設定（集中管理）。
  *
- * 设计要点：
- * - 歷史程式碼包含簡體及繁體字面量，DB 內容則沿用其規範來源。
- * - zh-Hant／zh-Hans 不是兩套獨立文案，而是在「顯示層」統一轉換
- *   （见 convert.ts 的 convertText / convertForServer）。因此 UI 文案、单词释义、单元/分类名、
- *   按钮提示、错误讯息全部统一走 tc() 转换，做到「集中管理、零散页面不再各自硬写繁简两版」。
- * - 预设语言为「繁体中文（zh-Hant）」，符合需求：新使用者首次开启即看到繁体。
+ * 設計要點：
+ * - 產品 UI、API fallback 及正式 DB 詞庫內容以繁體中文原文為 canonical。
+ * - zh-Hant 直接顯示原文；zh-Hans 經 convertText／convertForServer 由繁體衍生。
+ * - UI 文案、單詞釋義、單元／分類名、按鈕提示及錯誤訊息統一經 tc() 顯示，
+ *   不在各頁維護兩份繁簡文案。
+ * - 預設語言為繁體中文（zh-Hant）。
  */
 
 export type Locale = "zh-Hant" | "zh-Hans";
 
-/** 所有支持的语言（顺序即下拉显示顺序）。 */
+/** 所有支援的語言（順序即下拉顯示順序）。 */
 export const LOCALES: Locale[] = ["zh-Hant", "zh-Hans"];
 
-/** 预设语言：首次进入（无任何记录）时显示繁体中文。 */
+/** 預設語言：首次進入（沒有任何記錄）時顯示繁體中文。 */
 export const DEFAULT_LOCALE: Locale = "zh-Hant";
 
-/** localStorage key（客户端持久化）。 */
+/** localStorage key（client 持久化）。 */
 export const LOCALE_STORAGE_KEY = "locale";
 
-/** Cookie key（SSR 初始值用，确保首次 HTML 的 lang 与客户端一致、避免闪烁）。 */
+/** Cookie key（SSR 初始值用，確保首次 HTML 的 lang 與 client 一致，避免閃爍）。 */
 export const LOCALE_COOKIE_KEY = "locale";
 
-/** 把 Locale 转成标准 BCP-47 <html lang> 值。 */
+/** 把 Locale 轉成標準 BCP-47 <html lang> 值。 */
 export function localeToHtmlLang(locale: Locale): string {
-  // zh-Hant / zh-Hans 本身就是合法的 BCP-47 语言子标签。
+  // zh-Hant／zh-Hans 本身就是合法的 BCP-47 語言子標籤。
   return locale;
 }
 
-/** 检查任意字符串是否为支持的语言；不支援时回退 DEFAULT_LOCALE。 */
+/** 檢查任意字串是否為支援語言；不支援時回退 DEFAULT_LOCALE。 */
 export function normalizeLocale(s: string | null | undefined): Locale {
   if (!s) return DEFAULT_LOCALE;
   const v = s.trim();
-  // 宽松匹配：zh-Hant / zh-Hant-MO / zh-TW → zh-Hant；zh-Hans / zh-CN / zh-SG → zh-Hans
+  // 寬鬆配對：zh-Hant／zh-Hant-MO／zh-TW → zh-Hant；zh-Hans／zh-CN／zh-SG → zh-Hans。
   if (/^zh[-_]?(hant|tw|mo|hk)/i.test(v)) return "zh-Hant";
   if (/^zh[-_]?(hans|cn|sg)/i.test(v)) return "zh-Hans";
   return (LOCALES as readonly string[]).includes(v) ? (v as Locale) : DEFAULT_LOCALE;
 }
 
 /**
- * 站点标题 / 描述（保存一份来源，与全站文案策略一致）。
- * 显示层依当前语言经 convertText 即时转换：
- * - 服务端：layout 的 generateMetadata 读取 cookie 生成 <title>；
- * - 客户端：LocaleProvider 在切换语言时同步 document.title。
- * 这样「网页标题」也跟随语言选择，不再恒为简体。
+ * 網站標題／描述只保存一份繁體原文，與全站文案策略一致。
+ * 顯示層依目前語言經 convertText 即時轉換：
+ * - server：layout 的 generateMetadata 讀取 cookie 產生 <title>；
+ * - client：LocaleProvider 在切換語言時同步 document.title。
  */
-export const SITE_TITLE = "英语单词认读 · 中学生学习平台";
+export const SITE_TITLE = "英語單詞認讀 · 中學生學習平臺";
 export const SITE_DESCRIPTION =
-  "基于 SM-2 间隔重复算法的中学生英语单词认读学习网站。移动优先，随时随地学单词。";
+  "基於 SM-2 間隔重複算法的中學生英語單詞認讀學習網站。移動優先，隨時隨地學單詞。";

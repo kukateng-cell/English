@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   if (!auth.ok) return errorResponse(auth.message, auth.status);
   const rawDays = new URL(req.url).searchParams.get("days") ?? "7";
   const days = Number(rawDays);
-  if (!Number.isInteger(days) || days < 1 || days > 60) return errorResponse("日期范围无效");
+  if (!Number.isInteger(days) || days < 1 || days > 60) return errorResponse("日期範圍無效");
   const today = todayKey();
   const sinceDay = offsetDay(today, -(days - 1));
   const since = new Date(`${sinceDay}T00:00:00+08:00`);

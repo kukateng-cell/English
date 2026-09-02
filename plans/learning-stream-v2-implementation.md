@@ -334,7 +334,7 @@ Research telemetry 使用獨立 flag；Product rollout 唔等待 research experi
 | I-010 | Local full V2 cutover scope | `STUDY_V2_ASSIGNMENT_MODE=all` 只可喺 local development，或明確 `ENABLE_TEST_ROUTES=1` 且無 Vercel environment 嘅 local browser test runtime 啟用；`off` 強制 V1，internal allowlist 保留；Vercel preview／production all-user mode fail closed | Phase 5 local product-complete |
 | I-011 | Visual review follow-up：Learning Card reveal／rating placement／account display | 不改 Contract 語義或 server action；V2 card body（排除發音 control）以 tap 揭示並以 one-way front／back flip 顯示答案；self-rating actions 移到卡下同寬 row；學生名稱 display 經 `tc()` 轉換，stored identity 不變；低位移 tap 唔可誤觸 swipe | Phase 5 local UI correction；完成前不得勾選相關 local DoD |
 | I-012 | Retrieval pause before reveal | 不改 Contract 語義或 server action；V2 Learning Card 保留「先試著想一想這個詞的中文意思」，約 1 秒後追加 stationary long-press 3 秒提示；兩段提示需有清楚但不干擾嘅高亮／呼吸式視覺；按住時顯示透明圓圈並隨 3 秒進度加快／增強；audio button、移動、放手及 pointer cancel 必須取消並重置 reveal timer；reveal 後保留既有 flip／答案面，左右 swipe／rating actions 用「和剛才想的一樣／不一樣」語義 | Phase 5 local interaction correction；visual refinement 完成前不得勾選相關 local DoD |
-| I-013 | Expired-session retry recovery／system locale | V2 action 遇到可恢復嘅 session expiry 時，保留原 `operationId`／item credential，經 server-authoritative session recovery 後只重送同一 typed action；revoked／無法證明 credential lineage 仍 fail closed，但唔可以無限重試；所有 V2 loading／fallback source literals 改用 canonical 簡體再交由 `tc()` 顯示，確保 zh-Hant 首屏一致 | 已落實並驗證；由 I-013 local reliability／locale correction 完成 |
+| I-013 | Expired-session retry recovery／system locale | V2 action 遇到可恢復嘅 session expiry 時，保留原 `operationId`／item credential，經 server-authoritative session recovery 後只重送同一 typed action；revoked／無法證明 credential lineage 仍 fail closed，但唔可以無限重試；當時把 V2 loading／fallback source literals 統一經 `tc()` 顯示；原有「canonical 簡體」過渡策略已於 2026-09-02 由[繁體中文原始文案基準修正計劃](./traditional-chinese-source-copy-baseline.md)取代 | 已落實並驗證；由 I-013 local reliability／locale correction 完成；現行 source contract 以繁體為 canonical |
 | I-014 | Item credential expiry／resume recovery follow-up | 普通 action 對未知 credential 及 revoked session 繼續 fail closed；server 保留 bounded digest lineage 供 recovery-only proof，對同一 item／session／typed operation 嘅過期 credential 可經 explicit recovery route 恢復，並以 Serializable CAS 必要時重新租約；client 對 `ITEM_CREDENTIAL_EXPIRED`／`EXPIRED_ITEM_LEASE` 只作一次 recovery，保留原 `operationId`／outbox，唔清空或改寫學習結果 | 已落實並驗證；由 I-014 local reliability follow-up 完成 |
 | I-015 | Retrieval prompt presentation refinement | 不改 retrieval gate／長按 timer／audio exclusion；V2 移除「可隨時離開，進度會安全保留」，保留思考提示，將約 1 秒後出現嘅「長按 3 秒揭示答案」移到發音 button 下方；兩段提示改用低幅度、慢速呼吸，secondary 以 progressive enter effect 出現，並保留 reduced-motion 可理解性 | 已落實並驗證；由 I-015 local UI refinement 完成 |
 | I-016 | EMM Style 02 study surface fidelity refinement | 只改 V1／V2 presentation：item output additive 傳遞 level／category；header title、Learning Card metadata／context、V1／V2 audio label control、Objective Probe／V1 QuizCard 題目／選項 visual hierarchy 對齊 handoff；保留 retrieval gate、long-press、swipe、server scoring、outbox、V1 rollback 及 locale／theme 行為 | 已落實並驗證；由 I-016 local UI refinement 完成 |
@@ -465,8 +465,9 @@ action contract；以下證據完成後已收斂。
   持有同一 item credential／typed action 並明確進入 `/api/study/actions/recover`，server 先喺
   Serializable transaction 延長未撤銷 session並重放原 operationId。recovery 失敗時 durable outbox
   保留並停喺可見 blocker，client 每次只作一次 recovery request，唔會無限重送；同 operationId
-  重試回相同 authoritative receipt。V2 assignment router／stream loading literal 已統一由
-  canonical 簡體經 `tc()` 轉換，zh-Hant／zh-Hans 首屏 regression 通過。
+  重試回相同 authoritative receipt。V2 assignment router／stream loading literal 當時已統一經
+  `tc()` 轉換，zh-Hant／zh-Hans 首屏 regression 通過；其中「canonical 簡體」過渡策略其後已於
+  2026-09-02 由[繁體中文原始文案基準修正計劃](./traditional-chinese-source-copy-baseline.md)取代，現行原始文案以繁體為準。
 - `npm test`：126 passed；`npm run lint`、`npx tsc --noEmit`、`git diff --check` passed；
   `npm run build`：43/43 static pages generated，compiled／TypeScript passed。
 - `npm run test:db:stream-v2`：passed；覆蓋普通 expired session rejection、explicit recovery、

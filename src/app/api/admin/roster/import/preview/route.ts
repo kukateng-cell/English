@@ -36,6 +36,7 @@ function field(row: RosterCellRow, names: string[]) {
   return "";
 }
 
+// 匯入邊界兼容舊有簡體欄名；以下字串是輸入 alias，不是產品顯示文案。
 const ACCOUNT_HEADERS = ["accountName", "帳號", "账号", "學生證", "学生证"];
 const STUDENT_NUMBER_HEADERS = ["studentNumber", "學號", "学生证号码", "學生證號碼"];
 const LEGAL_NAME_HEADERS = ["legalName", "真實姓名", "真实姓名", "姓名"];

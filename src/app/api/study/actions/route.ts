@@ -16,7 +16,7 @@ function errorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: error.message, ...error.details }, { status: error.status });
   }
   console.error("[study-stream] action failed", describeStudyStreamFailure(error));
-  return NextResponse.json({ error: "学习操作暂时不可用，请稍后重试" }, { status: 503 });
+  return NextResponse.json({ error: "學習操作暫時不可用，請稍後重試" }, { status: 503 });
 }
 
 /** POST /api/study/actions — typed V2 intent; server derives all outcomes. */
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     context.flowVersion = "v2";
     if (!isStudyStreamV2Assigned(auth.userId)) {
       context.outcome = "assignment-off";
-      return NextResponse.json({ error: "当前账户未分配 Retrieval-first Learning Stream" }, { status: 404 });
+      return NextResponse.json({ error: "目前帳戶未分配 Retrieval-first Learning Stream" }, { status: 404 });
     }
     const body = await req.json().catch(() => null);
     const parsed = parseStudyStreamAction(body);
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     if (!rate.ok) {
       context.outcome = "rate-limited";
       return NextResponse.json(
-        { error: "学习提交过于频繁，请稍后再试" },
+        { error: "學習提交過於頻繁，請稍後再試" },
         { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } },
       );
     }

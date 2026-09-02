@@ -85,7 +85,7 @@ export default function UnitsPage() {
       <div className="flex min-h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
-          <span className="text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">{tc("加载中...")}</span>
+          <span className="text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">{tc("載入中...")}</span>
         </div>
       </div>
     );
@@ -120,22 +120,22 @@ export default function UnitsPage() {
           className="flex items-center gap-1 text-[14px] text-[var(--muted)] transition hover:text-[var(--text)] dark:text-[var(--muted)] dark:hover:text-[var(--text)]"
         >
           <Icon name="arrow-left" size={16} />
-          {tc("首页")}
+          {tc("首頁")}
         </Link>
         <Link
           href="/study"
           className="flex items-center gap-1 text-[14px] font-medium text-[var(--primary)] transition hover:text-[var(--primary-2)]"
         >
-          {tc("今日学习")}
+          {tc("今日學習")}
           <Icon name="chevron-right" size={14} />
         </Link>
       </div>
 
       <h1 className="mb-1 text-[28px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
-        {tc("单元闯关")}
+        {tc("單元闖關")}
       </h1>
       <p className="mb-6 text-[14px] leading-relaxed text-[var(--muted)] dark:text-[var(--muted)]">
-        {tc("按主题逐个攻克，认字后通过测试才算掌握。")}
+        {tc("按主題逐個攻克，認字後通過測試才算掌握。")}
       </p>
 
       {/* 级别切换 */}
@@ -153,8 +153,8 @@ export default function UnitsPage() {
                 unlocked
                   ? st?.completed
                     ? tc(`${lvl} 已全部完成`)
-                    : tc(`${lvl} 进度 ${st?.progress ?? 0}%`)
-                    : tc("请先完成上一个级别")
+                    : tc(`${lvl} 進度 ${st?.progress ?? 0}%`)
+                    : tc("請先完成上一個級別")
               }
               className={`shrink-0 rounded-full px-5 py-2 text-[14px] font-medium transition ${
                 isActive
@@ -179,10 +179,10 @@ export default function UnitsPage() {
         <div className="mb-6 rounded-2xl bg-[var(--warning-bg)] p-5 shadow-sm dark:bg-[var(--warning-bg)]">
           <p className="flex items-center gap-2 text-[14px] font-semibold text-[var(--warning)] dark:text-[var(--warning)]">
             <Icon name="lock" size={18} />
-            {tc(`${level} 级别尚未解锁`)}
+            {tc(`${level} 級別尚未解鎖`)}
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--warning)]">
-            {tc(`请先回到上一个级别，把所有单元的认字率都练到 80% 以上，即可解锁 ${level} 级别。`)}
+            {tc(`請先回到上一個級別，把所有單元的認字率都練到 80% 以上，即可解鎖 ${level} 級別。`)}
           </p>
         </div>
       )}
@@ -196,13 +196,13 @@ export default function UnitsPage() {
         <div className="relative">
           <div className="mb-4 flex items-end justify-between">
             <div>
-              <p className="text-[13px] opacity-70">{tc(`${level} 级别总进度`)}</p>
+              <p className="text-[13px] opacity-70">{tc(`${level} 級別總進度`)}</p>
               <p className="mt-1 text-[36px] font-bold leading-none tracking-[-0.02em]">{grandProgress}%</p>
             </div>
             <div className="text-right text-[13px] opacity-80">
-              <p>{tc(`已掌握 ${grandMastered} / ${grandTotal} 词`)}</p>
+              <p>{tc(`已掌握 ${grandMastered} / ${grandTotal} 詞`)}</p>
               <p className="mt-0.5">
-                {grandDue > 0 ? tc(`待复习 ${grandDue} 词`) : tc("无到期复习")}
+                {grandDue > 0 ? tc(`待複習 ${grandDue} 詞`) : tc("無到期複習")}
               </p>
             </div>
           </div>
@@ -221,7 +221,7 @@ export default function UnitsPage() {
       {/* 单元列表 */}
       {units.length === 0 ? (
         <div className="rounded-2xl bg-[var(--surface)] p-10 text-center text-[14px] text-[var(--muted)] shadow-sm dark:bg-[var(--surface)] dark:text-[var(--muted)]">
-          {tc("该级别暂无单词数据")}
+          {tc("該級別暫無單詞資料")}
         </div>
       ) : (
         <div className="units-grid">
@@ -283,7 +283,7 @@ function UnitCard({
       ) : locked ? (
         <span className="absolute right-4 top-4 flex items-center gap-1 rounded-full bg-[var(--border-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--muted)]">
           <Icon name="lock" size={12} />
-          {tc("未解锁")}
+          {tc("未解鎖")}
         </span>
       ) : null}
 
@@ -328,18 +328,18 @@ function UnitCard({
 
       <div className="flex items-center justify-between text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
         <span>
-          {unit.mastered}/{unit.total} {tc("词")}
+          {unit.mastered}/{unit.total} {tc("詞")}
         </span>
         <span className={`inline-flex items-center gap-1 font-medium ${locked ? "" : "text-[var(--primary)] dark:text-[var(--primary)]"}`}>
           {locked
-            ? tc("完成上一单元解锁")
+            ? tc("完成上一單元解鎖")
             : completed
-              ? tc("巩固复习")
+              ? tc("鞏固複習")
               : started
                 ? unit.due > 0
-                  ? tc(`${unit.due} 词待复习`)
-                  : tc("继续练习")
-                : tc("开始学习")}
+                  ? tc(`${unit.due} 詞待複習`)
+                  : tc("繼續練習")
+                : tc("開始學習")}
           {!locked && <Icon name="arrow-right" size={14} />}
         </span>
       </div>

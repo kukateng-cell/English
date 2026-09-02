@@ -36,6 +36,6 @@ export async function GET() {
       wordsByLevel: wordsByLevel.map((w) => ({ level: w.level, count: w._count })),
     });
   } catch {
-    return NextResponse.json({ error: "获取统计数据失败" }, { status: 500 });
+    return NextResponse.json({ error: "取得統計資料失敗" }, { status: 500 });
   }
 }

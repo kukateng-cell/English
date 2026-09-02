@@ -88,9 +88,9 @@ export default function QuizCard({
     <div className="study-stream-probe mx-auto w-full px-5">
       <div className="quiz-intro">
         <div className="quiz-intro-copy">
-          <span className="quiz-eyebrow">{tc("认字小测")}</span>
-          <h2>{tc("把意思配回单词")}</h2>
-          <p>{tc("确认你真的认得它，再继续下一张。")}</p>
+          <span className="quiz-eyebrow">{tc("認字小測")}</span>
+          <h2>{tc("把意思配回單詞")}</h2>
+          <p>{tc("確認你真的認得它，再繼續下一張。")}</p>
         </div>
       </div>
 
@@ -103,7 +103,7 @@ export default function QuizCard({
           <span className="quiz-prompt-label">{tc(isEnZh ? "看英文" : "看中文")}</span>
           {question.word.level ? (
             <span className="level-badge">
-              {question.word.level} · {tc(question.word.category ?? "未分类")}
+              {question.word.level} · {tc(question.word.category ?? "未分類")}
             </span>
           ) : null}
         </div>
@@ -111,16 +111,16 @@ export default function QuizCard({
           <>
             <h2 className="quiz-card-term quiz-probe-prompt">{question.word.term}</h2>
             {question.word.phonetic && <p className="quiz-card-phonetic">{question.word.phonetic}</p>}
-            <button onClick={speak} className="quiz-card-speak" aria-label={tc("发音")}>
+            <button onClick={speak} className="quiz-card-speak" aria-label={tc("發音")}>
               <Icon name="volume" size={18} />
-              <span>{tc("发音")}</span>
+              <span>{tc("發音")}</span>
             </button>
-            <p className="quiz-instruction">{tc("选出它的中文意思")}</p>
+            <p className="quiz-instruction">{tc("選出它的中文意思")}</p>
           </>
         ) : (
           <>
             <p className="quiz-card-term quiz-probe-prompt is-definition">{tc(question.word.definition)}</p>
-            <p className="quiz-instruction">{tc("选出最贴近的英文解释")}</p>
+            <p className="quiz-instruction">{tc("選出最貼近的英文解釋")}</p>
           </>
         )}
       </motion.div>
@@ -202,12 +202,12 @@ export default function QuizCard({
           {selectedId === question.correctId ? (
             <span className="quiz-feedback-correct inline-flex items-center gap-1 font-medium">
               <Icon name="check" size={16} />
-              {tc("答对了！")}
+              {tc("答對了！")}
             </span>
           ) : (
             <span className="quiz-feedback-wrong inline-flex items-center gap-1 font-medium">
               <Icon name="close" size={16} />
-              {tc("答错了，再试一次吧")}
+              {tc("答錯了，再試一次吧")}
             </span>
           )}
         </motion.p>

@@ -39,7 +39,8 @@ test("strict level predicate rejects mutation typos", () => {
   assert.equal(isLevel(null), false);
 });
 
-test("the 未分类 route label maps back to a null database category", () => {
+test("the Traditional canonical and legacy Simplified uncategorized labels map to null", () => {
+  assert.equal(unitCategoryToStorage("未分類"), null);
   assert.equal(unitCategoryToStorage("未分类"), null);
   assert.equal(unitCategoryToStorage("Family"), "Family");
 });

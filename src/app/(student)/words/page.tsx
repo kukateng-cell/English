@@ -39,10 +39,10 @@ interface WordResponse {
 
 const STATUS_OPTIONS: Array<{ value: "all" | StudentWordStatus; label: string }> = [
   { value: "all", label: "全部" },
-  { value: "unseen", label: "未学习" },
-  { value: "learning", label: "学习中" },
-  { value: "due", label: "待复习" },
-  { value: "mastered", label: "长期掌握" },
+  { value: "unseen", label: "未學習" },
+  { value: "learning", label: "學習中" },
+  { value: "due", label: "待複習" },
+  { value: "mastered", label: "長期掌握" },
 ];
 
 export default function WordsPage() {
@@ -102,14 +102,14 @@ export default function WordsPage() {
       try {
         const response = await fetch(`/api/words?${params}`, { cache: "no-store", signal: controller.signal });
         const payload = (await response.json().catch(() => null)) as (WordResponse & { error?: string }) | null;
-        if (!response.ok) throw new Error(payload?.error || "暂时无法加载词表");
+        if (!response.ok) throw new Error(payload?.error || "暫時無法載入詞表");
         if (!controller.signal.aborted && payload) {
           setData(payload);
           setItems(payload.items);
           setCursor(payload.nextCursor);
         }
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "暂时无法加载词表");
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "暫時無法載入詞表");
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
@@ -135,7 +135,7 @@ export default function WordsPage() {
       if (status !== "all") params.set("status", status);
       const response = await fetch(`/api/words?${params}`, { cache: "no-store", signal: controller.signal });
       const payload = (await response.json().catch(() => null)) as (WordResponse & { error?: string }) | null;
-      if (!response.ok || !payload) throw new Error(payload?.error || "暂时无法加载更多词汇");
+      if (!response.ok || !payload) throw new Error(payload?.error || "暫時無法載入更多詞彙");
       if (controller.signal.aborted || latestQueryRef.current !== requestKey) return;
       setItems((current) => {
         const seen = new Set(current.map((item) => item.id));
@@ -149,7 +149,7 @@ export default function WordsPage() {
       setCursor(payload.nextCursor);
     } catch (cause) {
       if (!controller.signal.aborted && latestQueryRef.current === requestKey) {
-        setError(cause instanceof Error ? cause.message : "暂时无法加载更多词汇");
+        setError(cause instanceof Error ? cause.message : "暫時無法載入更多詞彙");
       }
     } finally {
       if (loadMoreControllerRef.current === controller) {
@@ -159,7 +159,7 @@ export default function WordsPage() {
     }
   }
 
-  const statusText = (value: WordItem["status"]) => tc(STATUS_OPTIONS.find((option) => option.value === value)?.label ?? "未学习");
+  const statusText = (value: WordItem["status"]) => tc(STATUS_OPTIONS.find((option) => option.value === value)?.label ?? "未學習");
   const nextReviewText = (value: string | null) => value ? new Intl.DateTimeFormat(locale === "zh-Hans" ? "zh-CN" : "zh-TW", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric" }).format(new Date(value)) : null;
 
   return (
@@ -170,10 +170,10 @@ export default function WordsPage() {
           <Card className="words-filter-card" padded>
         <div className="words-filter-row">
           <div className="ui-field words-filter-field">
-            <span>{tc("级别")}</span>
+            <span>{tc("級別")}</span>
             <SegmentedControl
               className="words-level-control"
-              label={tc("按级别筛选") as string}
+              label={tc("按級別篩選") as string}
               value={level}
               onChange={(value) => updateFilters({ level: value || null, category: null })}
               items={[
@@ -181,24 +181,24 @@ export default function WordsPage() {
                 ...(data?.availableLevels ?? ["A1", "A2", "B1", "B2"]).map((item) => ({ value: item, label: item })),
               ]}
             />
-            <div className="words-status-filter" role="group" aria-label={tc("按状态筛选") as string}>{STATUS_OPTIONS.map((option) => <FilterChip key={option.value} selected={status === option.value} onClick={() => updateFilters({ status: option.value === "all" ? null : option.value })}>{tc(option.label)}</FilterChip>)}</div>
+            <div className="words-status-filter" role="group" aria-label={tc("按狀態篩選") as string}>{STATUS_OPTIONS.map((option) => <FilterChip key={option.value} selected={status === option.value} onClick={() => updateFilters({ status: option.value === "all" ? null : option.value })}>{tc(option.label)}</FilterChip>)}</div>
           </div>
-          <div className="ui-field words-filter-field"><span>{tc("单元")}</span><div className="words-category-chips" role="group" aria-label={tc("按单元筛选") as string}><FilterChip selected={!category} onClick={() => updateFilters({ category: null })}>{tc("全部单元")}</FilterChip>{(data?.availableCategories ?? []).map((item) => <FilterChip key={item} selected={category === item} onClick={() => updateFilters({ category: item })}>{item === "未分类" ? tc("未分类") : tc(item)}</FilterChip>)}</div></div>
+          <div className="ui-field words-filter-field"><span>{tc("單元")}</span><div className="words-category-chips" role="group" aria-label={tc("按單元篩選") as string}><FilterChip selected={!category} onClick={() => updateFilters({ category: null })}>{tc("全部單元")}</FilterChip>{(data?.availableCategories ?? []).map((item) => <FilterChip key={item} selected={category === item} onClick={() => updateFilters({ category: item })}>{item === "未分類" ? tc("未分類") : tc(item)}</FilterChip>)}</div></div>
         </div>
           </Card>
 
           {error && items.length === 0 ? <RetryState message={tc(error)} onRetry={() => setReloadKey((key) => key + 1)} /> : null}
           {loading ? <Card className="word-list-card" padded><div className="word-list-skeletons"><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div></Card> : null}
-          {!loading && !error && items.length === 0 ? <EmptyState title={tc("没有符合条件的已解锁词") } description={tc("可以先去单元闯关查看下一项可解锁内容。") } action={<Link className="ui-button ui-button-secondary ui-button-small" href="/units">{tc("查看单元")}</Link>} /> : null}
+          {!loading && !error && items.length === 0 ? <EmptyState title={tc("沒有符合條件的已解鎖詞") } description={tc("可以先去單元闖關查看下一項可解鎖內容。") } action={<Link className="ui-button ui-button-secondary ui-button-small" href="/units">{tc("查看單元")}</Link>} /> : null}
           {!loading && items.length > 0 ? <Card className="word-list-card" padded={false}>
         <div className="word-list-heading"><div><strong>{tc("已解鎖詞")}</strong><p className="word-list-heading-hint">{tc("點擊詞語查看中文意思及學習狀態。")}</p></div><span>{data?.total ?? items.length} {tc("個詞")}</span></div>
-        <div className="word-list" aria-label={tc("已解锁词列表") as string}>{items.map((item) => <button key={item.id} ref={selected?.id === item.id ? triggerRef : undefined} type="button" className="word-list-row" onClick={() => setSelected(item)}><span className="word-list-term"><strong>{item.term}</strong><small>{item.phonetic || item.pos || item.level}</small></span><span className="word-list-definition">{tc(item.definition)}</span><span className={`word-status word-status-${item.status}`}>{statusText(item.status)}</span><Icon name="chevron-right" size={18} /></button>)}</div>
-        <div className="word-list-footer">{error && items.length > 0 ? <StatusInline message={tc(error)} /> : null}{cursor ? <Button variant="secondary" loading={loadingMore} onClick={loadMore}>{tc("加载更多")}</Button> : <span className="ui-field-helper">{tc("已经显示全部符合条件的词")}</span>}</div>
+        <div className="word-list" aria-label={tc("已解鎖詞清單") as string}>{items.map((item) => <button key={item.id} ref={selected?.id === item.id ? triggerRef : undefined} type="button" className="word-list-row" onClick={() => setSelected(item)}><span className="word-list-term"><strong>{item.term}</strong><small>{item.phonetic || item.pos || item.level}</small></span><span className="word-list-definition">{tc(item.definition)}</span><span className={`word-status word-status-${item.status}`}>{statusText(item.status)}</span><Icon name="chevron-right" size={18} /></button>)}</div>
+        <div className="word-list-footer">{error && items.length > 0 ? <StatusInline message={tc(error)} /> : null}{cursor ? <Button variant="secondary" loading={loadingMore} onClick={loadMore}>{tc("載入更多")}</Button> : <span className="ui-field-helper">{tc("已經顯示全部符合條件的詞")}</span>}</div>
           </Card> : null}
         </StudentSectionStack>
       </StudentPageStack>
 
-      <BottomSheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.term ?? ""} description={selected ? [selected.level, selected.category ? (selected.category === "未分类" ? tc("未分类") : selected.category) : null, selected.pos].filter(Boolean).join(" · ") : undefined} returnFocusRef={triggerRef}>
+      <BottomSheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.term ?? ""} description={selected ? [selected.level, selected.category ? (selected.category === "未分類" ? tc("未分類") : selected.category) : null, selected.pos].filter(Boolean).join(" · ") : undefined} returnFocusRef={triggerRef}>
         {selected ? <div className="word-detail"><div className="word-detail-phonetic">{selected.phonetic || tc("暫無音標")}</div><p>{tc(selected.definition)}</p><div className="word-detail-state"><span>{tc("狀態")}</span><strong>{statusText(selected.status)}</strong></div>{selected.nextReviewAt ? <div className="word-detail-state"><span>{tc("下一次複習")}</span><strong>{nextReviewText(selected.nextReviewAt)}</strong></div> : null}<p className="ui-field-helper">{tc("詞表只供查閱，不會直接計入學習進度；認字卡完成小測後，進度才會更新。")} </p></div> : null}
       </BottomSheet>
     </div>

@@ -146,7 +146,7 @@ test("V2 outbox rejects corruption and can rebind an expiring item credential", 
       operationId: "operation-over-capacity",
     }), {
       ok: false,
-      error: "待同步学习操作已达安全上限；请先恢复同步后再继续学习",
+      error: "待同步學習操作已達安全上限；請先恢復同步後再繼續學習",
     });
   } finally {
     Object.defineProperty(globalThis, "window", {

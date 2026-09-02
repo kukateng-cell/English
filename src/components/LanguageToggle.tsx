@@ -5,7 +5,7 @@ import { useLocale } from "@/components/LocaleProvider";
 import { LOCALES, type Locale } from "@/lib/i18n/config";
 import Icon from "@/components/ui/Icon";
 
-const LABELS: Record<Locale, string> = { "zh-Hans": "简体中文", "zh-Hant": "繁体中文" };
+const LABELS: Record<Locale, string> = { "zh-Hans": "簡體中文", "zh-Hant": "繁體中文" };
 
 export default function LanguageToggle() {
   const { locale, setLocale, tc, mounted } = useLocale();

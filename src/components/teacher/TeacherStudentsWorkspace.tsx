@@ -205,7 +205,7 @@ export default function TeacherStudentsWorkspace({ initialView }: { initialView:
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-sm font-bold text-[var(--primary)]">{tc("教師工作台")}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)]">{tc("學生")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc(view === "roster" ? "查看學生資料、班別及可用操作。" : "查看學習進度、待複習內容及最近活動。")}</p></div>
+        <div><p className="text-sm font-bold text-[var(--primary)]">{tc("教師工作臺")}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)]">{tc("學生")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc(view === "roster" ? "查看學生資料、班別及可用操作。" : "查看學習進度、待複習內容及最近活動。")}</p></div>
       </header>
 
       <div role="tablist" aria-label={tc("學生工作區") as string} className="flex w-fit max-w-full gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1.5">

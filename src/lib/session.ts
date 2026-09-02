@@ -29,7 +29,7 @@ export async function readSessionSafely(
     return {
       ok: false,
       status: 503,
-      message: "认证服务暂时不可用，请稍后重试",
+      message: "認證服務暫時不可用，請稍後重試",
     };
   }
   if (!session?.user) {
@@ -39,7 +39,7 @@ export async function readSessionSafely(
     return {
       ok: false,
       status: 503,
-      message: "认证服务暂时不可用，请稍后重试",
+      message: "認證服務暫時不可用，請稍後重試",
     };
   }
   return { ok: true, session };

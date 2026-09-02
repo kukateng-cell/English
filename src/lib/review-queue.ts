@@ -129,7 +129,7 @@ const VERSION = 5;
 const MAX_FLUSH_BATCH = 20;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
 const REVIEW_REQUEST_TIMEOUT_MS = 15_000;
-const SESSION_REAUTH_ERROR = "学习 session 无效或已过期";
+const SESSION_REAUTH_ERROR = "學習 session 無效或已過期";
 
 interface StoredQueue {
   version: number;
@@ -959,7 +959,7 @@ export function finalizeLegacyCredentialClaims(
       ...item,
       status: "blocked",
       credentialState: "blocked",
-      lastError: "旧版待同步记录缺少服务器来源凭证，无法安全恢复",
+      lastError: "舊版待同步記錄缺少伺服器來源憑證，無法安全恢復",
       nextAttemptAt: undefined,
     })) {
       storageAvailable = false;
@@ -1384,7 +1384,7 @@ async function reauthorizeRejectedReviews(
       typeof session.id !== "string" ||
       !Array.isArray(payload?.credentials)
     ) {
-      markRetry("续期响应无效，请稍后重试");
+      markRetry("續期回應無效，請稍後重試");
       return "none";
     }
     const renewedCredentials = new Map<
@@ -1413,7 +1413,7 @@ async function reauthorizeRejectedReviews(
           operation.wordId,
       )
     ) {
-      markRetry("续期响应无效，请稍后重试");
+      markRetry("續期回應無效，請稍後重試");
       return "none";
     }
     if (
@@ -1448,7 +1448,7 @@ async function reauthorizeRejectedReviews(
     return "renewed";
   } catch (error) {
     if (error instanceof ReviewQueueStorageError) throw error;
-    markRetry("网络错误，请稍后重试");
+    markRetry("網絡錯誤，請稍後重試");
     return "none";
   }
 }
@@ -1584,7 +1584,7 @@ async function recoverRefreshRequiredReview(
         }) as Record<string, unknown> | undefined
       : undefined;
     if (typeof sessionId !== "string" || typeof credential?.nonce !== "string") {
-      markRetry("恢复凭证响应无效，请稍后重试");
+      markRetry("恢復憑證回應無效，請稍後重試");
       return "none";
     }
     if (!publishReviewQueueMutation(
@@ -1613,7 +1613,7 @@ async function recoverRefreshRequiredReview(
     return "recovered";
   } catch (error) {
     if (error instanceof ReviewQueueStorageError) throw error;
-    markRetry("网络错误，请稍后重试");
+    markRetry("網絡錯誤，請稍後重試");
     return "none";
   }
 }

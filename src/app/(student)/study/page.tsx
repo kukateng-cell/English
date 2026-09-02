@@ -349,7 +349,7 @@ function ResumeToast({ visible }: { visible: boolean }) {
           exit={{ opacity: 0, y: -12 }}
           className="study-toast fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full px-5 py-2.5 text-[13px] font-medium shadow-lg backdrop-blur"
         >
-          <span className="flex items-center gap-1.5"><Icon name="check" size={15} /> {tc("已恢复上次进度，继续答题吧")}</span>
+          <span className="flex items-center gap-1.5"><Icon name="check" size={15} /> {tc("已恢復上次進度，繼續答題吧")}</span>
         </motion.div>
       )}
     </AnimatePresence>
@@ -374,7 +374,7 @@ function AchievementToast({
           exit={{ opacity: 0, y: -16 }}
           className="study-toast fixed left-1/2 top-16 z-50 flex -translate-x-1/2 flex-col items-center gap-1 rounded-2xl px-5 py-3 text-center shadow-lg backdrop-blur"
         >
-          <div className="flex items-center gap-2 text-[13px] font-bold"><RewardIcon name="star" size={16} /> {tc("解锁新成就")}</div>
+          <div className="flex items-center gap-2 text-[13px] font-bold"><RewardIcon name="star" size={16} /> {tc("解鎖新成就")}</div>
           {items.map((a) => (
             <div key={a.key} className="flex items-center gap-2 text-[13px]">
               <RewardIcon name={a.icon} size={17} /> {tc(a.title)}
@@ -430,21 +430,21 @@ function PendingSyncBanner({
           <span className="flex items-center gap-1.5">
             <Icon name="refresh" size={14} className="shrink-0" />
             {legacy > 0
-              ? tc(`发现旧版留下的 ${legacy} 条记录，请确认是否属于当前账号`)
+              ? tc(`發現舊版留下的 ${legacy} 條記錄，請確認是否屬於目前帳號`)
               : blocked > 0
-                ? tc(`${blocked} 条记录无法自动同步，已停止重试：${blockedError ?? "请求无效"}`)
-                : tc(`有 ${pending} 条学习记录待同步，网络恢复后自动上传`)}
+                ? tc(`${blocked} 條記錄無法自動同步，已停止重試：${blockedError ?? "請求無效"}`)
+                : tc(`有 ${pending} 條學習記錄待同步，網絡恢復後自動上載`)}
           </span>
           <span className="flex shrink-0 gap-1.5">
             {legacy > 0 ? (
               <>
-                <button onClick={onClaimLegacy} className="ui-button ui-button-small ui-button-primary">{tc("归入我的记录")}</button>
+                <button onClick={onClaimLegacy} className="ui-button ui-button-small ui-button-primary">{tc("歸入我的記錄")}</button>
                 <button onClick={onDiscardLegacy} className="ui-button ui-button-small ui-button-secondary">{tc("不是我的")}</button>
               </>
             ) : blocked > 0 ? (
-              <button onClick={onDiscardBlocked} className="ui-button ui-button-small ui-button-secondary">{tc("清除失败记录")}</button>
+              <button onClick={onDiscardBlocked} className="ui-button ui-button-small ui-button-secondary">{tc("清除失敗記錄")}</button>
             ) : (
-              <button onClick={onRetry} className="ui-button ui-button-small ui-button-primary">{tc("立即重试")}</button>
+              <button onClick={onRetry} className="ui-button ui-button-small ui-button-primary">{tc("立即重試")}</button>
             )}
           </span>
         </motion.div>
@@ -473,14 +473,14 @@ function RotationNotice({
           onClick={onRetry}
           className="rounded-full bg-[var(--warning)] px-3 py-1.5 font-semibold text-[var(--color-surface)] hover:bg-[var(--primary-2)]"
         >
-          {tc("重试")}
+          {tc("重試")}
         </button>
         <button
           type="button"
           onClick={onReload}
           className="rounded-full border border-[var(--warning)] px-3 py-1.5 font-semibold text-[var(--text)]"
         >
-          {tc("重新载入")}
+          {tc("重新載入")}
         </button>
       </span>
     </div>
@@ -517,13 +517,13 @@ function CardMotionProbePanel({
         <span>Card motion probe</span>
         <span className="flex gap-1.5">
           <button type="button" onClick={() => void copy()} className="rounded-full bg-slate-700 px-2 py-1 hover:bg-slate-600">
-            {copied ? tc("已复制") : tc("复制 JSON")}
+            {copied ? tc("已複製") : tc("複製 JSON")}
           </button>
           <button type="button" onClick={onClear} className="rounded-full bg-slate-700 px-2 py-1 hover:bg-slate-600">
             {tc("清除")}
           </button>
           <button type="button" onClick={onClose} className="rounded-full bg-slate-700 px-2 py-1 hover:bg-slate-600">
-            {tc("关闭")}
+            {tc("關閉")}
           </button>
         </span>
       </div>
@@ -567,28 +567,28 @@ function StudyAssessHeader({
       </Link>
 
       <div className="study-header-title">
-        <h1 data-testid="study-assess-title">{tc("今日学习")}</h1>
-        <p>{tc("想一想，再选择你的答案")}</p>
+        <h1 data-testid="study-assess-title">{tc("今日學習")}</h1>
+        <p>{tc("想一想，再選擇你的答案")}</p>
       </div>
 
       <div
         className="study-header-progress"
         role="progressbar"
-        aria-label={tc("学习进度")}
+        aria-label={tc("學習進度")}
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={current}
-        aria-valuetext={tc(`第 ${current} 个，共 ${total} 个`)}
+        aria-valuetext={tc(`第 ${current} 個，共 ${total} 個`)}
       >
         <div className="study-header-progress-label">
-          <span>{tc("进度")}</span>
+          <span>{tc("進度")}</span>
           <span>{current} / {total}</span>
         </div>
         <div className="study-header-progress-track" aria-hidden="true">
           <span style={{ width: `${progress}%` }} />
         </div>
         <span className="sr-only">
-          {tc(`已认识 ${knownCount} 个，不认识 ${unknownCount} 个`)}
+          {tc(`已認識 ${knownCount} 個，不認識 ${unknownCount} 個`)}
         </span>
       </div>
 
@@ -638,7 +638,7 @@ function StudyFlowRouter() {
         if (!response.ok) {
           const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
             ? data.error
-            : "学习流程分配暂时不可用";
+            : "學習流程分配暫時不可用";
           throw new Error(message);
         }
         return data as StudyFlowAssignmentResponse;
@@ -647,7 +647,7 @@ function StudyFlowRouter() {
         if (!cancelled && data) setAssignment(data);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setAssignmentError(error instanceof Error ? error.message : "学习流程分配暂时不可用");
+        if (!cancelled) setAssignmentError(error instanceof Error ? error.message : "學習流程分配暫時不可用");
       });
     return () => {
       cancelled = true;
@@ -655,7 +655,7 @@ function StudyFlowRouter() {
   }, [router, status, userId]);
 
   if (status === "loading" || (status === "authenticated" && !assignment && !assignmentError)) {
-    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("加载学习流程...")}</div>;
+    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("載入學習流程...")}</div>;
   }
   if (assignmentError) return <ErrorBanner message={assignmentError} onRetry={() => window.location.reload()} />;
   if (assignment?.assigned && assignment.flowVersion === "v2" && userId) {
@@ -895,7 +895,7 @@ function LegacyStudyPage() {
       discardBlockedReviews(userId);
     } catch {
       setError(
-        "浏览器无法清除失败记录，请释放存储空间或允许网站存储后重试",
+        "瀏覽器無法清除失敗記錄，請釋放儲存空間或允許網站儲存後重試",
       );
       return;
     }
@@ -908,7 +908,7 @@ function LegacyStudyPage() {
     try {
       claimLegacyReviews(userId);
     } catch {
-      setError("浏览器无法保存旧版记录，请释放存储空间后重试");
+      setError("瀏覽器無法儲存舊版記錄，請釋放儲存空間後重試");
       return;
     }
     refreshSyncCounts();
@@ -924,7 +924,7 @@ function LegacyStudyPage() {
       discardLegacyReviews();
     } catch {
       setError(
-        "浏览器无法清除旧版记录，请释放存储空间或允许网站存储后重试",
+        "瀏覽器無法清除舊版記錄，請釋放儲存空間或允許網站儲存後重試",
       );
       return;
     }
@@ -1062,7 +1062,7 @@ function LegacyStudyPage() {
       adoptedWordIds.push(...attachment.adoptedWordIds);
       if (!attachment.storageAvailable) {
         if (canApply()) setError(
-          "浏览器无法保存学习凭证，请释放存储空间或允许网站存储后重试",
+          "瀏覽器無法儲存學習憑證，請釋放儲存空間或允許網站儲存後重試",
         );
         return {
           remaining: attachment.pendingCount,
@@ -1079,7 +1079,7 @@ function LegacyStudyPage() {
       const finalization = finalizeLegacyCredentialClaims(userId);
       if (!finalization.storageAvailable) {
         if (canApply()) setError(
-          "浏览器无法更新旧版待同步记录，请释放存储空间或允许网站存储后重试",
+          "瀏覽器無法更新舊版待同步記錄，請釋放儲存空間或允許網站儲存後重試",
         );
         return {
           remaining: pendingReviewCount(userId),
@@ -1113,7 +1113,7 @@ function LegacyStudyPage() {
     } catch (error) {
       if (!(error instanceof ReviewQueueStorageError)) throw error;
       if (canApply()) setError(
-        "浏览器无法更新待同步记录，请释放存储空间或允许网站存储后重试",
+        "瀏覽器無法更新待同步記錄，請釋放儲存空間或允許網站儲存後重試",
       );
       return {
         remaining: pendingReviewCount(userId),
@@ -1228,7 +1228,7 @@ function LegacyStudyPage() {
         );
         if (!activeWorkRemaining) break;
         if (cycle === 99) {
-          setError("待同步记录过多，尚未完成协调，请稍后重试");
+          setError("待同步記錄過多，尚未完成協調，請稍後重試");
           if (barrierGeneration !== null) endReconciliation(barrierGeneration);
           return { kind: "retryable-error" };
         }
@@ -1238,7 +1238,7 @@ function LegacyStudyPage() {
       );
       if (unresolvedAdoptedActiveWord) {
         setError(
-          "待同步记录已占用目前学习凭证，但尚未成功提交，请稍后重试",
+          "待同步記錄已佔用目前學習憑證，但尚未成功提交，請稍後重試",
         );
         if (barrierGeneration !== null) endReconciliation(barrierGeneration);
         return { kind: "retryable-error" };
@@ -1250,7 +1250,7 @@ function LegacyStudyPage() {
       );
       if (blockedActiveWordIds.length > 0) {
         setError(
-          "目前题目有无法自动恢复的同步记录，请重新载入题目或清除失败记录后再继续",
+          "目前題目有無法自動恢復的同步記錄，請重新載入題目或清除失敗記錄後再繼續",
         );
         return {
           kind: "permanent-error",
@@ -1499,7 +1499,7 @@ function LegacyStudyPage() {
         }
         invalidateInteractions();
         setError(
-          "学习凭证已在另一分页轮换，请重新载入题目后继续",
+          "學習憑證已在另一分頁輪換，請重新載入題目後繼續",
         );
         return;
       }
@@ -1510,7 +1510,7 @@ function LegacyStudyPage() {
       ) {
         invalidateInteractions();
         setError(
-          "学习凭证已在另一分页更新，请重新载入题目后继续",
+          "學習憑證已在另一分頁更新，請重新載入題目後繼續",
         );
         return;
       }
@@ -1585,7 +1585,7 @@ function LegacyStudyPage() {
       const checkpoint = loadCheckpoint(userId, getUnitKey());
       const queueIds = checkpoint?.queueSignature ?? queue.map((item) => item.word.id);
       if (!canResumeStudySession(queueIds)) {
-        retryLater("学习队列无法安全续期，请重新载入页面");
+        retryLater("學習隊列無法安全續期，請重新載入頁面");
         return;
       }
       const response = await rosterFetch("/api/study/session/rotate", {
@@ -1633,7 +1633,7 @@ function LegacyStudyPage() {
       if (!canApply()) return;
       if (error instanceof ReviewQueueStorageError) {
         setError(
-          "浏览器无法保存续期后的待同步记录，请释放存储空间或允许网站存储后重新载入",
+          "瀏覽器無法儲存續期後的待同步記錄，請釋放儲存空間或允許網站儲存後重新載入",
         );
       } else {
         retryLater(networkErrorMessage(error));
@@ -1974,12 +1974,12 @@ function LegacyStudyPage() {
           }
         }
         if (!stableSnapshot) {
-          setError("学习记录正在其他分页更新，请稍后重试");
+          setError("學習記錄正在其他分頁更新，請稍後重試");
           return;
         }
         if (unresolvedSessionReservation) {
           setError(
-            "待同步记录已占用目前学习凭证，但尚未成功提交，请稍后重试",
+            "待同步記錄已佔用目前學習憑證，但尚未成功提交，請稍後重試",
           );
           return;
         }
@@ -2010,7 +2010,7 @@ function LegacyStudyPage() {
         );
         if (conflictingWords.length > 0) {
           setError(
-            "目前学习队列仍有同一单词等待同步，请恢复网络后重试，避免重复记录学习进度",
+            "目前學習隊列仍有同一單詞等待同步，請恢復網絡後重試，避免重複記錄學習進度",
           );
           return;
         }
@@ -2207,7 +2207,7 @@ function LegacyStudyPage() {
           correct === null
             ? saveNextCheckpoint() ||
               (setError(
-                "浏览器无法保存学习进度，请释放存储空间或允许网站存储后重试",
+                "瀏覽器無法儲存學習進度，請釋放儲存空間或允許網站儲存後重試",
               ), false)
             : credentials
               ? submitQuizReview(
@@ -2220,7 +2220,7 @@ function LegacyStudyPage() {
                   refreshSyncCounts,
                   () =>
                     setError(
-                      "浏览器无法保存待同步记录，请释放存储空间或允许网站存储后重试",
+                      "瀏覽器無法儲存待同步記錄，請釋放儲存空間或允許網站儲存後重試",
                     ),
                   saveNextCheckpoint,
                   {
@@ -2352,8 +2352,8 @@ function LegacyStudyPage() {
   const hasSyncWork = pendingSync + blockedSync + legacySync > 0;
   const studyNavigationBlocked = hasSyncWork || wordStep === "quiz";
   const studyNavigationMessage = hasSyncWork
-    ? "还有待同步记录，请先处理后再离开学习"
-    : "当前测试尚未完成，请先完成测试后再离开学习";
+    ? "還有待同步記錄，請先處理後再離開學習"
+    : "目前測試尚未完成，請先完成測試後再離開學習";
   const studyNavigationPhase = loading
     ? "loading"
     : error
@@ -2422,7 +2422,7 @@ function LegacyStudyPage() {
       <div className="flex min-h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="study-loading-spinner h-8 w-8 animate-spin rounded-full border-2" />
-          <span className="study-muted text-[14px]">{tc("加载中...")}</span>
+          <span className="study-muted text-[14px]">{tc("載入中...")}</span>
         </div>
       </div>
     );
@@ -2492,7 +2492,7 @@ function LegacyStudyPage() {
   // 重新开始：清空状态并清除存档点，触发重新拉取
   const restart = () => {
     if (hasSyncWork) {
-      setRotationNotice("还有待同步记录，请先处理后再重新开始");
+      setRotationNotice("還有待同步記錄，請先處理後再重新開始");
       return;
     }
     if (userId) clearCheckpoint(userId, getUnitKey());
@@ -2509,7 +2509,7 @@ function LegacyStudyPage() {
   // 仅单元练习模式可用（全局今日学习模式没有「下一个单元」概念）。
   const goToNextUnit = async () => {
     if (hasSyncWork) {
-      setRotationNotice("还有待同步记录，请先处理后再进入下一个单元");
+      setRotationNotice("還有待同步記錄，請先處理後再進入下一個單元");
       return;
     }
     const params = new URLSearchParams(window.location.search);
@@ -2597,22 +2597,22 @@ function LegacyStudyPage() {
         <div className="study-warning-card mb-5 flex h-20 w-20 items-center justify-center rounded-[28px]">
           <Icon name="lock" size={36} />
         </div>
-        <h2 className="mb-2 text-xl font-bold text-[var(--text)]">{tc("单元尚未解锁")}</h2>
+        <h2 className="mb-2 text-xl font-bold text-[var(--text)]">{tc("單元尚未解鎖")}</h2>
         <p className="study-muted mb-8 max-w-xs text-[14px] leading-relaxed">
-          {tc("请先回到单元列表，按顺序把前面的单元认字率练到 80% 以上，即可解锁这个单元。")}
+          {tc("請先回到單元清單，按順序把前面的單元認字率練到 80% 以上，即可解鎖這個單元。")}
         </p>
         <div className="flex items-center gap-6 text-[14px]">
           <Link
             href={unitCategory ? "/units" : "/"}
-            aria-label={tc(unitCategory ? "退出单元学习" : "退出学习")}
+            aria-label={tc(unitCategory ? "退出單元學習" : "退出學習")}
             onClick={guardStudyNavigation}
             className="study-link-primary font-medium transition"
           >
             <Icon name="arrow-left" size={16} />
-            {tc("返回单元列表")}
+            {tc("返回單元清單")}
           </Link>
           <Link href="/" onClick={guardStudyNavigation} className="study-link-muted transition">
-            {tc("返回首页")}
+            {tc("返回首頁")}
           </Link>
         </div>
       </div>
@@ -2632,7 +2632,7 @@ function LegacyStudyPage() {
         className="flex min-h-full flex-col pb-24"
       >
         <div className="sr-only" aria-live="polite" aria-atomic="true">
-          {tc(`测试阶段：${quizTarget.term}。请选择一个答案。`)}
+          {tc(`測試階段：${quizTarget.term}。請選擇一個答案。`)}
         </div>
         <RotationNotice
           message={rotationNotice}
@@ -2666,14 +2666,14 @@ function LegacyStudyPage() {
         <div className="mx-auto flex w-full max-w-md items-center justify-between px-5 pt-5 pb-3">
           <Link
             href={unitCategory ? "/units" : "/"}
-            aria-label={tc(unitCategory ? "退出单元学习" : "退出学习")}
+            aria-label={tc(unitCategory ? "退出單元學習" : "退出學習")}
             onClick={guardStudyNavigation}
             className="study-header-icon study-header-back"
           >
             <Icon name="chevron-left" size={26} />
           </Link>
           <span className="study-muted flex items-center gap-1.5 text-[14px] font-medium">
-            <Icon name="target" size={16} /> {tc("测试中")}
+            <Icon name="target" size={16} /> {tc("測試中")}
           </span>
           <div className="flex items-center gap-2">
             {streak && <StreakBadge streak={streak} />}
@@ -2765,23 +2765,23 @@ function LegacyStudyPage() {
           <Icon name="check" size={36} />
         </div>
         <h2 className="mb-2 text-xl font-bold text-[var(--text)]">
-          {hasQuiz ? tc("测试完成！") : tc("全部完成！")}
+          {hasQuiz ? tc("測試完成！") : tc("全部完成！")}
         </h2>
         {hasQuiz ? (
           <p className="study-muted mb-8 max-w-xs text-[14px] leading-relaxed">
-            {tc(`本次共 ${knownWords.length + unknownWords.length} 词，你认识`)}{" "}
-            {knownWords.length}{tc(` 个、不认识 `)}{unknownWords.length}{tc(` 个。`)}
+            {tc(`本次共 ${knownWords.length + unknownWords.length} 詞，你認識`)}{" "}
+            {knownWords.length}{tc(` 個、不認識 `)}{unknownWords.length}{tc(` 個。`)}
             <br />
-            {tc(`测试答对 ${quizStats.correct} 题、答错 ${quizStats.wrong} 题，全部攻克！`)}
+            {tc(`測試答對 ${quizStats.correct} 題、答錯 ${quizStats.wrong} 題，全部攻克！`)}
           </p>
         ) : (
           <p className="study-muted mb-8 max-w-xs text-[14px] leading-relaxed">
-            {tc("今天没有更多单词了，明天再来复习吧")}
+            {tc("今天沒有更多單詞了，明天再來復習吧")}
           </p>
         )}
         {streak && streak.count > 0 && (
           <div className="study-warning-card mb-6 flex items-center gap-2 rounded-2xl px-5 py-3 text-[14px] font-semibold">
-            <RewardIcon name="flame" size={19} /> {tc(`已连续学习 ${streak.count} 天，继续加油！`)}
+            <RewardIcon name="flame" size={19} /> {tc(`已連續學習 ${streak.count} 天，繼續加油！`)}
           </div>
         )}
         {/* 打卡日历：当月视图，激励保持连续学习 */}
@@ -2799,11 +2799,11 @@ function LegacyStudyPage() {
               {nextLoading ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-surface)] border-t-transparent" />
-                  {tc("加载中...")}
+                  {tc("載入中...")}
                 </>
               ) : (
                 <>
-                  {tc("下一个单元")}
+                  {tc("下一個單元")}
                   <Icon name="arrow-right" size={16} />
                 </>
               )}
@@ -2814,7 +2814,7 @@ function LegacyStudyPage() {
               onClick={restart}
               className="study-primary-action flex h-[44px] min-w-[160px] items-center justify-center rounded-2xl px-8 text-[15px] font-semibold transition-all active:scale-[0.98]"
             >
-              {tc("刷新单词")}
+              {tc("重新整理單詞")}
             </button>
           )}
           <div className="flex items-center gap-6 text-[14px]">
@@ -2823,9 +2823,9 @@ function LegacyStudyPage() {
               onClick={guardStudyNavigation}
               className="study-link-primary font-medium transition"
             >
-              {unitCategory ? <><Icon name="arrow-left" size={16} />{tc("返回单元列表")}</> : tc("返回首页")}
+              {unitCategory ? <><Icon name="arrow-left" size={16} />{tc("返回單元清單")}</> : tc("返回首頁")}
             </Link>
-            {unitCategory ? <Link href="/" onClick={guardStudyNavigation} className="study-link-muted transition">{tc("返回首页")}</Link> : null}
+            {unitCategory ? <Link href="/" onClick={guardStudyNavigation} className="study-link-muted transition">{tc("返回首頁")}</Link> : null}
           </div>
           <Link
             href="/achievements"
@@ -2845,7 +2845,7 @@ function LegacyStudyPage() {
   return (
     <div className="flex min-h-full flex-col pb-8">
       <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {tc(`第 ${currentIndex + 1} 个单词：${current.word.term}。请选择“认识”或“不认识”。`)}
+        {tc(`第 ${currentIndex + 1} 個單詞：${current.word.term}。請選擇“認識”或“不認識”。`)}
       </div>
       <RotationNotice
         message={rotationNotice}
@@ -2877,7 +2877,7 @@ function LegacyStudyPage() {
 
       <StudyAssessHeader
         backHref={unitCategory ? "/units" : "/"}
-        backLabel={unitCategory ? "退出单元学习" : "退出学习"}
+        backLabel={unitCategory ? "退出單元學習" : "退出學習"}
         onBack={guardStudyNavigation}
         current={currentIndex + 1}
         total={queue.length}
@@ -2891,7 +2891,7 @@ function LegacyStudyPage() {
           <div className="study-context flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium">
             <Link href="/units" onClick={guardStudyNavigation} className="hover:underline">
               <Icon name="arrow-left" size={15} />
-              {tc("单元列表")}
+              {tc("單元清單")}
             </Link>
             <span className="opacity-40">·</span>
             <span>{tc(unitCategory)}</span>
@@ -2911,7 +2911,7 @@ function LegacyStudyPage() {
           <div className="study-card-composition w-full">
             <WordCard
               word={current.word}
-              queueNote={tc(`今日队列第 ${currentIndex + 1} 个单词`)}
+              queueNote={tc(`今日隊列第 ${currentIndex + 1} 個單詞`)}
               onSwipeLeft={handleSwipeLeft}
               onSwipeRight={handleSwipeRight}
               actionControllerRef={cardActionControllerRef}
@@ -2929,7 +2929,7 @@ function LegacyStudyPage() {
                   className="swipe-action swipe-action-left"
                 >
                   <Icon name="arrow-left" size={20} />
-                  {tc("还不会")}
+                  {tc("還不會")}
                 </button>
                 <button
                   type="button"
@@ -2938,12 +2938,12 @@ function LegacyStudyPage() {
                   onClick={() => cardActionControllerRef.current?.onRight()}
                   className="swipe-action swipe-action-right"
                 >
-                  {tc("我会")}
+                  {tc("我會")}
                   <Icon name="arrow-right" size={20} />
                 </button>
               </div>
               <p data-testid="study-swipe-guide" className="swipe-guide">
-                {tc("向左滑不会，向右滑会。也可以直接按下方按钮。")}
+                {tc("向左滑不會，向右滑會。也可以直接按下方按鈕。")}
               </p>
             </div>
           </div>

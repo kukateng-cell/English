@@ -39,7 +39,7 @@ function errorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: error.message, ...error.details }, { status: error.status });
   }
   console.error("[study-stream] credential renewal failed", describeStudyStreamFailure(error));
-  return NextResponse.json({ error: "学习凭证暂时不可用，请稍后重试" }, { status: 503 });
+  return NextResponse.json({ error: "學習憑證暫時不可用，請稍後重試" }, { status: 503 });
 }
 
 /** POST /api/study/sessions/renew — V2 item credential lineage only. */
@@ -55,16 +55,16 @@ export async function POST(req: Request) {
     context.flowVersion = "v2";
     if (!isStudyStreamV2Assigned(auth.userId)) {
       context.outcome = "assignment-off";
-      return NextResponse.json({ error: "当前账户未分配 Retrieval-first Learning Stream" }, { status: 404 });
+      return NextResponse.json({ error: "目前帳戶未分配 Retrieval-first Learning Stream" }, { status: 404 });
     }
     const body = await req.json().catch(() => null);
     const input = parseRenewInput(body);
-    if (!input) return NextResponse.json({ error: "凭证续期请求格式错误" }, { status: 400 });
+    if (!input) return NextResponse.json({ error: "憑證續期請求格式錯誤" }, { status: 400 });
     const rate = await checkStudyCredentialRate(auth.userId, getClientIp(req.headers));
     if (!rate.ok) {
       context.outcome = "rate-limited";
       return NextResponse.json(
-        { error: "学习凭证请求过于频繁，请稍后再试" },
+        { error: "學習憑證請求過於頻繁，請稍後再試" },
         { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } },
       );
     }

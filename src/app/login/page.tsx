@@ -104,7 +104,7 @@ export default function LoginPage() {
       result = await signIn("credentials", { email: email.trim(), password, redirect: false });
     } catch {
       setLoading(false);
-      setError("网络连接失败，请检查网络后重试");
+      setError("網絡連線失敗，請檢查網絡後重試");
       return;
     }
     if (!result || result.error) {
@@ -112,7 +112,7 @@ export default function LoginPage() {
         const loginStatus = await fetch(`/api/auth/login-status?account=${encodeURIComponent(email.trim().toLowerCase())}`).then((response) => response.json());
         if (loginStatus?.locked) {
           setLockUntil(Date.now() + (loginStatus.retryAfterSec ?? 0) * 1000);
-          setError(loginStatus.message ?? "登录尝试过多，已临时锁定");
+          setError(loginStatus.message ?? "登入嘗試過多，已臨時鎖定");
           setLoading(false);
           return;
         }
@@ -120,7 +120,7 @@ export default function LoginPage() {
         // Keep the generic error when the rate-limit status endpoint is unavailable.
       }
       setLoading(false);
-      setError("账号或密码错误，请重试");
+      setError("帳號或密碼錯誤，請重試");
       return;
     }
     try {
@@ -145,29 +145,29 @@ export default function LoginPage() {
   return (
     <AuthShell>
       <section className="auth-panel" aria-labelledby="login-title">
-        <div className="auth-panel-header"><span className="auth-panel-icon"><Icon name="book" size={28} /></span><h1 id="login-title">{tc("英语单词认读")}</h1><p>{tc("登录以继续学习")}</p></div>
+        <div className="auth-panel-header"><span className="auth-panel-icon"><Icon name="book" size={28} /></span><h1 id="login-title">{tc("英語單詞認讀")}</h1><p>{tc("登入以繼續學習")}</p></div>
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
-          <div className="ui-field"><label htmlFor="login-account">{tc("账号")}</label><input id="login-account" type="text" placeholder={tc("例如 student01")} value={email} onChange={(event) => { setEmail(event.target.value); setLockUntil(null); setError(""); }} autoComplete="username" required /></div>
+          <div className="ui-field"><label htmlFor="login-account">{tc("帳號")}</label><input id="login-account" type="text" placeholder={tc("例如 student01")} value={email} onChange={(event) => { setEmail(event.target.value); setLockUntil(null); setError(""); }} autoComplete="username" required /></div>
           <div className="ui-field">
-            <label htmlFor="login-password">{tc("密码")}</label>
+            <label htmlFor="login-password">{tc("密碼")}</label>
             <div className="password-input-wrap">
-              <input id="login-password" type={showPassword ? "text" : "password"} placeholder={tc("输入密码")} value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} autoComplete="current-password" required />
+              <input id="login-password" type={showPassword ? "text" : "password"} placeholder={tc("輸入密碼")} value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} autoComplete="current-password" required />
               <button
                 type="button"
                 className="password-visibility-toggle"
-                aria-label={tc(showPassword ? "隐藏密码" : "显示密码")}
+                aria-label={tc(showPassword ? "隱藏密碼" : "顯示密碼")}
                 aria-pressed={showPassword}
-                title={tc(showPassword ? "隐藏密码" : "显示密码")}
+                title={tc(showPassword ? "隱藏密碼" : "顯示密碼")}
                 onClick={() => setShowPassword((visible) => !visible)}
               >
                 <Icon name={showPassword ? "eye-off" : "eye"} size={20} />
               </button>
             </div>
           </div>
-          <Button className="auth-form-submit" size="large" type="submit" loading={loading || lockUntil !== null}>{lockUntil !== null && remainingSec > 0 ? tc("暂时锁定") : tc("登录")}</Button>
+          <Button className="auth-form-submit" size="large" type="submit" loading={loading || lockUntil !== null}>{lockUntil !== null && remainingSec > 0 ? tc("暫時鎖定") : tc("登入")}</Button>
         </form>
-        {error ? <div className="auth-error" id="login-error"><StatusBanner variant="error" message={<>{tc(error)}{lockUntil !== null && remainingSec > 0 ? <span className="auth-error-countdown">{tc(`（剩余 ${Math.floor(remainingSec / 60)} 分 ${remainingSec % 60} 秒）`)}</span> : null}</>} /></div> : null}
-        <p className="auth-footer-note">{tc("账号由老师统一发放，如忘记请联系老师")}</p>
+        {error ? <div className="auth-error" id="login-error"><StatusBanner variant="error" message={<>{tc(error)}{lockUntil !== null && remainingSec > 0 ? <span className="auth-error-countdown">{tc(`（剩餘 ${Math.floor(remainingSec / 60)} 分 ${remainingSec % 60} 秒）`)}</span> : null}</>} /></div> : null}
+        <p className="auth-footer-note">{tc("帳號由老師統一發放，如忘記請聯絡老師")}</p>
       </section>
     </AuthShell>
   );

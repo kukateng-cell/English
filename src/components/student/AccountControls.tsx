@@ -9,15 +9,15 @@ import Icon from "@/components/ui/Icon";
 import Link from "next/link";
 
 const LOCALE_LABELS: Record<Locale, string> = {
-  "zh-Hans": "简体中文",
-  "zh-Hant": "繁体中文",
+  "zh-Hans": "簡體中文",
+  "zh-Hant": "繁體中文",
 };
 
 export default function AccountControls({
   user,
   compact = false,
   homeHref = "/",
-  homeLabel = "回到首页",
+  homeLabel = "回到首頁",
 }: {
   user: { name: string | null; email: string; role?: string };
   compact?: boolean;
@@ -72,33 +72,33 @@ export default function AccountControls({
 
   return (
     <div ref={rootRef} className={compact ? "account-controls account-controls-compact" : "account-controls"}>
-      <button ref={triggerRef} type="button" className="account-trigger" aria-label={tc("账户菜单")} aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((value) => !value)}>
+      <button ref={triggerRef} type="button" className="account-trigger" aria-label={tc("帳戶選單")} aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((value) => !value)}>
         <span className="account-avatar" aria-hidden="true">{initials}</span>
-        <span className="account-trigger-copy"><strong>{label}</strong><small>{tc("学习账户")}</small></span>
+        <span className="account-trigger-copy"><strong>{label}</strong><small>{tc("學習帳戶")}</small></span>
         <Icon name="chevron-down" size={16} />
       </button>
       {open ? (
-        <div ref={menuRef} className="account-menu" role="menu" aria-label={tc("账户菜单") as string}>
+        <div ref={menuRef} className="account-menu" role="menu" aria-label={tc("帳戶選單") as string}>
           <div className="account-menu-heading">{label}</div>
           <LinkHome href={homeHref} label={homeLabel} onNavigate={() => setOpen(false)} />
           {user.role === "STUDENT" ? (
             <Link href="/profile" role="menuitem" className="account-menu-item" onClick={() => setOpen(false)}>
-              <Icon name="home" size={18} /><span>{tc("我的资料")}</span>
+              <Icon name="home" size={18} /><span>{tc("我的資料")}</span>
             </Link>
           ) : null}
           <button type="button" role="menuitem" className="account-menu-item" onClick={toggleTheme} disabled={!mounted}>
             <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
-            <span>{tc(theme === "dark" ? "切换到浅色模式" : "切换到深色模式")}</span>
+            <span>{tc(theme === "dark" ? "切換到淺色模式" : "切換到深色模式")}</span>
           </button>
-          <div className="account-locale" role="group" aria-label={tc("语言") as string}>
+          <div className="account-locale" role="group" aria-label={tc("語言") as string}>
             {LOCALES.map((nextLocale) => <button key={nextLocale} type="button" role="menuitemradio" aria-checked={nextLocale === locale} className={nextLocale === locale ? "account-locale-option is-active" : "account-locale-option"} onClick={() => setLocale(nextLocale)}>{tc(LOCALE_LABELS[nextLocale])}</button>)}
           </div>
           <button type="button" role="menuitem" className="account-menu-item account-menu-danger" onClick={() => signOut({ callbackUrl: "/login" })}>
-            <Icon name="logout" size={18} /><span>{tc("退出登录")}</span>
+            <Icon name="logout" size={18} /><span>{tc("退出登入")}</span>
           </button>
         </div>
       ) : null}
-      {!compact ? <span className="account-touch-hint">{tc("账户")}</span> : null}
+      {!compact ? <span className="account-touch-hint">{tc("帳戶")}</span> : null}
     </div>
   );
 }

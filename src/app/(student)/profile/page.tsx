@@ -64,10 +64,10 @@ export default function StudentProfilePage() {
       if (!response.ok) throw new Error(payload?.code ?? payload?.error ?? "PROFILE_SAVE_FAILED");
       setProfile(payload);
       setNickname(payload.nickname);
-      setMessage("昵称已更新；排行榜只会显示这个昵称。");
+      setMessage("暱稱已更新；排行榜只會顯示這個暱稱。");
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "保存失败");
+      setError(cause instanceof Error ? cause.message : "儲存失敗");
     } finally {
       setSaving(false);
     }
@@ -75,7 +75,7 @@ export default function StudentProfilePage() {
 
   if (error && !profile) return <ErrorBanner message={error} />;
   if (!profile) {
-    return <div className="py-16 text-center text-[var(--muted)]">{tc("载入中...")}</div>;
+    return <div className="py-16 text-center text-[var(--muted)]">{tc("載入中...")}</div>;
   }
 
   const rows: Array<[string, string | number]> = [
@@ -91,8 +91,8 @@ export default function StudentProfilePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div>
-        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">{tc("账户与私隐")}</p>
-        <h1 className="mt-2 text-[26px] font-bold text-[var(--text)]">{tc("我的资料")}</h1>
+        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">{tc("帳戶與私隱")}</p>
+        <h1 className="mt-2 text-[26px] font-bold text-[var(--text)]">{tc("我的資料")}</h1>
         <p className="mt-2 text-[14px] leading-6 text-[var(--muted)]">{tc("真實姓名及登入帳號只供學校管理；排行榜不會顯示這些資料。")}</p>
       </div>
 

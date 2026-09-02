@@ -209,8 +209,8 @@ const accountBackend: LimiterBackend = useUpstash
       // 本地开发回退：单实例内存计数（与分布式语义一致，但不跨实例共享）。
       if (!productionRateLimitRequired) {
         console.warn(
-          "[login-limiter] 未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
-            "降级为单实例内存限流（仅供本地开发；生产请务必配置 Upstash Redis）。",
+          "[login-limiter] 未設定 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
+            "降級為單實例記憶體限流（僅供本地開發；生產請務必設定 Upstash Redis）。",
         );
       }
       const mem = createMemoryBackend(ACCOUNT_MAX_ATTEMPTS, WINDOW_MS);
@@ -339,7 +339,7 @@ export async function checkLimit(
     return { ok: true };
   } catch (err) {
     console.error(
-      `[login-limiter] checkLimit 后端错误，${productionRateLimitRequired ? "fail-closed" : "本地继续"}：`,
+      `[login-limiter] checkLimit 後端錯誤，${productionRateLimitRequired ? "fail-closed" : "本地繼續"}：`,
       { errorType: describeBackendFailure(err) },
     );
     return productionRateLimitRequired
@@ -401,7 +401,7 @@ export async function getLimitStatus(
     return { locked: false };
   } catch (err) {
     console.error(
-      `[login-limiter] getLimitStatus 后端错误，${productionRateLimitRequired ? "按已锁定返回" : "按未锁定返回"}：`,
+      `[login-limiter] getLimitStatus 後端錯誤，${productionRateLimitRequired ? "按已鎖定返回" : "按未鎖定返回"}：`,
       { errorType: describeBackendFailure(err) },
     );
     return productionRateLimitRequired
@@ -434,7 +434,7 @@ export async function checkStatusRate(ip: string): Promise<LimitResult> {
     return { ok: true };
   } catch (err) {
     console.error(
-      `[login-limiter] checkStatusRate 后端错误，${productionRateLimitRequired ? "fail-closed" : "本地继续"}：`,
+      `[login-limiter] checkStatusRate 後端錯誤，${productionRateLimitRequired ? "fail-closed" : "本地繼續"}：`,
       { errorType: describeBackendFailure(err) },
     );
     return productionRateLimitRequired
@@ -456,7 +456,7 @@ export async function resetAccount(account: string): Promise<void> {
   try {
     await accountBackend.reset(normalizeAccount(account));
   } catch (err) {
-    console.error("[login-limiter] resetAccount 后端错误：", {
+    console.error("[login-limiter] resetAccount 後端錯誤：", {
       errorType: describeBackendFailure(err),
     });
   }

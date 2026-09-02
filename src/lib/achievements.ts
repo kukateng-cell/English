@@ -25,15 +25,15 @@ export interface AchievementDef {
 export type AchievementIcon = RewardIconName;
 
 export const ACHIEVEMENTS: AchievementDef[] = [
-  { key: "first_study", icon: "seedling", title: "初次学习", description: "完成第一次学习", type: "reviews", target: 1 },
-  { key: "review_10", icon: "book", title: "小试牛刀", description: "累计复习 10 个词", type: "reviews", target: 10 },
-  { key: "review_50", icon: "word-stack", title: "渐入佳境", description: "累计复习 50 个词", type: "reviews", target: 50 },
-  { key: "review_100", icon: "medal", title: "百词斩", description: "累计复习 100 个词", type: "reviews", target: 100 },
-  { key: "streak_3", icon: "flame", title: "连学 3 天", description: "连续学习 3 天", type: "streak", target: 3 },
-  { key: "streak_7", icon: "bolt", title: "连学 7 天", description: "连续学习 7 天", type: "streak", target: 7 },
-  { key: "streak_30", icon: "star", title: "连学 30 天", description: "连续学习 30 天", type: "streak", target: 30 },
-  { key: "study_7", icon: "calendar-check", title: "坚持一周", description: "累计打卡 7 天", type: "studyDays", target: 7 },
-  { key: "study_30", icon: "trophy", title: "月度坚持", description: "累计打卡 30 天", type: "studyDays", target: 30 },
+  { key: "first_study", icon: "seedling", title: "初次學習", description: "完成第一次學習", type: "reviews", target: 1 },
+  { key: "review_10", icon: "book", title: "小試牛刀", description: "累計複習 10 個詞", type: "reviews", target: 10 },
+  { key: "review_50", icon: "word-stack", title: "漸入佳境", description: "累計複習 50 個詞", type: "reviews", target: 50 },
+  { key: "review_100", icon: "medal", title: "百詞斬", description: "累計複習 100 個詞", type: "reviews", target: 100 },
+  { key: "streak_3", icon: "flame", title: "連學 3 天", description: "連續學習 3 天", type: "streak", target: 3 },
+  { key: "streak_7", icon: "bolt", title: "連學 7 天", description: "連續學習 7 天", type: "streak", target: 7 },
+  { key: "streak_30", icon: "star", title: "連學 30 天", description: "連續學習 30 天", type: "streak", target: 30 },
+  { key: "study_7", icon: "calendar-check", title: "堅持一週", description: "累計打卡 7 天", type: "studyDays", target: 7 },
+  { key: "study_30", icon: "trophy", title: "月度堅持", description: "累計打卡 30 天", type: "studyDays", target: 30 },
 ];
 
 type AchievementDb = Pick<

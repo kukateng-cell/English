@@ -57,8 +57,8 @@ function StudentShellFrame({
       data-study-navigation-phase={navigationState.active ? navigationState.phase ?? undefined : undefined}
       data-study-navigation-blocked={navigationState.navigationBlocked ? "true" : undefined}
     >
-      <a className="skip-link" href="#main-content">{tc("跳到主要内容")}</a>
-      <aside className="student-rail" aria-label={tc("学生导航")} inert={backgroundInert || undefined}>
+      <a className="skip-link" href="#main-content">{tc("跳到主要內容")}</a>
+      <aside className="student-rail" aria-label={tc("學生導航")} inert={backgroundInert || undefined}>
         <div className="student-rail-top">
           <BrandLockup />
           <StudentNav mode="rail" />

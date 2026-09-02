@@ -25,9 +25,9 @@ export default function ResetPasswordPage() {
     event.preventDefault();
     setError("");
     setSuccessMode(null);
-    if (newPassword.length < MIN_PASSWORD_LENGTH) { setError(`新密码至少 ${MIN_PASSWORD_LENGTH} 个字符`); return; }
-    if (newPassword !== confirmPassword) { setError("两次输入的新密码不一致"); return; }
-    if (newPassword === currentPassword) { setError("新密码不能与当前密码相同"); return; }
+    if (newPassword.length < MIN_PASSWORD_LENGTH) { setError(`新密碼至少 ${MIN_PASSWORD_LENGTH} 個字元`); return; }
+    if (newPassword !== confirmPassword) { setError("兩次輸入的新密碼不一致"); return; }
+    if (newPassword === currentPassword) { setError("新密碼不能與目前密碼相同"); return; }
     // Capture the account before the password writer revokes this JWT. The
     // session provider may observe that revocation while the API call is in
     // flight, but the fresh credentials sign-in still needs the original
@@ -39,7 +39,7 @@ export default function ResetPasswordPage() {
     try {
       const response = await rosterFetch("/api/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) { setError(payload?.error ?? "重设失败，请稍后重试"); setLoading(false); return; }
+      if (!response.ok) { setError(payload?.error ?? "重設失敗，請稍後重試"); setLoading(false); return; }
       const continuation = accountName
         ? await signIn("credentials", { email: accountName, password: newPassword, redirect: false }).catch(() => null)
         : null;
@@ -57,21 +57,21 @@ export default function ResetPasswordPage() {
       setSuccessMode("continue");
       setLoading(false);
       window.setTimeout(() => window.location.replace(safeCallback), 500);
-    } catch { setError("网络错误，请稍后重试"); setLoading(false); }
+    } catch { setError("網絡錯誤，請稍後重試"); setLoading(false); }
   }
 
   return (
     <AuthShell>
       <section className="auth-panel" aria-labelledby="reset-title">
-        <div className="auth-panel-header"><span className="auth-panel-icon"><Icon name="lock" size={28} /></span><h1 id="reset-title">{tc("重设密码")}</h1><p>{tc("首次登录需要设置新密码后才能继续使用")}</p></div>
-        {successMode ? <div className="auth-success" role="status"><span className="auth-success-icon"><Icon name="check" size={28}/></span><strong>{tc(successMode === "continue" ? "密码已更新，正在继续使用" : "密码已更新，请重新登录")}</strong><p className="ui-field-helper">{tc(successMode === "continue" ? "正在返回原本页面" : "正在返回登录页面")}</p></div> : <form className="auth-form" onSubmit={handleSubmit} autoComplete="on" noValidate>
-          <div className="ui-field"><label htmlFor="current-password">{tc("当前密码")}</label><input id="current-password" type="password" placeholder={tc("输入当前密码")} value={currentPassword} onChange={(event) => { setCurrentPassword(event.target.value); setError(""); }} autoComplete="current-password" required /></div>
-          <div className="ui-field"><label htmlFor="new-password">{tc("新密码")}</label><input id="new-password" type="password" placeholder={tc(`至少 ${MIN_PASSWORD_LENGTH} 个字符`)} value={newPassword} onChange={(event) => { setNewPassword(event.target.value); setError(""); }} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /><span className="ui-field-helper">{tc(`密码至少 ${MIN_PASSWORD_LENGTH} 个字符`)}</span></div>
-          <div className="ui-field"><label htmlFor="confirm-password">{tc("确认新密码")}</label><input id="confirm-password" type="password" placeholder={tc("再次输入新密码")} value={confirmPassword} onChange={(event) => { setConfirmPassword(event.target.value); setError(""); }} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /></div>
-          <Button className="auth-form-submit" size="large" type="submit" loading={loading}>{tc("设置新密码")}</Button>
+        <div className="auth-panel-header"><span className="auth-panel-icon"><Icon name="lock" size={28} /></span><h1 id="reset-title">{tc("重設密碼")}</h1><p>{tc("首次登入需要設定新密碼後才能繼續使用")}</p></div>
+        {successMode ? <div className="auth-success" role="status"><span className="auth-success-icon"><Icon name="check" size={28}/></span><strong>{tc(successMode === "continue" ? "密碼已更新，正在繼續使用" : "密碼已更新，請重新登入")}</strong><p className="ui-field-helper">{tc(successMode === "continue" ? "正在返回原本頁面" : "正在返回登入頁面")}</p></div> : <form className="auth-form" onSubmit={handleSubmit} autoComplete="on" noValidate>
+          <div className="ui-field"><label htmlFor="current-password">{tc("目前密碼")}</label><input id="current-password" type="password" placeholder={tc("輸入目前密碼")} value={currentPassword} onChange={(event) => { setCurrentPassword(event.target.value); setError(""); }} autoComplete="current-password" required /></div>
+          <div className="ui-field"><label htmlFor="new-password">{tc("新密碼")}</label><input id="new-password" type="password" placeholder={tc(`至少 ${MIN_PASSWORD_LENGTH} 個字元`)} value={newPassword} onChange={(event) => { setNewPassword(event.target.value); setError(""); }} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /><span className="ui-field-helper">{tc(`密碼至少 ${MIN_PASSWORD_LENGTH} 個字元`)}</span></div>
+          <div className="ui-field"><label htmlFor="confirm-password">{tc("確認新密碼")}</label><input id="confirm-password" type="password" placeholder={tc("再次輸入新密碼")} value={confirmPassword} onChange={(event) => { setConfirmPassword(event.target.value); setError(""); }} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /></div>
+          <Button className="auth-form-submit" size="large" type="submit" loading={loading}>{tc("設定新密碼")}</Button>
         </form>}
         {error ? <div className="auth-error"><StatusBanner variant="error" message={tc(error)} /></div> : null}
-        <p className="auth-footer-note"><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => signOut({ callbackUrl: "/login" })}>{tc("退出登录")}</button></p>
+        <p className="auth-footer-note"><button type="button" className="ui-button ui-button-quiet ui-button-small" onClick={() => signOut({ callbackUrl: "/login" })}>{tc("退出登入")}</button></p>
       </section>
     </AuthShell>
   );

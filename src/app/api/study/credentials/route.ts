@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   );
   if (!rate.ok) {
     return NextResponse.json(
-      { error: "学习凭证续期过于频繁，请稍后再试" },
+      { error: "學習憑證續期過於頻繁，請稍後再試" },
       {
         status: 429,
         headers: { "Retry-After": String(rate.retryAfterSec ?? 60) },
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       );
     })
   ) {
-    return NextResponse.json({ error: "续期请求无效" }, { status: 400 });
+    return NextResponse.json({ error: "續期請求無效" }, { status: 400 });
   }
   try {
     const typedOperations = operations as Array<{

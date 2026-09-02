@@ -31,7 +31,7 @@ export function AchievementCard({ a }: { a: AchievementStatus }) {
       </div>
       {a.unlocked ? (
         <div className="flex items-center gap-1 rounded-full bg-[var(--surface)]/20 px-2.5 py-0.5 text-[11px] font-semibold">
-          <Icon name="check" size={13} /> {tc("已达成")}
+          <Icon name="check" size={13} /> {tc("已達成")}
         </div>
       ) : (
         <div className="w-full">
@@ -94,13 +94,13 @@ export default function AchievementsPage() {
           <Icon name="lock" size={24} />
         </div>
         <p className="mb-4 text-[15px] text-[var(--muted)] dark:text-[var(--muted)]">
-          {tc("请先登录后查看成就")}
+          {tc("請先登入後查看成就")}
         </p>
         <Link
           href="/login"
           className="flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-8 text-[15px] font-semibold text-[var(--color-surface)] shadow-card active:scale-[0.98]"
         >
-          {tc("前往登录")}
+          {tc("前往登入")}
         </Link>
       </div>
     );
@@ -111,7 +111,7 @@ export default function AchievementsPage() {
     return (
       <div className="flex min-h-full items-center justify-center px-6">
         <ErrorBanner
-          message="加载失败，请检查网络后重试"
+          message="載入失敗，請檢查網絡後重試"
           onRetry={() => setReloadKey((k) => k + 1)}
         />
       </div>
@@ -148,7 +148,7 @@ export default function AchievementsPage() {
             {tc("我的成就")}
           </h1>
           <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("已解锁")} {unlockedCount} / {list.length}
+            {tc("已解鎖")} {unlockedCount} / {list.length}
           </p>
         </div>
 

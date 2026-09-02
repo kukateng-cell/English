@@ -88,7 +88,7 @@ export default function TeacherDashboard() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-sm font-bold text-[var(--primary)]">{tc("教師工作台")}</p>
+          <p className="text-sm font-bold text-[var(--primary)]">{tc("教師工作臺")}</p>
           <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)]">{tc("班級概覽")}</h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">{tc("快速掌握班級近況；需要深入比較時，請前往學習分析。")}</p>
         </div>

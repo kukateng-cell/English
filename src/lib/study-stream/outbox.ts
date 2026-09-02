@@ -87,14 +87,14 @@ export function enqueueStudyStreamAction(
     const rows = read(userId);
     if (!rows.some((row) => row.action.operationId === action.operationId)) {
       if (rows.length >= STUDY_STREAM_OUTBOX_MAX_ROWS) {
-        return { ok: false, error: "待同步学习操作已达安全上限；请先恢复同步后再继续学习" };
+        return { ok: false, error: "待同步學習操作已達安全上限；請先恢復同步後再繼續學習" };
       }
       rows.push({ action, status: "pending", attempts: 0, lastError: null, updatedAt: Date.now() });
       write(userId, rows);
     }
     return { ok: true };
   } catch {
-    return { ok: false, error: "浏览器无法保存待同步学习操作，请允许网站存储后重试" };
+    return { ok: false, error: "瀏覽器無法儲存待同步學習操作，請允許網站儲存後重試" };
   }
 }
 
@@ -213,7 +213,7 @@ export function saveStudyStreamCheckpoint(
     window.localStorage.setItem(key, serialized);
     return { ok: true };
   } catch {
-    return { ok: false, error: "浏览器无法保存学习续接点，请允许网站存储后重试" };
+    return { ok: false, error: "瀏覽器無法儲存學習續接點，請允許網站儲存後重試" };
   }
 }
 

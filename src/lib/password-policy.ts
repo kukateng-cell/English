@@ -7,11 +7,11 @@ export const MAX_PASSWORD_LENGTH = 128;
 /** bcrypt只处理首72个UTF-8 bytes；所有新密码必须在hash前集中检查。 */
 export function passwordPolicyError(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) {
-    return `密码至少 ${MIN_PASSWORD_LENGTH} 个字符`;
+    return `密碼至少 ${MIN_PASSWORD_LENGTH} 個字元`;
   }
-  if (password.length > MAX_PASSWORD_LENGTH) return "密码过长";
+  if (password.length > MAX_PASSWORD_LENGTH) return "密碼過長";
   if (bcrypt.truncates(password)) {
-    return "密码的 UTF-8 编码不可超过 72 bytes";
+    return "密碼的 UTF-8 編碼不可超過 72 bytes";
   }
   return null;
 }

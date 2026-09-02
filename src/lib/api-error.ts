@@ -81,7 +81,7 @@ const CODE_MESSAGES: Record<string, string> = {
   RANGE_OUTSIDE_CURRENT_YEAR: "所選日期不在目前學年內",
   RANGE_INVALID: "日期範圍不正確，請重新選擇",
   STALE_PREVIEW: "預覽資料已經改變，請重新預覽",
-  ACCESS_UPDATE_STALE: "教師權限已經改變，請重新載入後再保存",
+  ACCESS_UPDATE_STALE: "教師權限已經改變，請重新載入後再儲存",
   TEACHER_QUERY_STALE: "教師名單已經改變，請重新載入",
   ADMIN_USER_QUERY_STALE: "用戶名單已經改變，請重新載入",
   CURRENT_YEAR_REQUIRED: "請先選擇目前學年",
@@ -126,7 +126,7 @@ const CODE_MESSAGES: Record<string, string> = {
   CATALOG_REVISION_NOT_ALLOWED: "新增詞義不可帶有既有版本編號",
   CATALOG_REVISION_STALE: "詞義內容已被其他人更新，請重新載入後再提交",
   CATALOG_REQUEST_STALE: "審核項目已經改變，請重新載入",
-  CATALOG_READ_STALE: "词库刚刚有更新，正在重新载入最新内容",
+  CATALOG_READ_STALE: "詞庫剛剛有更新，正在重新載入最新內容",
   CATALOG_IDENTITY_MISMATCH: "詞義身份與來源資料不一致，請重新載入",
   CATALOG_IDENTITY_CONFLICT: "詞義或詞頭身份已被其他修改使用，請重新載入",
   CATALOG_ENTRY_IDENTITY_CONFLICT: "詞頭身份與 lemma 不一致，請新增正確詞義後停用舊詞義",
@@ -211,7 +211,7 @@ const CODE_MESSAGES: Record<string, string> = {
 /** 根據 HTTP 狀態碼給出通用提示。 */
 export function statusMessage(status: number): string {
   if (status === 401) return "登入狀態無效，請重新登入";
-  if (status === 403) return "沒有權限訪問此頁面";
+  if (status === 403) return "沒有權限存取此頁面";
   if (status === 404) return "找不到請求的資源";
   if (status === 422) return "提交資料格式不正確，請檢查後再試";
   if (status === 429) return "操作過於頻繁，請稍後再試";

@@ -110,8 +110,8 @@ export const authOptions: NextAuthOptions = {
       name: "account",
       credentials: {
         // ‘email’ 字段实际存放账号名（如 student01），保留键名以兼容 NextAuth 表单
-        email: { label: "账号", type: "text" },
-        password: { label: "密码", type: "password" },
+        email: { label: "帳號", type: "text" },
+        password: { label: "密碼", type: "password" },
       },
       async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
@@ -126,7 +126,7 @@ export const authOptions: NextAuthOptions = {
         const limit = await checkLimit(account, ip);
         if (!limit.ok) {
           console.warn(
-            `[login-limiter] 拒绝登录尝试 account=${account} ip=${ip} ` +
+            `[login-limiter] 拒絕登入嘗試 account=${account} ip=${ip} ` +
               `dimension=${limit.dimension} retryAfter=${limit.retryAfterSec}s`,
           );
           return null;

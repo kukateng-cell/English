@@ -249,7 +249,7 @@ export async function rotateStudySession(
 ): Promise<IssuedStudySession> {
   const ids = normalizedWordIds(wordIds);
   if (rotationKey !== `rotate-${previousSessionId}`) {
-    throw new StudySessionRotationError(409, "学习 session 轮换凭证不一致");
+    throw new StudySessionRotationError(409, "學習 session 輪換憑證不一致");
   }
   const fingerprint = studyQueueFingerprint(ids);
   for (let attempt = 0; attempt < SESSION_TRANSACTION_RETRIES; attempt++) {
@@ -285,7 +285,7 @@ export async function rotateStudySession(
               existing.retiredAt !== null ||
               existing.expiresAt <= now
             ) {
-              throw new StudySessionRotationError(409, "学习 session 轮换凭证不一致");
+              throw new StudySessionRotationError(409, "學習 session 輪換憑證不一致");
             }
             return {
               id: existing.id,
@@ -321,7 +321,7 @@ export async function rotateStudySession(
             },
           });
           if (!source) {
-            throw new StudySessionRotationError(404, "原学习 session 不存在或已清理");
+            throw new StudySessionRotationError(404, "原學習 session 不存在或已清理");
           }
           const remainingMs = source.expiresAt.getTime() - now.getTime();
           const sourceIds = new Set(source.items.map((item) => item.wordId));
@@ -337,8 +337,8 @@ export async function rotateStudySession(
             throw new StudySessionRotationError(
               409,
               remainingMs > STUDY_SESSION_ROTATION_WINDOW_MS
-                ? "学习 session 尚未进入轮换窗口"
-                : "学习 session 已过期或已失效",
+                ? "學習 session 尚未進入輪換窗口"
+                : "學習 session 已過期或已失效",
             );
           }
           const active = await tx.studySession.findMany({
@@ -459,7 +459,7 @@ export async function recoverStudySessionCredential(
   ) {
     throw new StudyCredentialRenewalError(
       409,
-      "恢复操作指纹无效",
+      "恢復操作指紋無效",
       { code: "OPERATION_FINGERPRINT_MISMATCH" },
     );
   }
@@ -489,13 +489,13 @@ export async function recoverStudySessionCredential(
             ) {
               throw new StudyCredentialRenewalError(
                 409,
-                "operationId 已用于不同的学习记录",
+                "operationId 已用於不同的學習記錄",
                 { code: "OPERATION_FINGERPRINT_MISMATCH" },
               );
             }
             throw new StudyCredentialRenewalError(
               409,
-              "学习操作已经处理",
+              "學習操作已經處理",
               {
                 code: "REVIEW_ALREADY_PROCESSED",
                 wordId: processed.submittedWordId,
@@ -523,7 +523,7 @@ export async function recoverStudySessionCredential(
           if (operationCandidates.length > 1) {
             throw new StudyCredentialRenewalError(
               409,
-              "恢复操作对应多个有效学习凭证",
+              "恢復操作對應多個有效學習憑證",
               {
                 code: "CREDENTIAL_RECOVERY_UNAVAILABLE",
                 wordId: operation.wordId,
@@ -586,7 +586,7 @@ export async function recoverStudySessionCredential(
           if (lockedSource.length !== 1) {
             throw new StudyCredentialRenewalError(
               404,
-              "原学习 session 已被清理，无法恢复答案",
+              "原學習 session 已被清理，無法恢復答案",
               { code: "SOURCE_SESSION_GONE" },
             );
           }
@@ -603,7 +603,7 @@ export async function recoverStudySessionCredential(
           if (!sourceItem) {
             throw new StudyCredentialRenewalError(
               403,
-              "恢复单词不属于原学习 session",
+              "恢復單詞不屬於原學習 session",
               { code: "WORD_NOT_IN_SOURCE_SESSION" },
             );
           }
@@ -637,7 +637,7 @@ export async function recoverStudySessionCredential(
             if (!candidate || candidate.session.userId !== userId) {
               throw new StudyCredentialRenewalError(
                 404,
-                "学习凭证继承链已失效",
+                "學習憑證繼承鏈已失效",
                 { code: "CREDENTIAL_RECOVERY_UNAVAILABLE" },
               );
             }
@@ -674,7 +674,7 @@ export async function recoverStudySessionCredential(
             if (candidate.usedAt) {
               throw new StudyCredentialRenewalError(
                 409,
-                "该学习题目已经提交",
+                "該學習題目已經提交",
                 {
                   code: "REVIEW_ALREADY_PROCESSED",
                   wordId: operation.wordId,
@@ -690,7 +690,7 @@ export async function recoverStudySessionCredential(
               if (candidate.operationId !== operation.operationId) {
                 throw new StudyCredentialRenewalError(
                   409,
-                  "恢复凭证正由另一项操作使用",
+                  "恢復憑證正由另一項操作使用",
                   {
                     code: "RECOVERY_BUSY",
                     wordId: operation.wordId,
@@ -735,7 +735,7 @@ export async function recoverStudySessionCredential(
             if (candidate.renewedAt !== null) {
               throw new StudyCredentialRenewalError(
                 409,
-                "学习凭证继承关系不完整",
+                "學習憑證繼承關係不完整",
                 { code: "CREDENTIAL_RECOVERY_UNAVAILABLE" },
               );
             }
@@ -792,7 +792,7 @@ export async function recoverStudySessionCredential(
           }
           throw new StudyCredentialRenewalError(
             409,
-            "学习 session 替代链过长，暂时无法恢复答案",
+            "學習 session 替代鏈過長，暫時無法恢復答案",
             {
               code: "CREDENTIAL_RECOVERY_UNAVAILABLE",
               wordId: operation.wordId,
@@ -834,7 +834,7 @@ export async function renewStudySessionCredentials(
     wordIds.length !== operations.length ||
     new Set(operations.map((item) => item.operationId)).size !== operations.length
   ) {
-    throw new StudyCredentialRenewalError(409, "续期操作重复");
+    throw new StudyCredentialRenewalError(409, "續期操作重複");
   }
 
   for (let attempt = 0; attempt < SESSION_TRANSACTION_RETRIES; attempt++) {
@@ -869,7 +869,7 @@ export async function renewStudySessionCredentials(
           if (!previous) {
             throw new StudyCredentialRenewalError(
               404,
-              "原学习 session 已被清理，无法安全续期",
+              "原學習 session 已被清理，無法安全續期",
             );
           }
           const itemByWord = new Map(
@@ -949,8 +949,8 @@ export async function renewStudySessionCredentials(
             throw new StudyCredentialRenewalError(
               409,
               rotationSuccessor || previous.retiredAt
-                ? "学习 session 已由较新的凭证取代"
-                : "原学习凭证已经提交或续期",
+                ? "學習 session 已由較新的憑證取代"
+                : "原學習憑證已經提交或續期",
               {
                 code:
                   rotationSuccessor || previous.retiredAt
@@ -967,7 +967,7 @@ export async function renewStudySessionCredentials(
           if (alreadyUsed) {
             throw new StudyCredentialRenewalError(
               409,
-              "该学习题目已经提交",
+              "該學習題目已經提交",
               {
                 code: "REVIEW_ALREADY_PROCESSED",
                 wordId: alreadyUsed.wordId,
@@ -993,7 +993,7 @@ export async function renewStudySessionCredentials(
           if (previous.retiredAt !== null || (previous.expiresAt <= now && successor)) {
             throw new StudyCredentialRenewalError(
               409,
-              "学习 session 已由较新的凭证取代",
+              "學習 session 已由較新的憑證取代",
               {
                 code: "SESSION_SUPERSEDED",
                 requiresQueueReload: true,
@@ -1006,7 +1006,7 @@ export async function renewStudySessionCredentials(
             if (!item) {
               throw new StudyCredentialRenewalError(
                 403,
-                "续期单词不属于原学习 session",
+                "續期單詞不屬於原學習 session",
               );
             }
             if (
@@ -1015,7 +1015,7 @@ export async function renewStudySessionCredentials(
             ) {
               throw new StudyCredentialRenewalError(
                 409,
-                "原学习凭证已经提交或续期",
+                "原學習憑證已經提交或續期",
                 {
                   code: "CREDENTIAL_ALREADY_RENEWED",
                   wordId: operation.wordId,
@@ -1032,7 +1032,7 @@ export async function renewStudySessionCredentials(
             },
           });
           if (processed > 0) {
-            throw new StudyCredentialRenewalError(409, "学习操作已经处理");
+            throw new StudyCredentialRenewalError(409, "學習操作已經處理");
           }
 
           for (const operation of operations) {
@@ -1055,7 +1055,7 @@ export async function renewStudySessionCredentials(
             if (consumed.count !== 1) {
               throw new StudyCredentialRenewalError(
                 409,
-                "学习凭证已被其他请求续期",
+                "學習憑證已被其他請求續期",
               );
             }
           }

@@ -59,25 +59,25 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
           className="coach-sheet-dismiss"
           onClick={onDismiss}
         >
-          {tc("我学会了，下一个")}
+          {tc("我學會了，下一個")}
           <Icon name="arrow-right" size={18} />
         </Button>
       }
     >
       <div className="coach-sheet-heading-row">
-        <span className="coach-sheet-kicker">{tc("教认字")}</span>
+        <span className="coach-sheet-kicker">{tc("教認字")}</span>
         <button
           type="button"
           className="ui-icon-button coach-sheet-speak"
           onClick={() => speakEnglish(word.term)}
-          aria-label={tc("发音")}
+          aria-label={tc("發音")}
         >
           <Icon name="volume" size={19} />
         </button>
       </div>
 
       <section className="coach-sheet-definition" aria-labelledby="coach-definition-label">
-        <p id="coach-definition-label" className="coach-sheet-label">{tc("释义")}</p>
+        <p id="coach-definition-label" className="coach-sheet-label">{tc("釋義")}</p>
         <p className="coach-sheet-definition-text">{tc(word.definition)}</p>
         {meaningfulPos ? <span className="coach-sheet-badge">{tc(meaningfulPos)}</span> : null}
       </section>
@@ -98,13 +98,13 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
         <div className="coach-sheet-relations">
           {word.synonyms && word.synonyms.length > 0 ? (
             <section className="coach-sheet-relation">
-              <p className="coach-sheet-label">{tc("近义词")}</p>
+              <p className="coach-sheet-label">{tc("近義詞")}</p>
               <p className="coach-sheet-synonyms">{word.synonyms.map((item) => tc(item)).join(" · ")}</p>
             </section>
           ) : null}
           {word.antonyms && word.antonyms.length > 0 ? (
             <section className="coach-sheet-relation">
-              <p className="coach-sheet-label">{tc("反义词")}</p>
+              <p className="coach-sheet-label">{tc("反義詞")}</p>
               <p className="coach-sheet-antonyms">{word.antonyms.map((item) => tc(item)).join(" · ")}</p>
             </section>
           ) : null}
@@ -115,7 +115,7 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
         <div className="coach-sheet-image">
           <Image
             src={safeImageSrc}
-            alt={tc(`${word.term} 配图`)}
+            alt={tc(`${word.term} 配圖`)}
             fill
             sizes="(max-width: 640px) 100vw, 440px"
             className="object-cover"
@@ -123,9 +123,9 @@ export default function HelpPanel({ word, visible, onDismiss }: HelpPanelProps) 
           />
         </div>
       ) : (
-        <div className="coach-sheet-image-fallback" role="img" aria-label={tc("暂无可用图片") as string}>
+        <div className="coach-sheet-image-fallback" role="img" aria-label={tc("暫無可用圖片") as string}>
           <Icon name="image" size={28} />
-          <span>{tc("暂无可用图片")}</span>
+          <span>{tc("暫無可用圖片")}</span>
         </div>
       )}
     </BottomSheet>

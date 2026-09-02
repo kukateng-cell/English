@@ -90,7 +90,7 @@ function unlockedCategoryFilters(unlockedKeys: Set<string>) {
     return {
       level: normalizeLevel(key.slice(0, separator)),
       category:
-        key.slice(separator + 2) === "未分类"
+        key.slice(separator + 2) === "未分類"
           ? null
           : key.slice(separator + 2),
     };
@@ -117,7 +117,7 @@ export async function GET(req: Request) {
   );
   if (!queueRate.ok) {
     return NextResponse.json(
-      { error: "学习队列载入过于频繁，请稍后再试" },
+      { error: "學習隊列載入過於頻繁，請稍後再試" },
       {
         status: 429,
         headers: { "Retry-After": String(queueRate.retryAfterSec ?? 60) },
@@ -146,7 +146,7 @@ export async function GET(req: Request) {
       new Set(parsed).size !== parsed.length ||
       parsed.some((id) => id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id))
     ) {
-      return NextResponse.json({ error: "恢复凭证无效" }, { status: 400 });
+      return NextResponse.json({ error: "恢復憑證無效" }, { status: 400 });
     }
     const previousSession = await prisma.studySession.findFirst({
       where: { id: resumeSessionIdRaw, userId },
@@ -179,7 +179,7 @@ export async function GET(req: Request) {
     const key = `${normalizeLevel(level)}::${category}`;
     if (key in unitUnlock && unitUnlock[key] === false) {
       return NextResponse.json(
-        { error: "locked", message: "请先完成前面的单元，解锁后再来挑战吧！" },
+        { error: "locked", message: "請先完成前面的單元，解鎖後再來挑戰吧！" },
         { status: 403 },
       );
     }
@@ -424,7 +424,7 @@ export async function GET(req: Request) {
       : await issueStudySession(userId, queueWordIds);
   if (resumedSession && !studySession) {
     return NextResponse.json(
-      { error: "恢复 session 已改变，请重新载入学习队列" },
+      { error: "恢復 session 已改變，請重新載入學習隊列" },
       { status: 409 },
     );
   }
@@ -452,7 +452,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+    return NextResponse.json({ error: "請求體格式錯誤" }, { status: 400 });
   }
   const input = body as Record<string, unknown>;
   const wordId = typeof input.wordId === "string" ? input.wordId.trim() : "";
@@ -462,7 +462,7 @@ export async function POST(req: Request) {
     typeof input.studySessionId === "string" ? input.studySessionId.trim() : "";
   const nonce = typeof input.nonce === "string" ? input.nonce.trim() : "";
   if (!wordId || wordId.length > 128) {
-    return NextResponse.json({ error: "wordId 无效" }, { status: 400 });
+    return NextResponse.json({ error: "wordId 無效" }, { status: 400 });
   }
   const compatibilityEndsAt = legacyOperationIdCompatibilityEndsAt(
     process.env.STUDY_OPERATION_ID_COMPAT_UNTIL,
@@ -474,7 +474,7 @@ export async function POST(req: Request) {
       !/^[A-Za-z0-9:_-]{8,200}$/.test(suppliedOperationId)) ||
     (!suppliedOperationId && !allowLegacyOperationId)
   ) {
-    return NextResponse.json({ error: "operationId 无效" }, { status: 400 });
+    return NextResponse.json({ error: "operationId 無效" }, { status: 400 });
   }
   const validStudySession =
     studySessionId.length >= 8 &&
@@ -482,14 +482,14 @@ export async function POST(req: Request) {
     nonce.length >= 8 &&
     nonce.length <= 128;
   if (!validStudySession) {
-    return NextResponse.json({ error: "学习 session 无效或已过期" }, { status: 400 });
+    return NextResponse.json({ error: "學習 session 無效或已過期" }, { status: 400 });
   }
 
   const hasQuality = Object.prototype.hasOwnProperty.call(input, "quality");
   const hasGesture = Object.prototype.hasOwnProperty.call(input, "gesture");
   if (hasQuality === hasGesture) {
     return NextResponse.json(
-      { error: "必须且只能提供 quality 或 gesture" },
+      { error: "必須且只能提供 quality 或 gesture" },
       { status: 400 },
     );
   }
@@ -504,12 +504,12 @@ export async function POST(req: Request) {
       input.quality < 0 ||
       input.quality > 5
     ) {
-      return NextResponse.json({ error: "quality 无效" }, { status: 400 });
+      return NextResponse.json({ error: "quality 無效" }, { status: 400 });
     }
     quality = input.quality as Quality;
   } else {
     if (input.gesture !== "left" && input.gesture !== "right") {
-      return NextResponse.json({ error: "gesture 无效" }, { status: 400 });
+      return NextResponse.json({ error: "gesture 無效" }, { status: 400 });
     }
     quality = gestureToQuality(input.gesture);
   }
@@ -563,7 +563,7 @@ export async function POST(req: Request) {
       (!legacyBridgeReplay && processed.quality !== quality)
     ) {
       return NextResponse.json(
-        { error: "operationId 已用于不同的学习记录" },
+        { error: "operationId 已用於不同的學習記錄" },
         { status: 409 },
       );
     }
@@ -587,7 +587,7 @@ export async function POST(req: Request) {
   const rate = await checkStudyRate(userId);
   if (!rate.ok) {
     return NextResponse.json(
-      { error: "学习提交过于频繁，请稍后再试" },
+      { error: "學習提交過於頻繁，請稍後再試" },
       {
         status: 429,
         headers: { "Retry-After": String(rate.retryAfterSec ?? 60) },
@@ -671,7 +671,7 @@ export async function applyReviewEvent(input: {
             select: { flowVersion: true },
           });
           if (globalReceipt && globalReceipt.flowVersion !== "v1") {
-            throw new StudyRequestError(409, "operationId 已用于不同的学习流程");
+            throw new StudyRequestError(409, "operationId 已用於不同的學習流程");
           }
           let processed = await tx.reviewEvent.findUnique({
             where: {
@@ -717,7 +717,7 @@ export async function applyReviewEvent(input: {
             ) {
               throw new StudyRequestError(
                 409,
-                "operationId 已用于不同的学习记录",
+                "operationId 已用於不同的學習記錄",
               );
             }
             const review = unknownTombstone
@@ -743,14 +743,14 @@ export async function applyReviewEvent(input: {
             where: { id: input.wordId },
             select: { term: true, level: true, category: true },
           });
-          if (!word) throw new StudyRequestError(404, "单词不存在");
+          if (!word) throw new StudyRequestError(404, "單詞不存在");
 
           // The HTTP route always supplies both values. The optional shape keeps
           // the migration/idempotency checker able to exercise the ledger in
           // isolation without manufacturing browser sessions.
           if (input.studySessionId || input.nonce) {
             if (!input.studySessionId || !input.nonce) {
-              throw new StudyRequestError(403, "学习 session 无效或已过期");
+              throw new StudyRequestError(403, "學習 session 無效或已過期");
             }
             const sessionItem = await tx.studySessionItem.findUnique({
               where: {
@@ -770,7 +770,7 @@ export async function applyReviewEvent(input: {
               sessionItem.session.userId !== input.userId ||
               sessionItem.nonce !== input.nonce
             ) {
-              throw new StudyRequestError(403, "学习 session 无效或已过期");
+              throw new StudyRequestError(403, "學習 session 無效或已過期");
             }
             if (sessionItem.usedAt) {
               const currentReview = await tx.review.findUnique({
@@ -781,7 +781,7 @@ export async function applyReviewEvent(input: {
                   },
                 },
               });
-              throw new StudyRequestError(409, "该学习题目已经提交", {
+              throw new StudyRequestError(409, "該學習題目已經提交", {
                 code: "REVIEW_ALREADY_PROCESSED",
                 wordId: input.wordId,
                 requiresQueueReload: true,
@@ -796,7 +796,7 @@ export async function applyReviewEvent(input: {
             ) {
               throw new StudyRequestError(
                 409,
-                "学习 session 已由较新的凭证取代",
+                "學習 session 已由較新的憑證取代",
                 {
                   code: "SESSION_SUPERSEDED",
                   wordId: input.wordId,
@@ -809,7 +809,7 @@ export async function applyReviewEvent(input: {
               (sessionItem.operationId !== null &&
                 sessionItem.operationId !== input.operationId)
             ) {
-              throw new StudyRequestError(403, "学习 session 无效或已过期");
+              throw new StudyRequestError(403, "學習 session 無效或已過期");
             }
             const consumed = await tx.studySessionItem.updateMany({
               where: { id: sessionItem.id, usedAt: null },
@@ -824,7 +824,7 @@ export async function applyReviewEvent(input: {
                   },
                 },
               });
-              throw new StudyRequestError(409, "该学习题目已经提交", {
+              throw new StudyRequestError(409, "該學習題目已經提交", {
                 code: "REVIEW_ALREADY_PROCESSED",
                 wordId: input.wordId,
                 requiresQueueReload: true,
@@ -847,9 +847,9 @@ export async function applyReviewEvent(input: {
             // 授权读取与状态写入在同一个 Serializable transaction 内；并发请求
             // 改变前置单元掌握状态时，本交易会冲突重试并重新计算解锁。
             const unlockInfo = await computeUnlockInfo(input.userId, tx);
-            const unitKey = `${word.level}::${word.category ?? "未分类"}`;
+            const unitKey = `${word.level}::${word.category ?? "未分類"}`;
             if (unlockInfo.unitUnlock[unitKey] !== true) {
-              throw new StudyRequestError(403, "该单元尚未解锁");
+              throw new StudyRequestError(403, "該單元尚未解鎖");
             }
           }
           const previousState = existing

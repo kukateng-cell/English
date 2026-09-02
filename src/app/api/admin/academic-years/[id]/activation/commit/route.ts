@@ -198,7 +198,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (deleted.count !== terminalTargetIds.length) throw new Error("TERMINAL_TARGET_INVALID");
       }
 
-      const terminalStudents = transitionPlans.filter(({ terminal }) => terminal).map(({ transition, snapshot }) => ({ studentId: transition.studentId, reason: snapshot.disposition === "GRADUATE" ? "学年完成" : "离校" }));
+      const terminalStudents = transitionPlans.filter(({ terminal }) => terminal).map(({ transition, snapshot }) => ({ studentId: transition.studentId, reason: snapshot.disposition === "GRADUATE" ? "學年完成" : "離校" }));
       if (terminalStudents.length) {
         await tx.$queryRaw(Prisma.sql`
           WITH terminal_students AS (

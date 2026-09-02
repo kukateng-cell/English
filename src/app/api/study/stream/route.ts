@@ -15,7 +15,7 @@ function errorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: error.message, ...error.details }, { status: error.status });
   }
   console.error("[study-stream] bootstrap failed", describeStudyStreamFailure(error));
-  return NextResponse.json({ error: "学习流暂时不可用，请稍后重试" }, { status: 503 });
+  return NextResponse.json({ error: "學習流暫時不可用，請稍後重試" }, { status: 503 });
 }
 
 /** GET /api/study/stream — V2 bootstrap/resume; V1 remains the default. */
@@ -37,7 +37,7 @@ export async function GET(req: Request) {
     if (!rate.ok) {
       context.outcome = "rate-limited";
       return NextResponse.json(
-        { error: "学习队列请求过于频繁，请稍后再试" },
+        { error: "學習隊列請求過於頻繁，請稍後再試" },
         { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } },
       );
     }

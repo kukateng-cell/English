@@ -11,6 +11,6 @@ export async function GET() {
     response.headers.set("Cache-Control", "private, no-store");
     return response;
   } catch {
-    return NextResponse.json({ error: "暂时无法加载学习概览" }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ error: "暫時無法載入學習概覽" }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
   }
 }

@@ -17,7 +17,7 @@
 - 逐詞「查看歷史」會切換並卸載完整詞庫工作區；返回後原有搜尋、篩選、已載入頁數、勾選及捲動位置全部消失。
 - 歷史列表顯示 `STANDALONE_REQUEST`、`PENDING`、`APPROVED`、技術 key 等內部名稱，未有老師可讀嘅事件句子同前後差異摘要。
 - 現有 server-side 查詢只支援搜尋、發布狀態、程度及出題方向，欠缺詞性、首字母、主題及排序；完整詞庫使用 cursor 分頁，所以不能只喺 browser 對已載入資料做局部排序。
-- 繁體轉換層會將正確用詞「干擾項」轉成「幹擾項」，單純修改個別字串不足以永久修正。
+- 當時繁體轉換層會將正確用詞「干擾項」錯轉成「乾擾項」或「幹擾項」，單純修改個別字串不足以永久修正；現行基準已由[繁體中文原始文案基準修正計劃](./traditional-chinese-source-copy-baseline.md)取代。
 
 本計劃只重整老師／管理員詞庫工作區嘅資訊架構、查詢能力同歷史導覽；既有審批、權限、並發、學生出題及資料生命週期 contract 保持不變。
 
@@ -79,8 +79,8 @@
 
 ### 2.4 正確術語係「干擾項」
 
-- 繁體顯示「干擾項」，簡體顯示「干扰项」；兩者均不得出現「幹擾項」或「幹扰项」。
-- 修正 OpenCC／字詞轉換後置規則，避免 canonical 文案經轉換後再變錯。
+- 繁體顯示「干擾項」，簡體顯示「干扰项」；兩者均不得出現「乾擾項」、「幹擾項」或混合字形。
+- 現行 i18n contract 以繁體原文為 canonical；`zh-Hant` 不經簡轉繁，`zh-Hans` 才由繁體衍生，並以窄範圍規則收斂舊資料可能帶入的錯誤字形。
 - 新增轉換 regression test，涵蓋標籤、錯誤訊息、題目預覽同歷史差異。
 
 ### 2.5 不改變正式審核流程
@@ -418,7 +418,7 @@ type CatalogWorkspacePresentation = {
 ## 九、文案、i18n 及可存取性
 
 - 建立集中式 `catalog teacher presentation` mapping，統一 status、kind、source、part of speech、category、direction、validator issue 文案。
-- `src/lib/i18n/convert.ts` 在 zh-Hant conversion 後套用窄範圍 canonical correction，保證「干擾項」不被轉為「幹擾項」；不可全域任意替換會影響「干涉／干預」等其他字。
+- `src/lib/i18n/convert.ts` 以繁體原文作 `zh-Hant` identity-first 顯示，只套用窄範圍 canonical correction，保證「干擾項」不被改成「乾擾項」或「幹擾項」；不可全域任意替換會影響「干涉／干預」等其他字。完整 contract 見[繁體中文原始文案基準修正計劃](./traditional-chinese-source-copy-baseline.md)。
 - raw API code 仍可留於 log／diagnostic，但畫面必須有老師可行動訊息。
 - table／list 使用正確 heading、row label、button accessible name；只靠顏色不可表達狀態。
 - drawer／sheet 要有 dialog semantics、focus trap、Esc 關閉、focus return；更新結果以適當 `status`／`alert` 通知。
@@ -430,7 +430,7 @@ type CatalogWorkspacePresentation = {
 ### Phase 0：建立現況基線及 presentation contract
 
 - [x] 保存 desktop／tablet／mobile 現況截圖、首屏 row 數、列表 request 數及代表性長內容樣本。
-- [x] 盤點所有 raw enum、technical key、validator message 同「幹擾」出現位置。
+- [x] 盤點所有 raw enum、technical key、validator message 同「乾／幹擾」出現位置。
 - [x] 盤點現有 part-of-speech／category 真實 distinct values、空值及非英文字首詞條。
 - [x] 定義生命週期、工作流程、出題狀態、問題scope、歷史文案及欄位 label exhaustive mappings。
 - [x] 建立 teacher-facing sense identity contract；確認毋須另加詞義序號。
@@ -489,7 +489,7 @@ type CatalogWorkspacePresentation = {
 
 ### 11.1 Unit
 
-- 繁體「干擾項」及簡體「干扰项」轉換後仍正確，均不出現「幹」字。
+- 繁體「干擾項」及簡體「干扰项」轉換後仍正確，均不出現「乾擾項」或「幹擾項」。
 - 所有 status／kind／source／POS／category／issue code 有預期 label；未知值安全 fallback。
 - lifecycle、workflow、readiness同issue scope四者不互相覆蓋；ACTIVE＋pending UPDATE仍同時顯示兩個狀態。
 - initial normalization：A／a、前置空白、hyphen、數字、中文、空值。

@@ -82,7 +82,7 @@ export default function BottomSheet({
             <h2 id={resolvedTitleId}>{title}</h2>
             {description ? <p>{description}</p> : null}
           </div>
-          <button type="button" className="ui-icon-button" aria-label={tc("关闭")} onClick={onClose}><Icon name="close" /></button>
+          <button type="button" className="ui-icon-button" aria-label={tc("關閉")} onClick={onClose}><Icon name="close" /></button>
         </header>
         <div className="ui-sheet-body">{children}</div>
         {actions ? <div className="ui-sheet-actions">{actions}</div> : null}

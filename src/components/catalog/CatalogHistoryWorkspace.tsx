@@ -510,7 +510,7 @@ export default function CatalogHistoryWorkspace({
                   {entry.baseline ? (
                     <section className="rounded-xl bg-[var(--border-soft)] p-3">
                       <p className="text-sm text-[var(--text)]">
-                        {tc("這項記錄保存最初正式詞庫建立時的匯入摘要。")}
+                        {tc("這項記錄儲存最初正式詞庫建立時的匯入摘要。")}
                       </p>
                       {canReview ? (
                         <details className="mt-3 text-xs text-[var(--muted)]">

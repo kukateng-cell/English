@@ -455,7 +455,9 @@ evidence、migration 或 server contract。
 仍對 expired／revoked session fail-closed；明確 recovery route 以同一 item credential、typed
 operation 及 Serializable transaction 恢復未撤銷 expired session，保留 operationId／outbox 並
 對 duplicate replay 回 authoritative result，recovery 失敗唔會無限重試。V2 assignment／stream
-loading copy 改由 canonical 簡體經 `tc()` 顯示。`npm run test:db:stream-v2` passed，
+loading copy 當時統一經 `tc()` 顯示；原有「canonical 簡體」過渡策略已於 2026-09-02 由
+[繁體中文原始文案基準修正計劃](./traditional-chinese-source-copy-baseline.md)取代，現行 source contract
+以繁體為 canonical。`npm run test:db:stream-v2` passed，
 `npm run test:e2e:study-stream-v2` 6/6 passed，`STUDY_V2_ASSIGNMENT_MODE=off npm run
 test:e2e:card-motion` Chromium 73 passed／4 skipped、WebKit 33 passed；build／unit／lint／typecheck
 亦通過。無 schema／migration 改動，未執行 contract migration、production deploy、學生 pilot 或

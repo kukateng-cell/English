@@ -26,7 +26,7 @@ export default function StreakBadge({ streak }: { streak: StreakInfo }) {
   return (
     <div
       className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-semibold transition ${styles}`}
-      title={tc("连续学习天数")}
+      title={tc("連續學習天數")}
     >
       <span className="flex h-5 w-5 shrink-0 items-center justify-center"><RewardIcon name="flame" size={17} /></span>
       <span>{count}</span>

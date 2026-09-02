@@ -131,7 +131,7 @@ async function lockStreamUser(tx: StreamTransaction, userId: string): Promise<vo
   const rows = await tx.$queryRaw<Array<{ id: string }>>(
     Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`,
   );
-  if (rows.length !== 1) throw new StudyStreamError(403, "学习账户不存在或已失效");
+  if (rows.length !== 1) throw new StudyStreamError(403, "學習帳戶不存在或已失效");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -277,7 +277,7 @@ function scopeFilters(filters: Set<string>): Prisma.WordWhereInput[] {
     const separator = key.indexOf("::");
     return withCurrentCatalogWord({
       level: normalizeLevel(key.slice(0, separator)),
-      category: key.slice(separator + 2) === "未分类" ? null : key.slice(separator + 2),
+      category: key.slice(separator + 2) === "未分類" ? null : key.slice(separator + 2),
     });
   });
 }
@@ -289,7 +289,7 @@ async function resolveScope(
 ): Promise<StreamScope> {
   const rawMode = input.mode?.trim() || "global";
   if (rawMode !== "global" && rawMode !== "unit") {
-    throw new StudyStreamError(400, "学习模式无效");
+    throw new StudyStreamError(400, "學習模式無效");
   }
   const mode = rawMode as StreamMode;
   const level = input.level ? normalizeLevel(input.level) : null;
@@ -309,7 +309,7 @@ async function resolveScope(
       throw new StudyStreamError(400, "unit mode 需要 level 及 category");
     }
     const key = `${level}::${input.category.trim()}`;
-    if (!unlocked.has(key)) throw new StudyStreamError(403, "该单元尚未解锁");
+    if (!unlocked.has(key)) throw new StudyStreamError(403, "該單元尚未解鎖");
     return {
       mode,
       level,
@@ -775,7 +775,7 @@ async function createObjectiveTarget(
   snapshot: ObjectiveQuestionSnapshot;
 }> {
   const word = await tx.word.findUnique({ where: { id: candidate.wordId } });
-  if (!word) throw new StudyStreamError(404, "学习词条不存在");
+  if (!word) throw new StudyStreamError(404, "學習詞條不存在");
   const review = await tx.review.findUnique({
     where: { userId_wordId: { userId, wordId: word.id } },
     select: { revision: true },
@@ -831,7 +831,7 @@ async function createObjectiveTarget(
       source.map(questionWord),
       `${session.id}:${target.id}:${expectedRevision}`,
     );
-    if (!built) throw new StudyStreamError(409, "当前词条缺少安全的客观题选项", { code: "NO_VALID_OBJECTIVE_SNAPSHOT" });
+    if (!built) throw new StudyStreamError(409, "目前詞條缺少安全的客觀題選項", { code: "NO_VALID_OBJECTIVE_SNAPSHOT" });
     snapshot = await tx.objectiveQuestionSnapshot.create({
       data: {
         targetId: target.id,
@@ -907,7 +907,7 @@ async function createStreamItem(
         leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
       },
     });
-    if (leased.count !== 1) throw new StudyStreamError(409, "学习任务已被其他装置接手，请重新载入");
+    if (leased.count !== 1) throw new StudyStreamError(409, "學習任務已被其他裝置接手，請重新載入");
   }
   return { item, credential };
 }
@@ -1003,7 +1003,7 @@ export async function getOrCreateStudyStream(
               ? await receiptFeedback(tx, userId, ensured.item.operationId, ensured.item.feedbackAcknowledgedAt !== null)
               : null;
             const item = toPublicItem(ensured.item, ensured.credential, feedback);
-            if (!item) throw new StudyStreamError(409, "学习项目已失效，请重新载入");
+            if (!item) throw new StudyStreamError(409, "學習項目已失效，請重新載入");
             return streamResponse(
               session,
               item,
@@ -1036,7 +1036,7 @@ export async function getOrCreateStudyStream(
             try {
               const created = await createStreamItem(tx, userId, session, decision.candidate, now);
               const item = toPublicItem(created.item, created.credential);
-              if (!item) throw new StudyStreamError(409, "学习项目已失效，请重新载入");
+              if (!item) throw new StudyStreamError(409, "學習項目已失效，請重新載入");
               return streamResponse(session, item, false, unitSummary);
             } catch (error) {
               if (!(error instanceof StudyStreamError) || error.details.code !== "NO_VALID_OBJECTIVE_SNAPSHOT") throw error;
@@ -1082,19 +1082,19 @@ async function loadActionItem(
     },
   });
   if (!item || item.session.userId !== userId || item.session.flowVersion !== STUDY_STREAM_FLOW_VERSION) {
-    throw new StudyStreamError(403, "学习项目凭证无效或不属于当前账户");
+    throw new StudyStreamError(403, "學習項目憑證無效或不屬於目前帳戶");
   }
   const credentialMatches = matchesCredentialDigest(item, input.itemCredential);
   if (!credentialMatches) {
-    throw new StudyStreamError(403, "学习项目凭证无效或已过期", { code: "ITEM_CREDENTIAL_INVALID" });
+    throw new StudyStreamError(403, "學習項目憑證無效或已過期", { code: "ITEM_CREDENTIAL_INVALID" });
   }
   const credentialAccepted = acceptsCredential(item, input.itemCredential, now);
   if (item.session.retiredAt !== null) {
-    throw new StudyStreamError(403, "学习 session 已过期或已撤销", { code: "SESSION_REVOKED" });
+    throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
   }
   if (item.session.expiresAt <= now) {
     if (!options.recoverExpiredSession) {
-      throw new StudyStreamError(403, "学习 session 已过期或已撤销", { code: "SESSION_EXPIRED" });
+      throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_EXPIRED" });
     }
     const recoveredExpiresAt = new Date(now.getTime() + STREAM_SESSION_TTL_MS);
     const recovered = await tx.studySession.updateMany({
@@ -1102,7 +1102,7 @@ async function loadActionItem(
       data: { expiresAt: recoveredExpiresAt },
     });
     if (recovered.count !== 1) {
-      throw new StudyStreamError(403, "学习 session 已过期或已撤销", { code: "SESSION_REVOKED" });
+      throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
     }
     // Keep the in-transaction relation authoritative for revision updates and
     // response construction below; the user lock serialises recovery with
@@ -1110,11 +1110,11 @@ async function loadActionItem(
     item.session = { ...item.session, expiresAt: recoveredExpiresAt };
   }
   if (!credentialAccepted && !options.recoverExpiredCredential) {
-    throw new StudyStreamError(403, "学习项目凭证无效或已过期", { code: "ITEM_CREDENTIAL_EXPIRED" });
+    throw new StudyStreamError(403, "學習項目憑證無效或已過期", { code: "ITEM_CREDENTIAL_EXPIRED" });
   }
   if (item.usedAt === null && item.leaseExpiresAt <= now) {
     if (!options.recoverExpiredLease) {
-      throw new StudyStreamError(403, "学习项目租约已过期，请重新载入", { code: "EXPIRED_ITEM_LEASE" });
+      throw new StudyStreamError(403, "學習項目租約已過期，請重新載入", { code: "EXPIRED_ITEM_LEASE" });
     }
     const recoveredLeaseExpiresAt = new Date(now.getTime() + STREAM_ITEM_LEASE_MS);
     const recoveredLease = await tx.studyStreamItem.updateMany({
@@ -1127,7 +1127,7 @@ async function loadActionItem(
       data: { leaseExpiresAt: recoveredLeaseExpiresAt },
     });
     if (recoveredLease.count !== 1) {
-      throw new StudyStreamError(409, "学习项目已被其他装置更新，请重新载入", { code: "STALE_STREAM_ITEM" });
+      throw new StudyStreamError(409, "學習項目已被其他裝置更新，請重新載入", { code: "STALE_STREAM_ITEM" });
     }
     item.leaseExpiresAt = recoveredLeaseExpiresAt;
   }
@@ -1135,7 +1135,7 @@ async function loadActionItem(
   // from a checkpoint created before the scored answer's revision was
   // published. The scored action itself remains strict CAS-protected.
   if (item.clientRevision !== input.clientKnownRevision && input.actionKind !== "FEEDBACK_ACK") {
-    throw new StudyStreamError(409, "学习项目版本已更新", {
+    throw new StudyStreamError(409, "學習項目版本已更新", {
       code: "STALE_STREAM_ITEM",
       clientRevision: item.clientRevision,
     });
@@ -1180,10 +1180,10 @@ async function preflightReceipt(
     receipt.flowVersion !== STUDY_STREAM_FLOW_VERSION ||
     receipt.actionKind !== input.actionKind
   ) {
-    throw new StudyStreamError(409, "operationId 已用于不同的学习操作");
+    throw new StudyStreamError(409, "operationId 已用於不同的學習操作");
   }
   const response = asStoredActionResponse(receipt.response);
-  if (!response) throw new StudyStreamError(409, "学习操作回执已损坏，请重新载入");
+  if (!response) throw new StudyStreamError(409, "學習操作回執已損壞，請重新載入");
   return { response, duplicate: true };
 }
 
@@ -1254,12 +1254,12 @@ async function processReveal(
   if (item.itemKind !== "LEARNING_CARD" || !item.word) {
     throw new StudyStreamError(409, "只有 Learning Card 可以揭示");
   }
-  if (item.usedAt !== null) throw new StudyStreamError(409, "学习项目已经提交");
+  if (item.usedAt !== null) throw new StudyStreamError(409, "學習項目已經提交");
   if (!item.revealedAt) {
     await tx.studyStreamItem.update({ where: { id: item.id }, data: { revealedAt: new Date() } });
   }
   const answer = learningCardAnswer(item.word);
-  if (!answer) throw new StudyStreamError(409, "学习项目内容已失效");
+  if (!answer) throw new StudyStreamError(409, "學習項目內容已失效");
   const response: PublicStreamActionResponse = {
     ok: true,
     operationId: input.operationId,
@@ -1282,11 +1282,11 @@ async function processSelfRating(
   item: StreamItemWithRelations & { session: StudySession },
 ): Promise<PublicStreamActionResponse> {
   if (item.itemKind !== "LEARNING_CARD" || !item.word || !item.revealedAt) {
-    throw new StudyStreamError(409, "请先揭示 Learning Card 内容");
+    throw new StudyStreamError(409, "請先揭示 Learning Card 內容");
   }
-  if (item.usedAt !== null) throw new StudyStreamError(409, "学习项目已经提交");
+  if (item.usedAt !== null) throw new StudyStreamError(409, "學習項目已經提交");
   if (!("selfRating" in input.payload) || (input.payload.selfRating !== "selfForgot" && input.payload.selfRating !== "selfRecalled")) {
-    throw new StudyStreamError(400, "self-rating 无效");
+    throw new StudyStreamError(400, "self-rating 無效");
   }
   const selfRating = input.payload.selfRating as SelfRating;
   const now = new Date();
@@ -1301,7 +1301,7 @@ async function processSelfRating(
         leaseExpiresAt: null,
       },
     });
-    if (completedWork.count !== 1) throw new StudyStreamError(409, "学习任务已被其他装置完成，请重新载入");
+    if (completedWork.count !== 1) throw new StudyStreamError(409, "學習任務已被其他裝置完成，請重新載入");
   }
   const review = await tx.review.findUnique({
     where: { userId_wordId: { userId, wordId: item.word.id } },
@@ -1393,20 +1393,20 @@ async function processObjectiveAnswer(
   item: StreamItemWithRelations & { session: StudySession },
 ): Promise<PublicStreamActionResponse> {
   if (item.itemKind !== "OBJECTIVE_PROBE" || !item.word || !item.objectiveEvidenceTarget || !item.objectiveQuestionSnapshot) {
-    throw new StudyStreamError(409, "当前项目不是有效的 Objective Probe");
+    throw new StudyStreamError(409, "目前項目不是有效的 Objective Probe");
   }
-  if (item.usedAt !== null) throw new StudyStreamError(409, "该客观题已经提交");
+  if (item.usedAt !== null) throw new StudyStreamError(409, "該客觀題已經提交");
   if (!("selectedOptionId" in input.payload) || typeof input.payload.selectedOptionId !== "string") {
-    throw new StudyStreamError(400, "选项无效");
+    throw new StudyStreamError(400, "選項無效");
   }
   const snapshot = snapshotToData(item.objectiveQuestionSnapshot);
-  if (!snapshot) throw new StudyStreamError(409, "客观题快照无效，请重新载入");
+  if (!snapshot) throw new StudyStreamError(409, "客觀題快照無效，請重新載入");
   const selectedOptionId = input.payload.selectedOptionId;
   if (!snapshot.options.some((option) => option.id === selectedOptionId)) {
-    throw new StudyStreamError(400, "选项不属于当前题目");
+    throw new StudyStreamError(400, "選項不屬於目前題目");
   }
   if (item.objectiveEvidenceTarget.status !== "OPEN") {
-    throw new StudyStreamError(409, "该客观证据目标已经完成");
+    throw new StudyStreamError(409, "該客觀證據目標已經完成");
   }
   const review = await tx.review.findUnique({
     where: { userId_wordId: { userId, wordId: item.word.id } },
@@ -1414,7 +1414,7 @@ async function processObjectiveAnswer(
   const expectedRevision = item.objectiveEvidenceTarget.expectedReviewRevision ?? 0;
   const currentRevision = review?.revision ?? 0;
   if (currentRevision !== expectedRevision) {
-    throw new StudyStreamError(409, "客观证据目标已过期", {
+    throw new StudyStreamError(409, "客觀證據目標已過期", {
       code: "STALE_EVIDENCE_TARGET",
       expectedReviewRevision: expectedRevision,
       currentRevision,
@@ -1423,7 +1423,7 @@ async function processObjectiveAnswer(
   const purpose = item.objectiveEvidenceTarget.purpose as ProbePurpose;
   const isCorrect = selectedOptionId === snapshot.correctOptionId;
   const mapping = mapObjectiveFirstResponse(isCorrect ? "correct" : "wrong", purpose);
-  if (!mapping) throw new StudyStreamError(409, "当前客观题目的评分策略无效");
+  if (!mapping) throw new StudyStreamError(409, "目前客觀題目的評分策略無效");
   const quality = mapping.quality as Quality;
   const previous = review
     ? {
@@ -1446,7 +1446,7 @@ async function processObjectiveAnswer(
       consumedAt: new Date(),
     },
   });
-  if (consumedTarget.count !== 1) throw new StudyStreamError(409, "该客观题已经被其他装置提交");
+  if (consumedTarget.count !== 1) throw new StudyStreamError(409, "該客觀題已經被其他裝置提交");
 
   // The ordinary expand-migration window still has the legacy Review bridge
   // trigger installed. Mark this transaction as the V2 writer before touching
@@ -1459,7 +1459,7 @@ async function processObjectiveAnswer(
       where: { userId, wordId: item.word.id, revision: currentRevision },
       data: { ...nextState, senseId: item.word.senseId, revision: nextRevision, totalReviews: { increment: 1 } },
     });
-    if (updatedReview.count !== 1) throw new StudyStreamError(409, "学习状态已被其他装置更新");
+    if (updatedReview.count !== 1) throw new StudyStreamError(409, "學習狀態已被其他裝置更新");
   } else {
     await tx.review.create({
       data: {
@@ -1562,13 +1562,13 @@ async function processFeedbackAck(
   item: StreamItemWithRelations & { session: StudySession },
 ): Promise<PublicStreamActionResponse> {
   if (item.itemKind !== "OBJECTIVE_PROBE" || item.usedAt === null || !item.operationId) {
-    throw new StudyStreamError(409, "当前项目没有可确认的 feedback");
+    throw new StudyStreamError(409, "目前項目沒有可確認的 feedback");
   }
   if (item.feedbackAcknowledgedAt !== null) {
-    throw new StudyStreamError(409, "feedback 已确认");
+    throw new StudyStreamError(409, "feedback 已確認");
   }
   const feedback = await receiptFeedback(tx, userId, item.operationId, true);
-  if (!feedback) throw new StudyStreamError(409, "客观题 feedback 回执已损坏");
+  if (!feedback) throw new StudyStreamError(409, "客觀題 feedback 回執已損壞");
   const now = new Date();
   const revision = nextSessionRevision(item);
   await tx.studyStreamItem.update({
@@ -1690,19 +1690,19 @@ export async function renewStudyStreamCredential(
         },
       });
       if (!item || item.session.userId !== userId || item.session.flowVersion !== STUDY_STREAM_FLOW_VERSION) {
-        throw new StudyStreamError(404, "学习凭证继承链已失效");
+        throw new StudyStreamError(404, "學習憑證繼承鏈已失效");
       }
       if (item.session.retiredAt !== null || item.session.expiresAt <= now) {
-        throw new StudyStreamError(403, "学习 session 已过期或已撤销");
+        throw new StudyStreamError(403, "學習 session 已過期或已撤銷");
       }
       if (!acceptsCredential(item, input.itemCredential, now)) {
-        throw new StudyStreamError(403, "学习项目凭证无效或已过期");
+        throw new StudyStreamError(403, "學習項目憑證無效或已過期");
       }
       if (item.clientRevision !== input.clientKnownRevision) {
-        throw new StudyStreamError(409, "学习项目版本已更新", { code: "STALE_STREAM_ITEM" });
+        throw new StudyStreamError(409, "學習項目版本已更新", { code: "STALE_STREAM_ITEM" });
       }
       if (item.feedbackAcknowledgedAt !== null) {
-        throw new StudyStreamError(409, "该学习项目已经完成");
+        throw new StudyStreamError(409, "該學習項目已經完成");
       }
       const credential = createStudyStreamCredential();
       const expiresAt = new Date(now.getTime() + STUDY_STREAM_CREDENTIAL_TTL_MS);
@@ -1730,7 +1730,7 @@ export async function renewStudyStreamCredential(
         ? await receiptFeedback(tx, userId, updated.operationId, updated.feedbackAcknowledgedAt !== null)
         : null;
       const publicItem = toPublicItem(updated, credential, feedback);
-      if (!publicItem) throw new StudyStreamError(409, "学习项目已失效");
+      if (!publicItem) throw new StudyStreamError(409, "學習項目已失效");
       return {
         ok: true,
         streamItemId: updated.id,

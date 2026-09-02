@@ -8,9 +8,9 @@ import { useStudentNavigation } from "./StudentNavigationContext";
 
 const ITEMS: Array<{ href: string; label: string; icon: IconName; matches: string[] }> = [
   { href: "/", label: "今日", icon: "home", matches: ["/"] },
-  { href: "/study", label: "学习", icon: "spark", matches: ["/study", "/units"] },
-  { href: "/words", label: "词表", icon: "book", matches: ["/words"] },
-  { href: "/stats", label: "统计", icon: "bar-chart", matches: ["/stats", "/leaderboard", "/achievements"] },
+  { href: "/study", label: "學習", icon: "spark", matches: ["/study", "/units"] },
+  { href: "/words", label: "詞表", icon: "book", matches: ["/words"] },
+  { href: "/stats", label: "統計", icon: "bar-chart", matches: ["/stats", "/leaderboard", "/achievements"] },
 ];
 
 export default function StudentNav({ mode }: { mode: "rail" | "bottom" }) {
@@ -21,7 +21,7 @@ export default function StudentNav({ mode }: { mode: "rail" | "bottom" }) {
     canNavigate,
   } = useStudentNavigation();
   return (
-    <nav className={mode === "rail" ? "student-nav student-nav-rail" : "student-nav student-nav-bottom"} aria-label={tc("学生主导航")}>
+    <nav className={mode === "rail" ? "student-nav student-nav-rail" : "student-nav student-nav-bottom"} aria-label={tc("學生主導航")}>
       {ITEMS.map((item) => {
         const active = item.matches.includes(pathname) || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
         return (

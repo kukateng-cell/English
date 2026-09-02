@@ -1465,10 +1465,10 @@ export default function WordCard({
   const category = word.category?.trim() || null;
   const revealInteractionEnabled = Boolean((onCardTap || onCardLongPress) && !swipeEnabled);
   const revealLongPressEnabled = Boolean(onCardLongPress && !swipeEnabled);
-  const resolvedCardHint = cardHint ?? tc("认得它的中文意思吗？");
+  const resolvedCardHint = cardHint ?? tc("認得它的中文意思嗎？");
   const hasSecondaryHint = cardHintSecondary !== undefined && cardHintSecondary !== null;
-  const resolvedSwipeLeftLabel = swipeLeftLabel ?? tc("还不会");
-  const resolvedSwipeRightLabel = swipeRightLabel ?? tc("我会");
+  const resolvedSwipeLeftLabel = swipeLeftLabel ?? tc("還不會");
+  const resolvedSwipeRightLabel = swipeRightLabel ?? tc("我會");
   const cardHintClassName = revealLongPressEnabled
     ? `word-card-hint word-card-retrieval-hint ${cardHintState === "longPress" ? "is-long-press-hint" : "is-think-hint"}`
     : "word-card-hint";
@@ -1476,35 +1476,35 @@ export default function WordCard({
     ? "word-card-hint word-card-retrieval-hint is-long-press-hint"
     : "word-card-hint";
   const cardLabel = revealLongPressEnabled
-    ? tc("单词卡，请长按 3 秒揭示答案")
+    ? tc("單詞卡，請長按 3 秒揭示答案")
     : revealInteractionEnabled
-      ? tc("单词卡，请点击揭示中文意思")
+      ? tc("單詞卡，請點擊揭示中文意思")
       : isFlipped
-        ? tc("已揭示的单词卡，右扫和刚才想的一样，左扫和刚才想的不一样")
-        : tc("可左右拖曳的单词卡");
+        ? tc("已揭示的單詞卡，右掃和剛才想的一樣，左掃和剛才想的不一樣")
+        : tc("可左右拖曳的單詞卡");
 
   const renderSpeakButton = (tabIndex: number) => (
     <button
       onClick={handleSpeak}
       tabIndex={tabIndex}
       className="word-card-speak"
-      aria-label={tc("发音")}
+      aria-label={tc("發音")}
     >
       <Icon name="volume" size={18} />
-      <span>{tc("发音")}</span>
+      <span>{tc("發音")}</span>
     </button>
   );
 
   const renderCardMeta = () => (
     <div className="word-card-top">
-      {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(category ?? "未分类")}</span> : null}
+      {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(category ?? "未分類")}</span> : null}
       <span
         data-testid="word-card-context"
         className="word-context"
         role="img"
-        aria-label={tc("认读卡")}
+        aria-label={tc("認讀卡")}
       >
-        {tc("认")}
+        {tc("認")}
       </span>
     </div>
   );

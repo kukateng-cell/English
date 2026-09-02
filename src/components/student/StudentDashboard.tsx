@@ -33,17 +33,17 @@ export default function StudentDashboard({ userId }: { userId: string }) {
       try {
         const response = await fetch("/api/student/dashboard", { cache: "no-store", signal: controller.signal });
         const payload = (await response.json().catch(() => null)) as (StudentDashboardResponse & { error?: string }) | null;
-        if (!response.ok) throw new Error(payload?.error || "暂时无法加载学习概览");
+        if (!response.ok) throw new Error(payload?.error || "暫時無法載入學習概覽");
         setData(payload as StudentDashboardResponse);
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "暂时无法加载学习概览");
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "暫時無法載入學習概覽");
       }
     })();
     return () => controller.abort();
   }, [reloadKey]);
 
   if (error && !data) {
-    return <div className="student-content-narrow"><StudentPageStack><StudentSectionStack><StatusBanner variant="error" message={tc(error)} action={<Button variant="quiet" size="small" onClick={() => setReloadKey((key) => key + 1)}>{tc("重试")}</Button>} /></StudentSectionStack></StudentPageStack></div>;
+    return <div className="student-content-narrow"><StudentPageStack><StudentSectionStack><StatusBanner variant="error" message={tc(error)} action={<Button variant="quiet" size="small" onClick={() => setReloadKey((key) => key + 1)}>{tc("重試")}</Button>} /></StudentSectionStack></StudentPageStack></div>;
   }
   if (!data) {
     return <div className="student-content-narrow"><StudentPageStack><PageHeader title={tc("今天繼續學習")} description={tc("正在讀取你的學習概覽")} /><StudentSectionStack><div className="dashboard-skeleton-grid"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div><Skeleton className="h-56" label={tc("正在讀取學習概覽")} /></StudentSectionStack></StudentPageStack></div>;
@@ -66,7 +66,7 @@ export default function StudentDashboard({ userId }: { userId: string }) {
         </div>
         <div className="next-session-count" aria-label={tc("下一輪學習詞數") as string}><strong>{next.total}</strong><span>{tc("個詞")}</span></div>
         <div className="next-session-breakdown"><span><b>{next.dueCount}</b>{tc("個待複習")}</span><span><b>{next.newCount}</b>{tc("個新詞")}</span><span className="next-session-backlog">{tc("待複習總量")} {next.dueBacklogCount} · {tc("可學新詞")} {next.availableNewCount}</span></div>
-        <Link className="ui-button ui-button-primary ui-button-large" href="/study">{next.total > 0 ? tc("开始下一轮") : tc("浏览词表")}<Icon name="arrow-right" size={18} /></Link>
+        <Link className="ui-button ui-button-primary ui-button-large" href="/study">{next.total > 0 ? tc("開始下一輪") : tc("瀏覽詞表")}<Icon name="arrow-right" size={18} /></Link>
           </Card>
 
           <div className="dashboard-stats-grid dashboard-stats-grid--four">
@@ -77,22 +77,22 @@ export default function StudentDashboard({ userId }: { userId: string }) {
           </div>
           <div className="dashboard-lower-grid">
           <Card className="dashboard-library-card" padded>
-        <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("词库进度")}</span><h2>{tc("已解锁内容进度")}</h2></div><div className="dashboard-section-actions"><Link className="ui-button ui-button-quiet ui-button-small" href="/stats"><Icon name="bar-chart" size={16} />{tc("详细统计")}</Link><Link className="ui-button ui-button-quiet ui-button-small" href="/words">{tc("打开词表")}<Icon name="arrow-right" size={16} /></Link></div></div>
+        <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("詞庫進度")}</span><h2>{tc("已解鎖內容進度")}</h2></div><div className="dashboard-section-actions"><Link className="ui-button ui-button-quiet ui-button-small" href="/stats"><Icon name="bar-chart" size={16} />{tc("詳細統計")}</Link><Link className="ui-button ui-button-quiet ui-button-small" href="/words">{tc("打開詞表")}<Icon name="arrow-right" size={16} /></Link></div></div>
         <div className="dashboard-progress-grid">
-          <ProgressBar label={tc("已学进度")} value={data.library.learnedCount} max={data.library.totalWords} showValue />
-          <ProgressBar label={tc("长期掌握")} value={data.library.masteredCount} max={data.library.totalWords} showValue className="ui-progress-success" />
+          <ProgressBar label={tc("已學進度")} value={data.library.learnedCount} max={data.library.totalWords} showValue />
+          <ProgressBar label={tc("長期掌握")} value={data.library.masteredCount} max={data.library.totalWords} showValue className="ui-progress-success" />
         </div>
           </Card>
 
           <div className="dashboard-links-grid">
-        <Link className="dashboard-link-card" href="/units"><Icon name="route" size={22} /><span><strong>{tc("单元闯关")}</strong><small>{tc("查看解锁与认字进度")}</small></span><Icon name="arrow-right" size={18} /></Link>
-        <Link className="dashboard-link-card" href="/stats"><Icon name="bar-chart" size={22} /><span><strong>{tc("统计与成就")}</strong><small>{tc("查看活动、排行榜及成就")}</small></span><Icon name="arrow-right" size={18} /></Link>
-        <Link className="dashboard-link-card" href="/leaderboard"><RewardIcon name="trophy" size={22} /><span><strong>{tc("排行榜")}</strong><small>{tc("查看学习排行")}</small></span><Icon name="arrow-right" size={18} /></Link>
+        <Link className="dashboard-link-card" href="/units"><Icon name="route" size={22} /><span><strong>{tc("單元闖關")}</strong><small>{tc("查看解鎖與認字進度")}</small></span><Icon name="arrow-right" size={18} /></Link>
+        <Link className="dashboard-link-card" href="/stats"><Icon name="bar-chart" size={22} /><span><strong>{tc("統計與成就")}</strong><small>{tc("查看活動、排行榜及成就")}</small></span><Icon name="arrow-right" size={18} /></Link>
+        <Link className="dashboard-link-card" href="/leaderboard"><RewardIcon name="trophy" size={22} /><span><strong>{tc("排行榜")}</strong><small>{tc("查看學習排行")}</small></span><Icon name="arrow-right" size={18} /></Link>
         <Link className="dashboard-link-card" href="/achievements"><RewardIcon name="star" size={22} /><span><strong>{tc("成就")}</strong><small>{tc("查看已解鎖成就")}</small></span><Icon name="arrow-right" size={18} /></Link>
           </div>
           </div>
 
-          {data.today.reviewEventCount === 0 && data.today.reviewedWordCount === 0 && data.today.selfRatedEncounterCount === 0 ? <EmptyState title={tc("今天還沒有學習記錄")} description={tc("完成第一輪複習後，這裡的今日數據會自動更新。") } action={<Link className="ui-button ui-button-secondary ui-button-small" href="/study">{tc("開始學習")}</Link>} /> : null}
+          {data.today.reviewEventCount === 0 && data.today.reviewedWordCount === 0 && data.today.selfRatedEncounterCount === 0 ? <EmptyState title={tc("今天還沒有學習記錄")} description={tc("完成第一輪複習後，這裡的今日資料會自動更新。") } action={<Link className="ui-button ui-button-secondary ui-button-small" href="/study">{tc("開始學習")}</Link>} /> : null}
         </StudentSectionStack>
       </StudentPageStack>
     </div>

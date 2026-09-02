@@ -34,6 +34,7 @@
 | [icon-system-audit-and-redesign.md](./icon-system-audit-and-redesign.md) | 修正計劃 | 已完成（local verification） | 全面清理學生、教師、管理員及共用頁面嘅舊 inline SVG、emoji、Unicode 視覺圖標，統一 EMM Style 02；authenticated browser matrix deferred |
 | [workspace-desktop-account-rail-correction.md](./workspace-desktop-account-rail-correction.md) | 修正計劃 | 已完成（local verification） | 修正教師／管理員 desktop sidebar 帳戶控制隨長頁下移，令其固定於左下 viewport；authenticated browser smoke deferred |
 | [account-pages-responsive-copy-corrections.md](./account-pages-responsive-copy-corrections.md) | 修正計劃 | 已完成（local verification） | 跨學生／教師／管理員帳號頁面修正平板／手機排版、欄位說明及過度技術化文案；完整瀏覽器裝置矩陣 deferred |
+| [traditional-chinese-source-copy-baseline.md](./traditional-chinese-source-copy-baseline.md) | i18n／跨頁文案修正計劃 | 已完成（本地 implementation／verification；external gates deferred） | 把產品可見中文固定為繁體香港中文原始基準，繁體顯示不再做簡轉繁，簡體只由繁體衍生；修正「乾擾項」錯轉並建立全站 source regression |
 | [teacher-class-summary-improvement.md](./teacher-class-summary-improvement.md) | 修正計劃 | 已完成（local verification） | 改善教師班級摘要的使用率、待複習人數、比例視覺化、A1／A2／B1／B2 分項掌握及欄位說明；不涉及加分機制；登入後瀏覽器矩陣 deferred |
 | [icon-semantic-deduplication.md](./icon-semantic-deduplication.md) | 修正計劃 | 已完成（local verification） | 全站圖標語義去重，分開單元闖關、統計、排行榜、成就、名冊、單詞庫及客觀測驗入口；登入後瀏覽器矩陣 deferred |
 

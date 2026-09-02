@@ -99,9 +99,9 @@ export function normalizeLevelOrNull(s: unknown): LevelCode | null {
   return normalizeLevel(s);
 }
 
-/** UI/API 用「未分类」代表数据库的 NULL category；查询前统一映射回来。 */
+/** UI／API 用「未分類」代表資料庫的 NULL category；兼容舊簡體 route value。 */
 export function unitCategoryToStorage(category: string | null): string | null {
-  return category === "未分类" ? null : category;
+  return category === "未分類" || category === "未分类" ? null : category;
 }
 
 /** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
@@ -243,10 +243,10 @@ export function aggregateAllLevels(
   };
 
   for (const u of unitTotals) {
-    ensureUnit(u.level, u.category ?? "未分类").total += u.total;
+    ensureUnit(u.level, u.category ?? "未分類").total += u.total;
   }
   for (const r of reviews) {
-    const s = ensureUnit(r.level, r.category ?? "未分类");
+    const s = ensureUnit(r.level, r.category ?? "未分類");
     s.learned += 1;
     if (r.repetitions >= MASTERED_REPETITIONS) s.mastered += 1;
     if (new Date(r.nextReviewDate) <= now) s.due += 1;
@@ -269,7 +269,7 @@ export function aggregateUnitStatRows(rows: UnitStatRow[]): LevelAggregation[] {
   const levels = [...new Set(rows.map((row) => row.level))].sort(levelCompare);
   const agg = new Map<string, Map<string, UnitStat>>();
   for (const row of rows) {
-    const category = row.category ?? "未分类";
+    const category = row.category ?? "未分類";
     const level = agg.get(row.level) ?? new Map<string, UnitStat>();
     level.set(category, {
       total: row.total,

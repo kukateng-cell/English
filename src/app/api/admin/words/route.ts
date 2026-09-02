@@ -48,7 +48,7 @@ export async function GET() {
       reviewCount: word._count.reviewEvents,
     })));
   } catch {
-    return NextResponse.json({ error: "获取词义列表失败" }, { status: 500 });
+    return NextResponse.json({ error: "取得詞義清單失敗" }, { status: 500 });
   }
 }
 

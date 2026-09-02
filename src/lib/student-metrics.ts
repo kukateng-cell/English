@@ -65,7 +65,7 @@ export function buildUnlockedWordScope(
           withCurrentCatalogWord(),
           {
             level: normalizeLevel(level.level),
-            category: unit.name === "未分类" ? null : unit.name,
+            category: unit.name === "未分類" ? null : unit.name,
           },
         ],
       })),

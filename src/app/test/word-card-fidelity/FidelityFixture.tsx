@@ -14,7 +14,7 @@ const fixtures = [
     id: "localized",
     term: "internationalization",
     level: "A2",
-    category: "日常生活和校园沟通以及世界各地的学习场景",
+    category: "日常生活和校園溝通以及世界各地的學習場景",
     phonetic: null,
   },
 ] as const;

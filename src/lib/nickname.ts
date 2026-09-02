@@ -52,9 +52,9 @@ export type NicknameValidation =
 
 export function validateNickname(input: string): NicknameValidation {
   const value = input.normalize("NFKC").trim().replace(/\s+/g, " ");
-  if (!value) return { ok: false, error: "昵称不能为空" };
+  if (!value) return { ok: false, error: "暱稱不能為空" };
   if (/[\p{Cc}\p{Cf}]/u.test(value)) {
-    return { ok: false, error: "昵称包含不可见或控制字符" };
+    return { ok: false, error: "暱稱包含不可見或控制字元" };
   }
 
   const length = [...graphemeSegmenter.segment(value)].length;
@@ -65,18 +65,18 @@ export function validateNickname(input: string): NicknameValidation {
     return {
       ok: false,
       error:
-        "昵称必须为 " +
+        "暱稱必須為 " +
         MIN_NICKNAME_GRAPHEMES +
         "–" +
         MAX_NICKNAME_GRAPHEMES +
-        " 个字符",
+        " 個字元",
     };
   }
 
   if (!/^[\p{L}\p{M}\p{N} .'’·_-]+$/u.test(value)) {
     return {
       ok: false,
-      error: "昵称只可包含文字、数字、空格及有限分隔符",
+      error: "暱稱只可包含文字、數字、空格及有限分隔符",
     };
   }
 
@@ -84,21 +84,21 @@ export function validateNickname(input: string): NicknameValidation {
     /(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,})/iu.test(value) ||
     /(?:\+?\d[\d -]{6,}\d)/u.test(value)
   ) {
-    return { ok: false, error: "昵称不可包含网址、Email 或电话号码" };
+    return { ok: false, error: "暱稱不可包含網址、Email 或電話號碼" };
   }
 
   const normalized = compactForComparison(value);
   if (
     RESERVED_NAMES.some((term) => normalized === compactForComparison(term))
   ) {
-    return { ok: false, error: "这个昵称属于系统保留名称" };
+    return { ok: false, error: "這個暱稱屬於系統保留名稱" };
   }
   if (
     BLOCKED_TERMS.some((term) =>
       normalized.includes(compactForComparison(term)),
     )
   ) {
-    return { ok: false, error: "昵称包含不适合作为名称的内容" };
+    return { ok: false, error: "暱稱包含不適合作為名稱的內容" };
   }
 
   return { ok: true, value, normalized };
@@ -133,7 +133,7 @@ export function validateNicknameAgainstIdentity(
     (emailKey && nicknameKey === emailKey) ||
     (emailLocalKey && nicknameKey === emailLocalKey)
   ) {
-    return { ok: false, error: "昵称不可使用真实姓名、账号或联络资料" };
+    return { ok: false, error: "暱稱不可使用真實姓名、帳號或聯絡資料" };
   }
   return result;
 }

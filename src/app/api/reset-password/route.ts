@@ -38,14 +38,14 @@ export async function POST(req: Request) {
     !(await hasValidRecentAuthGrant({ req, userId: auth.userId }))
   ) {
     return NextResponse.json(
-      { error: "高权限账号修改密码前必须重新登录" },
+      { error: "高權限帳號修改密碼前必須重新登入" },
       { status: 401 },
     );
   }
 
   const body = await req.json().catch(() => null);
   if (!body) {
-    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+    return NextResponse.json({ error: "請求體格式錯誤" }, { status: 400 });
   }
 
   const { currentPassword, newPassword } = body as {
@@ -54,10 +54,10 @@ export async function POST(req: Request) {
   };
 
   if (typeof currentPassword !== "string" || !currentPassword) {
-    return NextResponse.json({ error: "请输入当前密码" }, { status: 400 });
+    return NextResponse.json({ error: "請輸入目前密碼" }, { status: 400 });
   }
   if (typeof newPassword !== "string") {
-    return NextResponse.json({ error: "请输入新密码" }, { status: 400 });
+    return NextResponse.json({ error: "請輸入新密碼" }, { status: 400 });
   }
   const policyError = passwordPolicyError(newPassword);
   if (policyError) {
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
   const limit = await checkPasswordChangeLimit(auth.userId, ip);
   if (!limit.ok) {
     return NextResponse.json(
-      { error: "当前密码尝试过于频繁，请稍后再试" },
+      { error: "目前密碼嘗試過於頻繁，請稍後再試" },
       {
         status: 429,
         headers: { "Retry-After": String(limit.retryAfterSec ?? 900) },
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     select: { accountName: true, passwordHash: true, tokenVersion: true, credentialRevision: true },
   });
   if (!user) {
-    return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+    return NextResponse.json({ error: "用戶不存在" }, { status: 404 });
   }
 
   // Existing hashes may predate the 72-byte policy. Permit their current
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
   if (!valid) {
     const retryAfterSec = await recordPasswordChangeFailure(auth.userId);
     return NextResponse.json(
-      { error: "当前密码不正确" },
+      { error: "目前密碼不正確" },
       {
         status: 400,
         headers:
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
 
   if (currentPassword === newPassword) {
     return NextResponse.json(
-      { error: "新密码不能与当前密码相同" },
+      { error: "新密碼不能與目前密碼相同" },
       { status: 400 },
     );
   }
@@ -143,7 +143,7 @@ export async function POST(req: Request) {
   });
   if (updated !== 1) {
     return NextResponse.json(
-      { error: "密码已被其他操作更新，请重新登录后再试" },
+      { error: "密碼已被其他操作更新，請重新登入後再試" },
       { status: 409 },
     );
   }

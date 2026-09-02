@@ -244,14 +244,14 @@ test("superseded credential preserves the answer for a fresh session", async () 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
     if (String(input) === "/api/study") {
-      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+      return new Response(JSON.stringify({ error: "學習 session 無效或已過期" }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       });
     }
     return new Response(
       JSON.stringify({
-        error: "学习 session 已由较新的凭证取代",
+        error: "學習 session 已由較新的憑證取代",
         code: "SESSION_SUPERSEDED",
         requiresQueueReload: true,
       }),
@@ -322,13 +322,13 @@ test("permanent recovery provenance errors become visible blocked rows", async (
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
     if (String(input) === "/api/study") {
-      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+      return new Response(JSON.stringify({ error: "學習 session 無效或已過期" }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       });
     }
     return new Response(JSON.stringify({
-      error: "学习 session 已由较新的凭证取代",
+      error: "學習 session 已由較新的憑證取代",
       code: "SESSION_SUPERSEDED",
       requiresQueueReload: true,
     }), { status: 409, headers: { "Content-Type": "application/json" } });
@@ -336,7 +336,7 @@ test("permanent recovery provenance errors become visible blocked rows", async (
   try {
     await flushPendingReviews("user-a");
     globalThis.fetch = async () => new Response(JSON.stringify({
-      error: "原学习 session 已被清理，无法恢复答案",
+      error: "原學習 session 已被清理，無法恢復答案",
       code: "SOURCE_SESSION_GONE",
     }), { status: 404, headers: { "Content-Type": "application/json" } });
     await flushPendingReviews("user-a");
@@ -359,13 +359,13 @@ test("RECOVERY_BUSY keeps the exact answer pending until Retry-After", async () 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
     if (String(input) === "/api/study") {
-      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+      return new Response(JSON.stringify({ error: "學習 session 無效或已過期" }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       });
     }
     return new Response(JSON.stringify({
-      error: "学习 session 已由较新的凭证取代",
+      error: "學習 session 已由較新的憑證取代",
       code: "SESSION_SUPERSEDED",
       requiresQueueReload: true,
     }), { status: 409, headers: { "Content-Type": "application/json" } });
@@ -374,7 +374,7 @@ test("RECOVERY_BUSY keeps the exact answer pending until Retry-After", async () 
     await flushPendingReviews("user-a");
     const beforeRecovery = Date.now();
     globalThis.fetch = async () => new Response(JSON.stringify({
-      error: "恢复凭证正由另一项操作使用",
+      error: "恢復憑證正由另一項操作使用",
       code: "RECOVERY_BUSY",
     }), {
       status: 409,
@@ -744,7 +744,7 @@ test("legacy outbox rows become visibly blocked after one adoption pass", async 
     assert.equal(calls, 0);
     assert.equal(pendingReviewCount("user-a"), 0);
     assert.equal(blockedReviewCount("user-a"), 1);
-    assert.match(loadPendingReviews("user-a")[0].lastError ?? "", /来源凭证/);
+    assert.match(loadPendingReviews("user-a")[0].lastError ?? "", /來源憑證/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -764,7 +764,7 @@ test("expired session credentials are reauthorized and retried once", async () =
     const url = String(input);
     requests.push(url);
     if (requests.length === 1) {
-      return new Response(JSON.stringify({ error: "学习 session 无效或已过期" }), {
+      return new Response(JSON.stringify({ error: "學習 session 無效或已過期" }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       });
@@ -889,8 +889,8 @@ test("rotation marker failure leaves old credentials untouched", () => {
 });
 
 for (const [status, error] of [
-  [404, "原学习 session 不存在或已清理"],
-  [403, "该单元已锁定"],
+  [404, "原學習 session 不存在或已清理"],
+  [403, "該單元已鎖定"],
 ] as const) {
   test(`renewal ${status} blocks an expired row instead of retrying forever`, async () => {
     installStorage();
@@ -904,7 +904,7 @@ for (const [status, error] of [
       calls++;
       if (String(input) === "/api/study") {
         return new Response(
-          JSON.stringify({ error: "学习 session 无效或已过期" }),
+          JSON.stringify({ error: "學習 session 無效或已過期" }),
           { status: 403, headers: { "Content-Type": "application/json" } },
         );
       }
@@ -935,7 +935,7 @@ test("renewal 401 stays pending for retry after signing in again", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) =>
     new Response(
-      JSON.stringify({ error: String(input).includes("credentials") ? "未登录" : "学习 session 无效或已过期" }),
+      JSON.stringify({ error: String(input).includes("credentials") ? "未登入" : "學習 session 無效或已過期" }),
       {
         status: String(input).includes("credentials") ? 401 : 403,
         headers: { "Content-Type": "application/json" },
@@ -963,11 +963,11 @@ test("renewal rate limits set a cooldown before another credential request", asy
     calls++;
     if (String(input) === "/api/study") {
       return new Response(
-        JSON.stringify({ error: "学习 session 无效或已过期" }),
+        JSON.stringify({ error: "學習 session 無效或已過期" }),
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
-    return new Response(JSON.stringify({ error: "请稍后再试" }), {
+    return new Response(JSON.stringify({ error: "請稍後再試" }), {
       status: 429,
       headers: {
         "Content-Type": "application/json",

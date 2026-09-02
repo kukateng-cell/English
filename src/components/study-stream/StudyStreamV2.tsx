@@ -54,13 +54,13 @@ function scopeCheckpointKey(): string {
 
 function errorText(value: unknown): string {
   if (value instanceof StudyStreamOutboxCorruptError) {
-    return "本机待同步学习操作已损坏，学习流已暂停；请保留此页面并联系支持人员恢复同步。";
+    return "本機待同步學習操作已損壞，學習流已暫停；請保留此頁面並聯絡支援人員恢復同步。";
   }
   if (value instanceof TypeError && /fetch/i.test(value.message)) {
-    return "网络暂时不可用；待同步操作已保留，请恢复网络后重试。";
+    return "網絡暫時不可用；待同步操作已保留，請恢復網絡後重試。";
   }
   if (value instanceof Error && value.message) return value.message;
-  return "学习同步暂时不可用，请检查网络后重试";
+  return "學習同步暫時不可用，請檢查網絡後重試";
 }
 
 interface StudyStreamRequestError extends Error {
@@ -89,7 +89,7 @@ async function readResponse(response: Response): Promise<unknown> {
   if (!response.ok) {
     const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
       ? data.error
-      : `学习操作失败（${response.status}）`;
+      : `學習操作失敗（${response.status}）`;
     const code = typeof data === "object" && data !== null && "code" in data && typeof data.code === "string"
       ? data.code
       : undefined;
@@ -126,7 +126,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     setUnitSummary(undefined);
     setOutboxCount(0);
     setSyncBlocked(true);
-    setSyncError("登入已失效，请重新登录");
+    setSyncError("登入已失效，請重新登入");
     if (typeof window !== "undefined") {
       const callbackUrl = `${window.location.pathname}${window.location.search}`;
       router.replace(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
@@ -160,7 +160,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     });
     const data = await readResponse(response);
     if (typeof data !== "object" || data === null || !((data as Record<string, unknown>).assigned === true)) {
-      throw new Error("当前账户未获得 V2 学习流分配");
+      throw new Error("目前帳戶未獲得 V2 學習流分配");
     }
     return data as PublicStreamResponse;
   }, []);
@@ -182,7 +182,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     });
     const data = await readResponse(response);
     if (typeof data !== "object" || data === null || (data as Record<string, unknown>).ok !== true) {
-      throw new Error("学习操作回执无效");
+      throw new Error("學習操作回執無效");
     }
     return data as PublicStreamActionResponse;
   }, []);
@@ -196,7 +196,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     });
     const data = await readResponse(response);
     if (typeof data !== "object" || data === null || (data as Record<string, unknown>).ok !== true) {
-      throw new Error("学习操作恢复回执无效");
+      throw new Error("學習操作恢復回執無效");
     }
     return data as PublicStreamActionResponse;
   }, []);
@@ -494,7 +494,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     : "/";
 
   if (loading && !item) {
-    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("加载连续学习流...")}</div>;
+    return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("載入連續學習流...")}</div>;
   }
   if (syncError && !item) {
     return <ErrorBanner message={syncError} onRetry={() => void reloadStream()} />;
@@ -503,10 +503,10 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   return (
     <div className="flex min-h-full flex-col pb-8">
       <div className="study-stream-header mx-auto flex w-full items-center justify-between px-5 pt-5 pb-3">
-        <Link href={leaveHref} aria-label={tc("离开学习")} className="study-header-icon study-header-back">
+        <Link href={leaveHref} aria-label={tc("離開學習")} className="study-header-icon study-header-back">
           <Icon name="chevron-left" size={26} />
         </Link>
-        <h1 data-testid="study-stream-title" className="study-stream-title">{tc("连续学习")}</h1>
+        <h1 data-testid="study-stream-title" className="study-stream-title">{tc("連續學習")}</h1>
         <div className="flex items-center gap-2">
           <ThemeToggle className="study-header-icon study-header-theme" />
           <LogoutButton />
@@ -515,16 +515,16 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
 
       {syncBlocked && (
         <div className="mx-auto mb-4 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-[var(--danger)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger)]" role="alert">
-          <span>{tc(syncError ?? "学习操作尚未同步，当前项目已暂停")}</span>
-          <button type="button" onClick={() => void retrySync()} disabled={actionPending} className="shrink-0 font-semibold underline disabled:opacity-50">{tc("重试")}</button>
+          <span>{tc(syncError ?? "學習操作尚未同步，目前項目已暫停")}</span>
+          <button type="button" onClick={() => void retrySync()} disabled={actionPending} className="shrink-0 font-semibold underline disabled:opacity-50">{tc("重試")}</button>
         </div>
       )}
-      {outboxCount > 0 && !syncBlocked ? <p className="mx-auto mb-3 w-full max-w-md px-5 text-center text-[12px] text-[var(--muted)]">{tc(`待同步 ${outboxCount} 项`)}</p> : null}
+      {outboxCount > 0 && !syncBlocked ? <p className="mx-auto mb-3 w-full max-w-md px-5 text-center text-[12px] text-[var(--muted)]">{tc(`待同步 ${outboxCount} 項`)}</p> : null}
 
       {unitSummary ? (
-        <div className="study-stream-summary mx-auto mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[12px] text-[var(--muted)]" aria-label={tc("单元学习摘要") as string}>
-          <span>{tc("覆盖词数")} {unitSummary.encounteredWordCount}/{unitSummary.totalWordCount}</span>
-          <span>{tc("客观认读证据")} {unitSummary.objectiveRecognitionCount}</span>
+        <div className="study-stream-summary mx-auto mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[12px] text-[var(--muted)]" aria-label={tc("單元學習摘要") as string}>
+          <span>{tc("覆蓋詞數")} {unitSummary.encounteredWordCount}/{unitSummary.totalWordCount}</span>
+          <span>{tc("客觀認讀證據")} {unitSummary.objectiveRecognitionCount}</span>
         </div>
       ) : null}
 
@@ -552,8 +552,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           )
         ) : (
           <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center text-center">
-            <p className="mb-4 text-[var(--muted)]">{tc(unitSummary ? "本单元目前没有可安全安排的学习项目" : "目前没有可安全安排的学习项目")}</p>
-            <button type="button" onClick={() => void reloadStream()} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold">{tc("重新载入")}</button>
+            <p className="mb-4 text-[var(--muted)]">{tc(unitSummary ? "本單元目前沒有可安全安排的學習項目" : "目前沒有可安全安排的學習項目")}</p>
+            <button type="button" onClick={() => void reloadStream()} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold">{tc("重新載入")}</button>
           </div>
         )}
       </div>
@@ -600,8 +600,8 @@ function LearningCardView({
         onSwipeLeft={() => onSelfRating("selfForgot")}
         onSwipeRight={() => onSelfRating("selfRecalled")}
         disabled={disabled}
-        cardHint={tc("先试着想一想这个词的中文意思")}
-        cardHintSecondary={showLongPressHint ? tc("长按 3 秒揭示答案") : undefined}
+        cardHint={tc("先試著想一想這個詞的中文意思")}
+        cardHintSecondary={showLongPressHint ? tc("長按 3 秒揭示答案") : undefined}
         cardHintState="think"
         cardBackContent={revealed ? (
           <div className="word-card-answer-definition">
@@ -615,8 +615,8 @@ function LearningCardView({
         onCardLongPress={revealed ? undefined : onReveal}
         longPressDurationMs={3_000}
         swipeEnabled={revealed}
-        swipeLeftLabel={tc("和刚才想的不一样")}
-        swipeRightLabel={tc("和刚才想的一样")}
+        swipeLeftLabel={tc("和剛才想的不一樣")}
+        swipeRightLabel={tc("和剛才想的一樣")}
         showInteractionHint={revealed}
         interactionEpoch={epoch}
       >
@@ -631,7 +631,7 @@ function LearningCardView({
                 className="swipe-action swipe-action-left"
               >
                 <Icon name="arrow-left" size={22} />
-                {tc("和刚才想的不一样")}
+                {tc("和剛才想的不一樣")}
               </button>
               <button
                 type="button"
@@ -640,7 +640,7 @@ function LearningCardView({
                 disabled={disabled}
                 className="swipe-action swipe-action-right"
               >
-                {tc("和刚才想的一样")}
+                {tc("和剛才想的一樣")}
                 <Icon name="arrow-right" size={22} />
               </button>
             </div>
@@ -674,9 +674,9 @@ function ObjectiveProbeView({
     <div className="study-stream-probe mx-auto w-full px-3">
       <div className="quiz-intro">
         <div className="quiz-intro-copy">
-          <span className="quiz-eyebrow">{tc("认字小测")}</span>
-          <h2 data-testid="study-stream-probe-title">{tc("把意思配回单词")}</h2>
-          <p>{tc("先回想，再选出最贴近的意思。")}</p>
+          <span className="quiz-eyebrow">{tc("認字小測")}</span>
+          <h2 data-testid="study-stream-probe-title">{tc("把意思配回單詞")}</h2>
+          <p>{tc("先回想，再選出最貼近的意思。")}</p>
         </div>
       </div>
       <div
@@ -690,20 +690,20 @@ function ObjectiveProbeView({
         } : undefined}
         role={feedbackContinuationEnabled ? "button" : undefined}
         tabIndex={feedbackContinuationEnabled ? 0 : undefined}
-        aria-label={feedbackContinuationEnabled ? tc("轻点一下任意区域") : undefined}
+        aria-label={feedbackContinuationEnabled ? tc("輕點一下任意區域") : undefined}
       >
         <div className="quiz-prompt-meta">
           <span className="quiz-prompt-label">{tc(isEnglishToChinese ? "看英文" : "看中文")}</span>
           {item.level ? (
             <span data-testid="study-stream-probe-level" className="level-badge">
-              {item.level} · {tc(item.category ?? "未分类")}
+              {item.level} · {tc(item.category ?? "未分類")}
             </span>
           ) : null}
         </div>
         <h2 className={`quiz-card-term quiz-probe-prompt${isEnglishToChinese ? "" : " is-definition"}`}>
           {tc(question.prompt)}
         </h2>
-        <p className="quiz-instruction">{tc(isEnglishToChinese ? "选出它的中文意思" : "选出最贴近的英文解释")}</p>
+        <p className="quiz-instruction">{tc(isEnglishToChinese ? "選出它的中文意思" : "選出最貼近的英文解釋")}</p>
         <div data-testid="study-stream-probe-options" className="quiz-options" role="radiogroup" aria-label={tc("客觀題選項") as string}>
           {question.options.map((option, index) => {
             const feedback = item.feedback;
@@ -739,7 +739,7 @@ function ObjectiveProbeView({
         </div>
         <span className="sr-only" aria-live="polite">
           {item.feedback
-            ? tc(item.feedback.isCorrect ? "答案已显示为正确" : "答案已显示为不正确")
+            ? tc(item.feedback.isCorrect ? "答案已顯示為正確" : "答案已顯示為不正確")
             : null}
         </span>
       </div>

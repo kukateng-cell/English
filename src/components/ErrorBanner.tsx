@@ -19,7 +19,7 @@ interface ErrorBannerProps {
 export default function ErrorBanner({
   message,
   onRetry,
-  retryLabel = "重试",
+  retryLabel = "重試",
 }: ErrorBannerProps) {
   const { tc } = useLocale();
   return (

@@ -423,7 +423,7 @@ Product rollout 唔依賴 R1／R2 完成；研究功能亦唔可以延遲正常�
 | P-006 | 本階段先完成 local product-complete；local all-user mode 只限 non-production，external pilot／production／research／destructive contract cleanup deferred | 已確認；由 Implementation I-010 落實 |
 | P-007 | 首輪 Visual review follow-up 屬同一 V2 implementation scope：建立 reveal／flip、卡下同寬 self-rating 及學生名稱 display localization；其中 tap-to-reveal presentation 其後由 P-008／I-012 正式取代 | 已落實；current reveal behavior 以 P-008／Contract C-011 為準 |
 | P-008 | I-012 係同一 V2 presentation／interaction scope 嘅 retrieval pause 修正：延遲提示、stationary long-press、提示／按住進度視覺回饋及答案後一樣／不一樣 swipe 語義；唔改 learning／evidence semantics | 已落實並驗證；由 Implementation I-012 完成 |
-| P-009 | 實際 local smoke 發現 session expiry 後 V2 outbox retry 會重試同一失效 session，並有 V2 loading source literal 漏出簡體；以 server-authoritative recovery 保留原 operationId／outbox，對 revoked／無 lineage credential fail closed，並統一 V2 system copy 由 canonical 簡體經 `tc()` 顯示 | 已落實並驗證；由 Implementation I-013 完成，唔涉及 migration／production／research gate |
+| P-009 | 實際 local smoke 發現 session expiry 後 V2 outbox retry 會重試同一失效 session，並有 V2 loading source literal 漏出簡體；以 server-authoritative recovery 保留原 operationId／outbox，對 revoked／無 lineage credential fail closed，並統一 V2 system copy 經 `tc()` 顯示；當時「canonical 簡體」過渡策略已於 2026-09-02 由[繁體中文原始文案基準修正計劃](./traditional-chinese-source-copy-baseline.md)取代 | 已落實並驗證；由 Implementation I-013 完成；現行 source contract 以繁體為 canonical，唔涉及 migration／production／research gate |
 | P-010 | 實際 local smoke 發現 item credential 過期／refresh 輪換後，V2 outbox action 未能進入 I-013 recovery；以 bounded digest lineage + explicit item recovery + lease CAS 修正，普通 action 對未知 credential／revoked session 仍 fail closed | 已落實並驗證；由 Implementation I-014 完成，唔涉及 migration／production／research gate |
 | P-011 | 使用者視覺 review 指出兩段 retrieval prompt 呼吸過強、間距過窄、secondary prompt 出現突兀及 V2 queue note 不需要；維持 long-press／audio／learning contract，只調整 prompt placement、低幅度 motion、progressive enter 同 copy | 已落實並驗證；由 Implementation I-015 完成，唔涉及 migration／production／research gate |
 | P-012 | 使用者要求以 EMM Style 02 handoff 收斂 V1／V2 study surface：恢復 level／category metadata、放大連續學習／認讀卡 hierarchy、發音圖示加文字，並重整 Objective Probe／V1 QuizCard 題目／選項 hierarchy；只改 presentation 及 additive output metadata | 已落實並驗證；由 Implementation I-016 完成，唔涉及 migration／production／research gate |
@@ -586,7 +586,7 @@ C-006 quality mapping 同 C-007 policy 起始參數其後已獲使用者批准�
 
 - 首頁 library projection 改為只計目前已解鎖單元；卡片標題直接標示「已解鎖內容進度」，並在同一位置提供「詳細統計」入口，原有詞表入口保留。
 - 統計 API／頁面保留已解鎖內容總覽，另按 A1／A2／B1／B2 顯示每級詞數、已學、長期掌握百分比及「已解鎖／未解鎖」狀態；解鎖規則、SM-2 口徑及排行榜／教師端查詢不變。
-- 帳戶選單預設文案由 canonical 簡體來源「回到首页」轉換為繁體顯示「回到首頁」，簡體 locale 顯示「回到首页」。
+- 帳戶選單當時以簡體來源「回到首页」經 `tc()` 轉換為繁體顯示「回到首頁」，簡體 locale 顯示「回到首页」；該過渡做法已於 2026-09-02 由[繁體中文原始文案基準修正計劃](./traditional-chinese-source-copy-baseline.md)取代，現行 source literal 為繁體「回到首頁」。
 - 必要驗證：`npm test` 127 passed；指定檔案 `npm run lint` passed；`npx tsc --noEmit` passed；`git diff --check` passed。
 - 無 schema／migration／contract change，未執行 contract migration、production deploy、browser E2E／build、真實學生 pilot 或 research／consent gate；以上 external gates 仍 deferred。
 

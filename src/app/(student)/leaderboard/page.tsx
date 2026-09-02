@@ -100,13 +100,13 @@ export default function LeaderboardPage() {
           <Icon name="lock" size={24} />
         </div>
         <p className="mb-4 text-[15px] text-[var(--muted)] dark:text-[var(--muted)]">
-          {tc("请先登录后查看排行榜")}
+          {tc("請先登入後查看排行榜")}
         </p>
         <Link
           href="/login"
           className="flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-8 text-[15px] font-semibold text-[var(--color-surface)] shadow-card active:scale-[0.98]"
         >
-          {tc("前往登录")}
+          {tc("前往登入")}
         </Link>
       </div>
     );
@@ -116,7 +116,7 @@ export default function LeaderboardPage() {
     return (
       <div className="flex min-h-full items-center justify-center px-6">
         <ErrorBanner
-          message="加载失败，请检查网络后重试"
+          message="載入失敗，請檢查網絡後重試"
           onRetry={() => setReloadKey((key) => key + 1)}
         />
       </div>
@@ -157,18 +157,18 @@ export default function LeaderboardPage() {
             <RewardIcon name="trophy" size={38} />
           </div>
           <h1 className="mb-1 text-xl font-bold text-[var(--text)] dark:text-[var(--text)] sm:text-2xl">
-            {tc("学习排行榜")}
+            {tc("學習排行榜")}
           </h1>
           <p className="text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("和同学一起保持学习动力")}
+            {tc("和同學一起保持學習動力")}
           </p>
         </div>
 
         {error && (
           <div role="alert" aria-live="assertive" className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--danger)]/20 bg-[var(--danger-bg)] px-4 py-3 text-[12px] text-[var(--danger)]">
-            <span>{tc("排行榜范围暂时无法加载，请重试")}</span>
+            <span>{tc("排行榜範圍暫時無法載入，請重試")}</span>
             <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="shrink-0 rounded-xl border border-[var(--danger)]/30 px-3 py-1.5 font-semibold">
-              {tc("重试")}
+              {tc("重試")}
             </button>
           </div>
         )}

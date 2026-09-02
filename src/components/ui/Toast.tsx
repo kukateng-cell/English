@@ -8,7 +8,7 @@ export default function Toast({
   message,
   action,
   onDismiss,
-  dismissLabel = "关闭提示",
+  dismissLabel = "關閉提示",
 }: {
   variant?: ToastVariant;
   message: ReactNode;

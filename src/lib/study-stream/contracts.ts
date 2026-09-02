@@ -165,22 +165,22 @@ function parsePayload(
 }
 
 export function parseStudyStreamAction(value: unknown): ParseActionResult {
-  if (!isRecord(value)) return { ok: false, error: "请求体格式错误" };
+  if (!isRecord(value)) return { ok: false, error: "請求體格式錯誤" };
   if (![...ACTION_KEYS].every((key) => Object.prototype.hasOwnProperty.call(value, key))) {
-    return { ok: false, error: "V2 action 字段不完整" };
+    return { ok: false, error: "V2 action 欄位不完整" };
   }
-  if (!hasOnlyKeys(value, [...ACTION_KEYS])) return { ok: false, error: "V2 action 含有未授权字段" };
-  if (value.flowVersion !== STUDY_STREAM_FLOW_VERSION) return { ok: false, error: "flowVersion 无效" };
-  if (!isBoundedString(value.studySessionId, 8, 128)) return { ok: false, error: "studySessionId 无效" };
-  if (!isBoundedString(value.streamItemId, 8, 128)) return { ok: false, error: "streamItemId 无效" };
-  if (!isBoundedString(value.operationId, 8, 200) || !ACTION_ID_PATTERN.test(value.operationId)) return { ok: false, error: "operationId 无效" };
-  if (!isBoundedString(value.itemCredential, 32, 256)) return { ok: false, error: "itemCredential 无效" };
-  if (typeof value.actionKind !== "string" || !["REVEAL", "SELF_RATING", "OBJECTIVE_ANSWER", "FEEDBACK_ACK"].includes(value.actionKind)) return { ok: false, error: "actionKind 无效" };
+  if (!hasOnlyKeys(value, [...ACTION_KEYS])) return { ok: false, error: "V2 action 含有未授權欄位" };
+  if (value.flowVersion !== STUDY_STREAM_FLOW_VERSION) return { ok: false, error: "flowVersion 無效" };
+  if (!isBoundedString(value.studySessionId, 8, 128)) return { ok: false, error: "studySessionId 無效" };
+  if (!isBoundedString(value.streamItemId, 8, 128)) return { ok: false, error: "streamItemId 無效" };
+  if (!isBoundedString(value.operationId, 8, 200) || !ACTION_ID_PATTERN.test(value.operationId)) return { ok: false, error: "operationId 無效" };
+  if (!isBoundedString(value.itemCredential, 32, 256)) return { ok: false, error: "itemCredential 無效" };
+  if (typeof value.actionKind !== "string" || !["REVEAL", "SELF_RATING", "OBJECTIVE_ANSWER", "FEEDBACK_ACK"].includes(value.actionKind)) return { ok: false, error: "actionKind 無效" };
   const clientKnownRevision = value.clientKnownRevision;
-  if (typeof clientKnownRevision !== "number" || !Number.isSafeInteger(clientKnownRevision) || clientKnownRevision < 0) return { ok: false, error: "clientKnownRevision 无效" };
+  if (typeof clientKnownRevision !== "number" || !Number.isSafeInteger(clientKnownRevision) || clientKnownRevision < 0) return { ok: false, error: "clientKnownRevision 無效" };
 
   const payload = parsePayload(value.actionKind as StudyStreamActionKind, value.payload);
-  if (!payload) return { ok: false, error: "action payload 无效" };
+  if (!payload) return { ok: false, error: "action payload 無效" };
   return {
     ok: true,
     value: {

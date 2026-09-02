@@ -739,7 +739,7 @@ function CatalogOverviewWorkspace({
               };
               if (reviewPayload.signature !== payload.workspaceSignature) {
                 if (attempt < 2) continue;
-                throw new Error(tc("词库刚刚有更新，请重新载入。"));
+                throw new Error(tc("詞庫剛剛有更新，請重新載入。"));
               }
             }
           }
@@ -783,7 +783,7 @@ function CatalogOverviewWorkspace({
             pending: reviewPayload?.requests ?? null,
           };
         }
-        throw new Error(tc("词库刚刚有更新，请重新载入。"));
+        throw new Error(tc("詞庫剛剛有更新，請重新載入。"));
       } catch (cause) {
         if (
           generation !== catalogLoadGenerationRef.current ||
@@ -922,7 +922,7 @@ function CatalogOverviewWorkspace({
           requestQueryKey !== catalogQueryKeyRef.current
         )
           return;
-        setMessage(tc("词库刚刚有更新，列表已由第一页重新载入。"));
+        setMessage(tc("詞庫剛剛有更新，清單已由第一頁重新載入。"));
         await loadCatalog();
         return;
       }
@@ -998,7 +998,7 @@ function CatalogOverviewWorkspace({
         setPendingHasMore(false);
         pendingSignatureRef.current = "";
         setSelected((current) => (current?.pendingRequest ? null : current));
-        setMessage(tc("审核权限已经更新，待审核工具已收起。"));
+        setMessage(tc("審核權限已經更新，待審核工具已收起。"));
         return;
       }
       if (response.status === 503) {
@@ -1023,7 +1023,7 @@ function CatalogOverviewWorkspace({
             ? null
             : current,
         );
-        setMessage(tc("这项申请已经处理，画面已更新。"));
+        setMessage(tc("這項申請已經處理，畫面已更新。"));
       }
     } finally {
       pendingRefreshInFlightRef.current = false;
@@ -1424,7 +1424,7 @@ function CatalogOverviewWorkspace({
     if (
       immediate &&
       !window.confirm(
-        tc("这个词义会立即停止出现在新学习题目；学生历史会保留。确定停用？"),
+        tc("這個詞義會立即停止出現在新學習題目；學生歷史會保留。確定停用？"),
       )
     )
       return;
@@ -1494,8 +1494,8 @@ function CatalogOverviewWorkspace({
       setRetrySource(null);
       setMessage(
         result.immediate && result.status === "APPROVED"
-          ? tc("词义已停用；不会再出现在新学习题目，既有历史仍会保留。")
-          : tc("已提交草稿，等待一位有权限的老师或管理员审核。"),
+          ? tc("詞義已停用；不會再出現在新學習題目，既有歷史仍會保留。")
+          : tc("已提交草稿，等待一位有權限的老師或管理員審核。"),
       );
       if (kind === "CREATE" || immediate) {
         closeDetailDialog();
@@ -1596,10 +1596,10 @@ function CatalogOverviewWorkspace({
       const actualStatus = result.request.status;
       const successMessage = result.replay
         ? actualStatus === "APPROVED"
-          ? tc("这项申请已经批准，画面已更新。")
+          ? tc("這項申請已經批准，畫面已更新。")
           : actualStatus === "REJECTED"
-            ? tc("这项申请已经拒绝，画面已更新。")
-            : tc("这项申请已经处理，画面已更新。")
+            ? tc("這項申請已經拒絕，畫面已更新。")
+            : tc("這項申請已經處理，畫面已更新。")
         : actualStatus === "APPROVED"
           ? tc("草稿已批准並更新詞庫。")
           : tc("草稿已拒絕。");
@@ -1671,7 +1671,7 @@ function CatalogOverviewWorkspace({
           </h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
             {tc(
-              "管理员及老师可以查看全部词条；一般修改由一位有权限人员审核，具权限者可即时停用。",
+              "管理員及老師可以查看全部詞條；一般修改由一位有權限人員審核，具權限者可即時停用。",
             )}
           </p>
         </div>
@@ -2434,7 +2434,7 @@ function CatalogOverviewWorkspace({
             {selected.status === "ACTIVE" && canReview ? (
               <p className="mt-2 text-xs text-[var(--danger)]">
                 {tc(
-                  "按下「立即停用」并确认后会即时生效；学生历史及审核记录会保留。",
+                  "按下「立即停用」並確認後會即時生效；學生歷史及審核記錄會保留。",
                 )}
               </p>
             ) : null}
@@ -2442,8 +2442,8 @@ function CatalogOverviewWorkspace({
               <p className="mt-3 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]">
                 {tc(
                   canReview && selected.status === "ACTIVE"
-                    ? "已有待审核修改；即时停用仍会生效，现有内容申请不会自动重新启用这个词义。"
-                    : "此词条已有待审核版本，请先完成该审核。",
+                    ? "已有待審核修改；即時停用仍會生效，現有內容申請不會自動重新啟用這個詞義。"
+                    : "此詞條已有待審核版本，請先完成該審核。",
                 )}
               </p>
             ) : null}
@@ -2520,7 +2520,7 @@ function CatalogOverviewWorkspace({
                       }
                       onClick={() => void submitChange("RETIRE")}
                     >
-                      {tc(canReview ? "立即停用" : "提交停用申请")}
+                      {tc(canReview ? "立即停用" : "提交停用申請")}
                     </button>
                   ) : null}
                 </>

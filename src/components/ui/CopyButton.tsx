@@ -46,10 +46,10 @@ export default function CopyButton({ value }: { value: string }) {
   }
 
   const label = state === "copied"
-    ? tc("已复制")
+    ? tc("已複製")
     : state === "failed"
-      ? tc("复制失败")
-      : tc("复制密码");
+      ? tc("複製失敗")
+      : tc("複製密碼");
 
   return (
     <button

@@ -62,13 +62,13 @@ export default function StudyStats() {
     return (
       <div className="mb-4 w-full rounded-[22px] border border-[var(--border)] bg-[var(--surface)] p-5 text-center dark:border-[var(--border)] dark:bg-[var(--surface)]">
         <p className="mb-2 text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
-          {tc("学习统计加载失败")}
+          {tc("學習統計載入失敗")}
         </p>
         <button
           onClick={() => setReloadKey((k) => k + 1)}
           className="text-[13px] font-medium text-[var(--primary)] underline dark:text-[var(--primary)]"
         >
-          {tc("重试")}
+          {tc("重試")}
         </button>
       </div>
     );
@@ -86,10 +86,10 @@ export default function StudyStats() {
       {/* 标题行 */}
       <div className="mb-3 flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-[14px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
-          <Icon name="bar-chart" size={16} /> {tc("今日学习")}
+          <Icon name="bar-chart" size={16} /> {tc("今日學習")}
         </span>
         <span className="inline-flex items-center gap-1 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-          {tc("点击开始")}
+          {tc("點擊開始")}
           <Icon name="arrow-right" size={14} />
         </span>
       </div>
@@ -101,7 +101,7 @@ export default function StudyStats() {
             {data.todayNew}
           </div>
           <div className="text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("今日新学")}
+            {tc("今日新學")}
           </div>
         </div>
         <div className="flex-1 rounded-2xl bg-[var(--success-bg)] px-4 py-3 dark:bg-[var(--success-bg)]">
@@ -109,7 +109,7 @@ export default function StudyStats() {
             {data.todayReviewed}
           </div>
           <div className="text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-            {tc("今日复习")}
+            {tc("今日複習")}
           </div>
         </div>
       </div>
@@ -117,7 +117,7 @@ export default function StudyStats() {
       {/* 已学进度（认字口径）*/}
       <div className="mb-1.5 flex items-center justify-between text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
         <span>
-          {tc("已学")} {data.learnedCount} / {data.totalWords}
+          {tc("已學")} {data.learnedCount} / {data.totalWords}
         </span>
         <span className="font-semibold tabular-nums text-[var(--primary)] dark:text-[var(--primary)]">
           {pct}%

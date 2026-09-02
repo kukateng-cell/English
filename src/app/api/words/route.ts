@@ -38,13 +38,13 @@ export async function GET(req: Request) {
   const categoryRaw = url.searchParams.get("category");
   const statusRaw = url.searchParams.get("status") ?? "all";
   const limitRaw = Number(url.searchParams.get("limit") ?? "20");
-  if (levelRaw && !isLevel(levelRaw)) return responseError("级别无效");
-  if (categoryRaw && categoryRaw.length > 100) return responseError("单元名称过长");
-  if (!Number.isInteger(limitRaw) || limitRaw < 1 || limitRaw > MAX_LIMIT) return responseError("分页数量无效");
+  if (levelRaw && !isLevel(levelRaw)) return responseError("級別無效");
+  if (categoryRaw && categoryRaw.length > 100) return responseError("單元名稱過長");
+  if (!Number.isInteger(limitRaw) || limitRaw < 1 || limitRaw > MAX_LIMIT) return responseError("分頁數量無效");
   const allowedStatuses: StudentWordStatus[] = ["unseen", "learning", "due", "mastered"];
-  if (statusRaw !== "all" && !allowedStatuses.includes(statusRaw as StudentWordStatus)) return responseError("状态无效");
+  if (statusRaw !== "all" && !allowedStatuses.includes(statusRaw as StudentWordStatus)) return responseError("狀態無效");
   const cursor = decodeCursor(url.searchParams.get("cursor"));
-  if (url.searchParams.has("cursor") && !cursor) return responseError("游标无效");
+  if (url.searchParams.has("cursor") && !cursor) return responseError("游標無效");
 
   const visibleFilters = await getStudentVisibleWordFilters(auth.userId);
   const visibleWhere: Prisma.WordWhereInput = visibleFilters.length ? { OR: visibleFilters } : { id: "__no_visible_words__" };
@@ -80,7 +80,7 @@ export async function GET(req: Request) {
     nextCursor: hasNext && last ? encodeCursor({ term: last.term, id: last.id }) : null,
     total,
     availableLevels: LEVELS.filter((candidate) => levelRows.some((row) => row.level === candidate)),
-    availableCategories: categoryRows.map((row) => row.category ?? "未分类").sort((a, b) => a.localeCompare(b)),
+    availableCategories: categoryRows.map((row) => row.category ?? "未分類").sort((a, b) => a.localeCompare(b)),
   });
   response.headers.set("Cache-Control", "private, no-store");
   return response;

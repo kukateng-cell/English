@@ -84,11 +84,11 @@ export default function SpeechRateControl() {
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label={tc("调整朗读语速")}
+        aria-label={tc("調整朗讀語速")}
         className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)]/90 px-3 py-1.5 text-xs font-medium text-[var(--muted)] shadow-[var(--shadow-sm)] backdrop-blur transition hover:bg-[var(--border-soft)] active:scale-95"
       >
         <Icon name="volume" size={14} />
-        <span>{tc("语速")} {formatRate(rate)}</span>
+        <span>{tc("語速")} {formatRate(rate)}</span>
       </button>
 
       <AnimatePresence>
@@ -103,7 +103,7 @@ export default function SpeechRateControl() {
           >
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-semibold text-[var(--text)]">
-                {tc("朗读语速")}
+                {tc("朗讀語速")}
               </span>
               <span className="text-xs font-medium text-[var(--primary)]">
                 {formatRate(rate)}
@@ -119,7 +119,7 @@ export default function SpeechRateControl() {
               value={rate}
               onChange={(e) => commit(Number(e.target.value))}
               className="w-full accent-[var(--primary)]"
-              aria-label={tc("语速滑杆")}
+              aria-label={tc("語速滑桿")}
             />
             <div className="mt-1 flex justify-between text-[10px] text-[var(--muted)]">
               <span>{tc("慢")}</span>
@@ -154,12 +154,12 @@ export default function SpeechRateControl() {
                 onClick={preview}
                 className="flex-1 rounded-lg bg-[var(--primary)] py-2 text-xs font-medium text-[var(--color-surface)] transition hover:bg-[var(--primary-2)] active:scale-[0.98]"
               >
-                ▶ {tc("试听")}
+                ▶ {tc("試聽")}
               </button>
               <button
                 type="button"
                 onClick={stopSpeech}
-                aria-label={tc("停止朗读")}
+                aria-label={tc("停止朗讀")}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition hover:bg-[var(--border-soft)]"
               >
                 ■
@@ -167,7 +167,7 @@ export default function SpeechRateControl() {
             </div>
 
             <p className="mt-2 text-center text-[10px] text-[var(--muted)]">
-              {tc("设置会自动保存，所有朗读都会套用")}
+              {tc("設定會自動儲存，所有朗讀都會套用")}
             </p>
           </motion.div>
         )}

@@ -337,6 +337,7 @@ export async function parseRosterFile(
       const value = row.getCell(index).value;
       if (typeof value === "number" && rows.length > 0) {
         const header = rows[0]?.values[index - 1]?.trim().toLowerCase();
+        // 簡體項目是舊名單輸入 alias，不會用作介面文案。
         if (["accountname", "account", "账号", "帳號", "學生證", "学生证"].includes(header)) {
           throw new Error("學生證號／帳號儲存格必須設為文字格式");
         }

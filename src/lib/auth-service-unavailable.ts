@@ -1,4 +1,5 @@
 import type { Locale } from "@/lib/i18n/config";
+import { convertText } from "@/lib/i18n/convert";
 
 export type AuthServiceReturnTo = "/" | "/admin" | "/teacher";
 
@@ -23,12 +24,12 @@ export function buildAuthServiceUnavailableResponse(
   requestedReturnTo: string | null,
 ): Response {
   const returnTo = normalizeAuthServiceReturnTo(requestedReturnTo);
-  const traditional = locale === "zh-Hant";
-  const title = traditional ? "登入服務暫時無法使用" : "登录服务暂时无法使用";
-  const description = traditional
-    ? "目前未能驗證你的登入狀態，請稍後再試。你的帳戶資料沒有被更改。"
-    : "目前无法验证你的登录状态，请稍后再试。你的账户资料没有被更改。";
-  const retry = traditional ? "重試" : "重试";
+  const title = convertText("登入服務暫時無法使用", locale);
+  const description = convertText(
+    "目前未能驗證你的登入狀態，請稍後再試。你的帳戶資料沒有被更改。",
+    locale,
+  );
+  const retry = convertText("重試", locale);
 
   return new Response(`<!doctype html>
 <html lang="${locale}" dir="ltr">

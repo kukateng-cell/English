@@ -107,7 +107,7 @@ export default function StreakCalendar({
     <div className="w-full max-w-sm rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 text-left dark:border-[var(--border)] dark:bg-[var(--surface)]">
       <div className="mb-4 flex items-center justify-between">
         <span className="text-[15px] font-bold text-[var(--text)] dark:text-[var(--text)]">
-          {tc("连续学习")}
+          {tc("連續學習")}
         </span>
         <div className="flex items-center gap-3 text-[13px]">
           <span className="flex items-center gap-1 font-semibold text-[var(--primary)]">
@@ -156,7 +156,7 @@ export default function StreakCalendar({
 
       {!streak.studiedToday && streak.count > 0 && (
         <p className="mt-3 flex items-center justify-center gap-1 text-center text-[12px] text-[var(--primary)]">
-          {tc("今天还没打卡，学一个词就能续上")} <span className="flex h-5 w-5 items-center justify-center"><RewardIcon name="flame" size={16} /></span>
+          {tc("今天還沒打卡，學一個詞就能續上")} <span className="flex h-5 w-5 items-center justify-center"><RewardIcon name="flame" size={16} /></span>
         </p>
       )}
     </div>
