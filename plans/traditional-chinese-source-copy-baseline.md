@@ -143,3 +143,13 @@
 - 未執行 database test、migration、seed、production deploy、staging／production observation 或
   真實學生 pilot；本輪沒有 schema、資料、學習語義或 production 設定改動，以上 external gates
   不屬本地完成範圍，仍須另行授權。
+
+### 2026-09-03：Windows staging 整合驗證
+
+- 把功能分支 fast-forward 合併到 `staging` 後，source audit 在 Windows 因 `path.join()` 產生反斜線，
+  無法命中以 POSIX 相對路徑記錄的 input compatibility exceptions；這是測試路徑 portability 問題，
+  並非 production 文案違反繁體基準。
+- source audit 在檔案探索邊界把路徑正規化為 `/`，同時確保 generated directory 排除規則在
+  Windows 亦有效；產品 runtime 行為、i18n contract 及例外集合不變。
+- `npm test`：359 passed；`npm run lint`、`npx tsc --noEmit`、`npm run build`：passed，production
+  build 完成 84／84 pages。未執行需要 PostgreSQL、測試帳戶及 browser fixtures 的完整 catalog E2E。

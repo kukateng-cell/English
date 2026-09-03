@@ -36,9 +36,10 @@ function sourceFiles(): string[] {
       for (const name of fs.readdirSync(entry)) walk(path.join(entry, name));
       return;
     }
-    if (!/\.(?:ts|tsx|mts)$/u.test(entry)) return;
-    if (entry.includes("/generated/") || /\.(?:test|spec)\./u.test(entry)) return;
-    files.push(entry);
+    const normalizedEntry = entry.split(path.sep).join("/");
+    if (!/\.(?:ts|tsx|mts)$/u.test(normalizedEntry)) return;
+    if (normalizedEntry.includes("/generated/") || /\.(?:test|spec)\./u.test(normalizedEntry)) return;
+    files.push(normalizedEntry);
   };
   for (const root of ROOTS) walk(root);
   return files;
