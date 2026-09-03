@@ -34,6 +34,7 @@ if (preflight.error) throw preflight.error;
 if (preflight.status !== 0) process.exit(preflight.status ?? 1);
 
 const result = spawnSync(command, ["prisma", "migrate", "deploy"], {
+  shell: process.platform === "win32",
   stdio: "inherit",
   env: {
     ...process.env,
