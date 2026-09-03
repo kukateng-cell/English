@@ -70,13 +70,18 @@ export default defineConfig({
   );
 
   const command = process.platform === "win32" ? "npx.cmd" : "npx";
-  const result = spawnSync(command, ["prisma", "migrate", "deploy", "--config", configPath], {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      PGOPTIONS: process.env.PGOPTIONS ?? "-c lock_timeout=10s -c statement_timeout=30min",
+  const result = spawnSync(
+    command,
+    ["prisma", "migrate", "deploy", "--config", configPath],
+    {
+      shell: process.platform === "win32",
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        PGOPTIONS: process.env.PGOPTIONS ?? "-c lock_timeout=10s -c statement_timeout=30min",
+      },
     },
-  });
+  );
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {
