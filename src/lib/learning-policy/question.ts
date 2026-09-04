@@ -147,14 +147,7 @@ export function buildObjectiveQuestion(
   const targetDefinition = normalizeQuestionText(word.definition);
   const answerKey = normalizeQuestionText(answerText).toLocaleLowerCase("en-US");
   const targetAnswers = directionAnswerSet(word, direction);
-  const siblingAnswers = new Set(
-    source
-      .filter((candidate) => candidate.id !== word.id && sameText(candidate.term, targetTerm))
-      .flatMap((candidate) => [...directionAnswerSet(candidate, direction)])
-      .map((value) => normalizeQuestionText(value).toLocaleLowerCase("en-US")),
-  );
   const targetSynonyms = normalizedSet(word.synonyms);
-  const targetAntonyms = normalizedSet(word.antonyms);
   const candidates = isCuratedWord(word)
     ? curatedCandidates(word, direction).map((text, index) => ({
         id: `${word.senseId}:${direction}:${index}`,
@@ -172,7 +165,7 @@ export function buildObjectiveQuestion(
         } else {
           if (hasCjk(candidateTerm) || sameText(candidateDefinition, targetDefinition)) return false;
           const candidateTermKey = candidateTerm.toLocaleLowerCase("en-US");
-          if (targetSynonyms.has(candidateTermKey) || targetAntonyms.has(candidateTermKey)) return false;
+          if (targetSynonyms.has(candidateTermKey)) return false;
           const candidateSynonyms = normalizedSet(candidate.synonyms);
           if (candidateSynonyms.has(targetTerm.toLocaleLowerCase("en-US"))) return false;
         }
@@ -183,8 +176,8 @@ export function buildObjectiveQuestion(
   for (const candidate of order(candidates, `${seed}\0candidates`, (item) => item.id)) {
     const text = direction === "en-zh" ? candidate.definition : candidate.term;
     const key = normalizeQuestionText(text).toLocaleLowerCase("en-US");
-    if (targetAnswers.has(key) || siblingAnswers.has(key)) continue;
-    if (direction === "zh-en" && (targetSynonyms.has(key) || targetAntonyms.has(key))) continue;
+    if (targetAnswers.has(key)) continue;
+    if (direction === "zh-en" && targetSynonyms.has(key)) continue;
     if (!uniqueCandidates.has(key)) uniqueCandidates.set(key, candidate);
   }
 

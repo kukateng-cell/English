@@ -16,7 +16,6 @@ import {
   assertCatalogReviewSeparation,
   type CatalogReviewMode,
 } from "./review-policy";
-import { loadCatalogSiblingValidationRows } from "./sibling-validation";
 
 type Tx = Prisma.TransactionClient;
 
@@ -241,8 +240,7 @@ export async function validateAndPlanCatalogChange(
   if (request.kind === "UPDATE" && request.sense && !catalogEntryAcceptsLemma(request.sense.catalogEntry.normalizedLemma, payload.lemma)) {
     throw new Error("CATALOG_LEMMA_CHANGE_REQUIRES_NEW_SENSE");
   }
-  const siblingRows = await loadCatalogSiblingValidationRows(tx, payload, request.sense?.senseKey);
-  const validation = validateCatalogGovernancePayload(payload, identity, (latest?.revision ?? 0) + 1, siblingRows);
+  const validation = validateCatalogGovernancePayload(payload, identity, (latest?.revision ?? 0) + 1);
   if (validation.errors.length) throw new Error(`CATALOG_PAYLOAD_REJECTED:${JSON.stringify(validation.errors)}`);
   if (!payload.enableEnToZh && !payload.enableZhToEn) throw new Error("CATALOG_NO_ENABLED_DIRECTION");
   if (request.kind === "REACTIVATE") {

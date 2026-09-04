@@ -303,7 +303,7 @@ export default function CatalogHistoryWorkspace({
           </h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
             {tc(
-              "按不可變時間線查看逐條申請、CSV 批次及最初詞庫基線；批次子項只在批次內展開。",
+              "按不可變時間線查看逐條申請、批量提交及最初詞庫基線；批次子項只在批次內展開。",
             )}
           </p>
         </div>
@@ -465,7 +465,7 @@ export default function CatalogHistoryWorkspace({
             entry.sourceKind === "INITIAL_BASELINE"
               ? tc("最初正式詞庫基線")
               : entry.sourceKind === "BATCH"
-                ? (entry.batch?.fileName ?? tc("CSV 批次"))
+                ? (entry.batch?.fileName ?? tc("批量提交"))
                 : (changes[0]?.after.term ??
                   changes[0]?.before.term ??
                   tc("詞條修改"));

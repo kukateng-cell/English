@@ -176,10 +176,9 @@ export function validateCatalogGovernancePayload(
   payload: CatalogGovernancePayload,
   identity: CatalogIdentityInput,
   revision: number,
-  siblings: readonly NormalizedCatalogRow[] = [],
 ): CatalogPayloadValidation {
   const row = normalizeCatalogRow(payloadToSourceRow(payload, identity, revision), 0);
-  const result = validateCatalogRow(row, siblings);
+  const result = validateCatalogRow(row);
   const errors = [...result.errors];
   const issues = [...result.issues];
   if (!isCatalogCategory(row.category)) {

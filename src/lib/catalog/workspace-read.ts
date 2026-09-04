@@ -1,5 +1,6 @@
 import { Prisma, prisma } from "@/lib/prisma";
 import { catalogLegacyValidationIssue } from "@/lib/catalog/csv";
+import { catalogGovernancePayloadFromUnknown } from "@/lib/catalog/governance";
 import {
   CATALOG_STRUCTURED_ISSUE_VERSION,
   CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE,
@@ -14,10 +15,12 @@ import {
 } from "@/lib/catalog/pending-visibility";
 import type {
   CatalogContentScope,
+  CatalogIssueEvidencePayload,
   CatalogReadinessState,
   CatalogStructuredIssue,
   CatalogWorkflowState,
 } from "@/lib/catalog/teacher-presentation";
+import { catalogIssueEvidence } from "@/lib/catalog/teacher-presentation";
 
 export interface CatalogWorkspaceListRow {
   id: string;
@@ -205,6 +208,7 @@ export function catalogStoredStructuredIssues(
   value: unknown,
   legacyErrors: string[],
   legacyWarnings: string[],
+  payload?: CatalogIssueEvidencePayload | null,
 ): CatalogStructuredIssue[] {
   const contract =
     value && typeof value === "object" && !Array.isArray(value)
@@ -231,7 +235,20 @@ export function catalogStoredStructuredIssues(
       },
     ];
   });
-  if (version === CATALOG_STRUCTURED_ISSUE_VERSION) return parsed;
+  const currentPolicyIssues = (issues: CatalogStructuredIssue[]) =>
+    issues.filter((issue) => {
+      if (issue.code === "CATALOG_DISTRACTOR_SIBLING_COLLISION") return false;
+      if (
+        issue.code === "CATALOG_DISTRACTOR_ACCEPTED_COLLISION"
+        && payload
+      ) {
+        return catalogIssueEvidence(issue, payload) !== null;
+      }
+      return true;
+    });
+  if (version === CATALOG_STRUCTURED_ISSUE_VERSION) {
+    return currentPolicyIssues(parsed);
+  }
   if (version !== null) {
     return [
       {
@@ -245,14 +262,33 @@ export function catalogStoredStructuredIssues(
   // Bounded compatibility adapter for pre-contract import rows. Only this
   // server-side boundary applies the allowlisted legacy message patterns; the
   // API and UI always receive structured issues.
-  return [
+  return currentPolicyIssues([
     ...legacyErrors.map((message) =>
       catalogLegacyValidationIssue(message, "ERROR"),
     ),
     ...legacyWarnings.map((message) =>
       catalogLegacyValidationIssue(message, "WARNING"),
     ),
-  ];
+  ]);
+}
+
+export function catalogStructuredIssuesFromImportRow(
+  value: unknown,
+  payload?: CatalogIssueEvidencePayload | null,
+): CatalogStructuredIssue[] {
+  const stored =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return catalogStoredStructuredIssues(
+    {
+      version: nullableString(stored.structuredIssueVersion),
+      issues: stored.structuredIssues,
+    },
+    stringList(stored.errors),
+    stringList(stored.warnings),
+    payload,
+  );
 }
 
 function normalizePendingRequest(
@@ -304,12 +340,6 @@ function normalizeRows(
     const status =
       rawStatus === "ACTIVE" || rawStatus === "RETIRED" ? rawStatus : "DRAFT";
     const workflowState = row.workflowState === "PENDING" ? "PENDING" : "NONE";
-    const readinessState =
-      row.readinessState === "BOTH" ||
-      row.readinessState === "EN_TO_ZH_ONLY" ||
-      row.readinessState === "ZH_TO_EN_ONLY"
-        ? row.readinessState
-        : "UNAVAILABLE";
     const contentScope =
       row.contentScope === "PENDING_DRAFT" ||
       row.contentScope === "IMPORT_DRAFT"
@@ -321,11 +351,35 @@ function normalizeRows(
     const level = stringValue(row.level);
     const validationErrors = stringList(row.validationErrors);
     const validationWarnings = stringList(row.validationWarnings);
+    const structuredIssuePayload =
+      row.structuredIssuePayload
+      && typeof row.structuredIssuePayload === "object"
+      && !Array.isArray(row.structuredIssuePayload)
+        ? (row.structuredIssuePayload as Record<string, unknown>)
+        : {};
+    const issueSourcePayload = catalogGovernancePayloadFromUnknown(
+      structuredIssuePayload.sourceData,
+    );
     const structuredIssues = catalogStoredStructuredIssues(
-      row.structuredIssuePayload,
+      structuredIssuePayload,
       validationErrors,
       validationWarnings,
+      issueSourcePayload,
     );
+    const hasBlockingIssues = structuredIssues.some(
+      (issue) => issue.severity === "ERROR",
+    );
+    const enableEnToZh = row.enableEnToZh === true;
+    const enableZhToEn = row.enableZhToEn === true;
+    const readinessState: CatalogReadinessState = hasBlockingIssues
+      ? "UNAVAILABLE"
+      : enableEnToZh && enableZhToEn
+        ? "BOTH"
+        : enableEnToZh
+          ? "EN_TO_ZH_ONLY"
+          : enableZhToEn
+            ? "ZH_TO_EN_ONLY"
+            : "UNAVAILABLE";
     return [
       {
         id: row.id,
@@ -343,8 +397,8 @@ function normalizeRows(
         level,
         category: stringValue(row.category),
         phoneticIpa: nullableString(row.phoneticIpa),
-        enableEnToZh: row.enableEnToZh === true,
-        enableZhToEn: row.enableZhToEn === true,
+        enableEnToZh,
+        enableZhToEn,
         status,
         lifecycleState: status,
         workflowState,
@@ -439,7 +493,8 @@ export function catalogWorkspacePageSql(
           WHEN approved_revision."id" IS NOT NULL THEN jsonb_build_object('version', CAST(${CATALOG_STRUCTURED_ISSUE_VERSION} AS text), 'issues', '[]'::jsonb)
           ELSE jsonb_build_object(
             'version', import_row."issues"->>'structuredIssueVersion',
-            'issues', CASE WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues' ELSE '[]'::jsonb END
+            'issues', CASE WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues' ELSE '[]'::jsonb END,
+            'sourceData', import_row."sourceData"
           )
         END AS "structuredIssuePayload",
         CASE
@@ -452,8 +507,18 @@ export function catalogWorkspacePageSql(
               CASE WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues' ELSE '[]'::jsonb END
             ) issue
             WHERE COALESCE(issue->>'severity', 'ERROR') <> 'WARNING'
+              AND COALESCE(issue->>'code', '') <> 'CATALOG_DISTRACTOR_SIBLING_COLLISION'
           )
-          ELSE jsonb_array_length(CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END)
+          ELSE (
+            SELECT COUNT(*)::integer
+            FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END
+            ) error_message
+            WHERE error_message NOT IN (
+              'en-zh distractor collides with a sibling-sense answer',
+              'zh-en distractor collides with a sibling-sense answer'
+            )
+          )
         END AS "issueCount",
         CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "contentScope",
         CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "issueScope",

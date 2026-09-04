@@ -40,7 +40,6 @@ import {
   parseCatalogRetryPayloadPatch,
   threeWayMergeCatalogPayload,
 } from "@/lib/catalog/retry-merge";
-import { loadCatalogSiblingValidationRows } from "@/lib/catalog/sibling-validation";
 import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
@@ -414,8 +413,7 @@ export async function POST(req: Request) {
           sourceFile: sourceRow?.sourceFile ?? "governance",
           sourceRow: sourceRow?.sourceRow ?? 0,
         };
-        const siblingRows = await loadCatalogSiblingValidationRows(tx, payload, targetSense?.senseKey);
-        const validation = validateCatalogGovernancePayload(payload, identity, (latest?.revision ?? 0) + 1, siblingRows);
+        const validation = validateCatalogGovernancePayload(payload, identity, (latest?.revision ?? 0) + 1);
         if (validation.errors.length) throw new Error(`CATALOG_PAYLOAD_REJECTED:${JSON.stringify({
           errors: validation.errors,
           warnings: validation.warnings,

@@ -5,6 +5,8 @@ import { ROLES } from "@/lib/roles";
 import { catalogAccess } from "@/lib/catalog/access";
 import { catalogGovernancePayloadFromUnknown, payloadFromRevision } from "@/lib/catalog/governance";
 import { catalogPendingRequestForActor } from "@/lib/catalog/pending-visibility";
+import { catalogStructuredIssuesFromImportRow } from "@/lib/catalog/workspace-read";
+import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
 
 function headers() {
   return { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
@@ -80,7 +82,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ senseKe
       hasSense: Boolean(sense),
       primaryDisposition: sourceRow?.primaryDisposition ?? "CREATED_DRAFT",
       eligibilityResult: sourceRow?.eligibilityResult ?? "DRAFT_BLOCKED",
-      issues: sourceRow?.issues ?? null,
+      structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+      structuredIssues: sense?.approvedRevisionId
+        ? []
+        : catalogStructuredIssuesFromImportRow(sourceRow?.issues, payload),
       payload,
       pendingRequest: visiblePendingRequest
         ? "restricted" in visiblePendingRequest

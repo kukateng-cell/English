@@ -7,11 +7,14 @@ import {
   CatalogCsvError,
   catalogRowsToCsv,
   normalizeCatalogText,
-  parseCatalogGovernanceCsv,
   safeCatalogDownloadName,
   neutralizeCsvCell,
   type CatalogSourceRow,
 } from "./csv";
+import {
+  parseCatalogGovernanceFile,
+  type CatalogWorkbookFormat,
+} from "./workbook";
 import {
   catalogActorPseudonym,
   buildCatalogSubmissionPreview,
@@ -224,15 +227,27 @@ async function lockAndValidateSubmitter(tx: Tx, actorId: string): Promise<void> 
   if (!actor || actor.status !== "ACTIVE" || (actor.role !== "ADMIN" && actor.role !== "TEACHER")) throw new Error("CATALOG_BATCH_FORBIDDEN");
 }
 
-export function decodeCatalogUploadName(value: string | null): string {
-  if (!value) return "word-catalog.csv";
+export function decodeCatalogUploadName(
+  value: string | null,
+  format: CatalogWorkbookFormat = "CSV",
+): string {
+  const fallback = format === "XLSX" ? "word-catalog.xlsx" : "word-catalog.csv";
+  if (!value) return fallback;
   let decoded: string;
   try {
     decoded = decodeURIComponent(value);
   } catch {
     throw new CatalogCsvError("CATALOG_FILENAME_INVALID", "filename header must be percent-encoded UTF-8");
   }
-  return safeCatalogDownloadName(decoded);
+  const safeName = safeCatalogDownloadName(decoded, fallback);
+  const expectedExtension = format === "XLSX" ? ".xlsx" : ".csv";
+  if (!safeName.toLocaleLowerCase("en-US").endsWith(expectedExtension)) {
+    throw new CatalogCsvError(
+      "CATALOG_FILENAME_INVALID",
+      `filename extension must match ${format}`,
+    );
+  }
+  return safeName;
 }
 
 type CreateCatalogSubmissionPreviewInput = {
@@ -240,6 +255,7 @@ type CreateCatalogSubmissionPreviewInput = {
   operationId: string;
   fileName: string;
   bytes: Uint8Array;
+  format?: CatalogWorkbookFormat;
   retrySourceBatchId?: string;
   retryMergeConflicts?: ReadonlyMap<number, readonly string[]>;
 };
@@ -260,7 +276,8 @@ export async function createCatalogSubmissionPreview(
 ): Promise<CatalogSubmissionPreviewCreatedResult | CatalogRetryClosedResult> {
   if (!isCanonicalUuid(input.operationId)) throw new Error("IDEMPOTENCY_KEY_INVALID");
   if (input.bytes.byteLength > CATALOG_GOVERNANCE_MAX_BYTES) throw new Error("CATALOG_CSV_TOO_LARGE");
-  const rows = parseCatalogGovernanceCsv(input.bytes, input.fileName);
+  const format = input.format ?? "CSV";
+  const rows = await parseCatalogGovernanceFile(input.bytes, input.fileName, format);
   const fileHash = sha256(input.bytes);
   const requestDigest = sha256(JSON.stringify({
     operationId: input.operationId,

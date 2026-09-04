@@ -43,10 +43,12 @@ test("governance payload never serializes student-facing prompts", () => {
   assert.equal(row.prompt_zh, "");
 });
 
-test("governance validation keeps each sense identity and rejects sibling answers", () => {
-  const sibling = validateCatalogGovernancePayload({ ...payload, definitionZh: "經營", acceptedAnswersZh: ["經營"] }, { catalogKey: "business", senseKey: "run-b1", sourceFile: "fixture", sourceRow: 1 }, 1).row;
-  const result = validateCatalogGovernancePayload({ ...payload, distractorZh: ["經營", "跳躍", "行走", "游泳", "站立"] }, { catalogKey: "actions", senseKey: "run-a1", sourceFile: "fixture", sourceRow: 2 }, 1, [sibling]);
-  assert.ok(result.errors.includes("en-zh distractor collides with a sibling-sense answer"));
+test("governance validation keeps each sense identity and validates only the current row", () => {
+  const result = validateCatalogGovernancePayload({ ...payload, distractorZh: ["經營", "跳躍", "行走", "游泳", "站立"] }, { catalogKey: "actions", senseKey: "run-a1", sourceFile: "fixture", sourceRow: 2 }, 1);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "CATALOG_DISTRACTOR_SIBLING_COLLISION"),
+    false,
+  );
   assert.equal(result.row.senseKey, "run-a1");
 });
 

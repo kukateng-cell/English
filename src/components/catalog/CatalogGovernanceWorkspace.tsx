@@ -17,7 +17,10 @@ import {
   CATALOG_CATEGORIES,
   CATALOG_PARTS_OF_SPEECH,
 } from "@/lib/catalog/taxonomy";
-import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
+import {
+  CATALOG_STRUCTURED_ISSUE_VERSION,
+  CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE,
+} from "@/lib/catalog/validation-issue-contract";
 import CatalogBulkSubmissionWorkspace from "@/components/catalog/CatalogBulkSubmissionWorkspace";
 import CatalogHistoryWorkspace from "@/components/catalog/CatalogHistoryWorkspace";
 import CatalogQuestionPreviewComponent from "@/components/catalog/CatalogQuestionPreview";
@@ -44,9 +47,14 @@ import {
 import {
   catalogLifecycleLabel,
   catalogCategoryLabel,
+  catalogIssueEvidence,
+  catalogIssueEvidenceLocationLabel,
+  catalogIssuePresentation,
   catalogPartOfSpeechLabel,
   catalogRequestKindLabel,
   catalogSourceSummary,
+  type CatalogIssueEvidenceLocation,
+  type CatalogStructuredIssue,
 } from "@/lib/catalog/teacher-presentation";
 
 type CatalogStatus = "DRAFT" | "ACTIVE" | "RETIRED";
@@ -141,7 +149,8 @@ type Detail = {
   primaryDisposition: string;
   eligibilityResult: string | null;
   hasSense: boolean;
-  issues: { errors?: string[]; warnings?: string[] } | null;
+  structuredIssueVersion: string;
+  structuredIssues: CatalogStructuredIssue[];
   payload: CatalogPayload | null;
   pendingRequest:
     | RestrictedPendingRequest
@@ -418,6 +427,132 @@ function normalizeCatalogPayload(
   };
 }
 
+function normalizeDetailStructuredIssues(
+  version: unknown,
+  value: unknown,
+): CatalogStructuredIssue[] {
+  if (version !== CATALOG_STRUCTURED_ISSUE_VERSION) {
+    return [{
+      code: CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE,
+      field: null,
+      direction: null,
+      severity: "ERROR",
+    }];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const issue = item as Record<string, unknown>;
+    if (typeof issue.code !== "string") return [];
+    return [{
+      code: issue.code,
+      field: typeof issue.field === "string" ? issue.field : null,
+      direction:
+        issue.direction === "EN_TO_ZH" || issue.direction === "ZH_TO_EN"
+          ? issue.direction
+          : null,
+      severity: issue.severity === "WARNING" ? "WARNING" : "ERROR",
+    }];
+  });
+}
+
+function CatalogIssueGuidance({
+  issues,
+  payload,
+  onLocate,
+}: {
+  issues: CatalogStructuredIssue[];
+  payload: CatalogPayload;
+  onLocate: (location: CatalogIssueEvidenceLocation) => void;
+}) {
+  const { tc } = useLocale();
+  const errors = issues.filter((issue) => issue.severity === "ERROR");
+  if (!errors.length) return null;
+  return (
+    <section
+      data-testid="catalog-detail-issue-guidance"
+      aria-labelledby="catalog-detail-issue-title"
+      className="mt-4 rounded-2xl border border-[var(--danger)] bg-[var(--danger-bg)] p-4 text-sm text-[var(--danger)]"
+    >
+      <h3 id="catalog-detail-issue-title" className="font-bold">
+        {tc(`提交前要修正以下 ${errors.length} 項內容`)}
+      </h3>
+      <p className="mt-1 text-xs leading-5">
+        {tc("以下是匯入或上次檢查時發現的問題。修改後提交，系統會按照最新內容重新檢查。")}
+      </p>
+      <ol className="mt-3 space-y-3">
+        {errors.map((issue, index) => {
+          const copy = catalogIssuePresentation(issue);
+          const evidence = catalogIssueEvidence(issue, payload);
+          return (
+            <li
+              key={`${issue.code}:${issue.field ?? "content"}:${index}`}
+              className="rounded-xl border border-[var(--danger)]/30 bg-[var(--surface)] p-3 text-[var(--text)]"
+            >
+              <p className="font-bold text-[var(--danger)]">
+                {index + 1}. {copy.directionLabel ? `${tc(copy.directionLabel)} · ` : ""}
+                {tc(copy.fieldLabel)}
+              </p>
+              <p className="mt-1">{tc(copy.reason)}</p>
+              {evidence ? (
+                <div className="mt-2 rounded-lg bg-[var(--danger-bg)] p-2 text-[var(--danger)]">
+                  <p className="font-bold">{tc(evidence.summary)}</p>
+                  {evidence.locations.length ? (
+                    <>
+                      <p className="mt-1 text-xs font-semibold">
+                        {tc("同時出現在以下位置：")}
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        {evidence.locations.map((location) => (
+                          <li
+                            key={`${location.field}:${location.index ?? "scalar"}:${location.value}`}
+                          >
+                            <button
+                              type="button"
+                              className="text-left font-semibold underline underline-offset-2"
+                              onClick={() => onLocate(location)}
+                            >
+                              {tc(catalogIssueEvidenceLocationLabel(location))}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              <p className="mt-1 text-[var(--muted)]">{tc(copy.fix)}</p>
+              {issue.field && !evidence?.locations.length ? (
+                <button
+                  type="button"
+                  className="mt-2 font-semibold text-[var(--primary)] underline underline-offset-2"
+                  onClick={() => onLocate({
+                    field: issue.field!,
+                    index: null,
+                    value: "",
+                  })}
+                >
+                  {tc("前往需要修正的欄位")}
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function CatalogIssueLocationNote({ values }: { values: string[] }) {
+  const { tc } = useLocale();
+  if (!values.length) return null;
+  return (
+    <small className="font-semibold text-[var(--danger)]">
+      {tc("需要處理的項目")}：{values.join("、")}
+    </small>
+  );
+}
+
 function isAbortError(value: unknown): boolean {
   return value instanceof DOMException && value.name === "AbortError";
 }
@@ -564,6 +699,7 @@ function CatalogOverviewWorkspace({
   const [exportSenseKeys, setExportSenseKeys] = useState<Set<string>>(
     new Set(persistedState.selectedSenseKeys),
   );
+  const [exportFormat, setExportFormat] = useState<"XLSX" | "CSV">("XLSX");
   const [filteredTotal, setFilteredTotal] = useState(
     persistedState.filteredTotal,
   );
@@ -1274,7 +1410,8 @@ function CatalogOverviewWorkspace({
       primaryDisposition: "CREATED_DRAFT",
       eligibilityResult: "DRAFT_BLOCKED",
       hasSense: false,
-      issues: null,
+      structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+      structuredIssues: [],
       payload: EMPTY_PAYLOAD,
       pendingRequest: null,
     });
@@ -1451,6 +1588,10 @@ function CatalogOverviewWorkspace({
             : detail.pendingRequest;
         setSelectedState({
           ...detail,
+          structuredIssues: normalizeDetailStructuredIssues(
+            detail.structuredIssueVersion,
+            detail.structuredIssues,
+          ),
           payload: currentPayload,
           pendingRequest,
         });
@@ -1542,7 +1683,7 @@ function CatalogOverviewWorkspace({
             };
         if (!isCurrentDialogIntent(intent)) return;
         if (body.replay) {
-          setMessage(tc("呢項修正版已經成功提交，畫面已開啟現有後繼申請。"));
+          setMessage(tc("此修正版已成功提交，畫面已開啟現有的後續申請。"));
           if (body.senseKey) await openDetailBySenseKey(body.senseKey);
           return;
         }
@@ -1563,7 +1704,8 @@ function CatalogOverviewWorkspace({
           primaryDisposition: "RETRY_DRAFT",
           eligibilityResult: null,
           hasSense: retry.kind !== "CREATE",
-          issues: null,
+          structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+          structuredIssues: [],
           payload: retryPayload,
           pendingRequest: null,
         });
@@ -1702,7 +1844,7 @@ function CatalogOverviewWorkspace({
     if (!selected || !selected.senseKey) return;
     if (retrySource && retrySource.kind !== kind) {
       setError(
-        tc("呢個係被拒絕申請嘅修正版；請用原本相同嘅操作類型重新提交。"),
+        tc("這是被拒絕申請的修正版；請使用與原申請相同的操作類型重新提交。"),
       );
       return;
     }
@@ -1712,7 +1854,7 @@ function CatalogOverviewWorkspace({
         ? statusReason.trim()
         : reason.trim();
     if (kind === "CREATE" && createExactPrecheckLoading) {
-      setError(tc("正在檢查有冇相同詞義，請稍候再提交。"));
+      setError(tc("正在檢查是否已有相同詞義，請稍候再提交。"));
       return;
     }
     if (kind === "CREATE" && createExactConflict) {
@@ -1752,7 +1894,7 @@ function CatalogOverviewWorkspace({
     ) {
       setError(
         tc(
-          "你修改咗詞條內容。請先提交 UPDATE 並完成審核，之後再停用或重新啟用詞義。",
+          "你已修改詞條內容。請先提交 UPDATE 並完成審核，之後再停用或重新啟用詞義。",
         ),
       );
       return;
@@ -1767,7 +1909,7 @@ function CatalogOverviewWorkspace({
       )
     ) {
       setError(
-        tc("正式版本同原提案改過同一欄；請先逐欄選擇保留目前值或採用原提案。"),
+        tc("正式版本與原提案曾修改同一欄位；請逐欄選擇保留目前值或採用原提案。"),
       );
       return;
     }
@@ -1872,19 +2014,25 @@ function CatalogOverviewWorkspace({
       const response = await rosterFetch("/api/catalog/submissions/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ senseKeys }),
+        body: JSON.stringify({ senseKeys, format: exportFormat }),
       });
       if (!response.ok)
         throw new Error(await responseErrorMessage(response, tc));
       const url = URL.createObjectURL(await response.blob());
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "catalog-update.csv";
+      anchor.download = `catalog-export.${exportFormat.toLocaleLowerCase("en-US")}`;
       anchor.click();
       URL.revokeObjectURL(url);
-      setMessage(tc("已匯出所選詞條；請保留系統欄位後修改內容。"));
+      setMessage(
+        tc(
+          `已匯出所選詞條（${exportFormat}）。匯出不會立即修改詞庫；完成修改後，請到「批量提交」上載並送交審核。`,
+        ),
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : tc("匯出詞條失敗"));
+      setError(
+        cause instanceof Error ? cause.message : tc("匯出所選詞條失敗"),
+      );
     } finally {
       setSaving(false);
     }
@@ -1896,7 +2044,7 @@ function CatalogOverviewWorkspace({
       !exportSenseKeys.has(senseKey) &&
       exportSenseKeys.size >= 200
     ) {
-      setMessage(tc("每次最多選取 200 個詞條；請先匯出或清除全部選取。"));
+      setMessage(tc("每次最多選取 200 個詞條；請先匯出所選詞條或清除全部選取。"));
       return;
     }
     setExportSenseKeys((current) => {
@@ -2011,21 +2159,104 @@ function CatalogOverviewWorkspace({
     return <ErrorBanner message={error} onRetry={() => void loadCatalog()} />;
   const statusOnlyRetry =
     retrySource?.kind === "RETIRE" || retrySource?.kind === "REACTIVATE";
+  const blockingIssues = (selected?.structuredIssues ?? []).filter(
+    (issue) => issue.severity === "ERROR",
+  );
+  const blockingIssueEvidence = blockingIssues.map((issue) => ({
+    issue,
+    evidence: catalogIssueEvidence(issue, form),
+  }));
+  const blockingIssueLocations = blockingIssueEvidence.flatMap(
+    ({ evidence }) => evidence?.locations ?? [],
+  );
+  const blockingIssueGroupFields = new Set(
+    blockingIssueEvidence.flatMap(({ issue, evidence }) =>
+      issue.field && !evidence?.locations.length ? [issue.field] : [],
+    ),
+  );
+  const indexedIssueField = (field: string) =>
+    field === "distractorZh" || field === "distractorEn";
+  const issueFieldIsMarked = (field: string, index?: number) => {
+    if (index !== undefined) {
+      return blockingIssueLocations.some(
+        (location) => location.field === field && location.index === index,
+      );
+    }
+    return blockingIssueGroupFields.has(field)
+      || (!indexedIssueField(field)
+        && blockingIssueLocations.some((location) => location.field === field));
+  };
+  const issueFieldMarker = (field: string, index?: number) => {
+    const marked = issueFieldIsMarked(field, index);
+    return {
+      "data-catalog-field": field,
+      "data-catalog-index": index === undefined ? undefined : String(index),
+      "data-catalog-issue": marked ? "true" : undefined,
+      style: marked
+        ? {
+            outline: "2px solid var(--danger)",
+            outlineOffset: "2px",
+            scrollMarginTop: "1rem",
+          }
+        : { scrollMarginTop: "1rem" },
+    };
+  };
+  const issueLocationValues = (field: string, index?: number) => [
+    ...new Set(
+      blockingIssueLocations
+        .filter((location) =>
+          location.field === field
+          && (index === undefined || location.index === index),
+        )
+        .map((location) => location.value),
+    ),
+  ];
+
+  function focusDetailIssueField(location: CatalogIssueEvidenceLocation) {
+    const indexedSelector = indexedIssueField(location.field)
+      && location.index !== null
+        ? `[data-catalog-index="${location.index}"]`
+        : "";
+    const target = dialogRef.current?.querySelector<HTMLElement>(
+      `[data-catalog-field="${CSS.escape(location.field)}"]${indexedSelector}`,
+    );
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      const control = target.matches("input, select, textarea, button")
+        ? target
+        : target.querySelector<HTMLElement>(
+            "input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)",
+          );
+      control?.focus({ preventScroll: true });
+    }, 250);
+  }
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)]">
-            {tc("詞庫治理工作區")}
-          </h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            {tc(
-              "管理員及老師可以查看全部詞條；一般修改由一位有權限人員審核，具權限者可即時停用。",
-            )}
-          </p>
+      <header className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)]">
+              {tc("詞庫治理工作區")}
+            </h1>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {tc(
+                "管理員及老師可以查看全部詞條；一般修改由一位有權限人員審核，具權限者可即時停用。",
+              )}
+            </p>
+          </div>
+          <div
+            data-testid="catalog-total-count"
+            className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)]"
+          >
+            {tc("完整詞庫")}：{counts.all ?? rows.length} {tc("條")}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div
+          data-testid="catalog-action-toolbar"
+          className="flex min-h-11 flex-wrap items-center gap-2"
+        >
           <button
             type="button"
             className="ui-button ui-button-primary"
@@ -2042,31 +2273,41 @@ function CatalogOverviewWorkspace({
           </button>
           {bulkEnabled ? (
             <>
+              <label className="sr-only" htmlFor="catalog-export-format">
+                {tc("匯出格式")}
+              </label>
+              <select
+                id="catalog-export-format"
+                aria-label={tc("匯出格式") as string}
+                value={exportFormat}
+                onChange={(event) => setExportFormat(event.target.value as "XLSX" | "CSV")}
+                className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
+              >
+                <option value="XLSX">{tc("Excel（XLSX）")}</option>
+                <option value="CSV">CSV</option>
+              </select>
               <button
                 type="button"
                 className="ui-button ui-button-secondary"
                 disabled={saving || exportSenseKeys.size === 0}
                 onClick={() => void exportSelectedUpdates()}
               >
-                {tc("匯出所選作 CSV 更新")} ({exportSenseKeys.size}/200)
+                {tc(`匯出所選詞條（${exportFormat}）`)} ({exportSenseKeys.size}/200)
               </button>
-              {exportSenseKeys.size ? (
-                <button
-                  type="button"
-                  className="ui-button ui-button-quiet"
-                  disabled={saving}
-                  onClick={() => setExportSenseKeys(new Set())}
-                >
-                  {tc("清除全部選取")}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={`ui-button ui-button-quiet ${exportSenseKeys.size ? "" : "invisible pointer-events-none"}`}
+                disabled={saving || exportSenseKeys.size === 0}
+                aria-hidden={exportSenseKeys.size === 0}
+                tabIndex={exportSenseKeys.size ? 0 : -1}
+                onClick={() => setExportSenseKeys(new Set())}
+              >
+                {tc("清除全部選取")}
+              </button>
             </>
           ) : null}
         </div>
-        <div className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)]">
-          {tc("完整詞庫")}：{counts.all ?? rows.length} {tc("條")}
-        </div>
-      </div>
+      </header>
       {error && !selected ? (
         <ErrorBanner message={error} onRetry={() => void loadCatalog()} />
       ) : null}
@@ -2106,6 +2347,13 @@ function CatalogOverviewWorkspace({
         onFilters={setFilters}
         facets={facets}
       />
+      {bulkEnabled ? (
+        <p className="rounded-xl border border-[var(--border)] bg-[var(--border-soft)] px-3 py-2 text-xs leading-5 text-[var(--muted)]">
+          {tc(
+            "如需一次修改多個現有詞條，請先勾選並匯出所選詞條。預設格式為 Excel（XLSX），亦可選擇 CSV。完成修改後，請到「批量提交」上載並送交審核。匯出檔案不會立即更改詞庫。「尚未提交」表示該匯入資料尚未建立正式詞義；可選擇提示查看原因及下一步。",
+          )}
+        </p>
+      ) : null}
       {canReview ? (
         <details
           className="rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)]"
@@ -2241,7 +2489,9 @@ function CatalogOverviewWorkspace({
                                 request.sourceImportRow?.eligibilityResult ??
                                 null,
                               hasSense: Boolean(request.sense),
-                              issues: null,
+                              structuredIssueVersion:
+                                CATALOG_STRUCTURED_ISSUE_VERSION,
+                              structuredIssues: [],
                               payload: request.payload,
                               pendingRequest: {
                                 id: request.id,
@@ -2479,6 +2729,34 @@ function CatalogOverviewWorkspace({
                 </div>
               </div>
             ) : null}
+            {createStep === null
+            && selected.id
+            && !selected.hasSense
+            && !selected.pendingRequest ? (
+              <section
+                data-testid="catalog-import-next-step"
+                className="mt-4 rounded-2xl border border-[var(--primary)]/35 bg-[var(--primary-soft)] p-4 text-sm text-[var(--text)]"
+              >
+                <h3 className="font-bold text-[var(--primary)]">
+                  {tc("尚未提交建立詞義")}
+                </h3>
+                <p className="mt-1 leading-6">
+                  {blockingIssues.length
+                    ? tc(`此項來自匯入資料，尚未成為正式詞義。請先修正下方列出的 ${blockingIssues.length} 項內容，然後選擇「提交新詞義，送交審核」。`)
+                    : tc("此項來自匯入資料，尚未成為正式詞義。目前沒有需要修正的內容；確認資料後，可直接選擇「提交新詞義，送交審核」。")}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                  {tc("經另一位有權限人士審核及批准後，詞義才可供學生使用，亦可勾選及匯出。")}
+                </p>
+              </section>
+            ) : null}
+            {createStep !== "TERM" && selected.payload ? (
+              <CatalogIssueGuidance
+                issues={selected.structuredIssues}
+                payload={form}
+                onLocate={focusDetailIssueField}
+              />
+            ) : null}
             {createStep === "TERM" ? (
               <section className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--border-soft)] p-4 sm:p-5">
                 <h3 className="text-base font-bold text-[var(--text)]">
@@ -2486,7 +2764,7 @@ function CatalogOverviewWorkspace({
                 </h3>
                 <p className="mt-1 text-sm text-[var(--muted)]">
                   {tc(
-                    "輸入學生會見到的英文串法。系統會先列出同一英文的現有詞義，避免不小心重複新增。",
+                    "輸入學生將會看到的英文拼法。系統會先列出同一英文的現有詞義，避免誤建重複內容。",
                   )}
                 </p>
                 <label className="mt-4 grid gap-1.5 text-sm font-semibold text-[var(--text)]">
@@ -2510,7 +2788,7 @@ function CatalogOverviewWorkspace({
                     placeholder={tc("例如：run")}
                   />
                   <small className="font-normal text-[var(--muted)]">
-                    {tc("暫時只需要填英文；確認冇重複後先填其餘內容。")}
+                    {tc("暫時只需填寫英文詞；確認沒有重複後，再填寫其餘內容。")}
                   </small>
                 </label>
                 {createPrecheckLoading ? (
@@ -2550,7 +2828,7 @@ function CatalogOverviewWorkspace({
                         ? tc(
                             `找到 ${createPrecheck.matches.length} 個同一英文的詞義。`,
                           )
-                        : tc("詞庫暫時未有呢個英文詞，可以繼續新增。")}
+                        : tc("詞庫暫時沒有這個英文詞，可以繼續新增。")}
                     </p>
                     {createPrecheck.matches.length ? (
                       <>
@@ -2606,7 +2884,7 @@ function CatalogOverviewWorkspace({
                       </>
                     ) : (
                       <p className="rounded-xl bg-[var(--success-bg)] px-3 py-2 text-sm text-[var(--success)]">
-                        {tc("詞庫暫時未有呢個英文詞，可以繼續新增。")}
+                        {tc("詞庫暫時沒有這個英文詞，可以繼續新增。")}
                       </p>
                     )}
                     <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -2638,7 +2916,7 @@ function CatalogOverviewWorkspace({
                 className="mt-4 rounded-xl bg-[var(--warning-bg)] px-3 py-2 text-sm text-[var(--warning)]"
               >
                 {tc(
-                  "呢個係狀態變更申請；詞條內容修改需要另行提交 UPDATE，批准後再重新提交啟用／停用申請。今次只會重新提交理由。",
+                  "這是狀態變更申請；詞條內容修改需要另行提交 UPDATE，批准後再重新提交啟用／停用申請。本次只會重新提交理由。",
                 )}
               </p>
             ) : null}
@@ -2652,10 +2930,13 @@ function CatalogOverviewWorkspace({
                     {tc("基本資料")}
                   </h3>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    {tc("先交代呢個詞義的英文身份、詞性、程度同主題。")}
+                    {tc("請先填寫此詞義的英文資料、詞性、程度及主題。")}
                   </p>
                 </div>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("term")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("英文詞（必填）")}
                   <input
                     required
@@ -2664,6 +2945,9 @@ function CatalogOverviewWorkspace({
                     readOnly={createStep === "FORM" && !selected.hasSense}
                     onChange={(event) => updateForm("term", event.target.value)}
                     placeholder={tc("例如：run")}
+                  />
+                  <CatalogIssueLocationNote
+                    values={issueLocationValues("term")}
                   />
                   {createStep === "FORM" && !selected.hasSense ? (
                     <button
@@ -2684,7 +2968,10 @@ function CatalogOverviewWorkspace({
                     </button>
                   ) : null}
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("lemma")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("詞頭（必填）")}
                   <input
                     required
@@ -2704,11 +2991,14 @@ function CatalogOverviewWorkspace({
                     </small>
                   ) : (
                     <small className="font-normal text-[var(--muted)]">
-                      {tc("詞頭係字典用的基本形式；系統已按英文詞預填，可按需要修改。")}
+                      {tc("詞頭是字典使用的基本形式；系統已按英文詞預填，可按需要修改。")}
                     </small>
                   )}
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("partOfSpeech")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("詞性（必填）")}
                   <select
                     required
@@ -2726,7 +3016,10 @@ function CatalogOverviewWorkspace({
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("level")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("程度（必填）")}
                   <select
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
@@ -2745,7 +3038,10 @@ function CatalogOverviewWorkspace({
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("category")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("主題（必填）")}
                   <select
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
@@ -2784,10 +3080,13 @@ function CatalogOverviewWorkspace({
                     {tc("學習內容")}
                   </h3>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    {tc("中文釋義係學生答題時的主要正確答案；例句用嚟展示實際用法。")}
+                    {tc("中文釋義是學生答題時顯示的主要正確答案；例句用於展示實際用法。")}
                   </p>
                 </div>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2">
+                <label
+                  {...issueFieldMarker("definitionZh")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)] md:col-span-2"
+                >
                   {tc("中文釋義（必填）")}
                   <textarea
                     required
@@ -2797,10 +3096,16 @@ function CatalogOverviewWorkspace({
                     onChange={(event) =>
                       updateForm("definitionZh", event.target.value)
                     }
-                    placeholder={tc("例如：跑步（只填呢個詞義的主要意思）")}
+                    placeholder={tc("例如：跑步（只填寫此詞義的主要意思）")}
+                  />
+                  <CatalogIssueLocationNote
+                    values={issueLocationValues("definitionZh")}
                   />
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("exampleEn")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("英文例句（選填）")}
                   <textarea
                     className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
@@ -2814,7 +3119,10 @@ function CatalogOverviewWorkspace({
                     {tc("如填英文例句，必須同時填寫對應中文例句。")}
                   </small>
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("exampleZh")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("中文例句（選填）")}
                   <textarea
                     className="min-h-20 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
@@ -2828,7 +3136,10 @@ function CatalogOverviewWorkspace({
                     {tc("如填中文例句，必須同時填寫對應英文例句。")}
                   </small>
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("acceptedAnswersZh")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("其他可接受中文譯法（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
@@ -2841,13 +3152,19 @@ function CatalogOverviewWorkspace({
                     }
                     placeholder={tc("例如：奔跑 | 跑（多個答案用 | 分隔）")}
                   />
+                  <CatalogIssueLocationNote
+                    values={issueLocationValues("acceptedAnswersZh")}
+                  />
                   <small className="font-normal text-[var(--muted)]">
                     {tc(
                       "多個譯法用 | 分隔。記錄其他合理譯法，避免被誤當成錯誤選項；學生題目仍以主要中文釋義顯示唯一正確選項。",
                     )}
                   </small>
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("acceptedFormsEn")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("其他可接受英文形式（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
@@ -2860,13 +3177,19 @@ function CatalogOverviewWorkspace({
                     }
                     placeholder={tc("例如：runs | running（多個形式用 | 分隔）")}
                   />
+                  <CatalogIssueLocationNote
+                    values={issueLocationValues("acceptedFormsEn")}
+                  />
                   <small className="font-normal text-[var(--muted)]">
                     {tc(
                       "多個形式用 | 分隔。記錄其他合理英文形式，避免被誤當成錯誤選項；學生題目仍以上方英文詞顯示唯一正確選項。",
                     )}
                   </small>
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("synonymsEn")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("英文近義詞（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 text-sm text-[var(--text)]"
@@ -2876,8 +3199,14 @@ function CatalogOverviewWorkspace({
                     }
                     placeholder={tc("例如：sprint | jog（多個詞用 | 分隔）")}
                   />
+                  <CatalogIssueLocationNote
+                    values={issueLocationValues("synonymsEn")}
+                  />
                 </label>
-                <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
+                <label
+                  {...issueFieldMarker("antonymsEn")}
+                  className="grid gap-1 text-xs font-semibold text-[var(--muted)]"
+                >
                   {tc("英文反義詞（選填）")}
                   <input
                     className="h-11 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)]"
@@ -2887,16 +3216,22 @@ function CatalogOverviewWorkspace({
                     }
                     placeholder={tc("例如：walk | stop（多個詞用 | 分隔）")}
                   />
+                  <CatalogIssueLocationNote
+                    values={issueLocationValues("antonymsEn")}
+                  />
                 </label>
                 <div className="mt-2 border-t border-[var(--border)] pt-4 md:col-span-2">
                   <h3 className="text-base font-bold text-[var(--text)]">
                     {tc("題目設定")}
                   </h3>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    {tc("干擾項係錯誤選項來源；系統出題時只會從已填的項目抽選。")}
+                    {tc("干擾項是錯誤選項的來源；系統出題時只會從已填寫的項目中抽選。")}
                   </p>
                 </div>
-                <fieldset className="grid gap-2 rounded-xl border border-[var(--border)] p-3 md:col-span-2">
+                <fieldset
+                  {...issueFieldMarker("distractorZh")}
+                  className="grid gap-2 rounded-xl border border-[var(--border)] p-3 md:col-span-2"
+                >
                   <legend className="px-1 text-xs font-semibold text-[var(--muted)]">
                     {tc("英譯中干擾項（5–6 個）")}
                   </legend>
@@ -2905,6 +3240,7 @@ function CatalogOverviewWorkspace({
                       (example, index) => (
                         <label
                           key={`distractor-zh-${index}`}
+                          {...issueFieldMarker("distractorZh", index)}
                           className="grid gap-1 text-xs font-normal text-[var(--muted)]"
                         >
                           {tc(`中文錯誤選項 ${index + 1}`)}
@@ -2924,6 +3260,9 @@ function CatalogOverviewWorkspace({
                             }
                             placeholder={tc(`例如：${example}`)}
                           />
+                          <CatalogIssueLocationNote
+                            values={issueLocationValues("distractorZh", index)}
+                          />
                         </label>
                       ),
                     )}
@@ -2934,7 +3273,10 @@ function CatalogOverviewWorkspace({
                     )}
                   </small>
                 </fieldset>
-                <fieldset className="grid gap-2 rounded-xl border border-[var(--border)] p-3 md:col-span-2">
+                <fieldset
+                  {...issueFieldMarker("distractorEn")}
+                  className="grid gap-2 rounded-xl border border-[var(--border)] p-3 md:col-span-2"
+                >
                   <legend className="px-1 text-xs font-semibold text-[var(--muted)]">
                     {tc("中譯英干擾項（5–6 個）")}
                   </legend>
@@ -2943,6 +3285,7 @@ function CatalogOverviewWorkspace({
                       (example, index) => (
                         <label
                           key={`distractor-en-${index}`}
+                          {...issueFieldMarker("distractorEn", index)}
                           className="grid gap-1 text-xs font-normal text-[var(--muted)]"
                         >
                           {tc(`英文錯誤選項 ${index + 1}`)}
@@ -2962,6 +3305,9 @@ function CatalogOverviewWorkspace({
                             }
                             placeholder={tc(`例如：${example}`)}
                           />
+                          <CatalogIssueLocationNote
+                            values={issueLocationValues("distractorEn", index)}
+                          />
                         </label>
                       ),
                     )}
@@ -2973,7 +3319,10 @@ function CatalogOverviewWorkspace({
                   </small>
                 </fieldset>
               </div>
-              <div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-[var(--border)] p-3 text-sm text-[var(--text)]">
+              <div
+                {...issueFieldMarker("enableEnToZh")}
+                className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-[var(--border)] p-3 text-sm text-[var(--text)]"
+              >
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -3018,17 +3367,17 @@ function CatalogOverviewWorkspace({
             ) : null}
             {createExactPrecheckLoading ? (
               <p className="mt-4 text-sm text-[var(--muted)]" role="status">
-                {tc("正在檢查有冇相同詞義…")}
+                {tc("正在檢查是否已有相同詞義…")}
               </p>
             ) : null}
             {retrySource?.conflicts.length ? (
               <section className="mt-4 rounded-2xl border border-[var(--warning)] bg-[var(--warning-bg)] p-4">
                 <h3 className="font-bold text-[var(--warning)]">
-                  {tc("正式版本同原提案有欄位衝突")}
+                  {tc("正式版本與原提案有欄位衝突")}
                 </h3>
                 <p className="mt-1 text-xs text-[var(--warning)]">
                   {tc(
-                    "請逐欄比較原基線、被拒提案及目前正式值，再決定修正版採用邊一個。",
+                    "請逐欄比較原基線、被拒提案及目前正式值，再決定修正版採用哪一個內容。",
                   )}
                 </p>
                 <div className="mt-3 space-y-3">
@@ -3148,8 +3497,8 @@ function CatalogOverviewWorkspace({
                     }
                     placeholder={tc(
                       statusOnlyRetry
-                        ? "請說明點解需要改變學生可用狀態（至少三個字）。"
-                        : "簡單說明今次修改內容的原因。",
+                        ? "請說明需要改變學生可用狀態的原因（至少三個字）。"
+                        : "簡單說明本次修改內容的原因。",
                     )}
                   />
                 </label>
@@ -3209,7 +3558,7 @@ function CatalogOverviewWorkspace({
                       placeholder={tc(
                         selected.hasSense === false
                           ? "例如：補充課堂需要的新詞義。"
-                          : "簡單說明今次修改內容的原因。",
+                          : "簡單說明本次修改內容的原因。",
                       )}
                     />
                   </label>
@@ -3255,8 +3604,8 @@ function CatalogOverviewWorkspace({
                     <p className="mt-1 text-xs text-[var(--danger)]">
                       {tc(
                         selected.status === "ACTIVE"
-                          ? "停用只會改變呢個詞義可唔可以出現在新學習題目；上方未提交的內容修改唔會一併送出。"
-                          : "重新啟用只會申請恢復學生使用；上方未提交的內容修改唔會一併送出。",
+                          ? "停用只會決定此詞義是否可出現在新的學習題目中；上方尚未提交的內容修改不會一併送出。"
+                          : "重新啟用只會申請恢復學生使用；上方尚未提交的內容修改不會一併送出。",
                       )}
                     </p>
                     <label className="mt-3 grid gap-1 text-xs font-semibold text-[var(--danger)]">
@@ -3271,8 +3620,8 @@ function CatalogOverviewWorkspace({
                         onChange={(event) => setStatusReason(event.target.value)}
                         placeholder={tc(
                           selected.status === "ACTIVE"
-                            ? "請說明點解唔應該再俾學生學習呢個詞義（至少三個字）。"
-                            : "請說明點解可以重新俾學生使用呢個詞義（至少三個字）。",
+                            ? "請說明不應再供學生學習此詞義的原因（至少三個字）。"
+                            : "請說明可以重新供學生使用此詞義的原因（至少三個字）。",
                         )}
                       />
                     </label>
@@ -3499,7 +3848,7 @@ export default function CatalogGovernanceWorkspace() {
       ? [
           {
             id: "bulk" as const,
-            label: tc("CSV 批量提交"),
+            label: tc("批量提交"),
             detail: tc("預覽、解決衝突及整批審核"),
           },
         ]

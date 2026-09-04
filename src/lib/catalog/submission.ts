@@ -56,7 +56,7 @@ export function describeCatalogBatchError(detail: string): CatalogBatchErrorDesc
   const code = `CATALOG_ROW_${detail.toUpperCase().replace(/[^A-Z0-9]+/gu, "_").replace(/^_|_$/gu, "").slice(0, 48) || "INVALID"}`;
   const pendingChange = detail.includes("already has a pending request");
   const message = pendingChange ? "目標詞條已有另一項待審核修改。" : detail.includes("stale") ? "匯出的詞條版本已過期。" : detail.includes("does not exist") ? "指定的現有詞條不存在。" : detail.includes("required") ? "必填內容未填寫或格式不正確。" : detail.includes("distractor") ? "干擾項不符合題目安全或數量規則。" : detail.includes("taxonomy") || detail.includes("category") ? "分類不在允許清單內。" : "詞條內容未通過驗證。";
-  const fix = pendingChange ? "等待現有修改完成審核後，再重新建立修正版預覽。" : directional ? `檢查 ${directional.field}（Excel ${directional.excelColumn}），確保有 5–6 個不重複、非正確答案的干擾項。` : detail.includes("stale") ? "重新由系統匯出最新 UPDATE CSV，再套用修改。" : detail.includes("does not exist") ? "確認 sense key，或重新匯出該詞條。" : "按 field 及 technical_detail 修正該欄，然後重新上載預覽。";
+  const fix = pendingChange ? "等待現有修改完成審核後，再重新建立修正版預覽。" : directional ? `檢查 ${directional.field}（Excel ${directional.excelColumn}），確保有 5–6 個不重複、非正確答案的干擾項。` : detail.includes("stale") ? "重新由系統匯出最新詞條，再套用修改。" : detail.includes("does not exist") ? "確認 sense key，或重新匯出該詞條。" : "按 field 及 technical_detail 修正該欄，然後重新上載預覽。";
   return { field: mapped, excelColumn: directional?.excelColumn ?? excelColumnForCatalogField(mapped), code, message, fix };
 }
 
@@ -364,10 +364,9 @@ export function buildCatalogSubmissionPreview(
   const normalized = sourceRows.map((row, index) => normalizeCatalogRow(row, index));
   const sourceByNumber = new Map(sourceRows.map((row) => [row.sourceRow, row]));
   const bySenseKey = new Map(databaseSenses.map((sense) => [sense.senseKey, sense]));
-  const siblingRows = normalized;
   const initialRows = normalized.map((row) => {
     const source = sourceByNumber.get(row.sourceRow);
-    const validation = validateCatalogRow(row, siblingRows.filter((item) => item !== row && item.normalizedTerm === row.normalizedTerm), "governance", source);
+    const validation = validateCatalogRow(row, "governance", source);
     const action: SubmissionAction = row.requestedAction === "UPDATE" ? "UPDATE" : "CREATE";
     const errors = [...validation.errors];
     let target: CatalogDatabaseSenseSnapshot | null = null;

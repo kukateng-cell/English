@@ -62,7 +62,7 @@ const FILTER_LABELS: Record<
   issues: {
     CURRENT_CONTENT: "目前正式版本需修正",
     PENDING_DRAFT: "待審版本需修正",
-    IMPORT_DRAFT: "匯入草稿需修正",
+    IMPORT_DRAFT: "尚未提交並需修正",
     NONE: "沒有內容問題",
   },
   sort: {
@@ -238,6 +238,8 @@ export default function CatalogWorkspaceToolbar({
   // keep the compact sheet through tablet widths.
   const desktop = useCatalogMediaQuery("(min-width: 1100px)");
   const [sheetOpen, setSheetOpen] = useState(false);
+  const desktopFiltersRef = useRef<HTMLDetailsElement | null>(null);
+  const desktopFiltersTriggerRef = useRef<HTMLElement | null>(null);
   const sheetRef = useRef<HTMLElement | null>(null);
   const sheetRootRef = useRef<HTMLDivElement | null>(null);
   const sheetTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -255,6 +257,41 @@ export default function CatalogWorkspaceToolbar({
       setSheetOpen(false);
     });
     return () => window.cancelAnimationFrame(frame);
+  }, [desktop]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    const closeDesktopFilters = (returnFocus = false) => {
+      const details = desktopFiltersRef.current;
+      if (!details?.open) return;
+      details.open = false;
+      if (returnFocus) desktopFiltersTriggerRef.current?.focus();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const details = desktopFiltersRef.current;
+      if (details?.open && !details.contains(event.target as Node)) {
+        closeDesktopFilters();
+      }
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      const details = desktopFiltersRef.current;
+      if (details?.open && !details.contains(event.target as Node)) {
+        closeDesktopFilters();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !desktopFiltersRef.current?.open) return;
+      event.preventDefault();
+      closeDesktopFilters(true);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [desktop]);
 
   useCatalogModalFocus({
@@ -310,8 +347,11 @@ export default function CatalogWorkspaceToolbar({
             onChange={(value) => setFilter("sort", value)}
             allLabel="A–Z"
           />
-          <details className="relative self-end">
-            <summary className="ui-button ui-button-secondary flex h-11 cursor-pointer list-none items-center">
+          <details ref={desktopFiltersRef} className="relative self-end">
+            <summary
+              ref={desktopFiltersTriggerRef}
+              className="ui-button ui-button-secondary flex h-11 cursor-pointer list-none items-center"
+            >
               {tc("更多篩選")}
               {activeFilters.length ? ` (${activeFilters.length})` : ""}
             </summary>

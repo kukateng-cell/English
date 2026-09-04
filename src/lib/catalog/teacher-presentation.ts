@@ -31,6 +31,33 @@ export type CatalogIssuePresentation = CatalogStructuredIssue & {
   fix: string;
 };
 
+export type CatalogIssueEvidencePayload = {
+  term: string;
+  definitionZh: string;
+  acceptedAnswersZh: string[];
+  acceptedFormsEn: string[];
+  synonymsEn: string[];
+  antonymsEn: string[];
+  distractorZh: string[];
+  distractorEn: string[];
+};
+
+export type CatalogIssueEvidenceLocation = {
+  field: string;
+  index: number | null;
+  value: string;
+};
+
+export type CatalogIssueEvidence = {
+  summary: string;
+  locations: CatalogIssueEvidenceLocation[];
+};
+
+export type CatalogExportAvailabilityPresentation = {
+  shortLabel: string;
+  reason: string;
+};
+
 const POS_LABELS: Record<CatalogPartOfSpeech, string> = {
   noun: "名詞",
   verb: "動詞",
@@ -213,15 +240,15 @@ const ISSUE_COPY: Record<string, { reason: string; fix: string }> = {
   },
   CATALOG_DISTRACTOR_CANONICAL_COLLISION: {
     reason: "干擾項包含目前正確答案。",
-    fix: "請換成不是正確答案的干擾項。",
+    fix: "請改為不是正確答案的干擾項。",
   },
   CATALOG_DISTRACTOR_ACCEPTED_COLLISION: {
-    reason: "干擾項與可接受答案、近義詞或反義詞重疊。",
-    fix: "請換成不會被學生合理視為正確的答案。",
+    reason: "干擾項與其他可接受答案或近義詞重疊。這些詞也可能是合理答案；若同時列為錯誤選項，學生可能會被錯誤判分。",
+    fix: "請移除重疊的干擾項，或修正可接受答案／近義詞欄位。反義詞語義明確相反，可以保留作為干擾項。",
   },
   CATALOG_DISTRACTOR_SIBLING_COLLISION: {
-    reason: "干擾項撞到同一英文詞的另一個正確詞義。",
-    fix: "請換成不屬於同一英文詞其他詞義的答案。",
+    reason: "干擾項與同一英文詞的另一個正確詞義重疊。",
+    fix: "請改為不屬於同一英文詞其他詞義的答案。",
   },
   CATALOG_DIRECTIONS_DISABLED: {
     reason: "兩種題型都未啟用。",
@@ -249,7 +276,7 @@ export function catalogReadinessLabel(value: CatalogReadinessState): string {
 export function catalogContentScopeLabel(value: CatalogContentScope): string {
   if (value === "CURRENT_CONTENT") return "目前正式版本";
   if (value === "PENDING_DRAFT") return "待審版本";
-  return "匯入草稿";
+  return "尚未提交的匯入資料";
 }
 
 export function catalogPartOfSpeechLabel(
@@ -290,7 +317,7 @@ export function catalogIssuePresentation(
 ): CatalogIssuePresentation {
   const copy = ISSUE_COPY[issue.code] ?? {
     reason: "內容出現未能識別的檢查結果。",
-    fix: "請重新載入後再試；如持續出現，請通知詞庫管理員。",
+    fix: "請重新載入後再次嘗試；如問題持續，請通知詞庫管理員。",
   };
   return {
     ...issue,
@@ -298,6 +325,169 @@ export function catalogIssuePresentation(
     directionLabel: catalogDirectionLabel(issue.direction),
     reason: copy.reason,
     fix: copy.fix,
+  };
+}
+
+function normalizeIssueValue(value: string): string {
+  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+}
+
+function listLocations(
+  field: string,
+  values: readonly string[],
+): CatalogIssueEvidenceLocation[] {
+  return values.flatMap((value, index) => {
+    const normalized = normalizeIssueValue(value);
+    return normalized ? [{ field, index, value: value.trim() }] : [];
+  });
+}
+
+function uniqueLocations(
+  locations: readonly CatalogIssueEvidenceLocation[],
+): CatalogIssueEvidenceLocation[] {
+  return [...new Map(
+    locations.map((location) => [
+      `${location.field}:${location.index ?? "scalar"}:${normalizeIssueValue(location.value)}`,
+      location,
+    ]),
+  ).values()];
+}
+
+function matchingEvidence(
+  candidates: readonly CatalogIssueEvidenceLocation[],
+  protectedValues: readonly CatalogIssueEvidenceLocation[],
+): CatalogIssueEvidence | null {
+  const protectedKeys = new Set(
+    protectedValues.map((location) => normalizeIssueValue(location.value)),
+  );
+  const matchedKeys = new Set(
+    candidates
+      .map((location) => normalizeIssueValue(location.value))
+      .filter((value) => value && protectedKeys.has(value)),
+  );
+  if (!matchedKeys.size) return null;
+  const locations = uniqueLocations([
+    ...protectedValues.filter((location) =>
+      matchedKeys.has(normalizeIssueValue(location.value)),
+    ),
+    ...candidates.filter((location) =>
+      matchedKeys.has(normalizeIssueValue(location.value)),
+    ),
+  ]);
+  const values = [...new Map(
+    locations.map((location) => [
+      normalizeIssueValue(location.value),
+      location.value,
+    ]),
+  ).values()];
+  return {
+    summary: `重疊項目：${values.join("、")}`,
+    locations,
+  };
+}
+
+/**
+ * Adds concrete values when they can be derived from the exact payload that
+ * produced the issue. It deliberately falls back to field-level guidance for
+ * future checks whose exact values cannot be derived from the current form.
+ */
+export function catalogIssueEvidence(
+  issue: CatalogStructuredIssue,
+  payload: CatalogIssueEvidencePayload,
+): CatalogIssueEvidence | null {
+  const distractors =
+    issue.field === "distractorZh"
+      ? payload.distractorZh
+      : issue.field === "distractorEn"
+        ? payload.distractorEn
+        : [];
+  if (issue.code === "CATALOG_DISTRACTOR_COUNT") {
+    const count = distractors.filter((value) => value.normalize("NFKC").trim()).length;
+    return {
+      summary: `目前有 ${count} 個有效干擾項；需要 5 至 6 個。`,
+      locations: [],
+    };
+  }
+  if (issue.code === "CATALOG_DISTRACTOR_DUPLICATE") {
+    const candidates = listLocations(issue.field ?? "distractorEn", distractors);
+    const counts = new Map<string, number>();
+    for (const candidate of candidates) {
+      const key = normalizeIssueValue(candidate.value);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const locations = candidates.filter((candidate) =>
+      (counts.get(normalizeIssueValue(candidate.value)) ?? 0) > 1,
+    );
+    const values = [...new Map(
+      locations.map((location) => [
+        normalizeIssueValue(location.value),
+        location.value,
+      ]),
+    ).values()];
+    return locations.length
+      ? { summary: `重複項目：${values.join("、")}`, locations }
+      : null;
+  }
+  if (issue.code === "CATALOG_DISTRACTOR_CANONICAL_COLLISION") {
+    const answer = issue.field === "distractorZh" ? payload.definitionZh : payload.term;
+    const answerField = issue.field === "distractorZh" ? "definitionZh" : "term";
+    return matchingEvidence(
+      listLocations(issue.field ?? "distractorEn", distractors),
+      [{ field: answerField, index: null, value: answer }],
+    );
+  }
+  if (issue.code === "CATALOG_DISTRACTOR_ACCEPTED_COLLISION") {
+    const protectedValues = issue.field === "distractorZh"
+      ? listLocations("acceptedAnswersZh", payload.acceptedAnswersZh)
+      : [
+          ...listLocations("acceptedFormsEn", payload.acceptedFormsEn),
+          ...listLocations("synonymsEn", payload.synonymsEn),
+        ];
+    return matchingEvidence(
+      listLocations(issue.field ?? "distractorEn", distractors),
+      protectedValues,
+    );
+  }
+  return null;
+}
+
+export function catalogIssueEvidenceLocationLabel(
+  location: CatalogIssueEvidenceLocation,
+): string {
+  const position = location.index === null ? "" : `第 ${location.index + 1} 項`;
+  return `${catalogFieldLabel(location.field)}${position}：「${location.value}」`;
+}
+
+export function catalogExportAvailabilityPresentation(
+  value:
+    | "EXPORTABLE"
+    | "REQUIRES_GOVERNED_REVISION"
+    | "REVISION_UNAVAILABLE"
+    | "MISSING_SENSE_KEY",
+  hasPendingRequest = false,
+): CatalogExportAvailabilityPresentation | null {
+  if (value === "EXPORTABLE" && !hasPendingRequest) return null;
+  if (hasPendingRequest) {
+    return {
+      shortLabel: "正在審核",
+      reason: "此詞條已有修改等待審核。審核完成後，才可再次勾選及匯出。",
+    };
+  }
+  if (value === "REQUIRES_GOVERNED_REVISION") {
+    return {
+      shortLabel: "尚未提交",
+      reason: "此項是尚未提交的匯入資料，還沒有可供匯出的正式詞義。下一步：選擇「查看／修改」；如畫面列出內容問題，請先按提示修正，然後選擇「提交新詞義，送交審核」。經審核及批准後，才可供學生使用，亦可勾選及匯出。",
+    };
+  }
+  if (value === "REVISION_UNAVAILABLE") {
+    return {
+      shortLabel: "暫不可選取",
+      reason: "系統暫時無法取得可供匯出的詞義內容。請重新載入頁面；如問題持續，請通知詞庫管理員。",
+    };
+  }
+  return {
+    shortLabel: "暫不可選取",
+    reason: "此詞條尚未完成建立，暫時不能勾選及匯出。請先選擇「查看／修改」完成提交。",
   };
 }
 
@@ -334,7 +524,7 @@ export function catalogBatchStatusLabel(value: string): string {
 
 export function catalogHistorySourceLabel(value: string): string {
   if (value === "STANDALONE_REQUEST") return "逐條修改";
-  if (value === "BATCH") return "CSV 批量修改";
+  if (value === "BATCH") return "批量修改";
   if (value === "INITIAL_BASELINE") return "最初匯入";
   return "未能識別的記錄來源";
 }

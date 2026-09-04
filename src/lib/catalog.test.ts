@@ -103,18 +103,31 @@ test("a distractor cannot be an accepted answer or synonym", () => {
     distractor_en_1: "jog",
   });
   const result = validateCatalogRow(row);
-  assert.ok(result.errors.some((error) => error.includes("accepted answer or answer-safety synonym/antonym")));
+  assert.ok(result.errors.some((error) => error.includes("accepted answer or answer-safety synonym")));
 });
 
-test("a distractor cannot be another sense's answer", () => {
-  const run = normalized({ sense_key: "run-a1-run", distractor_zh_1: "經營" });
-  const manage = normalized({
-    sense_key: "run-a2-manage",
-    level: "A2",
-    definition_zh: "經營",
+test("an antonym can be used as a clearly incorrect distractor", () => {
+  const row = normalized({
+    term: "accept",
+    lemma: "accept",
+    definition_zh: "接受",
+    antonyms_en: "reject",
+    distractor_en_1: "reject",
   });
-  const result = validateCatalogRow(run, [manage]);
-  assert.ok(result.errors.includes("en-zh distractor collides with a sibling-sense answer"));
+  const result = validateCatalogRow(row);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "CATALOG_DISTRACTOR_ACCEPTED_COLLISION"),
+    false,
+  );
+});
+
+test("another sense's answer does not block row-local validation", () => {
+  const run = normalized({ sense_key: "run-a1-run", distractor_zh_1: "經營" });
+  const result = validateCatalogRow(run);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "CATALOG_DISTRACTOR_SIBLING_COLLISION"),
+    false,
+  );
 });
 
 test("a row with both directions disabled remains draft-blocked", () => {

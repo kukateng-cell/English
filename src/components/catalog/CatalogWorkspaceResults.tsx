@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import {
   catalogExportAvailability,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/catalog/workspace-selection";
 import {
   catalogCategoryLabel,
+  catalogExportAvailabilityPresentation,
   catalogIssuePresentation,
   catalogLifecycleLabel,
   catalogPartOfSpeechLabel,
@@ -42,10 +43,12 @@ export type CatalogDisplayRow = {
   hasSense: boolean;
 };
 
-function lifecycleTone(status: CatalogDisplayRow["status"]): string {
-  if (status === "ACTIVE")
+function lifecycleTone(row: CatalogDisplayRow): string {
+  if (row.contentScope === "IMPORT_DRAFT")
+    return "bg-[var(--warning-bg)] text-[var(--warning)]";
+  if (row.status === "ACTIVE")
     return "bg-[var(--success-bg)] text-[var(--success)]";
-  if (status === "RETIRED") return "bg-[var(--danger-bg)] text-[var(--danger)]";
+  if (row.status === "RETIRED") return "bg-[var(--danger-bg)] text-[var(--danger)]";
   return "bg-[var(--border-soft)] text-[var(--muted)]";
 }
 
@@ -62,18 +65,18 @@ function IssueSummary({
     row.contentScope === "PENDING_DRAFT"
       ? "待審版本"
       : row.contentScope === "IMPORT_DRAFT"
-        ? "匯入草稿"
+        ? "尚未提交的匯入資料"
         : "目前正式版本";
   const issues = row.structuredIssues.filter(
     (issue) => issue.severity === "ERROR",
   );
   const explanation =
     row.contentScope === "PENDING_DRAFT" && row.lifecycleState === "ACTIVE"
-      ? "目前正式版本仍可正常使用；待審版本尚待老師補充。"
+      ? "目前正式版本仍可正常使用；待審版本尚待教師補充。"
       : row.contentScope === "PENDING_DRAFT"
-        ? "待審版本尚待老師補充，批准前不會取代正式內容。"
+        ? "待審版本尚待教師補充，批准前不會取代正式內容。"
         : row.contentScope === "IMPORT_DRAFT"
-          ? "匯入草稿尚待老師補充，未供學生使用。"
+          ? "此項尚未提交建立詞義。請查看下方具體問題，修正後提交新詞義並送交審核。"
           : "目前正式版本需要修正，請按以下提示處理。";
   return (
     <details className="mt-1 text-xs text-[var(--danger)]">
@@ -105,6 +108,112 @@ function IssueSummary({
       </div>
     </details>
   );
+}
+
+function ExportUnavailableHint({ row }: { row: CatalogDisplayRow }) {
+  const { tc } = useLocale();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelId = useId();
+  const presentation = catalogExportAvailabilityPresentation(
+    catalogExportAvailability(row),
+    Boolean(row.pendingRequest),
+  );
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+  if (!presentation) return null;
+  return (
+    <div
+      ref={rootRef}
+      className="relative w-fit text-[10px] leading-4 text-[var(--muted)]"
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="cursor-pointer font-semibold underline decoration-dotted underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {tc(presentation.shortLabel)}
+      </button>
+      {open ? (
+        <p
+          id={panelId}
+          role="note"
+          className="absolute left-0 top-full z-30 mt-1 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-xs font-normal leading-5 text-[var(--text)] shadow-xl"
+        >
+          {tc(presentation.reason)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ExportSelectionControl({
+  row,
+  checked,
+  onToggle,
+  showSelectionLabel = false,
+}: {
+  row: CatalogDisplayRow;
+  checked: boolean;
+  onToggle: (checked: boolean) => void;
+  showSelectionLabel?: boolean;
+}) {
+  const { tc } = useLocale();
+  if (!hasCatalogExportTarget(row) || row.pendingRequest) {
+    const presentation = catalogExportAvailabilityPresentation(
+      catalogExportAvailability(row),
+      Boolean(row.pendingRequest),
+    );
+    return (
+      <div className="flex items-start gap-2">
+        <input
+          aria-label={`${tc("不可匯出此詞條")}：${row.term}。${presentation ? tc(presentation.reason) : ""}`}
+          type="checkbox"
+          disabled
+        />
+        <ExportUnavailableHint row={row} />
+      </div>
+    );
+  }
+  const checkbox = (
+    <input
+      aria-label={`${tc("選取要匯出的詞條")}：${row.term}`}
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => onToggle(event.target.checked)}
+    />
+  );
+  return showSelectionLabel ? (
+    <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+      {checkbox}
+      {tc("選取要匯出的詞條")}
+    </label>
+  ) : checkbox;
 }
 
 function MoreMenu({
@@ -265,9 +374,13 @@ export default function CatalogWorkspaceResults({
   const category = (row: CatalogDisplayRow) =>
     tc(catalogCategoryLabel(row.category));
   const status = (row: CatalogDisplayRow) =>
-    tc(catalogLifecycleLabel(row.lifecycleState));
+    row.contentScope === "IMPORT_DRAFT"
+      ? tc("匯入資料")
+      : tc(catalogLifecycleLabel(row.lifecycleState));
   const workflow = (row: CatalogDisplayRow) =>
-    tc(catalogWorkflowLabel(row.workflowState));
+    row.contentScope === "IMPORT_DRAFT"
+      ? tc("尚未提交建立詞義")
+      : tc(catalogWorkflowLabel(row.workflowState));
   const readiness = (row: CatalogDisplayRow) =>
     tc(catalogReadinessLabel(row.readinessState));
   if (desktop)
@@ -277,8 +390,11 @@ export default function CatalogWorkspaceResults({
           <thead className="sticky top-0 z-10 bg-[var(--border-soft)] text-xs text-[var(--muted)]">
             <tr>
               {bulkEnabled ? (
-                <th scope="col" className="w-12 px-3 py-3">
-                  {tc("選取")}
+                <th scope="col" className="w-24 px-3 py-3">
+                  <span className="block">{tc("匯出")}</span>
+                  <span className="mt-0.5 block text-[10px] font-normal">
+                    {tc("選取／原因")}
+                  </span>
                 </th>
               ) : null}
               <th scope="col" className="w-[210px] px-3 py-3">
@@ -307,17 +423,15 @@ export default function CatalogWorkspaceResults({
               >
                 {bulkEnabled ? (
                   <td className="px-3 py-2">
-                    {hasCatalogExportTarget(row) ? (
-                      <input
-                        aria-label={`${tc("選取匯出")} ${row.term}`}
-                        type="checkbox"
-                        checked={selectedSenseKeys.has(row.senseKey!)}
-                        disabled={Boolean(row.pendingRequest)}
-                        onChange={(event) =>
-                          onToggleSelection(row.senseKey!, event.target.checked)
-                        }
-                      />
-                    ) : null}
+                    <ExportSelectionControl
+                      row={row}
+                      checked={Boolean(
+                        row.senseKey && selectedSenseKeys.has(row.senseKey),
+                      )}
+                      onToggle={(checked) => {
+                        if (row.senseKey) onToggleSelection(row.senseKey, checked);
+                      }}
+                    />
                   </td>
                 ) : null}
                 <td className="px-3 py-2">
@@ -345,7 +459,7 @@ export default function CatalogWorkspaceResults({
                 </td>
                 <td className="px-3 py-2 text-xs">
                   <span
-                    className={`inline-flex rounded-full px-2 py-1 font-semibold ${lifecycleTone(row.status)}`}
+                    className={`inline-flex rounded-full px-2 py-1 font-semibold ${lifecycleTone(row)}`}
                   >
                     {status(row)}
                   </span>
@@ -415,7 +529,7 @@ export default function CatalogWorkspaceResults({
               ) : null}
             </div>
             <span
-              className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${lifecycleTone(row.status)}`}
+              className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${lifecycleTone(row)}`}
             >
               {status(row)}
             </span>
@@ -436,24 +550,17 @@ export default function CatalogWorkspaceResults({
           <IssueSummary row={row} onEdit={() => onEdit(row)} />
           <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--border)] pt-3">
             <div>
-              {bulkEnabled && hasCatalogExportTarget(row) ? (
-                <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                  <input
-                    type="checkbox"
-                    checked={selectedSenseKeys.has(row.senseKey!)}
-                    disabled={Boolean(row.pendingRequest)}
-                    onChange={(event) =>
-                      onToggleSelection(row.senseKey!, event.target.checked)
-                    }
-                  />
-                  {tc("選取匯出")}
-                </label>
-              ) : bulkEnabled &&
-                catalogExportAvailability(row) ===
-                  "REQUIRES_GOVERNED_REVISION" ? (
-                <span className="text-xs text-[var(--muted)]">
-                  {tc("建立版本後可匯出")}
-                </span>
+              {bulkEnabled ? (
+                <ExportSelectionControl
+                  row={row}
+                  checked={Boolean(
+                    row.senseKey && selectedSenseKeys.has(row.senseKey),
+                  )}
+                  onToggle={(checked) => {
+                    if (row.senseKey) onToggleSelection(row.senseKey, checked);
+                  }}
+                  showSelectionLabel
+                />
               ) : null}
             </div>
             <div className="flex items-center gap-2">

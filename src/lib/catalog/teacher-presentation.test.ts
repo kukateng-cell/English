@@ -6,8 +6,11 @@ import {
 } from "./csv";
 import {
   catalogCategoryLabel,
+  catalogExportAvailabilityPresentation,
   catalogFieldLabel,
   catalogHistorySourceLabel,
+  catalogIssueEvidence,
+  catalogIssueEvidenceLocationLabel,
   catalogIssuePresentation,
   catalogLifecycleLabel,
   catalogPartOfSpeechLabel,
@@ -84,6 +87,65 @@ test("catalog issue presentation gives a field, reason and next step without raw
     severity: "ERROR",
   });
   assert.doesNotMatch(unknown.reason, /RAW_INTERNAL_EXCEPTION/u);
+});
+
+test("catalog issue evidence identifies the exact distractor collision from the source payload", () => {
+  const evidence = catalogIssueEvidence(
+    {
+      code: "CATALOG_DISTRACTOR_ACCEPTED_COLLISION",
+      field: "distractorEn",
+      direction: "ZH_TO_EN",
+      severity: "ERROR",
+    },
+    {
+      term: "accept",
+      definitionZh: "接受",
+      acceptedAnswersZh: [],
+      acceptedFormsEn: [],
+      synonymsEn: ["receive"],
+      antonymsEn: ["reject"],
+      distractorZh: ["拒絕", "考慮", "離開", "發送", "刪除"],
+      distractorEn: ["refuse", "reject", "receive", "leave", "remove"],
+    },
+  );
+  assert.deepEqual(evidence, {
+    summary: "重疊項目：receive",
+    locations: [
+      { field: "synonymsEn", index: 0, value: "receive" },
+      { field: "distractorEn", index: 2, value: "receive" },
+    ],
+  });
+  assert.equal(
+    catalogIssueEvidenceLocationLabel(evidence!.locations[1]!),
+    "中譯英干擾項第 3 項：「receive」",
+  );
+});
+
+test("catalog export availability copy explains every non-selectable state", () => {
+  assert.equal(
+    catalogExportAvailabilityPresentation(
+      "REQUIRES_GOVERNED_REVISION",
+    )?.shortLabel,
+    "尚未提交",
+  );
+  assert.equal(
+    catalogExportAvailabilityPresentation("REVISION_UNAVAILABLE")?.shortLabel,
+    "暫不可選取",
+  );
+  assert.equal(
+    catalogExportAvailabilityPresentation("MISSING_SENSE_KEY")?.shortLabel,
+    "暫不可選取",
+  );
+  assert.equal(
+    catalogExportAvailabilityPresentation("EXPORTABLE", true)?.shortLabel,
+    "正在審核",
+  );
+  assert.equal(catalogExportAvailabilityPresentation("EXPORTABLE"), null);
+  assert.match(
+    catalogExportAvailabilityPresentation("REQUIRES_GOVERNED_REVISION")!
+      .reason,
+    /匯出/u,
+  );
 });
 
 test("every structured validator code has actionable teacher copy and legacy rows are upgraded", () => {

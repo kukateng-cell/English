@@ -14,6 +14,8 @@ import {
 } from "@/lib/catalog/submission-patch";
 
 type Payload = CatalogGovernancePayload;
+type WorkbookFormat = "XLSX" | "CSV";
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 type BatchRow = {
   id: string;
@@ -102,6 +104,8 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
   const [reviewable, setReviewable] = useState<BatchSummary[]>([]);
   const [selected, setSelected] = useState<Batch | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [templateFormat, setTemplateFormat] = useState<WorkbookFormat>("XLSX");
+  const [exportFormat, setExportFormat] = useState<WorkbookFormat>("XLSX");
   const [exportKeys, setExportKeys] = useState("");
   const [exportKeysError, setExportKeysError] = useState<string | null>(null);
   const [resolution, setResolution] = useState<Record<string, string>>({});
@@ -210,12 +214,13 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
 
   async function upload() {
     if (!file) return;
+    const format: WorkbookFormat = file.name.toLocaleLowerCase("en-US").endsWith(".xlsx") ? "XLSX" : "CSV";
     setBusy(true); setError(null); setMessage(null);
     try {
       const response = await rosterFetch("/api/catalog/submissions/preview", {
         method: "POST",
         headers: {
-          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Type": format === "XLSX" ? XLSX_CONTENT_TYPE : "text/csv; charset=utf-8",
           "Idempotency-Key": crypto.randomUUID(),
           "X-Catalog-Filename": encodeURIComponent(file.name),
         },
@@ -224,9 +229,9 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const result = await response.json() as { batch: Batch };
       installBatch(result.batch);
-      setMessage(tc("CSV 預覽已建立；資料尚未提交審核。"));
+      setMessage(tc(`${format} 預覽已建立；資料尚未提交審核。`));
       await loadQueues();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : tc("CSV 預覽失敗")); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : tc("檔案預覽失敗")); }
     finally { setBusy(false); }
   }
 
@@ -243,10 +248,10 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
     const senseKeys = parsed.senseKeys;
     setBusy(true); setExportKeysError(null);
     try {
-      const response = await rosterFetch("/api/catalog/submissions/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senseKeys }) });
+      const response = await rosterFetch("/api/catalog/submissions/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senseKeys, format: exportFormat }) });
       if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
       const url = URL.createObjectURL(await response.blob());
-      const anchor = document.createElement("a"); anchor.href = url; anchor.download = "catalog-update.csv"; anchor.click(); URL.revokeObjectURL(url);
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = `catalog-export.${exportFormat.toLocaleLowerCase("en-US")}`; anchor.click(); URL.revokeObjectURL(url);
     } catch (cause) { setExportKeysError(cause instanceof Error ? cause.message : tc("匯出失敗")); }
     finally { setBusy(false); }
   }
@@ -290,7 +295,7 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
       const response = await rosterFetch(`/api/catalog/submissions/${encodeURIComponent(selected.id)}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(operationId ? { "Idempotency-Key": operationId } : {}) },
-        body: JSON.stringify({ expectedRevision: selected.revision, reason: batchNote.trim() || tc("CSV 批量詞庫提交") }),
+        body: JSON.stringify({ expectedRevision: selected.revision, reason: batchNote.trim() || tc("詞庫批量提交") }),
       });
       if (!response.ok && action === "finalize") {
         const detail = await response.clone().json().catch(() => null) as { code?: string } | null;
@@ -367,21 +372,21 @@ export default function CatalogBulkSubmissionWorkspace({ canReview, actorUserId,
   const visibleGroups = filteredGroups.slice((Math.min(groupPage, groupPageCount) - 1) * GROUP_PAGE_SIZE, Math.min(groupPage, groupPageCount) * GROUP_PAGE_SIZE);
 
   return <div className="space-y-5">
-    <header><h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)]">{tc("CSV 批量提交")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc("先建立安全預覽，再提交新增或更新內容；預覽不會修改正式詞庫。")}</p></header>
+    <header><h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)]">{tc("批量提交")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc("支援 Excel（XLSX）及 CSV。先建立安全預覽，再提交新增或修改內容；預覽不會修改正式詞庫。")}</p></header>
     <section className="grid gap-4 xl:grid-cols-2">
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <h2 className="font-bold text-[var(--text)]">{tc("上載新增或更新 CSV")}</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">{tc("只接受 UTF-8 CSV、最多 200 行及 4 MiB。CREATE 的系統 key 留空；UPDATE 請先匯出現有詞條。")}</p>
-        <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="ui-button ui-button-secondary" onClick={() => window.location.assign("/api/catalog/submissions/template")}>{tc("下載 CREATE 範本")}</button><span className="rounded-xl bg-[var(--border-soft)] px-3 py-2 text-xs text-[var(--muted)]">{tc("請勿刪除、重新命名或移動欄位；必須保留老師範本原有 34 欄次序。完整 39 欄只供受控基線工具使用。")}</span></div>
-        <label className="mt-4 grid gap-2 text-sm font-semibold text-[var(--text)]">{tc("選擇 CSV 檔案")}<input type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="block w-full rounded-xl border border-[var(--border)] p-3 text-sm" /></label>
+        <h2 className="font-bold text-[var(--text)]">{tc("上載新增或修改檔案")}</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">{tc("接受 Excel（XLSX）或 UTF-8 CSV，最多 200 行及 4 MiB。新增詞條時請將系統 key 留空；修改現有詞條時，請先匯出有關詞條。")}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-2"><label className="text-xs font-semibold text-[var(--muted)]">{tc("範本格式")}<select aria-label={tc("範本格式") as string} value={templateFormat} onChange={(event) => setTemplateFormat(event.target.value as WorkbookFormat)} className="ml-2 h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"><option value="XLSX">{tc("Excel（XLSX）")}</option><option value="CSV">CSV</option></select></label><button type="button" className="ui-button ui-button-secondary" onClick={() => window.location.assign(`/api/catalog/submissions/template?format=${templateFormat.toLocaleLowerCase("en-US")}`)}>{tc("下載新增詞條範本")}</button><span className="rounded-xl bg-[var(--border-soft)] px-3 py-2 text-xs text-[var(--muted)]">{tc("請勿刪除、重新命名或移動欄位；必須保留老師範本原有 34 欄次序。完整 39 欄只供受控基線工具使用。")}</span></div>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-[var(--text)]">{tc("選擇 XLSX 或 CSV 檔案")}<input type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="block w-full rounded-xl border border-[var(--border)] p-3 text-sm" /></label>
         <button type="button" className="ui-button ui-button-primary mt-3" disabled={!file || busy} onClick={() => void upload()}>{busy ? tc("處理中…") : tc("建立安全預覽")}</button>
       </div>
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <h2 className="font-bold text-[var(--text)]">{tc("匯出現有詞條作 UPDATE")}</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">{tc("輸入最多 200 個 sense key，每行一個；系統會連同 revision 及狀態匯出。")}</p>
+        <h2 className="font-bold text-[var(--text)]">{tc("按 Sense key 匯出詞條")}</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">{tc("輸入最多 200 個 sense key，每行一個。預設匯出 Excel（XLSX），亦可選擇 CSV。")}</p>
         <label className="mt-3 grid gap-1 text-xs font-semibold text-[var(--muted)]">{tc("Sense keys（每行一個）")}<textarea className="min-h-28 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm font-normal text-[var(--text)]" value={exportKeys} onChange={(event) => { setExportKeys(event.target.value); setExportKeysError(null); }} placeholder="sense_…" aria-invalid={Boolean(exportKeysError)} aria-describedby={exportKeysError ? "catalog-export-keys-error" : undefined} /></label>
         {exportKeysError ? <p id="catalog-export-keys-error" role="alert" className="mt-2 text-sm text-[var(--danger)]">{exportKeysError}</p> : null}
-        <button type="button" className="ui-button ui-button-secondary mt-3" disabled={busy || !exportKeys.trim()} onClick={() => void exportSelected()}>{tc("匯出 UPDATE CSV")}</button>
+        <div className="mt-3 flex flex-wrap items-center gap-2"><label className="text-xs font-semibold text-[var(--muted)]">{tc("匯出格式")}<select aria-label={tc("Sense key 匯出格式") as string} value={exportFormat} onChange={(event) => setExportFormat(event.target.value as WorkbookFormat)} className="ml-2 h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"><option value="XLSX">{tc("Excel（XLSX）")}</option><option value="CSV">CSV</option></select></label><button type="button" className="ui-button ui-button-secondary" disabled={busy || !exportKeys.trim()} onClick={() => void exportSelected()}>{tc(`匯出所選詞條（${exportFormat}）`)}</button></div>
       </div>
     </section>
     {error ? <p role="alert" className="rounded-xl bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger)]">{error}</p> : null}

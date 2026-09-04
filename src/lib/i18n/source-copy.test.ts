@@ -28,6 +28,11 @@ const NON_CANONICAL_VISIBLE_TERMS = [
   "組件", "菜單", "內存限流",
 ] as const;
 
+const NON_WRITTEN_CANTONESE_TERMS = [
+  "呢個", "呢項", "呢份", "呢啲", "唔", "冇", "嘅", "喺", "俾", "咗", "嗰", "佢",
+  "點解", "點改", "用嚟", "今次", "見到", "邊一個", "撞到",
+] as const;
+
 function sourceFiles(): string[] {
   const files: string[] = [];
   const walk = (entry: string) => {
@@ -85,6 +90,10 @@ test("production Chinese source literals use the Traditional canonical baseline"
           if (!exception && NON_CANONICAL_VISIBLE_TERMS.some((term) => value.includes(term))) {
             const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
             failures.push(`${file}:${line} 非 canonical 用詞 ${value}`);
+          }
+          if (!exception && NON_WRITTEN_CANTONESE_TERMS.some((term) => value.includes(term))) {
+            const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+            failures.push(`${file}:${line} 非書面語文案 ${value}`);
           }
         }
       }

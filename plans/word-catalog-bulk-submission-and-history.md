@@ -1,6 +1,6 @@
-# 詞庫 CSV 批量提交及詞條修改歷史界面實施計劃
+# 詞庫批量提交及詞條修改歷史界面實施計劃
 
-> 狀態：已完成（第 27 輪 retry closure 加固；staging／Vercel及production rollout仍另行處理）
+> 狀態：已完成（第 28 輪 XLSX 預設格式修訂；staging／Vercel及production rollout仍另行處理）
 >
 > 日期：2026-08-22
 >
@@ -10,7 +10,7 @@
 >
 > 資料規範：[英語詞庫編寫、匯入及質量檢查標準 v1](./artifacts/word-catalog-authoring-standard-v1.md)
 >
-> 範圍：CSV 批量草稿提交、批次審核／原子套用、修改歷史查詢及管理員／老師界面；不包括 production deploy 或 destructive migration
+> 範圍：XLSX／CSV 批量草稿提交、批次審核／原子套用、修改歷史查詢及管理員／老師界面；不包括 production deploy 或 destructive migration
 
 ## 1. 背景
 
@@ -38,8 +38,8 @@
 
 ## 3. 目標
 
-1. 一般老師、capability 老師及管理員可以上載 `word-catalog-v1` CSV，先預覽而不修改正式詞庫，再提交成 immutable 待審批次。
-2. 新增及更新詞義可在同一 CSV 混合；新資料 keys 留空，更新資料必須來自系統匯出並帶 stable keys 及 expected revision。
+1. 一般老師、capability 老師及管理員可以上載採用相同 `word-catalog-v1` 欄位的 XLSX 或 CSV，先預覽而不修改正式詞庫，再提交成 immutable 待審批次。
+2. 新增及更新詞義可在同一檔案混合；新資料 keys 留空，更新資料必須來自系統匯出並帶 stable keys 及 expected revision。
 3. 每行都有明確 disposition、database diff、錯誤／警告及 duplicate bundle；未解決 blocking conflict 不可提交。
 4. 提交批次時所有 proposal-group change requests 全部成功或全部失敗；審核完成時，獲批准 proposal groups 亦以一個 Serializable transaction 全部套用或全部不套用。
 5. preview 到提交、提交到批准之間均重跑權限、revision、identity、duplicate、taxonomy、answer-safety 及 sibling-sense checks，杜絕 TOCTOU／last-write-wins。
@@ -53,7 +53,7 @@
 - 不覆蓋或改變既有 digest-bound initial baseline manifest；日常 CSV 上載不重跑 seed；
 - 使用者上載 CSV 第一版不支援 `REQUEST_RETIRE` 或 `REQUEST_REACTIVATE`；呢啲 lifecycle 動作繼續使用逐條工作流。唯一例外係由已COMMITTED批次產生的system corrective preview，可以為原CREATE group明確建立RETIRE proposal，仍須重新preview及由一位未參與內容編寫的獨立 reviewer 批准；
 - 不因 CSV 缺行自動停用、刪除或隱藏任何詞義；
-- 不接受 XLSX、Google Sheet URL、ZIP 或外部字典連線；
+- 不接受舊式 XLS、Google Sheet URL、任意 ZIP 或外部字典連線；
 - 不自動生成、改寫、翻譯或補足詞義、例句、音標或干擾項；
 - 不在歷史頁提供修改／刪除 audit 的能力；
 - 不在本計劃完成 global monotonic catalog lifecycle revision／as-of analytics；歷史排序不冒充該項未完成能力；
@@ -61,10 +61,10 @@
 
 ## 5. 已定產品及安全決策
 
-### 5.1 CSV 支援範圍
+### 5.1 XLSX／CSV 支援範圍
 
-- 檔案必須係嚴格 UTF-8 CSV，可有且只可有檔首一個 BOM；老師 template／export／upload 固定使用 34 個精確 `word-catalog-v1` governance 欄名及模板原有次序，每個欄名恰好一次，換序、未知、重複或完整39欄bootstrap檔一律拒絕；完整39欄只由受控bootstrap／migration工具讀取，唔進入普通老師endpoint；
-- launch 上限為 4 MiB、200 個 data rows；4 MiB 低於 Vercel Functions 4.5 MB request ceiling；0 行、超限、重複 header、未知欄、broken quoting、公式／CSV injection 或非支援 schema 一律拒絕；
+- 老師 template／export／upload 固定使用 34 個精確 `word-catalog-v1` governance 欄名及模板原有次序，每個欄名恰好一次；換序、未知、重複或完整39欄bootstrap檔一律拒絕。預設格式為 XLSX，並保留嚴格 UTF-8 CSV；完整39欄只由受控bootstrap／migration工具讀取，不進入普通老師endpoint；
+- 兩種格式上限均為 4 MiB、200 個 data rows；0 行、超限、重複 header、未知欄、公式或非支援 schema 一律拒絕。XLSX 載入前檢查 ZIP 結構、大小及壓縮比例，並拒絕巨集、外部連結、多個可見工作表及公式；CSV 另檢查 UTF-8、BOM、引號及 formula injection；
 - `CREATE`：`catalog_key`、`sense_key`、`record_revision`、`catalog_status` 必須留空；
 - `UPDATE`：必須由系統匯出，保留 `catalog_key`、`sense_key`、`record_revision` 及只讀 `catalog_status`；lemma 不可越過既有穩定 headword boundary；
 - 同一檔案可以混合 CREATE／UPDATE，但不接受其他 `requested_action`；
@@ -173,14 +173,14 @@ API及UI固定使用三種不同DTO，唔先回完整資料再由client隱藏：
 `/admin/words` 及 `/teacher/words` 共用同一 responsive workspace，頂部改為三個可直接連結的 view：
 
 ```text
-詞庫總覽 | CSV 批量提交 | 修改歷史
+詞庫總覽 | 批量提交 | 修改歷史
 ```
 
 只有 view、status、kind、level、category及不含actor的日期等非敏感 enum filter寫入 URL query，重新整理／返回時可恢復；自由文字、actor及內部備註搜尋留在頁面／session state並以JSON body送到受權限保護的search endpoint。不建立兩套 admin／teacher UI。
 
-### 6.1 CSV 批量提交 wizard
+### 6.1 批量提交 wizard
 
-1. **下載／選擇格式**：下載新增 template，或按目前詞庫 filter 匯出 UPDATE template；清楚標示只接受 CSV、200 行及不支援批量停用；
+1. **下載／選擇格式**：下載新增 template，或匯出明確勾選的現有詞條；預設 XLSX，亦可選擇 CSV，兩者均限制 200 行及不支援批量停用；
 2. **上載**：drop zone＋檔案選擇器，顯示檔名、大小、row count及 schema version；
 3. **預覽**：摘要卡顯示新增、更新、無變更、警告、衝突、錯誤；row table 可按 disposition／level／category／action／lemma filter；
 4. **比較／解衝突**：desktop 使用左右 before／after diff，tablet／mobile 使用逐欄堆疊卡；duplicate bundle 顯示同詞其他 sense，唔只顯示「有重複」；
@@ -351,14 +351,14 @@ Governance proposal payload 係 versioned完整snapshot，足以重建實際批�
 
 ## 9. API contract
 
-所有 mutation 使用 same-origin CSRF、streaming body cap、strict JSON／CSV parsing及 catalog-specific rate limit；所有 response `private, no-store`。
+所有 mutation 使用 same-origin CSRF、streaming body cap、strict JSON／XLSX／CSV parsing及 catalog-specific rate limit；所有 response `private, no-store`。
 
 Preview raw body contract：
 
-- `Content-Type: text/csv; charset=utf-8`；body只含CSV bytes；
+- `Content-Type` 必須為正式 XLSX media type或 `text/csv; charset=utf-8`；body只含相應檔案 bytes；
 - `Idempotency-Key` 必須係canonical UUID，由client `crypto.randomUUID()`產生，server不trim／NFKC後再當另一個ID；缺失、重複或非canonical格式拒絕；
 - `X-Catalog-File-Name` 使用UTF-8 percent-encoding，decode一次後最多180 bytes；server只取basename、拒絕control／path separator並另產生安全顯示名，唔信任任意`Content-Disposition`；
-- schema version由CSV欄位讀取；preview fingerprint綁actor、operation ID、安全檔名、實際file hash、schema／validator／normalization／taxonomy versions及row contract；
+- schema version由檔案欄位讀取；preview fingerprint綁actor、operation ID、安全檔名、實際file hash、schema／validator／normalization／taxonomy versions及row contract；
 - submit／review／finalize使用strict JSON；submit body至少有`operationId`、`expectedBatchRevision`及batch note，finalize body至少有獨立`operationId`、`expectedBatchRevision`，review progress亦帶expected revision。
 
 | Endpoint | 權限 | 用途 |
@@ -812,3 +812,14 @@ npm run check:catalog-governance
 - 真實PostgreSQL submission checker證明closure只寫一次、其他terminal payload不可同時改寫、同operation ID安全重播、closed source不再actionable而原history仍存在；
 - catalog workspace Playwright 14／14通過；老師收到清晰完成訊息，source即時由待辦移除；
 - production／staging migration及deployment未執行，仍需另行授權。
+
+## 28. XLSX 預設格式及 CSV 相容支援（2026-09-05，已完成）
+
+- [x] 將老師介面的操作命名收斂為「匯出所選詞條」，不再使用「CSV 更新」或「修改表」作功能名稱；
+- [x] 完整詞庫、按 sense key 匯出及新增詞條範本預設使用 Excel（XLSX），並提供 CSV 格式選項；
+- [x] 預覽上載同步接受 XLSX 及 UTF-8 CSV，兩者共用相同 34 欄次序、200 行上限及治理 validator；
+- [x] XLSX 載入前檢查 ZIP 結構、大小及壓縮比例，拒絕公式、巨集、外部連結及非單一 `Data` 可見工作表；
+- [x] 新增 XLSX export／upload round-trip、公式拒絕、工作表拒絕及 CSV compatibility unit tests；browser regression加入 XLSX 預設值及 XLSX／CSV API round-trip；
+- [x] 369個unit、zero-warning lint、TypeScript、84-route production build及`git diff --check`通過；真實瀏覽器確認主列表與批量提交頁預設 XLSX、CSV 可切換及按鈕即時標示格式。
+
+本輪沒有 schema、migration、seed、production deploy 或正式資料改動；完整 catalog-workspace Playwright Test project 未重跑，保留已更新的 XLSX／CSV regression 供後續合併檢查執行。

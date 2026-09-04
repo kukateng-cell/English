@@ -484,22 +484,33 @@ function dangerousFormula(value: string): boolean {
 
 /** Strict, fixed-template parser for teacher governance uploads. */
 export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string): CatalogSourceRow[] {
-  const records = strictCsvRecords(governanceText(bytes, sourceFile), sourceFile);
+  return parseCatalogGovernanceRecords(
+    strictCsvRecords(governanceText(bytes, sourceFile), sourceFile),
+    sourceFile,
+    "CSV",
+  );
+}
+
+export function parseCatalogGovernanceRecords(
+  records: readonly { values: readonly string[]; sourceLine: number }[],
+  sourceFile: string,
+  formatLabel: "CSV" | "XLSX",
+): CatalogSourceRow[] {
   const header = records[0]?.values.map((value) => clean(value));
-  if (!header?.length) throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: CSV header is required`);
+  if (!header?.length) throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: ${formatLabel} header is required`);
   if (new Set(header).size !== header.length) {
-    throw new CatalogCsvError("CATALOG_CSV_HEADER_DUPLICATE", `${sourceFile}: duplicate header`);
+    throw new CatalogCsvError("CATALOG_CSV_HEADER_DUPLICATE", `${sourceFile}: ${formatLabel} has a duplicate header`);
   }
   if (
     header.length !== CATALOG_GOVERNANCE_HEADERS.length
     || header.some((value, index) => value !== CATALOG_GOVERNANCE_HEADERS[index])
   ) {
-    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: header names and order must match the 34-field teacher template`);
+    throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: ${formatLabel} header names and order must match the 34-field teacher template`);
   }
   const rows = records.slice(1).flatMap(({ values, sourceLine }) => {
-    if (values.length === 1 && clean(values[0]) === "") return [];
+    if (values.every((value) => clean(value) === "")) return [];
     if (values.length !== header.length) {
-      throw new CatalogCsvError("CATALOG_CSV_COLUMN_COUNT_INVALID", `${sourceFile}: row ${sourceLine} has ${values.length} columns; expected ${header.length}`);
+      throw new CatalogCsvError("CATALOG_CSV_COLUMN_COUNT_INVALID", `${sourceFile}: ${formatLabel} row ${sourceLine} has ${values.length} columns; expected ${header.length}`);
     }
     const record = Object.assign(
       Object.fromEntries(CATALOG_HEADERS.map((key) => [key, ""])),
@@ -590,7 +601,6 @@ export function normalizeCatalogRow(row: CatalogSourceRow, ordinal: number): Nor
 
 export function validateCatalogRow(
   row: NormalizedCatalogRow,
-  siblingRows: readonly NormalizedCatalogRow[] = [],
   mode: CatalogValidationMode = "bootstrap",
   sourceRow?: CatalogSourceRow,
 ): CatalogRowValidation {
@@ -664,10 +674,8 @@ export function validateCatalogRow(
     if (normalizedCandidates.includes(answer)) addError(`${direction} distractor collides with canonical answer`, "CATALOG_DISTRACTOR_CANONICAL_COLLISION", distractorField, issueDirection);
     const sameRowAnswers = direction === "en-zh"
       ? row.acceptedAnswersZh
-      : [row.acceptedFormsEn, row.synonymsEn, row.antonymsEn].flat();
-    if (normalizedCandidates.some((candidate) => sameRowAnswers.map(normalizeCatalogText).includes(candidate))) addError(`${direction} distractor collides with an accepted answer or answer-safety synonym/antonym`, "CATALOG_DISTRACTOR_ACCEPTED_COLLISION", distractorField, issueDirection);
-    const siblingAnswers = siblingRows.flatMap((sibling) => [directionAnswer(sibling, direction), ...(direction === "en-zh" ? sibling.acceptedAnswersZh : [sibling.acceptedFormsEn, sibling.synonymsEn, sibling.antonymsEn].flat())]).map(normalizeCatalogText);
-    if (normalizedCandidates.some((candidate) => siblingAnswers.includes(candidate))) addError(`${direction} distractor collides with a sibling-sense answer`, "CATALOG_DISTRACTOR_SIBLING_COLLISION", distractorField, issueDirection);
+      : [row.acceptedFormsEn, row.synonymsEn].flat();
+    if (normalizedCandidates.some((candidate) => sameRowAnswers.map(normalizeCatalogText).includes(candidate))) addError(`${direction} distractor collides with an accepted answer or answer-safety synonym`, "CATALOG_DISTRACTOR_ACCEPTED_COLLISION", distractorField, issueDirection);
   }
   if (!row.enableEnToZh && !row.enableZhToEn) addWarning("both directions are disabled", "CATALOG_DIRECTIONS_DISABLED");
   const directionEligible = (row.enableEnToZh || row.enableZhToEn) && errors.length === 0;
@@ -731,5 +739,8 @@ export function catalogRowsToCsv(
 export function safeCatalogDownloadName(value: string, fallback = "word-catalog.csv"): string {
   const normalized = value.normalize("NFKC").replace(/[\u0000-\u001F\u007F/\\]/gu, "-").trim();
   const candidate = normalized.slice(0, 120) || fallback;
-  return candidate.toLocaleLowerCase("en-US").endsWith(".csv") ? candidate : `${candidate}.csv`;
+  const lower = candidate.toLocaleLowerCase("en-US");
+  if (lower.endsWith(".csv") || lower.endsWith(".xlsx")) return candidate;
+  const extension = fallback.toLocaleLowerCase("en-US").endsWith(".xlsx") ? ".xlsx" : ".csv";
+  return `${candidate}${extension}`;
 }

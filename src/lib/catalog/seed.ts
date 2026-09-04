@@ -137,11 +137,8 @@ export async function seedCatalog(
     }
     return normalizeCatalogRow({ ...sourceRow, catalog_key: assignment.catalogKey, sense_key: assignment.senseKey }, 0);
   });
-  const byTerm = new Map<string, NormalizedCatalogRow[]>();
-  for (const row of rows) byTerm.set(row.normalizedTerm, [...(byTerm.get(row.normalizedTerm) ?? []), row]);
   const validations = rows.map((row) => {
-    const siblings = (byTerm.get(row.normalizedTerm) ?? []).filter((sibling) => sibling.senseKey !== row.senseKey);
-    const validation = validateCatalogRow(row, siblings);
+    const validation = validateCatalogRow(row);
     if (!isCatalogCategory(row.category)) {
       validation.errors.push(`unknown category: ${row.category}`);
       validation.issues.push({ code: "CATALOG_CATEGORY_UNKNOWN", field: "category", direction: null, severity: "ERROR" });

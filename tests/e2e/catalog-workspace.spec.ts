@@ -337,7 +337,8 @@ function catalogRaceDetailBody(
     primaryDisposition: "UPDATE",
     eligibilityResult: null,
     hasSense: true,
-    issues: null,
+    structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+    structuredIssues: [],
     payload,
     pendingRequest: null,
   };
@@ -373,7 +374,7 @@ function catalogRacePendingRequest(
 
 async function installCatalogRaceList(
   page: Page,
-  rows: Array<ReturnType<typeof catalogRaceRow>>,
+  rows: Array<Record<string, unknown>>,
   options: {
     canReview?: boolean;
     pending?: Array<ReturnType<typeof catalogRacePendingRequest>>;
@@ -662,7 +663,8 @@ test("newer catalog detail selection survives an older delayed response and subm
       primaryDisposition: "UPDATE",
       eligibilityResult: null,
       hasSense: true,
-      issues: null,
+      structuredIssueVersion: CATALOG_STRUCTURED_ISSUE_VERSION,
+      structuredIssues: [],
       payload,
       pendingRequest: null,
     });
@@ -1450,7 +1452,7 @@ test("blocked batch retry shows the CSV row and readable reason without opening 
     await reviewer.page.getByRole("button", { name: /一鍵建立修正版預覽|一键建立修正版预览/ }).click();
 
     const blockedRow = reviewer.page.getByTestId("catalog-retry-blocked-row-2");
-    await expect(blockedRow).toContainText(/CSV 第 2 行/);
+    await expect(blockedRow).toContainText(/檔案第 2 行/);
     await expect(blockedRow).toContainText("blockedword");
     await expect(blockedRow).toContainText(/已有另一項待審核修改|已有另一项待审核修改/);
     await expect(reviewer.page.getByRole("heading", { name: /我的詞庫待辦|我的词库待办/ })).toBeVisible();
@@ -1469,9 +1471,9 @@ test("catalog feature flags hide bulk, history and corrective entry points when 
     await installBulkWorkItemMock(reviewer.page);
     await reviewer.page.goto("/admin/words");
     await expect(reviewer.page.getByRole("heading", { name: /詞庫治理工作區|词库治理工作区/ })).toBeVisible();
-    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /批量提交/ })).toHaveCount(0);
     await expect(reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ })).toHaveCount(0);
-    await expect(reviewer.page.getByRole("button", { name: /匯出所選作 CSV 更新|汇出所选作 CSV 更新/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /匯出所選詞條|导出所选词条/ })).toHaveCount(0);
     await expect(reviewer.page.getByRole("button", { name: /查看歷史|查看历史/ })).toHaveCount(0);
     await expect(reviewer.page.getByRole("button", { name: /建立反向修正預覽|建立反向修正预览/ })).toHaveCount(0);
     await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
@@ -1490,8 +1492,8 @@ test("catalog feature flags allow history without bulk or corrective preview", a
     await installCatalogFeatureAccessMock(reviewer.page, { bulkEnabled: false, historyEnabled: true });
     await installCommittedHistoryMock(reviewer.page);
     await reviewer.page.goto("/admin/words");
-    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toHaveCount(0);
-    await expect(reviewer.page.getByRole("button", { name: /匯出所選作 CSV 更新|汇出所选作 CSV 更新/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /批量提交/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /匯出所選詞條|导出所选词条/ })).toHaveCount(0);
     await expect(reviewer.page.getByRole("button", { name: /查看歷史|查看历史/ }).first()).toBeVisible();
     await reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ }).click();
     const entry = reviewer.page.locator("article").filter({ hasText: "feature-flags.csv" });
@@ -1512,8 +1514,9 @@ test("catalog feature flags expose all entry points and return to catalog after 
     await installCommittedHistoryMock(reviewer.page);
     await installBulkWorkItemMock(reviewer.page);
     await reviewer.page.goto("/admin/words");
-    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toBeVisible();
-    await expect(reviewer.page.getByRole("button", { name: /匯出所選作 CSV 更新|汇出所选作 CSV 更新/ })).toBeVisible();
+    await expect(reviewer.page.getByRole("button", { name: /批量提交/ })).toBeVisible();
+    await expect(reviewer.page.getByRole("button", { name: /匯出所選詞條|导出所选词条/ })).toBeVisible();
+    await expect(reviewer.page.getByRole("combobox", { name: /匯出格式|导出格式/ })).toHaveValue("XLSX");
     await expect(reviewer.page.getByRole("button", { name: /查看歷史|查看历史/ }).first()).toBeVisible();
     await reviewer.page.getByRole("button", { name: /我的待辦|我的待办/ }).click();
     await expect(reviewer.page.getByRole("button", { name: /繼續處理預覽|继续处理预览/ })).toBeVisible();
@@ -1526,7 +1529,7 @@ test("catalog feature flags expose all entry points and return to catalog after 
 
     await updateFlags({ bulkEnabled: false, historyEnabled: false });
     await expect(reviewer.page.getByRole("heading", { name: /詞庫治理工作區|词库治理工作区/ })).toBeVisible();
-    await expect(reviewer.page.getByRole("button", { name: /CSV 批量提交/ })).toHaveCount(0);
+    await expect(reviewer.page.getByRole("button", { name: /批量提交/ })).toHaveCount(0);
     await expect(reviewer.page.getByRole("button", { name: /修改歷史|修改历史/ })).toHaveCount(0);
   } finally {
     await reviewer.context.close();
@@ -1621,6 +1624,19 @@ test("catalog compact overlays trap focus and expose complete keyboard menus wit
     await desktopSearch.focus();
     await expect(desktopSearch).toBeFocused();
 
+    const moreFilters = reviewer.page
+      .locator("summary")
+      .filter({ hasText: /更多篩選|更多筛选/ });
+    const desktopFilters = moreFilters.locator("..");
+    await moreFilters.click();
+    await expect(desktopFilters).toHaveAttribute("open", "");
+    await desktopSearch.click();
+    await expect(desktopFilters).not.toHaveAttribute("open", "");
+    await moreFilters.click();
+    await reviewer.page.keyboard.press("Escape");
+    await expect(desktopFilters).not.toHaveAttribute("open", "");
+    await expect(moreFilters).toBeFocused();
+
     await reviewer.page.setViewportSize({ width: 1024, height: 900 });
     await filterTrigger.click();
     await expect(filterDialog).toBeVisible();
@@ -1693,6 +1709,82 @@ test("catalog list fails closed before rendering an unknown structured issue con
       ),
     ).toBeVisible();
     await expect(reviewer.page.getByText(payload.term, { exact: true })).toHaveCount(0);
+  } finally {
+    await reviewer.context.close();
+  }
+});
+
+test("import-only rows ignore obsolete sibling issues and explain the next step", async ({ browser }) => {
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  test.skip(!password, "Seeded admin credentials are required.");
+  const reviewer = await login(browser, "admin", password!);
+  const senseKey = "device-import-sense";
+  const payload = {
+    ...catalogRacePayload("device", "裝置"),
+    acceptedAnswersZh: [],
+    distractorZh: ["小工具", "電池", "設備", "信號", "內存", "代"],
+  };
+  const row = {
+    ...catalogRaceRow("device-import", senseKey, payload),
+    status: "DRAFT" as const,
+    lifecycleState: "DRAFT" as const,
+    workflowState: "NONE" as const,
+    readinessState: "BOTH" as const,
+    contentScope: "IMPORT_DRAFT" as const,
+    issueCount: 0,
+    structuredIssues: [],
+    revision: null,
+    latestRevision: null,
+    approvedRevisionId: null,
+    primaryDisposition: "CREATED_DRAFT",
+    eligibilityResult: "ACTIVATION_ELIGIBLE",
+    hasSense: false,
+  };
+  try {
+    await installCatalogFeatureAccessMock(reviewer.page, {
+      bulkEnabled: true,
+      historyEnabled: true,
+    });
+    await installCatalogRaceList(reviewer.page, [row]);
+    await reviewer.page.route(`**/api/catalog/${senseKey}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...catalogRaceDetailBody(senseKey, payload),
+          id: row.id,
+          status: "DRAFT",
+          revision: null,
+          latestRevision: null,
+          approvedRevisionId: null,
+          primaryDisposition: "CREATED_DRAFT",
+          eligibilityResult: "ACTIVATION_ELIGIBLE",
+          hasSense: false,
+          structuredIssues: [],
+        }),
+      });
+    });
+
+    await reviewer.page.goto("/admin/words");
+    const resultRow = catalogResultRow(reviewer.page, "device");
+    await expect(resultRow.getByText("匯入資料", { exact: true })).toBeVisible();
+    await expect(resultRow.getByText("尚未提交建立詞義", { exact: true })).toBeVisible();
+    await expect(
+      resultRow.getByRole("checkbox", { name: /不可匯出此詞條.*device/ }),
+    ).toBeDisabled();
+
+    await resultRow.getByRole("button", { name: "尚未提交" }).click();
+    const reason = resultRow.getByRole("note");
+    await expect(reason).toContainText("提交新詞義，送交審核");
+    await reviewer.page.getByRole("heading", { name: /詞庫治理工作區/ }).click();
+    await expect(reason).toHaveCount(0);
+
+    await resultRow.getByRole("button", { name: /查看／修改|查看\/修改/ }).click();
+    const dialog = reviewer.page.getByRole("dialog");
+    await expect(dialog.getByTestId("catalog-import-next-step")).toContainText(
+      "目前沒有需要修正的內容",
+    );
+    await expect(dialog.getByTestId("catalog-detail-issue-guidance")).toHaveCount(0);
   } finally {
     await reviewer.context.close();
   }
@@ -2272,9 +2364,34 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
       exampleZh: interveningPayload.exampleZh,
     });
 
+    const xlsxExportResponse = await proposer.page.request.post("/api/catalog/submissions/export", {
+      headers: proposerHeaders,
+      data: { senseKeys: [senseKey], format: "XLSX" },
+    });
+    expect(xlsxExportResponse.ok(), await xlsxExportResponse.text()).toBeTruthy();
+    expect(xlsxExportResponse.headers()["content-type"]).toContain("spreadsheetml.sheet");
+    const xlsxPreviewResponse = await proposer.page.request.post("/api/catalog/submissions/preview", {
+      headers: {
+        ...proposerHeaders,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Idempotency-Key": randomUUID(),
+        "X-Catalog-Filename": encodeURIComponent("catalog-roundtrip.xlsx"),
+      },
+      data: await xlsxExportResponse.body(),
+    });
+    expect(xlsxPreviewResponse.ok(), await xlsxPreviewResponse.text()).toBeTruthy();
+    const xlsxPreview = await xlsxPreviewResponse.json() as { batch: { id: string; revision: number; rows: Array<{ primaryDisposition: string }>; groups: unknown[] } };
+    expect(xlsxPreview.batch.rows[0]?.primaryDisposition).toBe("NO_CHANGE");
+    expect(xlsxPreview.batch.groups).toHaveLength(0);
+    const cancelXlsx = await proposer.page.request.post(`/api/catalog/submissions/${xlsxPreview.batch.id}/cancel`, {
+      headers: proposerHeaders,
+      data: { expectedRevision: xlsxPreview.batch.revision },
+    });
+    expect(cancelXlsx.ok(), await cancelXlsx.text()).toBeTruthy();
+
     const exportResponse = await proposer.page.request.post("/api/catalog/submissions/export", {
       headers: proposerHeaders,
-      data: { senseKeys: [senseKey] },
+      data: { senseKeys: [senseKey], format: "CSV" },
     });
     expect(exportResponse.ok(), await exportResponse.text()).toBeTruthy();
     const csv = await exportResponse.text();

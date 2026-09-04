@@ -45,7 +45,26 @@ test("construction rejects synonym, duplicate-definition and non-quizzable distr
   assert.equal(new Set(texts).size, texts.length);
   assert.ok(!texts.includes("快速的；快速的"));
   assert.ok(!texts.includes("dvd"));
-  assert.ok(!snapshot.options.some((option) => option.text === "slow" || option.text === "fast"));
+  assert.ok(!snapshot.options.some((option) => option.text === "fast"));
+});
+
+test("construction allows an antonym as a clearly incorrect distractor", () => {
+  const sense: QuestionWord = {
+    id: "accept-sense",
+    senseId: "sense-accept",
+    term: "accept",
+    definition: "接受",
+    synonyms: ["receive"],
+    antonyms: ["reject"],
+    enableEnToZh: false,
+    enableZhToEn: true,
+    curatedDistractorsZh: [],
+    curatedDistractorsEn: ["reject", "leave", "remove"],
+  };
+  const snapshot = buildObjectiveQuestion(sense, [sense], "accept-antonym");
+  assert.ok(snapshot);
+  assert.equal(snapshot.direction, "zh-en");
+  assert.ok(snapshot.options.some((option) => option.text === "reject"));
 });
 
 test("construction fails closed when fewer than three valid distractors exist", () => {
@@ -69,7 +88,7 @@ test("public projection never exposes the answer key", () => {
   assert.deepEqual(publicQuestion.options, snapshot.options);
 });
 
-test("sense-level construction uses only the row's curated pool and enabled direction", () => {
+test("sense-level construction keeps a curated distractor used by another sense", () => {
   const sense: QuestionWord = {
     id: "run-a1",
     senseId: "sense-run-a1",
@@ -77,14 +96,14 @@ test("sense-level construction uses only the row's curated pool and enabled dire
     definition: "跑步",
     enableEnToZh: true,
     enableZhToEn: false,
-    curatedDistractorsZh: ["行走", "跳躍", "游泳", "站立", "坐下", "經營"],
+    curatedDistractorsZh: ["經營", "跳躍", "游泳"],
     curatedDistractorsEn: ["walk", "jump", "swim", "stand", "sit"],
   };
   const snapshot = buildObjectiveQuestion(sense, [sense, { id: "run-a2", senseId: "sense-run-a2", term: "run", definition: "經營" }], "sense-seed");
   assert.ok(snapshot);
   assert.equal(snapshot.direction, "en-zh");
   assert.ok(snapshot.options.every((option) => option.text === "跑步" || sense.curatedDistractorsZh?.includes(option.text)));
-  assert.ok(!snapshot.options.some((option) => option.text === "經營"));
+  assert.ok(snapshot.options.some((option) => option.text === "經營"));
 });
 
 test("teacher preview can request an enabled direction without changing default construction", () => {

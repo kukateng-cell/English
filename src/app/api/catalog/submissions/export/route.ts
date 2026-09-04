@@ -6,6 +6,7 @@ import { payloadFromRevision, payloadToSourceRow } from "@/lib/catalog/governanc
 import { catalogBulkSubmissionEnabled } from "@/lib/catalog/features";
 import { catalogRouteError, catalogResponse, CATALOG_PRIVATE_HEADERS, parseJsonObject, requireCatalogActor } from "@/lib/catalog/api";
 import { allCatalogExportSensesHaveRevision, parseCatalogExportKeyArray } from "@/lib/catalog/workspace-selection";
+import { catalogRowsToXlsx, CATALOG_XLSX_CONTENT_TYPE, type CatalogWorkbookFormat } from "@/lib/catalog/workbook";
 
 const revisionSelect = {
   revision: true, term: true, lemma: true, pos: true, level: true, category: true,
@@ -24,6 +25,10 @@ export async function POST(req: Request) {
     const body = await parseJsonObject(req, 32 * 1024);
     const senseKeys = parseCatalogExportKeyArray(body.senseKeys);
     if (!senseKeys) return catalogResponse("CATALOG_EXPORT_SELECTION_INVALID", 422);
+    if (body.format !== undefined && body.format !== "CSV" && body.format !== "XLSX") {
+      return catalogResponse("CATALOG_EXPORT_FORMAT_INVALID", 422);
+    }
+    const format: CatalogWorkbookFormat = body.format === "XLSX" ? "XLSX" : "CSV";
     const senses = await prisma.wordSense.findMany({
       where: { senseKey: { in: senseKeys } },
       include: { catalogEntry: { select: { catalogKey: true } }, approvedRevision: { select: revisionSelect }, revisions: { orderBy: { revision: "desc" }, take: 1, select: revisionSelect } },
@@ -37,7 +42,7 @@ export async function POST(req: Request) {
     });
     if (pending > 0) return catalogResponse("CATALOG_EXPORT_SELECTION_PENDING", 409);
     const byKey = new Map(senses.map((sense) => [sense.senseKey, sense]));
-    const csvRows = senseKeys.map((senseKey) => {
+    const exportRows = senseKeys.map((senseKey) => {
       const sense = byKey.get(senseKey)!;
       const revision = sense.approvedRevision ?? sense.revisions[0];
       if (!revision) throw new Error("CATALOG_EXPORT_SELECTION_STALE");
@@ -49,11 +54,21 @@ export async function POST(req: Request) {
       }, revision.revision);
       return { ...row, requested_action: "UPDATE", catalog_status: sense.status, retirement_reason: "" };
     });
-    return new NextResponse(catalogRowsToCsv(csvRows, CATALOG_GOVERNANCE_HEADERS), {
+    const date = new Date().toISOString().slice(0, 10);
+    if (format === "XLSX") {
+      return new Response(await catalogRowsToXlsx(exportRows, CATALOG_GOVERNANCE_HEADERS), {
+        headers: {
+          ...CATALOG_PRIVATE_HEADERS,
+          "Content-Type": CATALOG_XLSX_CONTENT_TYPE,
+          "Content-Disposition": `attachment; filename*=UTF-8''catalog-export-${date}.xlsx`,
+        },
+      });
+    }
+    return new NextResponse(catalogRowsToCsv(exportRows, CATALOG_GOVERNANCE_HEADERS), {
       headers: {
         ...CATALOG_PRIVATE_HEADERS,
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename*=UTF-8''catalog-update-${new Date().toISOString().slice(0, 10)}.csv`,
+        "Content-Disposition": `attachment; filename*=UTF-8''catalog-export-${date}.csv`,
       },
     });
   } catch (error) {

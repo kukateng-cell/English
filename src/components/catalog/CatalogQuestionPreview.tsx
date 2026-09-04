@@ -113,7 +113,7 @@ export default function CatalogQuestionPreview({ payload, senseKey }: { payload:
           </select>
         </label>
         <button type="button" className="ui-button ui-button-secondary ui-button-small" disabled={loading || (effectiveDirection === "en-zh" ? !payload.enableEnToZh : !payload.enableZhToEn)} onClick={() => void generate()}>
-          {loading ? tc("正在出題…") : visiblePreview ? tc("再抽一組") : tc("產生預覽")}
+          {loading ? tc("正在出題…") : visiblePreview ? tc("重新抽選一組") : tc("產生預覽")}
         </button>
       </div>
     </div>

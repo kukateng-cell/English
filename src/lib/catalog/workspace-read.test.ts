@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { catalogStoredStructuredIssues } from "./workspace-read";
+import {
+  catalogStoredStructuredIssues,
+  catalogStructuredIssuesFromImportRow,
+} from "./workspace-read";
 import {
   CATALOG_STRUCTURED_ISSUE_VERSION,
   CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE,
@@ -31,4 +34,51 @@ test("workspace consumes only the declared issue version and bounds legacy adapt
     [],
   );
   assert.equal(legacy[0]?.code, "CATALOG_TERM_REQUIRED");
+});
+
+test("detail import rows use the same bounded legacy issue adapter as the list", () => {
+  const issues = catalogStructuredIssuesFromImportRow({
+    errors: [
+      "zh-en distractor collides with an accepted answer or answer-safety synonym/antonym",
+    ],
+    warnings: [],
+  });
+  assert.deepEqual(issues, [
+    {
+      code: "CATALOG_DISTRACTOR_ACCEPTED_COLLISION",
+      field: "distractorEn",
+      direction: "ZH_TO_EN",
+      severity: "ERROR",
+    },
+  ]);
+});
+
+test("stored legacy collisions caused only by an antonym are obsolete under the current policy", () => {
+  const issues = catalogStructuredIssuesFromImportRow(
+    {
+      errors: [
+        "zh-en distractor collides with an accepted answer or answer-safety synonym/antonym",
+      ],
+      warnings: [],
+    },
+    {
+      term: "accept",
+      definitionZh: "接受",
+      acceptedAnswersZh: [],
+      acceptedFormsEn: [],
+      synonymsEn: [],
+      antonymsEn: ["reject"],
+      distractorZh: ["拒絕", "考慮", "離開", "發送", "刪除"],
+      distractorEn: ["refuse", "reject", "consider", "leave", "remove"],
+    },
+  );
+  assert.deepEqual(issues, []);
+});
+
+test("stored sibling-sense collisions are obsolete under row-local validation", () => {
+  const issues = catalogStructuredIssuesFromImportRow({
+    errors: ["en-zh distractor collides with a sibling-sense answer"],
+    warnings: [],
+  });
+  assert.deepEqual(issues, []);
 });
