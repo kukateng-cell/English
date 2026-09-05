@@ -10,7 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
-| [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 進行中 | 保留 Encounter、過期 due target 重新租用、跨單元回執身份及版本隔離 |
+| [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 已完成（本地及 hosted CI） | 保留 Encounter、過期 due target 重新租用、跨單元回執及頁面 lifetime 隔離；379 unit、V2 DB／browser、完整 card-motion 及 17 CI jobs 通過 |
 | [staging-audit-followup.md](./staging-audit-followup.md) | 審核第二／三輪 | 第二輪 CI 全通過；第三輪局部補修本地完成 | fresh seed、CSV、CIS-010 預覽、問題篩選、route cap；第三輪負號公式編碼、379 unit 及真實試算表 round-trip 通過；分支規則待管理員 |
 | [staging-audit-remediation.md](./staging-audit-remediation.md) | 審核修正 | 已完成（分支保護待管理員） | seed、V2 outbox、題目安全、catalog輸入輸出、依賴及CI修正；374 unit、V2 DB／browser、三引擎雙分頁測試通過 |
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |

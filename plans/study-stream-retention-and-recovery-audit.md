@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：進行中
+狀態：已完成（本地及候選 SHA hosted CI 全部通過）
 
 ## 背景與目標
 
@@ -20,7 +20,7 @@
 - [x] 真正 scheduler DB 測試：未答 due 過期後新 session 續用 target／snapshot；新舊答案兩種勝出次序均最多一次計分。
 - [x] 跨單元 REVEAL／OBJECTIVE 回執及舊 revision／generation 瀏覽器測試。
 - [x] unit、lint、typecheck、build、V2 DB／browser、card-motion 回歸。
-- [ ] commit／push staging，核對候選 SHA CI；記錄限制及實際結果。
+- [x] commit／push staging，核對候選 SHA CI；記錄限制及實際結果。
 
 ## 發佈、rollback 及 Definition of Done
 
@@ -34,3 +34,5 @@
 - `npm run test:e2e:study-stream-v2`：10 passed（含 auth setup），跨單元兩種回執、舊 bootstrap generation 及既有 V2 suite。新增測試使用真實瀏覽器及受控網路回應；DB suite 另驗證真正 server 行為。
 - 第一輪 card-motion 因本機 `.env.local` 強制 V2 all，V1 tests 等待 `/api/study` 而超時，已停止；明確 `STUDY_V2_ASSIGNMENT_MODE=off` 重跑完整 `test:e2e:card-motion` 通過：primary 73 passed／4 existing skipped、WebKit 17 + 16 passed。未改動環境檔。
 - 最後 mounted lifetime 補修後重新 build、379 unit、lint、typecheck 及 V2 browser 10 項全部通過。generation 測試包含真正 Next client-side navigation 離開 `/study` 後釋放舊回應，確認 checkpoint 維持 revision 9，不被改成 1。
+- 最終程式 `ceba0560d684fe0fba82b77c6fceb268638d25aa` 已推送 staging；[run 33952646470](https://github.com/kukateng-cell/English/actions/runs/33952646470) 全部 17 jobs 成功，包含 15 Quality suites、production dependency audit、Required quality gate。前一候選 2812a6d 的執行由新提交取代，不作最終 gate 證據。
+- 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。
