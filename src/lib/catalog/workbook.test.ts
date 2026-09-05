@@ -5,6 +5,7 @@ import {
   CATALOG_GOVERNANCE_HEADERS,
   CatalogCsvError,
   catalogRowsToCsv,
+  neutralizeCsvCell,
   type CatalogHeader,
 } from "./csv";
 import {
@@ -34,7 +35,7 @@ function governanceRow(
 }
 
 test("editable exports preserve formula-like text and real apostrophes exactly", async () => {
-  for (const value of ["=SUM(A1)", "+hello", "-123", "@name", "'original", "'emm-v1:literal"]) {
+  for (const value of ["=SUM(A1)", "+hello", "-123", "-SUM(1,1)", "-(1+1)", "-ed", "  -SUM(1,1)", "@name", "'original", "'emm-v1:literal"]) {
     const row = governanceRow({ definition_zh: value });
     for (const format of ["CSV", "XLSX"] as const) {
       const bytes = format === "CSV"
@@ -42,6 +43,23 @@ test("editable exports preserve formula-like text and real apostrophes exactly",
         : await catalogRowsToXlsx([row], CATALOG_GOVERNANCE_HEADERS);
       const parsed = await parseCatalogGovernanceFile(bytes, `roundtrip.${format.toLowerCase()}`, format);
       assert.equal(parsed[0].definition_zh, value, `${format}: ${value}`);
+    }
+  }
+});
+
+test("CSV negative prefixes are safely encoded, not merely round-tripped", async () => {
+  for (const value of ["-SUM(1,1)", "-(1+1)", "-123", "-ed", "  -SUM(1,1)"]) {
+    const csv = catalogRowsToCsv([governanceRow({ definition_zh: value })], CATALOG_GOVERNANCE_HEADERS);
+    const encoded = `'emm-v1:${encodeURIComponent(value)}`;
+    assert.ok(csv.includes(encoded), `editable export must encode ${value}`);
+    const ordinaryCell = `'${value}`;
+    assert.equal(neutralizeCsvCell(value), value.includes(",") ? `"${ordinaryCell}"` : ordinaryCell);
+    const raw = csv.replace(encoded, `"${value}"`);
+    for (const unsafe of [raw, raw.replace("#emm-catalog-csv-escaped-v1\r\n", "")]) {
+      await assert.rejects(
+        () => parseCatalogGovernanceFile(new TextEncoder().encode(unsafe), "unsafe.csv", "CSV"),
+        (error: unknown) => error instanceof CatalogCsvError && error.code === "CATALOG_CSV_FORMULA_INVALID",
+      );
     }
   }
 });

@@ -2,6 +2,8 @@
 
 狀態：已完成（程式及本地驗證、候選 SHA hosted CI 全部通過）
 
+第三輪局部補修：已完成本地驗證。最新覆核確認第二輪五項已關閉；此次只把 CSV 所有負號開頭內容納入現有可逆編碼，補輸出安全性與還原測試（函數、括號、負數、-ed、前置空白）。不改 XLSX、資料庫或學生流程。379 unit、lint（零 warning）、typecheck、diff-check 及真實 LibreOffice round-trip 全部通過；另驗證普通 CSV 加撇號及拒絕未編碼的危險匯入。未在本輪本地重跑不相關 DB／browser suite，push 後由現有 hosted CI 執行。rollback 可 revert 此局部提交。GitHub API 再確認目前 admin=false／maintain=false，管理員須保留現有 ruleset 並加入 Required quality gate；未修改遠端規則，reviewer 數量須由使用者／管理員決定。
+
 ## 背景、目標與依賴
 
 使用者批准修正 aee40a2 覆核的五項問題。依賴 current product baseline、catalog initial activation manifest、CIS-010 及現有 CI。恢復空白資料庫初始化；保留原批准集合，不因日常 validator 放寬而自動啟用新增 65 行。

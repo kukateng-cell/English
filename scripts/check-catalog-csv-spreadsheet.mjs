@@ -11,9 +11,13 @@ const directory = await mkdtemp(path.join(tmpdir(), "catalog-csv-spreadsheet-"))
 const workbookDir = path.join(directory, "workbook");
 const savedDir = path.join(directory, "saved");
 await mkdir(workbookDir); await mkdir(savedDir);
-const values = ["中文修改", "=literal", "+literal", "-123", "@literal", "'original"];
+const values = ["中文修改", "=literal", "+literal", "-123", "-SUM(1,1)", "-(1+1)", "-ed", "  -SUM(1,1)", "@literal", "'original"];
 const rows = values.map(value => ({ schema_version: "word-catalog-v1", requested_action: "CREATE", term: "apple", lemma: "apple", part_of_speech: "noun", level: "A1", category: "other", definition_zh: value }));
-await writeFile(path.join(directory, "export.csv"), catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS));
+const csv = catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS);
+for (const value of values.filter(value => value.trimStart().startsWith("-"))) {
+  assert.ok(csv.includes(`'emm-v1:${encodeURIComponent(value)}`), `unsafe negative prefix: ${value}`);
+}
+await writeFile(path.join(directory, "export.csv"), csv);
 function run(args) {
   const result = spawnSync("soffice", ["--headless", ...args], { encoding: "utf8" });
   if (result.error) throw result.error;

@@ -477,9 +477,7 @@ function governanceText(bytes: Uint8Array, sourceFile: string): string {
 }
 
 function dangerousFormula(value: string): boolean {
-  const trimmed = value.trimStart();
-  if (/^[=+@]/u.test(trimmed)) return true;
-  return /^-\d/u.test(trimmed);
+  return /^[=+\-@]/u.test(value.trimStart());
 }
 
 const CATALOG_CSV_ESCAPE_MARKER = "#emm-catalog-csv-escaped-v1\r\n";
@@ -751,7 +749,7 @@ export function buildCatalogImportReport(
 
 export function neutralizeCsvCell(value: unknown): string {
   const text = value === null || value === undefined ? "" : String(value);
-  const safe = /^[=+@]/u.test(text.trimStart()) || /^-\d/u.test(text.trimStart()) ? `'${text}` : text;
+  const safe = dangerousFormula(text) ? `'${text}` : text;
   return /[",\r\n]/u.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
