@@ -7,7 +7,12 @@ import {
 
 const MAX_EVENTS_PER_MINUTE = 90;
 const DEFAULT_MAX_QUEUE_LOADS_PER_USER_PER_MINUTE = 60;
-const DEFAULT_MAX_QUEUE_LOADS_PER_IP_PER_MINUTE = 120;
+// A classroom commonly shares one public egress IP. V2 performs an initial
+// queue read plus an authoritative read after each completed action, so a
+// 36-seat class can legitimately burst to 144 reads in one minute. Keep the
+// per-user guard strict while giving the shared-IP bucket enough headroom for
+// a normal class (and still far below an unbounded endpoint).
+export const DEFAULT_MAX_QUEUE_LOADS_PER_IP_PER_MINUTE = 600;
 const e2eQueueLimit = Number(process.env.E2E_STUDY_QUEUE_LOAD_LIMIT);
 const validE2eQueueLimit =
   process.env.ENABLE_TEST_ROUTES === "1" &&

@@ -909,6 +909,21 @@ async function createStreamItem(
   const credentialExpiresAt = new Date(now.getTime() + STUDY_STREAM_CREDENTIAL_TTL_MS);
   let targetId: string | null = null;
   let snapshotId: string | null = null;
+  if (candidate.workId) {
+    // A work obligation is learner-wide, while sessions may be global or
+    // unit-scoped. Retire any still-leased presentation from another scope
+    // before issuing the new one, so the old tab receives an explicit terminal
+    // conflict instead of a generic retryable 409 after the obligation moves.
+    await tx.studyStreamItem.updateMany({
+      where: {
+        workObligationId: candidate.workId,
+        sessionId: { not: session.id },
+        usedAt: null,
+        status: "LEASED",
+      },
+      data: { status: "SUPERSEDED" },
+    });
+  }
   if (candidate.kind === "OBJECTIVE_PROBE") {
     const objective = await createObjectiveTarget(tx, userId, session, candidate);
     targetId = objective.target.id;
@@ -1173,6 +1188,30 @@ async function loadActionItem(
   if (item.itemKind === "OBJECTIVE_PROBE" && item.usedAt !== null && input.actionKind === "OBJECTIVE_ANSWER") {
     throw new StudyStreamError(409, "該客觀題已由其他操作完成", { code: "OBJECTIVE_TARGET_CONSUMED" });
   }
+  if (
+    item.itemKind === "LEARNING_CARD" &&
+    item.workObligationId &&
+    (input.actionKind === "REVEAL" || input.actionKind === "SELF_RATING")
+  ) {
+    const obligation = await tx.evidenceObligation.findUnique({
+      where: { id: item.workObligationId },
+      select: { status: true },
+    });
+    if (obligation && obligation.status !== "PENDING" && obligation.status !== "LEASED") {
+      throw new StudyStreamError(409, "學習任務已由其他操作完成", { code: "WORK_OBLIGATION_COMPLETED" });
+    }
+  }
+  // A Learning Card has one durable self-rating. If another tab has already
+  // acknowledged it, a late reveal/rating is safely terminal rather than a
+  // retryable stale operation. Keep this scoped to the matching card actions;
+  // an answered Objective Probe may still accept its separate feedback ack.
+  if (
+    item.itemKind === "LEARNING_CARD" &&
+    item.usedAt !== null &&
+    (input.actionKind === "REVEAL" || input.actionKind === "SELF_RATING")
+  ) {
+    throw new StudyStreamError(409, "學習項目已由其他操作完成", { code: "STREAM_ITEM_COMPLETED" });
+  }
   if (item.usedAt === null && item.leaseExpiresAt <= now) {
     if (!options.recoverExpiredLease) {
       throw new StudyStreamError(403, "學習項目租約已過期，請重新載入", { code: "EXPIRED_ITEM_LEASE" });
@@ -1362,7 +1401,9 @@ async function processSelfRating(
         leaseExpiresAt: null,
       },
     });
-    if (completedWork.count !== 1) throw new StudyStreamError(409, "學習任務已被其他裝置完成，請重新載入");
+    if (completedWork.count !== 1) {
+      throw new StudyStreamError(409, "學習任務已由其他操作完成", { code: "WORK_OBLIGATION_COMPLETED" });
+    }
   }
   const review = await tx.review.findUnique({
     where: { userId_wordId: { userId, wordId: item.word.id } },
@@ -1640,7 +1681,25 @@ async function processFeedbackAck(
     throw new StudyStreamError(409, "目前項目沒有可確認的 feedback");
   }
   if (item.feedbackAcknowledgedAt !== null) {
-    throw new StudyStreamError(409, "feedback 已確認");
+    // Feedback acknowledgement is a read-only transition. A second tab may
+    // safely confirm the same scored item after the first tab has committed;
+    // return the authoritative feedback and persist a receipt for this
+    // operation so an offline retry converges without another 409 loop.
+    const feedback = await receiptFeedback(tx, userId, item.operationId, true);
+    if (!feedback) throw new StudyStreamError(409, "客觀題 feedback 回執已損壞");
+    const response: PublicStreamActionResponse = {
+      ok: true,
+      operationId: input.operationId,
+      actionKind: input.actionKind,
+      duplicate: false,
+      itemStatus: "ACKNOWLEDGED",
+      clientRevision: item.clientRevision ?? item.session.revision,
+      requiresFeedbackAck: false,
+      feedback,
+      nextItem: null,
+    };
+    await insertReceipt(tx, userId, input, response, "ACKNOWLEDGED", item.id);
+    return response;
   }
   const feedback = await receiptFeedback(tx, userId, item.operationId, true);
   if (!feedback) throw new StudyStreamError(409, "客觀題 feedback 回執已損壞");

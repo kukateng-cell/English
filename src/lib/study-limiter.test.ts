@@ -4,6 +4,7 @@ import {
   checkStudyQueueRate,
   checkStudyCredentialRate,
   checkStudyRate,
+  DEFAULT_MAX_QUEUE_LOADS_PER_IP_PER_MINUTE,
   resetStudyLimiterForTests,
 } from "./study-limiter";
 
@@ -46,5 +47,31 @@ test("study queue loads are capped per authenticated user", async () => {
     (await checkStudyQueueRate("user-b", "198.51.100.99")).ok,
     true,
   );
+  resetStudyLimiterForTests();
+});
+
+test("study queue shared-IP capacity supports a 36-seat classroom burst", async () => {
+  resetStudyLimiterForTests();
+  const sharedIp = "198.51.100.200";
+  for (let round = 0; round < 4; round += 1) {
+    for (let student = 0; student < 36; student += 1) {
+      assert.equal(
+        (await checkStudyQueueRate(`class-${student}`, sharedIp)).ok,
+        true,
+      );
+    }
+  }
+
+  // Fill the remainder with distinct learners to prove the IP dimension,
+  // rather than an individual-user limit, is what eventually stops the burst.
+  for (let index = 144; index < DEFAULT_MAX_QUEUE_LOADS_PER_IP_PER_MINUTE; index += 1) {
+    assert.equal(
+      (await checkStudyQueueRate(`extra-${index}`, sharedIp)).ok,
+      true,
+    );
+  }
+  const blocked = await checkStudyQueueRate("class-overflow", sharedIp);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.dimension, "ip");
   resetStudyLimiterForTests();
 });

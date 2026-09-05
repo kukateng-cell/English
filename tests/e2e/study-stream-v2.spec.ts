@@ -137,6 +137,9 @@ test("an older bootstrap generation cannot roll back the current item revision",
 test("a committed action with a failed refresh locks the old item until GET retry", async ({ page }) => {
   let initialServed = false;
   let refreshFailures = 0;
+  let retryRefreshStarted = false;
+  let releaseRetryRefresh!: () => void;
+  const retryRefreshGate = new Promise<void>(resolve => { releaseRetryRefresh = resolve; });
   let actionCount = 0;
   await page.route("**/api/study/stream**", async route => {
     const url = new URL(route.request().url());
@@ -157,10 +160,14 @@ test("a committed action with a failed refresh locks the old item until GET retr
       await route.fulfill({ json: response });
       return;
     }
-    if (refreshFailures < 2) {
+    if (refreshFailures < 1) {
       refreshFailures += 1;
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary refresh failure" }) });
       return;
+    }
+    if (!retryRefreshStarted) {
+      retryRefreshStarted = true;
+      await retryRefreshGate;
     }
     const response: PublicStreamResponse = {
       ok: true, assigned: true, resumedFeedback: false,
@@ -190,12 +197,40 @@ test("a committed action with a failed refresh locks the old item until GET retr
   await expect(page.getByTestId("study-stream-refresh-pending")).toBeVisible();
   await expect(page.getByRole("radio", { name: "A option 1" })).toBeDisabled();
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
-  await expect.poll(() => refreshFailures).toBe(2);
-  await expect(page.getByTestId("study-stream-refresh-pending")).toBeVisible();
-  await page.getByTestId("study-stream-refresh-pending").getByRole("button", { name: "重新載入" }).click();
+  await expect.poll(() => retryRefreshStarted).toBe(true);
+  // Simulate another tab enqueueing while the refresh is in flight. The
+  // storage event is intentionally ignored while actionPending is true; the
+  // retrySync refresh must drain this row after its GET succeeds.
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(candidate => candidate.startsWith("english:study-stream-v2:outbox:"));
+    if (!key) throw new Error("missing V2 outbox");
+    const rows = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown[];
+    rows.push({
+      action: {
+        flowVersion: "v2",
+        studySessionId: "refresh-session",
+        streamItemId: "refresh-item-A",
+        operationId: "refresh-cross-tab-pending",
+        itemCredential: "refresh-credential-A-012345678901234567890123456789",
+        actionKind: "REVEAL",
+        clientKnownRevision: 0,
+        payload: {},
+      },
+      status: "pending",
+      attempts: 0,
+      lastError: null,
+      updatedAt: Date.now(),
+    });
+    localStorage.setItem(key, JSON.stringify(rows));
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+  });
+  releaseRetryRefresh();
   await expect(page.getByText("banana", { exact: true }).first()).toBeVisible();
   await expect(page.getByTestId("study-stream-refresh-pending")).toHaveCount(0);
-  expect(actionCount).toBe(1);
+  await expect.poll(async () => page.evaluate(() => Object.keys(localStorage)
+    .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
+    .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")))).toEqual([]);
+  expect(actionCount).toBe(2);
 });
 
 test("a terminal objective conflict removes only its outbox row and refreshes the current item", async ({ page }) => {
@@ -271,6 +306,199 @@ test("a terminal objective conflict removes only its outbox row and refreshes th
   await expect(page.getByTestId("study-stream-refresh-pending")).toHaveCount(0);
   await expect(page.getByRole("alert").filter({ hasText: "尚未同步" })).toHaveCount(0);
 });
+
+test("one outbox trigger drains every pending action and resumes after a temporary error", async ({ page }) => {
+  let streamCalls = 0;
+  let actionCalls = 0;
+  let temporaryFailure = true;
+  const sessionId = "drain-session";
+  const itemCredential = "drain-credential-012345678901234567890123456789";
+  const makeAction = (operationId: string): StudyStreamActionInput => ({
+    flowVersion: "v2",
+    studySessionId: sessionId,
+    streamItemId: "drain-item",
+    operationId,
+    itemCredential,
+    actionKind: "REVEAL",
+    clientKnownRevision: 0,
+    payload: {},
+  });
+
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    streamCalls += 1;
+    const response: PublicStreamResponse = {
+      ok: true,
+      assigned: true,
+      resumedFeedback: false,
+      session: {
+        id: sessionId,
+        mode: "global",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        revision: 0,
+        expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+      },
+      item: {
+        streamItemId: "drain-item",
+        kind: "LEARNING_CARD",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1",
+        itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+        selectionReason: "audit-drain",
+        itemCredential,
+        credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        clientRevision: 0,
+        prompt: "drain",
+      },
+    };
+    await route.fulfill({ json: response });
+  });
+
+  await page.route("**/api/study/actions", async (route) => {
+    const request = route.request();
+    if (new URL(request.url()).pathname !== "/api/study/actions") return route.continue();
+    actionCalls += 1;
+    const action = request.postDataJSON() as StudyStreamActionInput;
+    if (action.operationId === "drain-op-2" && temporaryFailure) {
+      temporaryFailure = false;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "temporary sync failure" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        ok: true,
+        operationId: action.operationId,
+        actionKind: action.actionKind,
+        duplicate: false,
+        itemStatus: "REVEALED",
+        clientRevision: 0,
+        requiresFeedbackAck: false,
+        nextItem: null,
+      },
+    });
+  });
+
+  await page.goto("/study");
+  await expect(page.getByText("drain", { exact: true }).first()).toBeVisible();
+  const authSession = await page.request.get("/api/auth/session");
+  const authPayload = await authSession.json() as { user?: { id?: string } };
+  const userId = authPayload.user?.id;
+  if (!userId) throw new Error("missing authenticated user id");
+  const outboxKey = `english:study-stream-v2:outbox:${userId}`;
+  await page.evaluate(({ key, actions }) => {
+    localStorage.setItem(key, JSON.stringify(actions.map((action) => ({
+      action,
+      status: "pending",
+      attempts: 0,
+      lastError: null,
+      updatedAt: Date.now(),
+    }))));
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+  }, { key: outboxKey, actions: [makeAction("drain-op-1"), makeAction("drain-op-2"), makeAction("drain-op-3")] });
+
+  // One storage trigger drains the first row, then stops at the temporary
+  // failure while preserving the third row for a later retry.
+  await expect.poll(() => actionCalls).toBe(2);
+  await expect(page.getByRole("alert").filter({ has: page.getByRole("button", { name: "重試" }) })).toBeVisible();
+  await expect.poll(async () => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "[]").map((row: { action: StudyStreamActionInput; status: string }) => `${row.action.operationId}:${row.status}`), outboxKey)).toEqual([
+    "drain-op-2:blocked",
+    "drain-op-3:pending",
+  ]);
+
+  await page.getByRole("alert").filter({ has: page.getByRole("button", { name: "重試" }) }).getByRole("button", { name: "重試" }).click();
+  await expect.poll(() => actionCalls).toBe(4);
+  await expect.poll(async () => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "[]"), outboxKey)).toEqual([]);
+  await expect(page.getByRole("alert").filter({ has: page.getByRole("button", { name: "重試" }) })).toHaveCount(0);
+  expect(streamCalls).toBeGreaterThanOrEqual(4);
+});
+
+for (const actionKind of ["REVEAL", "SELF_RATING"] as const) {
+  test(`late ${actionKind} completion conflict is removed from the outbox`, async ({ page }) => {
+    let actionCalls = 0;
+    const sessionId = `terminal-${actionKind.toLowerCase()}-session`;
+    const itemCredential = `terminal-${actionKind.toLowerCase()}-credential-012345678901234567890123456789`;
+    await page.route("**/api/study/stream**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.has("assignmentOnly")) return route.continue();
+      const response: PublicStreamResponse = {
+        ok: true,
+        assigned: true,
+        resumedFeedback: false,
+        session: {
+          id: sessionId,
+          mode: "global",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          revision: 0,
+          expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+        },
+        item: {
+          streamItemId: `terminal-${actionKind.toLowerCase()}-item`,
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          selectionReason: "audit-terminal-learning-card",
+          itemCredential,
+          credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+          clientRevision: 0,
+          prompt: "terminal",
+          ...(actionKind === "SELF_RATING"
+            ? { learningCard: { term: "terminal", phonetic: null, definition: "終結", pos: null, examples: [] } }
+            : {}),
+        },
+      };
+      await route.fulfill({ json: response });
+    });
+    await page.route("**/api/study/actions", async (route) => {
+      if (new URL(route.request().url()).pathname !== "/api/study/actions") return route.continue();
+      actionCalls += 1;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "學習項目已由其他操作完成", code: "STREAM_ITEM_COMPLETED" }),
+      });
+    });
+
+    await page.goto("/study");
+    if (actionKind === "SELF_RATING") {
+      await page.getByRole("button", { name: "和剛才想的一樣" }).click();
+    } else {
+      const authSession = await page.request.get("/api/auth/session");
+      const authPayload = await authSession.json() as { user?: { id?: string } };
+      const userId = authPayload.user?.id;
+      if (!userId) throw new Error("missing authenticated user id");
+      const key = `english:study-stream-v2:outbox:${userId}`;
+      const action: StudyStreamActionInput = {
+        flowVersion: "v2",
+        studySessionId: sessionId,
+        streamItemId: "terminal-reveal-item",
+        operationId: "terminal-reveal-op",
+        itemCredential,
+        actionKind: "REVEAL",
+        clientKnownRevision: 0,
+        payload: {},
+      };
+      await page.evaluate(({ key, action }) => {
+        localStorage.setItem(key, JSON.stringify([{ action, status: "pending", attempts: 0, lastError: null, updatedAt: Date.now() }]));
+        window.dispatchEvent(new StorageEvent("storage", { key }));
+      }, { key, action });
+    }
+    await expect.poll(() => actionCalls).toBe(1);
+    await expect.poll(async () => page.evaluate(() => Object.keys(localStorage)
+      .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
+      .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")))).toEqual([]);
+    await expect(page.getByRole("alert").filter({ has: page.getByRole("button", { name: "重試" }) })).toHaveCount(0);
+  });
+}
 
 test("local all-user assignment serves the V2 stream", async ({ page }) => {
   const response = await page.request.get("/api/study/stream?assignmentOnly=1");

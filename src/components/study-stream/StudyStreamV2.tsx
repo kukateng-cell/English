@@ -24,6 +24,7 @@ import {
   removeStudyStreamAction,
   resetStudyStreamAction,
   saveStudyStreamCheckpoint,
+  STUDY_STREAM_OUTBOX_MAX_ROWS,
   StudyStreamOutboxCorruptError,
   studyStreamCheckpointStorageKey,
   studyStreamOutboxStorageKey,
@@ -68,6 +69,8 @@ interface StudyStreamRequestError extends Error {
   code?: string;
 }
 
+type FlushOneResult = "empty" | "processed" | "terminal" | "blocked" | "stopped";
+
 function isRecoverableStudyStreamError(value: unknown): value is StudyStreamRequestError {
   if (!(value instanceof Error)) return false;
   const candidate = value as StudyStreamRequestError;
@@ -84,13 +87,18 @@ function isTerminalStudyStreamConflict(
   value: unknown,
   action: StudyStreamActionInput,
 ): value is StudyStreamRequestError {
-  if (!(value instanceof Error) || action.actionKind !== "OBJECTIVE_ANSWER") return false;
+  if (!(value instanceof Error)) return false;
   const candidate = value as StudyStreamRequestError;
-  return candidate.status === 409 && (
+  if (candidate.status !== 409) return false;
+  if (candidate.code === "SUPERSEDED_STREAM_ITEM") return true;
+  if (
+    (action.actionKind === "REVEAL" || action.actionKind === "SELF_RATING") &&
+    (candidate.code === "STREAM_ITEM_COMPLETED" || candidate.code === "WORK_OBLIGATION_COMPLETED")
+  ) return true;
+  return action.actionKind === "OBJECTIVE_ANSWER" && (
     candidate.code === "OBJECTIVE_TARGET_CONSUMED" ||
     candidate.code === "OBJECTIVE_TARGET_CLOSED" ||
-    candidate.code === "STALE_EVIDENCE_TARGET" ||
-    candidate.code === "SUPERSEDED_STREAM_ITEM"
+    candidate.code === "STALE_EVIDENCE_TARGET"
   );
 }
 
@@ -306,37 +314,42 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return refreshAuthoritativeState();
   }, [refreshAuthoritativeState]);
 
-  const discardTerminalAction = useCallback(async (action: StudyStreamActionInput): Promise<boolean> => {
+  const discardTerminalAction = useCallback(async (action: StudyStreamActionInput): Promise<{ removed: boolean; refreshed: boolean }> => {
     try {
       await removeStudyStreamAction(userId, action.operationId);
     } catch {
-      return false;
+      return { removed: false, refreshed: false };
     }
-    await refreshAuthoritativeState();
+    const refreshed = await refreshAuthoritativeState();
     refreshOutbox();
-    return true;
+    return { removed: true, refreshed };
   }, [refreshAuthoritativeState, refreshOutbox, userId]);
 
-  const flushOne = useCallback(async (rows?: ReturnType<typeof loadStudyStreamOutbox>) => {
+  const flushOne = useCallback(async (rows?: ReturnType<typeof loadStudyStreamOutbox>): Promise<FlushOneResult> => {
     let availableRows: ReturnType<typeof loadStudyStreamOutbox>;
     try {
       availableRows = rows ?? loadStudyStreamOutbox(userId);
     } catch (error) {
       setSyncBlocked(true);
       setSyncError(errorText(error));
-      return;
+      return "blocked";
     }
     const row = availableRows[0];
     if (!row) {
       refreshOutbox();
-      return;
+      return "empty";
+    }
+    if (row.status === "blocked") {
+      refreshOutbox();
+      return "blocked";
     }
     try {
       const response = await postActionWithRecovery(row.action);
       await removeStudyStreamAction(userId, row.action.operationId);
-      setSyncError(null);
-      await applyActionResponse(row.action, response);
+      const refreshed = await applyActionResponse(row.action, response);
+      if (refreshed) setSyncError(null);
       refreshOutbox();
+      return refreshed ? "processed" : "stopped";
     } catch (error) {
       const status = error instanceof Error && "status" in error && typeof error.status === "number"
         ? error.status
@@ -344,23 +357,26 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       const code = error instanceof Error && "code" in error && typeof error.code === "string"
         ? error.code
         : null;
-      if (isTerminalStudyStreamConflict(error, row.action) && await discardTerminalAction(row.action)) return;
+      if (isTerminalStudyStreamConflict(error, row.action)) {
+        const discarded = await discardTerminalAction(row.action);
+        if (discarded.removed) return discarded.refreshed ? "terminal" : "stopped";
+      }
       if (status === 401 || code === "SESSION_REVOKED") {
         handleAuthInvalidation();
-        return;
+        return "blocked";
       }
       if (status === 403) {
         try {
-          const refreshed = await fetchStream(row.action.itemCredential);
+          const reboundState = await fetchStream(row.action.itemCredential);
           if (
-            refreshed.item &&
-            refreshed.item.streamItemId === row.action.streamItemId &&
-            refreshed.session.id === row.action.studySessionId
+            reboundState.item &&
+            reboundState.item.streamItemId === row.action.streamItemId &&
+            reboundState.session.id === row.action.studySessionId
           ) {
             const rebound = {
               ...row.action,
-              itemCredential: refreshed.item.itemCredential,
-              clientKnownRevision: refreshed.item.clientRevision,
+              itemCredential: reboundState.item.itemCredential,
+              clientKnownRevision: reboundState.item.clientRevision,
             };
             await updateStudyStreamAction(userId, row.action.operationId, {
               studySessionId: rebound.studySessionId,
@@ -370,13 +386,16 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
             });
             const response = await postAction(rebound);
             await removeStudyStreamAction(userId, rebound.operationId);
-            await applyActionResponse(rebound, response);
-            setSyncError(null);
+            const refreshed = await applyActionResponse(rebound, response);
+            if (refreshed) setSyncError(null);
             refreshOutbox();
-            return;
+            return refreshed ? "processed" : "stopped";
           }
         } catch (reboundError) {
-          if (isTerminalStudyStreamConflict(reboundError, row.action) && await discardTerminalAction(row.action)) return;
+          if (isTerminalStudyStreamConflict(reboundError, row.action)) {
+            const discarded = await discardTerminalAction(row.action);
+            if (discarded.removed) return discarded.refreshed ? "terminal" : "stopped";
+          }
           // The original authorization/expiry error remains the actionable state.
         }
       }
@@ -388,8 +407,48 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setSyncBlocked(true);
       setSyncError(errorText(error));
       refreshOutbox();
+      return "blocked";
     }
   }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, refreshOutbox, userId]);
+
+  const flushRunningRef = useRef(false);
+  const flushPending = useCallback(async (): Promise<void> => {
+    if (flushRunningRef.current) return;
+    flushRunningRef.current = true;
+    try {
+      // The outbox is capped, so one drain can make bounded progress across
+      // every row. Re-read after each result so another tab's mutation cannot
+      // be overwritten by a stale in-memory array. A blocked/stopped row ends
+      // this run; later rows remain durable for the next retry or online event.
+      for (let index = 0; index < STUDY_STREAM_OUTBOX_MAX_ROWS; index += 1) {
+        let rows: ReturnType<typeof loadStudyStreamOutbox>;
+        try {
+          rows = loadStudyStreamOutbox(userId);
+        } catch (error) {
+          setSyncBlocked(true);
+          setSyncError(errorText(error));
+          return;
+        }
+        const row = rows[0];
+        if (!row || row.status === "blocked") return;
+        const result = await flushOne(rows);
+        if (result !== "processed" && result !== "terminal") return;
+      }
+    } finally {
+      flushRunningRef.current = false;
+      refreshOutbox();
+    }
+  }, [flushOne, refreshOutbox, userId]);
+
+  const drainOutbox = useCallback(async () => {
+    if (actionPending || flushRunningRef.current) return;
+    setActionPending(true);
+    try {
+      await flushPending();
+    } finally {
+      if (mountedRef.current) setActionPending(false);
+    }
+  }, [actionPending, flushPending]);
 
   const submitAction = useCallback(async (
     actionKind: StudyStreamActionInput["actionKind"],
@@ -418,8 +477,11 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     try {
       const response = await postActionWithRecovery(action);
       await removeStudyStreamAction(userId, action.operationId);
-      await applyActionResponse(action, response);
-      setSyncError(null);
+      const refreshed = await applyActionResponse(action, response);
+      if (refreshed) {
+        setSyncError(null);
+        await flushPending();
+      }
     } catch (error) {
       const status = error instanceof Error && "status" in error && typeof error.status === "number"
         ? error.status
@@ -427,7 +489,10 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       const code = error instanceof Error && "code" in error && typeof error.code === "string"
         ? error.code
         : null;
-      if (isTerminalStudyStreamConflict(error, action) && await discardTerminalAction(action)) return;
+      if (isTerminalStudyStreamConflict(error, action)) {
+        const discarded = await discardTerminalAction(action);
+        if (discarded.removed) return;
+      }
       if (status === 401 || code === "SESSION_REVOKED") {
         handleAuthInvalidation();
         return;
@@ -444,14 +509,15 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setActionPending(false);
       refreshOutbox();
     }
-  }, [actionPending, applyActionResponse, discardTerminalAction, handleAuthInvalidation, item, postActionWithRecovery, refreshOutbox, refreshPending, session, syncBlocked, updateCheckpoint, userId]);
+  }, [actionPending, applyActionResponse, discardTerminalAction, flushPending, handleAuthInvalidation, item, postActionWithRecovery, refreshOutbox, refreshPending, session, syncBlocked, updateCheckpoint, userId]);
 
   const retryRefresh = useCallback(async () => {
     if (!refreshPending || actionPending) return;
     setActionPending(true);
-    await refreshAuthoritativeState();
+    const refreshed = await refreshAuthoritativeState();
+    if (refreshed) await flushPending();
     if (mountedRef.current) setActionPending(false);
-  }, [actionPending, refreshAuthoritativeState, refreshPending]);
+  }, [actionPending, flushPending, refreshAuthoritativeState, refreshPending]);
 
   const retrySync = useCallback(async () => {
     let rows: ReturnType<typeof loadStudyStreamOutbox>;
@@ -466,7 +532,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     if (!row) {
       if (refreshPending) {
         setActionPending(true);
-        await refreshAuthoritativeState();
+        const refreshed = await refreshAuthoritativeState();
+        if (refreshed) await flushPending();
         if (mountedRef.current) setActionPending(false);
         return;
       }
@@ -474,17 +541,17 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setSyncError(null);
       return;
     }
-    try {
-      await resetStudyStreamAction(userId, row.action.operationId);
-    } catch (error) {
-      setSyncBlocked(true);
-      setSyncError(errorText(error));
-      return;
+    if (row.status === "blocked") {
+      try {
+        await resetStudyStreamAction(userId, row.action.operationId);
+      } catch (error) {
+        setSyncBlocked(true);
+        setSyncError(errorText(error));
+        return;
+      }
     }
-    setActionPending(true);
-    await flushOne();
-    setActionPending(false);
-  }, [flushOne, refreshAuthoritativeState, refreshPending, userId]);
+    await drainOutbox();
+  }, [drainOutbox, flushPending, refreshAuthoritativeState, refreshPending, userId]);
 
   useEffect(() => {
     if (loadedRef.current) return;
@@ -511,14 +578,13 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       if (cancelled) return;
       refreshOutbox();
       if (pending?.status === "pending") {
-        setActionPending(true);
-        void flushOne().finally(() => setActionPending(false));
+        void drainOutbox();
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [flushOne, refreshOutbox, reloadStream, userId]);
+  }, [drainOutbox, refreshOutbox, reloadStream, userId]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -534,6 +600,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       const checkpointKey = studyStreamCheckpointStorageKey(userId, scopeCheckpointKey());
       if (event.key === outboxKey) {
         refreshOutbox();
+        if (!actionPending) void drainOutbox();
         return;
       }
       if (event.key === checkpointKey || event.key === null) {
@@ -543,7 +610,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [actionPending, refreshOutbox, reloadStream, userId]);
+  }, [actionPending, drainOutbox, refreshOutbox, reloadStream, userId]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {

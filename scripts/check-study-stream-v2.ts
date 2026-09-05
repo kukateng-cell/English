@@ -157,6 +157,22 @@ async function main() {
     assert.equal(selfRated.response.requiresFeedbackAck, false);
     assert.equal(selfRated.response.itemStatus, "ACKNOWLEDGED");
     assert.equal(selfRated.response.evidenceObligation?.created, true);
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        ...selfRatingInput,
+        operationId: `stream-late-self-${suffix}`,
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 409 && error.details.code === "STREAM_ITEM_COMPLETED",
+    );
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        ...selfRatingInput,
+        operationId: `stream-late-reveal-${suffix}`,
+        actionKind: "REVEAL",
+        payload: {},
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 409 && error.details.code === "STREAM_ITEM_COMPLETED",
+    );
     assert.ok(selfRated.response.evidenceObligation?.obligationId);
     assert.equal(await prisma.review.count({ where: { userId: user.id } }), 0);
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 1);
@@ -320,6 +336,7 @@ async function main() {
     assert.ok(raceFailures[0]?.status === "rejected" && raceFailures[0].reason instanceof StudyStreamError);
     if (raceFailures[0]?.status === "rejected" && raceFailures[0].reason instanceof StudyStreamError) {
       assert.equal(raceFailures[0].reason.status, 409);
+      assert.equal(raceFailures[0].reason.details.code, "STREAM_ITEM_COMPLETED");
     }
 
     const expiredCredential = createStudyStreamCredential();
@@ -556,6 +573,17 @@ async function main() {
     };
     const acknowledged = await applyStudyStreamAction(user.id, ackInput);
     assert.equal(acknowledged.response.itemStatus, "ACKNOWLEDGED");
+    // A second tab may submit a new feedback acknowledgement after the first
+    // tab has completed it. The read-only transition is safely replayed and
+    // must not create another scored ReviewEvent.
+    const lateAck = await applyStudyStreamAction(user.id, {
+      ...ackInput,
+      operationId: `stream-feedback-late-${suffix}`,
+    });
+    assert.equal(lateAck.duplicate, false);
+    assert.equal(lateAck.response.itemStatus, "ACKNOWLEDGED");
+    assert.equal(lateAck.response.feedback?.acknowledged, true);
+    assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id } }), 1);
     const remediation = await getOrCreateStudyStream(user.id);
     assert.ok(remediation.item);
     assert.equal(remediation.item.kind, "LEARNING_CARD");
@@ -592,7 +620,7 @@ async function main() {
     assert.equal(answeredRemediation.status, "ANSWERED");
     assert.equal(answeredRemediation.activeKey, null);
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 10);
-    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 16);
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 17);
 
     // Exact negative controls prevent a vacuous SQL/Prisma equivalence pass on
     // a database containing only current words.
@@ -1082,6 +1110,71 @@ async function main() {
     assert.notEqual(staleAfter.item?.streamItemId, staleBefore.item.streamItemId);
     assert.equal((await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: staleBeforeRow.id } })).status, "SUPERSEDED");
     assert.equal((await prisma.objectiveEvidenceTarget.findUniqueOrThrow({ where: { id: staleBeforeTargetId } })).status, "CANCELLED");
+
+    // A remediation obligation is learner-wide even when two tabs use
+    // different scopes. Issuing the same work in a new scope must supersede
+    // the old presentation so its late action is an explicit terminal
+    // conflict, rather than a generic retryable failure.
+    await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
+    await prisma.evidenceObligation.updateMany({
+      where: { userId: user.id, status: { in: ["PENDING", "LEASED"] } },
+      data: { status: "CANCELLED", activeKey: null },
+    });
+    await prisma.review.updateMany({
+      where: { userId: user.id },
+      data: { nextReviewDate: new Date(Date.now() + 86400_000) },
+    });
+    const unitRemediationWord = await prisma.word.findFirstOrThrow({
+      where: withCurrentCatalogWord({ level: "A1", category: testUnitCategory }),
+      select: { id: true, senseId: true },
+    });
+    const remediationObligation = await prisma.evidenceObligation.create({
+      data: {
+        userId: user.id,
+        wordId: unitRemediationWord.id,
+        senseId: unitRemediationWord.senseId,
+        kind: "REMEDIATION",
+        status: "PENDING",
+        sourceOperationId: `cross-scope-remediation-${suffix}`,
+        selectionReason: "audit-cross-scope-remediation",
+        policyVersion: "retrieval-v1",
+        eligibleAt: new Date(),
+        expiresAt: new Date(Date.now() + 86400_000),
+        activeKey: `cross-scope-remediation:${suffix}`,
+      },
+    });
+    const globalRemediation = await getOrCreateStudyStream(user.id);
+    assert.equal(globalRemediation.item?.kind, "LEARNING_CARD");
+    assert.equal(globalRemediation.item?.selectionReason, "remediation");
+    const unitRemediation = await getOrCreateStudyStream(user.id, {
+      mode: "unit",
+      level: "A1",
+      category: testUnitCategory,
+    });
+    assert.equal(unitRemediation.item?.kind, "LEARNING_CARD");
+    assert.equal(unitRemediation.item?.selectionReason, "remediation");
+    assert.notEqual(unitRemediation.session.id, globalRemediation.session.id);
+    assert.equal(
+      (await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: globalRemediation.item!.streamItemId } })).status,
+      "SUPERSEDED",
+    );
+    assert.equal(
+      (await prisma.evidenceObligation.findUniqueOrThrow({ where: { id: remediationObligation.id } })).leaseOwnerSessionId,
+      unitRemediation.session.id,
+    );
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: globalRemediation.session.id,
+        streamItemId: globalRemediation.item!.streamItemId,
+        operationId: `cross-scope-late-${suffix}`,
+        itemCredential: globalRemediation.item!.itemCredential,
+        actionKind: "REVEAL",
+        clientKnownRevision: globalRemediation.item!.clientRevision,
+        payload: {},
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 409 && error.details.code === "SUPERSEDED_STREAM_ITEM",
+    );
 
     const dualFlowSessions = await prisma.studySession.groupBy({
       by: ["flowVersion"],
