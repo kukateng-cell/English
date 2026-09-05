@@ -359,13 +359,30 @@ function toWorkRecord(row: {
 }
 
 async function expireWork(tx: StreamTransaction, userId: string, now: Date): Promise<void> {
-  await tx.evidenceObligation.updateMany({
+  const expired = await tx.evidenceObligation.findMany({
     where: {
       userId,
       status: { in: ["PENDING", "LEASED"] },
       expiresAt: { lte: now },
     },
+    select: { id: true },
+  });
+  if (expired.length === 0) return;
+  const expiredIds = expired.map((row) => row.id);
+  await tx.evidenceObligation.updateMany({
+    where: { id: { in: expiredIds }, status: { in: ["PENDING", "LEASED"] }, expiresAt: { lte: now } },
     data: { status: "EXPIRED", activeKey: null, terminalReason: "age-limit" },
+  });
+  // A terminal obligation must not leave an apparently live Learning Card
+  // behind. Mark the unused presentation in the same transaction so a later
+  // GET cannot return a card whose reveal/self-rating is guaranteed to fail.
+  await tx.studyStreamItem.updateMany({
+    where: {
+      workObligationId: { in: expiredIds },
+      usedAt: null,
+      status: "LEASED",
+    },
+    data: { status: "SUPERSEDED" },
   });
 }
 
@@ -596,6 +613,40 @@ function questionWord(word: Word): QuestionWord {
   };
 }
 
+async function objectiveEventProvenance(
+  tx: StreamTransaction,
+  item: StreamItemWithRelations & { session: StudySession },
+  snapshot: ObjectiveQuestionSnapshot,
+): Promise<{
+  contentRevisionId: string | null;
+  catalogRevisionId: string | null;
+  wordTerm: string;
+  wordLevel: Word["level"];
+}> {
+  // The question snapshot is the source of truth for what the learner saw.
+  // Resolve the level from its immutable content revision rather than the
+  // mutable Word projection, which may have advanced while this item waited.
+  let wordLevel = item.word!.level;
+  if (snapshot.contentRevisionId) {
+    const revision = await tx.wordSenseRevision.findUnique({
+      where: { id: snapshot.contentRevisionId },
+      select: { level: true },
+    });
+    if (!revision) {
+      throw new StudyStreamError(409, "客觀題內容版本已不存在，請重新載入", {
+        code: "OBJECTIVE_SNAPSHOT_REVISION_MISSING",
+      });
+    }
+    wordLevel = revision.level;
+  }
+  return {
+    contentRevisionId: snapshot.contentRevisionId,
+    catalogRevisionId: snapshot.catalogRevisionId,
+    wordTerm: snapshot.wordTerm,
+    wordLevel,
+  };
+}
+
 function objectiveFeedbackFromReceipt(
   receipt: Prisma.JsonValue | null,
   acknowledged: boolean,
@@ -734,6 +785,27 @@ async function getCurrentItem(
       objectiveQuestionSnapshot: true,
     },
   });
+}
+
+async function retireInvalidWorkPresentation(
+  tx: StreamTransaction,
+  item: StreamItemWithRelations,
+): Promise<boolean> {
+  if (item.itemKind !== "LEARNING_CARD" || item.usedAt !== null || !item.workObligationId) {
+    return false;
+  }
+  const obligation = await tx.evidenceObligation.findUnique({
+    where: { id: item.workObligationId },
+    select: { status: true },
+  });
+  if (obligation && (obligation.status === "PENDING" || obligation.status === "LEASED")) {
+    return false;
+  }
+  const retired = await tx.studyStreamItem.updateMany({
+    where: { id: item.id, usedAt: null, status: "LEASED" },
+    data: { status: "SUPERSEDED" },
+  });
+  return retired.count === 1;
 }
 
 async function retireInvalidObjectivePresentation(
@@ -1056,7 +1128,14 @@ export async function getOrCreateStudyStream(
           await tx.$queryRaw(
             Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${session.id} FOR UPDATE`,
           );
+          // Expire learner-wide work before resuming the current item. This
+          // also retires any unused Learning Card tied to an expired
+          // obligation, preventing a deterministic terminal 409 loop.
+          await expireWork(tx, userId, now);
           let current = await getCurrentItem(tx, session.id);
+          while (current && await retireInvalidWorkPresentation(tx, current)) {
+            current = await getCurrentItem(tx, session.id);
+          }
           if (current?.itemKind === "OBJECTIVE_PROBE" && current.usedAt === null && current.word) {
             const review = await tx.review.findUnique({
               where: { userId_wordId: { userId, wordId: current.word.id } },
@@ -1505,6 +1584,7 @@ async function processObjectiveAnswer(
   }
   const snapshot = snapshotToData(item.objectiveQuestionSnapshot);
   if (!snapshot) throw new StudyStreamError(409, "客觀題快照無效，請重新載入");
+  const provenance = await objectiveEventProvenance(tx, item, item.objectiveQuestionSnapshot);
   const selectedOptionId = input.payload.selectedOptionId;
   if (!snapshot.options.some((option) => option.id === selectedOptionId)) {
     throw new StudyStreamError(400, "選項不屬於目前題目");
@@ -1594,10 +1674,10 @@ async function processObjectiveAnswer(
       senseId: item.word.senseId,
       submittedSenseId: item.word.senseId,
       senseKey: item.word.senseKey,
-      contentRevisionId: item.word.contentRevisionId,
-      catalogRevisionId: item.word.catalogRevisionId,
-      wordTerm: item.word.term,
-      wordLevel: item.word.level,
+      contentRevisionId: provenance.contentRevisionId,
+      catalogRevisionId: provenance.catalogRevisionId,
+      wordTerm: provenance.wordTerm,
+      wordLevel: provenance.wordLevel,
       eventKind: "REVIEW",
       quality,
       newlyUnlockedKeys: newlyUnlocked.map((achievement) => achievement.key),

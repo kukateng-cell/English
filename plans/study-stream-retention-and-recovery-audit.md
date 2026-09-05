@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：已完成（第五輪本地及 hosted CI）
+狀態：進行中（第六輪本地修正及驗證；hosted CI 待確認）
 
 ## 背景與目標
 
@@ -27,6 +27,11 @@
 - 待同步 outbox 要以有上限的逐筆 drain 處理所有 pending row；遇到暫時錯誤即停止並保留後續，啟動、online、跨分頁 storage 事件及一次成功排送後均可續接。
 - 保留每位使用者題目讀取限流，將共享出口 IP bucket 調整至課室共用容量，並以正式預設值加入 36 人 × 4 次讀取的回歸負載測試；不得用取消限流或測試環境繞過。
 
+第六輪審核新增範圍（`dbe917f` 後覆核）：
+
+- 補救任務進入 `EXPIRED`、`CANCELLED` 或 `ANSWERED` 後，所有未使用的 Learning Card presentation 必須退出續接流程；重新載入不可再次返回只能產生終結 409 的舊卡，同時保留歷史紀錄。
+- Objective Probe 提交時，ReviewEvent 的題目版本欄位必須與 immutable question snapshot 一致；詞庫批准更新後完成舊題，事件仍記錄當時的 content／catalog revision、term 及 level。
+
 ## Checklist／驗收矩陣
 
 - [x] 真正 cleanup DB 測試：V1 清理、V2 Encounter／客觀歷史及 coverage 所依賴的 distinct word 集合保留；測試在 rollback transaction 內，不刪現有資料。
@@ -39,6 +44,8 @@
 - [x] V1 future-backoff rotation 的 WebKit 時序回歸測試。
 - [x] 四種 action 的跨分頁終結／重播回歸，及 outbox 多筆逐筆 drain、暫時錯誤停排與恢復測試。
 - [x] 正式 IP 限流預設值的共享課室容量測試；每人限額及 production fail-closed 行為保持不變。
+- [x] 過期／取消／完成 remediation obligation 的舊 Learning Card 不再續接，並以真正資料庫回歸覆蓋跨單元觸發過期及歷史保留。
+- [x] 詞庫更新後提交舊 Objective Probe 的版本 provenance 回歸：判分使用舊快照，ReviewEvent 版本欄位與快照一致且只計分一次。
 
 ## 發佈、rollback 及 Definition of Done
 
@@ -53,4 +60,6 @@
 - `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`：通過；Chromium primary 73 passed／4 existing skipped，WebKit shard 1 為 17 passed、shard 2 為 16 passed。未改動環境檔；future-backoff rotation 等待 localStorage 持久化後同時核對 sessionId 及 retryAt。
 - 兩位獨立 reviewer 已對最新修正工作樹覆核並 PASS。
 - 提交 `4015a8f`（`fix: close V2 action and classroom queue audit gaps`）已推送 `staging`；[GitHub Actions run 33966106562](https://github.com/kukateng-cell/English/actions/runs/33966106562) 的 17 個 jobs（包括 required quality gate）全部成功。
+- 第六輪本地驗證：`npm run test:db:stream-v2` 兩次通過，`STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak` 三次通過；新增 snapshot cleanup 亦確認重跑不再增加本輪 orphan。兩位獨立 reviewer 已對最新工作樹覆核並 PASS。由於本地 `student-test` 已被先前 Playwright 執行污染，`npm run test:e2e:study-stream-v2` 重跑為 14/15（唯一失敗係 12 items 內未遇到 Learning Card）；今輪只改 server／DB regression／文件，待 hosted fresh-DB browser-v2 job 作最後確認。
+- 第六輪 hosted CI 綠燈後，需補記候選 SHA／run；在此之前不宣稱 required quality gate 已完成。
 - 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。

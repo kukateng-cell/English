@@ -41,6 +41,7 @@ async function main() {
   const catalogFixtureEntryIds: string[] = [];
   const catalogFixtureRevisionIds: string[] = [];
   const catalogFixtureCatalogRevisionIds: string[] = [];
+  const objectiveQuestionSnapshotIds: string[] = [];
 
   try {
     const user = await prisma.user.create({
@@ -1176,6 +1177,283 @@ async function main() {
       (error: unknown) => error instanceof StudyStreamError && error.status === 409 && error.details.code === "SUPERSEDED_STREAM_ITEM",
     );
 
+    // A remediation card must leave the continuation queue as soon as its
+    // learner-wide obligation reaches a terminal state. Exercise expiry via
+    // another scope, then cover cancellation and completion against the real
+    // getOrCreateStudyStream path so an old card cannot cause a terminal-409
+    // loop on every reload.
+    await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
+    await prisma.evidenceObligation.updateMany({
+      where: { userId: user.id, status: { in: ["PENDING", "LEASED"] } },
+      data: { status: "CANCELLED", activeKey: null },
+    });
+    await prisma.review.updateMany({ where: { userId: user.id }, data: { nextReviewDate: new Date(Date.now() + 86400_000) } });
+    const expiringObligation = await prisma.evidenceObligation.create({
+      data: {
+        userId: user.id,
+        wordId: unitRemediationWord.id,
+        senseId: unitRemediationWord.senseId,
+        kind: "REMEDIATION",
+        status: "PENDING",
+        sourceOperationId: `expired-remediation-${suffix}`,
+        selectionReason: "audit-expired-remediation",
+        policyVersion: "retrieval-v1",
+        eligibleAt: new Date(),
+        expiresAt: new Date(Date.now() + 86400_000),
+        activeKey: `expired-remediation:${suffix}`,
+      },
+    });
+    const expiringGlobal = await getOrCreateStudyStream(user.id);
+    assert.equal(expiringGlobal.item?.kind, "LEARNING_CARD");
+    assert.equal(expiringGlobal.item?.selectionReason, "remediation");
+    const expiringItemId = expiringGlobal.item!.streamItemId;
+    await prisma.evidenceObligation.update({
+      where: { id: expiringObligation.id },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    await getOrCreateStudyStream(user.id, {
+      mode: "unit",
+      level: "A1",
+      category: testUnitCategory,
+    });
+    assert.equal(
+      (await prisma.evidenceObligation.findUniqueOrThrow({ where: { id: expiringObligation.id } })).status,
+      "EXPIRED",
+    );
+    assert.equal(
+      (await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: expiringItemId } })).status,
+      "SUPERSEDED",
+    );
+    const afterExpiryReload = await getOrCreateStudyStream(user.id);
+    assert.notEqual(afterExpiryReload.item?.streamItemId, expiringItemId);
+
+    for (const terminalStatus of ["CANCELLED", "ANSWERED"] as const) {
+      await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
+      const terminalObligation = await prisma.evidenceObligation.create({
+        data: {
+          userId: user.id,
+          wordId: unitRemediationWord.id,
+          senseId: unitRemediationWord.senseId,
+          kind: "REMEDIATION",
+          status: terminalStatus,
+          sourceOperationId: `terminal-remediation-${terminalStatus.toLowerCase()}-${suffix}`,
+          selectionReason: `audit-${terminalStatus.toLowerCase()}-remediation`,
+          policyVersion: "retrieval-v1",
+          eligibleAt: new Date(),
+          expiresAt: new Date(Date.now() + 86400_000),
+        },
+      });
+      const terminalCredential = createStudyStreamCredential();
+      const terminalSession = await prisma.studySession.create({
+        data: {
+          userId: user.id,
+          queueFingerprint: `terminal-remediation-${terminalStatus.toLowerCase()}-${suffix}`,
+          expiresAt: new Date(Date.now() + 30 * 60_000),
+          flowVersion: "v2",
+          learningPolicyVersion: "retrieval-v1",
+          mode: "global",
+          revision: 0,
+          streamItems: {
+            create: {
+              streamItemKey: `terminal-remediation-${terminalStatus.toLowerCase()}-${suffix}`,
+              wordId: unitRemediationWord.id,
+              senseId: unitRemediationWord.senseId,
+              itemKind: "LEARNING_CARD",
+              selectionReason: "terminal-remediation-test",
+              policyVersion: "retrieval-v1",
+              status: "LEASED",
+              leaseExpiresAt: new Date(Date.now() + 15 * 60_000),
+              credentialDigest: digestStudyStreamCredential(terminalCredential),
+              credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+              clientRevision: 0,
+              workObligationId: terminalObligation.id,
+            },
+          },
+        },
+        include: { streamItems: true },
+      });
+      const terminalItemId = terminalSession.streamItems[0]!.id;
+      const terminalReload = await getOrCreateStudyStream(user.id);
+      assert.notEqual(terminalReload.item?.streamItemId, terminalItemId);
+      assert.equal(
+        (await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: terminalItemId } })).status,
+        "SUPERSEDED",
+      );
+    }
+
+    // Keep an immutable question snapshot from revision A, then advance the
+    // projection and approved sense to revision B before submitting the old
+    // probe. The scored event must retain the exact content shown to the
+    // learner and remain idempotent on retry.
+    await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
+    await prisma.evidenceObligation.updateMany({
+      where: { userId: user.id, status: { in: ["PENDING", "LEASED"] } },
+      data: { status: "CANCELLED", activeKey: null },
+    });
+    await prisma.review.updateMany({ where: { userId: user.id }, data: { nextReviewDate: new Date(Date.now() + 86400_000) } });
+    const readyForProvenance = await prisma.catalogRevision.findFirstOrThrow({
+      where: { status: "READY" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    });
+    const provenanceCatalogRevisionB = await prisma.catalogRevision.create({
+      data: {
+        revisionKey: `stream-provenance-${suffix}`,
+        sourceDigest: `stream-provenance-source-${suffix}`,
+        taxonomyDigest: `stream-provenance-taxonomy-${suffix}`,
+        validatorVersion: "stream-provenance-validator",
+        normalizationVersion: "stream-provenance-normalization",
+        activationBasis: "INTEGRATION_TEST",
+        status: "READY",
+      },
+    });
+    catalogFixtureCatalogRevisionIds.push(provenanceCatalogRevisionB.id);
+    const provenanceEntry = await prisma.catalogEntry.create({
+      data: {
+        catalogKey: `stream-provenance-${suffix}`,
+        lemma: `stream-provenance-${suffix}`,
+        normalizedLemma: `stream-provenance-${suffix}`,
+      },
+    });
+    catalogFixtureEntryIds.push(provenanceEntry.id);
+    const provenanceTermA = `colour-${suffix}`;
+    const provenanceTermB = `color-${suffix}`;
+    const provenanceDefinitionA = `版本甲釋義-${suffix}`;
+    const provenanceDefinitionB = `版本乙釋義-${suffix}`;
+    const provenanceSense = await prisma.wordSense.create({
+      data: {
+        catalogEntryId: provenanceEntry.id,
+        senseKey: `stream-provenance:${suffix}`,
+        term: provenanceTermA,
+        normalizedTerm: provenanceTermA,
+        pos: "noun",
+        level: "A1",
+        category: testUnitCategory,
+        status: "DRAFT",
+      },
+    });
+    catalogFixtureSenseIds.push(provenanceSense.id);
+    const provenanceRevisionA = await prisma.wordSenseRevision.create({
+      data: {
+        senseId: provenanceSense.id,
+        revision: 1,
+        term: provenanceTermA,
+        lemma: provenanceTermA,
+        pos: "noun",
+        level: "A1",
+        category: testUnitCategory,
+        definitionZh: provenanceDefinitionA,
+        acceptedAnswersZh: [provenanceDefinitionA],
+        enableEnToZh: true,
+        distractorZh: [`甲干擾一-${suffix}`, `甲干擾二-${suffix}`, `甲干擾三-${suffix}`, `甲干擾四-${suffix}`, `甲干擾五-${suffix}`],
+        contentDigest: `stream-provenance-a-${suffix}`,
+        catalogRevisionId: readyForProvenance.id,
+      },
+    });
+    catalogFixtureRevisionIds.push(provenanceRevisionA.id);
+    await prisma.wordSense.update({ where: { id: provenanceSense.id }, data: { status: "ACTIVE", approvedRevisionId: provenanceRevisionA.id } });
+    const provenanceWord = await prisma.word.create({
+      data: {
+        term: provenanceTermA,
+        definition: provenanceDefinitionA,
+        level: "A1",
+        category: testUnitCategory,
+        synonyms: [],
+        antonyms: [],
+        acceptedAnswers: [provenanceDefinitionA],
+        distractorZh: [`甲干擾一-${suffix}`, `甲干擾二-${suffix}`, `甲干擾三-${suffix}`, `甲干擾四-${suffix}`, `甲干擾五-${suffix}`],
+        enableEnToZh: true,
+        enableZhToEn: false,
+        senseId: provenanceSense.id,
+        senseKey: provenanceSense.senseKey,
+        contentRevisionId: provenanceRevisionA.id,
+        catalogRevisionId: readyForProvenance.id,
+      },
+    });
+    catalogFixtureWordIds.push(provenanceWord.id);
+    const provenanceRevisionB = await prisma.wordSenseRevision.create({
+      data: {
+        senseId: provenanceSense.id,
+        revision: 2,
+        term: provenanceTermB,
+        lemma: provenanceTermB,
+        pos: "noun",
+        level: "B2",
+        category: testUnitCategory,
+        definitionZh: provenanceDefinitionB,
+        acceptedAnswersZh: [provenanceDefinitionB],
+        enableEnToZh: true,
+        distractorZh: [`乙干擾一-${suffix}`, `乙干擾二-${suffix}`, `乙干擾三-${suffix}`, `乙干擾四-${suffix}`, `乙干擾五-${suffix}`],
+        contentDigest: `stream-provenance-b-${suffix}`,
+        catalogRevisionId: provenanceCatalogRevisionB.id,
+      },
+    });
+    catalogFixtureRevisionIds.push(provenanceRevisionB.id);
+    await prisma.review.upsert({
+      where: { userId_wordId: { userId: user.id, wordId: provenanceWord.id } },
+      create: { userId: user.id, wordId: provenanceWord.id, senseId: provenanceSense.id, nextReviewDate: new Date(0) },
+      update: { nextReviewDate: new Date(0), senseId: provenanceSense.id },
+    });
+    await prisma.evidenceObligation.create({
+      data: {
+        userId: user.id,
+        wordId: provenanceWord.id,
+        senseId: provenanceSense.id,
+        kind: "EVIDENCE_OBLIGATION",
+        status: "PENDING",
+        sourceOperationId: `provenance-obligation-${suffix}`,
+        selectionReason: "audit-provenance-snapshot",
+        policyVersion: "retrieval-v1",
+        eligibleAt: new Date(),
+        expiresAt: new Date(Date.now() + 86400_000),
+        activeKey: `provenance-obligation:${suffix}`,
+      },
+    });
+    const provenanceProbe = await getOrCreateStudyStream(user.id);
+    assert.equal(provenanceProbe.item?.kind, "OBJECTIVE_PROBE");
+    assert.ok(provenanceProbe.item);
+    const provenanceStreamRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: provenanceProbe.item.streamItemId },
+      select: { wordId: true, objectiveQuestionSnapshotId: true },
+    });
+    assert.equal(provenanceStreamRow.wordId, provenanceWord.id);
+    const provenanceSnapshot = await prisma.objectiveQuestionSnapshot.findUniqueOrThrow({
+      where: { id: provenanceStreamRow.objectiveQuestionSnapshotId! },
+    });
+    assert.equal(provenanceSnapshot.contentRevisionId, provenanceRevisionA.id);
+    assert.equal(provenanceSnapshot.catalogRevisionId, readyForProvenance.id);
+    await prisma.wordSense.update({
+      where: { id: provenanceSense.id },
+      data: { term: provenanceTermB, normalizedTerm: provenanceTermB, level: "B2", approvedRevisionId: provenanceRevisionB.id },
+    });
+    await prisma.word.update({
+      where: { id: provenanceWord.id },
+      data: { term: provenanceTermB, definition: provenanceDefinitionB, level: "B2", contentRevisionId: provenanceRevisionB.id, catalogRevisionId: provenanceCatalogRevisionB.id },
+    });
+    const provenanceAnswer: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: provenanceProbe.session.id,
+      streamItemId: provenanceProbe.item.streamItemId,
+      operationId: `provenance-answer-${suffix}`,
+      itemCredential: provenanceProbe.item.itemCredential,
+      actionKind: "OBJECTIVE_ANSWER",
+      clientKnownRevision: provenanceProbe.item.clientRevision,
+      payload: { selectedOptionId: provenanceSnapshot.correctOptionId },
+    };
+    await applyStudyStreamAction(user.id, provenanceAnswer);
+    const provenanceEvent = await prisma.reviewEvent.findFirstOrThrow({
+      where: { userId: user.id, operationId: provenanceAnswer.operationId },
+    });
+    assert.equal(provenanceEvent.objectiveQuestionSnapshotId, provenanceSnapshot.id);
+    assert.equal(provenanceEvent.contentRevisionId, provenanceRevisionA.id);
+    assert.equal(provenanceEvent.catalogRevisionId, readyForProvenance.id);
+    assert.equal(provenanceEvent.wordTerm, provenanceTermA);
+    assert.equal(provenanceEvent.wordLevel, "A1");
+    assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id, objectiveQuestionSnapshotId: provenanceSnapshot.id } }), 1);
+    const duplicateProvenanceAnswer = await applyStudyStreamAction(user.id, provenanceAnswer);
+    assert.equal(duplicateProvenanceAnswer.duplicate, true);
+    assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id, objectiveQuestionSnapshotId: provenanceSnapshot.id } }), 1);
+
     const dualFlowSessions = await prisma.studySession.groupBy({
       by: ["flowVersion"],
       where: { userId: user.id },
@@ -1189,6 +1467,31 @@ async function main() {
     assert.notEqual(createStudyStreamCredential(), createStudyStreamCredential());
     console.log("study stream v2 integration checks passed");
   } finally {
+    // ObjectiveQuestionSnapshot keeps nullable links to users' targets,
+    // stream items and review events (all are SetNull on delete). Collect and
+    // remove every snapshot owned by this disposable learner before deleting
+    // the user, otherwise each integration run would leave orphan snapshots.
+    const snapshotOwnerIds = [userId, studyDayOnlyUserId].filter(
+      (id): id is string => id !== null,
+    );
+    if (snapshotOwnerIds.length > 0) {
+      const snapshotRows = await prisma.objectiveQuestionSnapshot.findMany({
+        where: {
+          OR: snapshotOwnerIds.flatMap((ownerId) => [
+            { target: { userId: ownerId } },
+            { streamItems: { some: { session: { userId: ownerId } } } },
+            { reviewEvents: { some: { userId: ownerId } } },
+          ]),
+        },
+        select: { id: true },
+      });
+      objectiveQuestionSnapshotIds.push(...snapshotRows.map((row) => row.id));
+      if (objectiveQuestionSnapshotIds.length > 0) {
+        await prisma.objectiveQuestionSnapshot.deleteMany({
+          where: { id: { in: objectiveQuestionSnapshotIds } },
+        });
+      }
+    }
     if (userId) await prisma.user.delete({ where: { id: userId } });
     if (studyDayOnlyUserId) await prisma.user.delete({ where: { id: studyDayOnlyUserId } });
     const disposableWordIds = [...cleanupWordIds, ...catalogFixtureWordIds];

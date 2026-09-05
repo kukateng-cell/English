@@ -10,7 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
-| [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 已完成（第五輪本地及 hosted CI） | 追加全 action 終結／重播、多筆 outbox drain、跨 scope remediation supersede 及課室共享 IP 容量限流；提交 `4015a8f` 已推送，hosted CI 17 個 jobs 全部成功 |
+| [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 進行中（第六輪本地修正及驗證；hosted CI 待確認） | 追加過期 remediation 舊卡退出續接流程，以及 Objective Probe 舊快照與 ReviewEvent 版本 provenance 一致性；雙 reviewer 已 PASS，待 hosted CI |
 | [staging-audit-followup.md](./staging-audit-followup.md) | 審核第二／三輪 | 第二輪 CI 全通過；第三輪局部補修本地完成 | fresh seed、CSV、CIS-010 預覽、問題篩選、route cap；第三輪負號公式編碼、379 unit 及真實試算表 round-trip 通過；分支規則待管理員 |
 | [staging-audit-remediation.md](./staging-audit-remediation.md) | 審核修正 | 已完成（分支保護待管理員） | seed、V2 outbox、題目安全、catalog輸入輸出、依賴及CI修正；374 unit、V2 DB／browser、三引擎雙分頁測試通過 |
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
