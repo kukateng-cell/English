@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：已完成（第五輪本地驗證；CI 待確認）
+狀態：已完成（第五輪本地及 hosted CI）
 
 ## 背景與目標
 
@@ -52,5 +52,5 @@
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all npm run test:e2e:study-stream-v2`：15 passed（含 auth setup），覆蓋四種 action terminal／feedback replay、跨 scope stale-state、POST 成功後 GET 失敗只讀重載、refresh-in-flight outbox drain、terminal 409 單一 outbox row 清理及多筆 outbox drain。
 - `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`：通過；Chromium primary 73 passed／4 existing skipped，WebKit shard 1 為 17 passed、shard 2 為 16 passed。未改動環境檔；future-backoff rotation 等待 localStorage 持久化後同時核對 sessionId 及 retryAt。
 - 兩位獨立 reviewer 已對最新修正工作樹覆核並 PASS。
-- 第五輪提交及 hosted CI 尚待本輪 commit／push 後更新。
+- 提交 `4015a8f`（`fix: close V2 action and classroom queue audit gaps`）已推送 `staging`；[GitHub Actions run 33966106562](https://github.com/kukateng-cell/English/actions/runs/33966106562) 的 17 個 jobs（包括 required quality gate）全部成功。
 - 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。
