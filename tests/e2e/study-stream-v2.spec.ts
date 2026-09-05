@@ -85,11 +85,14 @@ test("an older bootstrap generation cannot roll back the current item revision",
   let calls = 0;
   let releaseOld!: () => void;
   const oldGate = new Promise<void>(resolve => { releaseOld = resolve; });
+  let releaseUnmounted!: () => void;
+  const unmountedGate = new Promise<void>(resolve => { releaseUnmounted = resolve; });
   await page.route("**/api/study/stream**", async route => {
     if (new URL(route.request().url()).searchParams.has("assignmentOnly")) return route.continue();
     const call = ++calls;
     if (call === 2) await oldGate;
-    const revision = call === 2 ? 1 : call >= 3 ? 9 : 7;
+    if (call === 4) await unmountedGate;
+    const revision = call === 2 || call === 4 ? 1 : call >= 3 ? 9 : 7;
     const response: PublicStreamResponse = {
       ok: true, assigned: true, resumedFeedback: false,
       session: { id: "generation-session", flowVersion: "v2", mode: "global", policyVersion: "retrieval-v1", revision, expiresAt: new Date(Date.now() + 1800000).toISOString() },
@@ -116,6 +119,19 @@ test("an older bootstrap generation cannot roll back the current item revision",
   await expect(page.getByText("revision-1", { exact: true })).toHaveCount(0);
   const revisions = await page.evaluate(() => Object.keys(localStorage).filter(key => key.includes("study-stream-v2:checkpoint:") && key.endsWith(":global")).map(key => JSON.parse(localStorage.getItem(key)!).clientRevision));
   expect(revisions).toEqual([9]);
+
+  await reload();
+  await expect.poll(() => calls).toBe(4);
+  // Client-side navigation unmounts this stream without destroying the
+  // document, so its pending fetch could otherwise still write localStorage.
+  await page.locator('a[href="/words"]').first().click();
+  await expect(page).toHaveURL(/\/words$/);
+  const unmountedResponse = page.waitForResponse(response => response.headers()["x-audit-generation"] === "4");
+  releaseUnmounted();
+  await (await unmountedResponse).finished();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const afterUnmount = await page.evaluate(() => Object.keys(localStorage).filter(key => key.includes("study-stream-v2:checkpoint:") && key.endsWith(":global")).map(key => JSON.parse(localStorage.getItem(key)!).clientRevision));
+  expect(afterUnmount).toEqual([9]);
 });
 
 test("local all-user assignment serves the V2 stream", async ({ page }) => {

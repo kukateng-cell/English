@@ -117,6 +117,12 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const loadedRef = useRef(false);
   const authInvalidatedRef = useRef(false);
   const bootstrapGenerationRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const handleAuthInvalidation = useCallback(() => {
     if (authInvalidatedRef.current) return;
@@ -227,10 +233,11 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   }, [userId]);
 
   const reloadStream = useCallback(async (credential?: string | null) => {
+    if (!mountedRef.current) return;
     const generation = ++bootstrapGenerationRef.current;
     const scope = scopeCheckpointKey();
     const isCurrent = () => generation === bootstrapGenerationRef.current &&
-      scope === scopeCheckpointKey() && !authInvalidatedRef.current;
+      scope === scopeCheckpointKey() && mountedRef.current && !authInvalidatedRef.current;
     setLoading(true);
     try {
       const data = await fetchStream(credential);
