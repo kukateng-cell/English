@@ -1135,17 +1135,21 @@ export function serializeStudySession(session: IssuedStudySession | null) {
 export async function cleanupExpiredStudySessions(
   now = new Date(),
   batchSize = 1_000,
+  db: Pick<Prisma.TransactionClient, "studySession"> = prisma,
 ) {
   const retentionCutoff = new Date(now.getTime() - STUDY_SESSION_RETENTION_MS);
-  const expired = await prisma.studySession.findMany({
-    where: { expiresAt: { lte: retentionCutoff } },
+  // V2 items own durable encounters. Do not cascade-delete learning history
+  // until a separate archival/retention migration has decoupled it.
+  const where = { flowVersion: "v1", streamItems: { none: {} }, expiresAt: { lte: retentionCutoff } };
+  const expired = await db.studySession.findMany({
+    where,
     orderBy: { expiresAt: "asc" },
     take: batchSize,
     select: { id: true },
   });
   if (expired.length === 0) return 0;
-  const result = await prisma.studySession.deleteMany({
-    where: { id: { in: expired.map((session) => session.id) } },
+  const result = await db.studySession.deleteMany({
+    where: { ...where, id: { in: expired.map((session) => session.id) } },
   });
   return result.count;
 }

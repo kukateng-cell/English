@@ -1,4 +1,122 @@
 import { expect, test } from "@playwright/test";
+import type { PublicStreamResponse, StudyStreamActionInput } from "../../src/lib/study-stream/contracts";
+
+for (const actionKind of ["REVEAL", "OBJECTIVE_ANSWER"] as const) {
+  test(`late ${actionKind} receipt from unit A cannot overwrite unit B`, async ({ page }) => {
+    let firstRequest = true;
+    let replayed = false;
+    const actions: StudyStreamActionInput[] = [];
+    const objective = actionKind === "OBJECTIVE_ANSWER";
+    await page.route("**/api/study/stream**", async route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.has("assignmentOnly")) return route.continue();
+      const unit = url.searchParams.get("category") === "actions" ? "B" : "A";
+      const response: PublicStreamResponse = {
+        ok: true, assigned: true, resumedFeedback: false,
+        session: { id: `session-${unit}`, mode: "unit", flowVersion: "v2", policyVersion: "retrieval-v1", revision: unit === "B" ? 7 : 0, expiresAt: new Date(Date.now() + 1800000).toISOString() },
+        item: {
+          streamItemId: `stream-item-${unit}`, kind: objective ? "OBJECTIVE_PROBE" : "LEARNING_CARD",
+          flowVersion: "v2", policyVersion: "retrieval-v1", qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2", selectionReason: "audit-test",
+          itemCredential: `credential-${unit}-012345678901234567890123456789`,
+          credentialExpiresAt: new Date(Date.now() + 900000).toISOString(), clientRevision: unit === "B" ? 7 : 0,
+          prompt: unit === "A" ? "apple" : "banana",
+          ...(objective ? { objectiveQuestion: { prompt: unit === "A" ? "apple" : "banana", direction: "en-zh" as const, itemConstructionVersion: "retrieval-v1-mcq-curated-v2", options: [1, 2, 3, 4].map(i => ({ id: `${unit}-${i}`, text: `${unit} option ${i}` })) } } : {}),
+        },
+      };
+      await route.fulfill({ json: response });
+    });
+    await page.route("**/api/study/actions", async route => {
+      const action = route.request().postDataJSON() as StudyStreamActionInput;
+      actions.push(action);
+      if (firstRequest) {
+        firstRequest = false;
+        // Simulate a committed operation whose network response was lost.
+        await route.abort("failed");
+        return;
+      }
+      replayed = true;
+      await route.fulfill({ json: {
+        ok: true, operationId: action.operationId, actionKind, duplicate: true, itemStatus: objective ? "ANSWERED" : "REVEALED",
+        clientRevision: 2, requiresFeedbackAck: objective, nextItem: null,
+        ...(objective ? { feedback: { selectedOptionId: "A-1", correctOptionId: "A-2", quality: 2, isCorrect: false, acknowledged: false } }
+          : { learningCard: { term: "apple", definition: "蘋果", phonetic: null, pos: null, examples: [] } }),
+      } });
+    });
+    await page.goto("/study?mode=unit&level=A1&category=daily-life");
+    if (objective) {
+      await page.getByText("A option 1", { exact: true }).click();
+    } else {
+      const hint = page.getByTestId("word-card-hint");
+      await expect(hint).toBeVisible();
+      const box = (await hint.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down(); await page.waitForTimeout(3250); await page.mouse.up();
+    }
+    const alert = page.getByRole("alert").filter({ has: page.getByRole("button", { name: "重試" }) });
+    await expect(alert).toBeVisible();
+    await page.goto("/study?mode=unit&level=A1&category=actions");
+    await expect(page.getByText("banana", { exact: true }).first()).toBeVisible();
+    await alert.getByRole("button", { name: "重試" }).click();
+    await expect.poll(() => replayed).toBe(true);
+    await expect(alert).toHaveCount(0);
+    await expect(page.getByText("banana", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("apple", { exact: true })).toHaveCount(0);
+    if (objective) {
+      await expect(page.getByRole("radio", { name: "B option 1" })).not.toBeChecked();
+      await expect(page.getByTestId("study-stream-feedback-affordance")).not.toHaveClass(/is-visible/);
+      await expect(page.getByRole("radio", { name: "B option 1" })).toBeEnabled();
+    } else {
+      await expect(page.getByTestId("word-card-flip")).toHaveAttribute("data-flipped", "false");
+    }
+    const state = await page.evaluate(() => ({
+      checkpoints: Object.keys(localStorage).filter(key => key.includes("study-stream-v2:checkpoint:") && key.endsWith("A1::actions")).map(key => JSON.parse(localStorage.getItem(key)!)),
+      outboxes: Object.keys(localStorage).filter(key => key.includes("study-stream-v2:outbox:")).map(key => JSON.parse(localStorage.getItem(key)!)),
+    }));
+    expect(state.checkpoints).toHaveLength(1);
+    expect(state.checkpoints[0]).toMatchObject({ sessionId: "session-B", streamItemId: "stream-item-B", clientRevision: 7, phase: objective ? "objective-probe" : "learning-card" });
+    expect(state.outboxes.flat()).toEqual([]);
+    expect(actions).toHaveLength(2);
+    expect(actions[1].operationId).toBe(actions[0].operationId);
+  });
+}
+
+test("an older bootstrap generation cannot roll back the current item revision", async ({ page }) => {
+  let calls = 0;
+  let releaseOld!: () => void;
+  const oldGate = new Promise<void>(resolve => { releaseOld = resolve; });
+  await page.route("**/api/study/stream**", async route => {
+    if (new URL(route.request().url()).searchParams.has("assignmentOnly")) return route.continue();
+    const call = ++calls;
+    if (call === 2) await oldGate;
+    const revision = call === 2 ? 1 : call >= 3 ? 9 : 7;
+    const response: PublicStreamResponse = {
+      ok: true, assigned: true, resumedFeedback: false,
+      session: { id: "generation-session", flowVersion: "v2", mode: "global", policyVersion: "retrieval-v1", revision, expiresAt: new Date(Date.now() + 1800000).toISOString() },
+      item: { streamItemId: "generation-item", flowVersion: "v2", kind: "LEARNING_CARD", policyVersion: "retrieval-v1", qualityPolicyVersion: "retrieval-v1-quality-v1", itemConstructionVersion: "retrieval-v1-mcq-curated-v2", selectionReason: "audit-generation", prompt: `revision-${revision}`, clientRevision: revision, itemCredential: "generation-credential-012345678901234567890", credentialExpiresAt: new Date(Date.now() + 900000).toISOString() },
+    };
+    await route.fulfill({ json: response, headers: { "x-audit-generation": String(call) } });
+  });
+  await page.goto("/study");
+  await expect(page.getByText("revision-7", { exact: true }).first()).toBeVisible();
+  const reload = () => page.evaluate(() => {
+    const key = Object.keys(localStorage).find(key => key.includes("study-stream-v2:checkpoint:") && key.endsWith(":global"));
+    if (!key) throw new Error("missing checkpoint");
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+  });
+  await reload();
+  await expect.poll(() => calls).toBe(2);
+  await reload();
+  await expect(page.getByText("revision-9", { exact: true }).first()).toBeVisible();
+  const oldResponse = page.waitForResponse(response => response.headers()["x-audit-generation"] === "2");
+  releaseOld();
+  await (await oldResponse).finished();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(page.getByText("revision-9", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("revision-1", { exact: true })).toHaveCount(0);
+  const revisions = await page.evaluate(() => Object.keys(localStorage).filter(key => key.includes("study-stream-v2:checkpoint:") && key.endsWith(":global")).map(key => JSON.parse(localStorage.getItem(key)!).clientRevision));
+  expect(revisions).toEqual([9]);
+});
 
 test("local all-user assignment serves the V2 stream", async ({ page }) => {
   const response = await page.request.get("/api/study/stream?assignmentOnly=1");
@@ -261,6 +379,7 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         expect(affordanceMotion.animationName).toBe("quiz-feedback-affordance-breathe");
         expect(parseFloat(affordanceMotion.animationDuration)).toBeGreaterThanOrEqual(4);
         await probeCard.click({ position: { x: 48, y: 48 } });
+        await expect(page.locator('[data-testid="study-stream-feedback-affordance"].is-visible')).toHaveCount(0);
         continue;
       }
       const options = page.getByRole("radio");

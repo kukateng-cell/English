@@ -435,7 +435,13 @@ async function buildCandidates(
     select: { id: true, wordId: true, senseId: true },
   });
   const openTargets = await tx.objectiveEvidenceTarget.findMany({
-    where: { userId, status: "OPEN", wordId: { not: null } },
+    where: {
+      userId, status: "OPEN", wordId: { not: null },
+      streamItems: { some: {
+        status: "LEASED", usedAt: null, leaseExpiresAt: { gt: now },
+        session: { retiredAt: null, expiresAt: { gt: now } },
+      } },
+    },
     select: { wordId: true, purpose: true },
   });
   const openTargetKeys = new Set(openTargets.map((target) => `${target.purpose}:${target.wordId}`));
@@ -1497,6 +1503,12 @@ async function processObjectiveAnswer(
   await tx.objectiveEvidenceTarget.update({
     where: { id: item.objectiveEvidenceTarget.id },
     data: { winningReviewEventId: event.id },
+  });
+  // Re-leasing an abandoned target can leave an older presentation behind.
+  // Once either presentation wins, the others must no longer be resumable.
+  await tx.studyStreamItem.updateMany({
+    where: { objectiveEvidenceTargetId: item.objectiveEvidenceTarget.id, id: { not: item.id }, usedAt: null, status: "LEASED" },
+    data: { status: "SUPERSEDED" },
   });
   if (item.objectiveEvidenceTarget.obligationId) {
     await tx.evidenceObligation.update({

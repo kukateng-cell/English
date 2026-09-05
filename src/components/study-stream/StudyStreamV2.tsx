@@ -116,6 +116,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const [epoch, setEpoch] = useState(0);
   const loadedRef = useRef(false);
   const authInvalidatedRef = useRef(false);
+  const bootstrapGenerationRef = useRef(0);
 
   const handleAuthInvalidation = useCallback(() => {
     if (authInvalidatedRef.current) return;
@@ -226,14 +227,20 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   }, [userId]);
 
   const reloadStream = useCallback(async (credential?: string | null) => {
+    const generation = ++bootstrapGenerationRef.current;
+    const scope = scopeCheckpointKey();
+    const isCurrent = () => generation === bootstrapGenerationRef.current &&
+      scope === scopeCheckpointKey() && !authInvalidatedRef.current;
     setLoading(true);
     try {
       const data = await fetchStream(credential);
+      if (!isCurrent()) return;
       applyBootstrap(data);
       setSyncError(null);
       setEpoch((value) => value + 1);
       refreshOutbox();
     } catch (error) {
+      if (!isCurrent()) return;
       const status = error instanceof Error && "status" in error && typeof error.status === "number"
         ? error.status
         : null;
@@ -243,7 +250,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       if (status === 401 || code === "SESSION_REVOKED") handleAuthInvalidation();
       setSyncError(errorText(error));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [applyBootstrap, fetchStream, handleAuthInvalidation, refreshOutbox]);
 
@@ -251,25 +258,14 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     action: StudyStreamActionInput,
     response: PublicStreamActionResponse,
   ) => {
-    if (action.actionKind === "REVEAL") {
-      setItem((current) => current && response.learningCard
-        ? { ...current, learningCard: response.learningCard }
-        : current);
-      updateCheckpoint(item, session);
-      return;
+    if (response.operationId !== action.operationId || response.actionKind !== action.actionKind) {
+      throw new Error("學習操作回執身份不符");
     }
-    if (action.actionKind === "OBJECTIVE_ANSWER") {
-      setItem((current) => current && response.feedback
-        ? { ...current, feedback: response.feedback, clientRevision: response.clientRevision }
-        : current);
-      setSelectedOptionId(response.feedback?.selectedOptionId ?? selectedOptionId);
-      if (session && item && response.feedback) {
-        updateCheckpoint({ ...item, feedback: response.feedback, clientRevision: response.clientRevision }, session);
-      }
-      return;
-    }
+    // Outbox is learner-wide, but this screen is scope-local. Never merge a
+    // receipt's card, feedback or revision into whichever item is now visible.
+    // Even a same-item replay can be older than the current server state.
     await reloadStream();
-  }, [item, reloadStream, selectedOptionId, session, updateCheckpoint]);
+  }, [reloadStream]);
 
   const flushOne = useCallback(async (rows?: ReturnType<typeof loadStudyStreamOutbox>) => {
     let availableRows: ReturnType<typeof loadStudyStreamOutbox>;

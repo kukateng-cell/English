@@ -26,6 +26,7 @@ async function main() {
   } = await import("../src/lib/study-stream/contracts");
   const { getStudentDashboard, getStudentLearningMetrics } = await import("../src/lib/student-metrics");
   const { fetchUnitProgress } = await import("../src/lib/unit-progress-server");
+  const { cleanupExpiredStudySessions, STUDY_SESSION_RETENTION_MS } = await import("../src/lib/study-session-server");
   const { getLeaderboard } = await import("../src/lib/leaderboard");
   const { todayKey } = await import("../src/lib/streak");
   const { authOptions, validateAuthTokenVersion } = await import("../src/lib/auth");
@@ -972,6 +973,90 @@ async function main() {
       }),
       (error: unknown) => error instanceof Error && error.message.includes("不同的學習流程"),
     );
+    // Execute the real cleanup in a rollback transaction: no existing local
+    // session is permanently removed by this regression.
+    const rollbackRetention = new Error("rollback retention regression");
+    await assert.rejects(prisma.$transaction(async (tx) => {
+      const beforeEncounters = await tx.studyEncounter.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
+      const beforeEvents = await tx.reviewEvent.count({ where: { userId: user.id } });
+      const beforeCoverage = new Set(beforeEncounters.map(row => row.wordId)).size;
+      assert.ok(beforeCoverage > 0);
+      const past = new Date(Date.now() - STUDY_SESSION_RETENTION_MS - 60_000);
+      await tx.studySession.updateMany({ where: { userId: user.id }, data: { expiresAt: past } });
+      await cleanupExpiredStudySessions(new Date(), 100_000, tx);
+      assert.equal(await tx.studySession.count({ where: { id: legacySession.id } }), 0);
+      assert.ok(await tx.studySession.count({ where: { userId: user.id, flowVersion: "v2" } }));
+      const afterEncounters = await tx.studyEncounter.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
+      assert.deepEqual(afterEncounters, beforeEncounters);
+      assert.equal(new Set(afterEncounters.map(row => row.wordId)).size, beforeCoverage);
+      assert.equal(await tx.reviewEvent.count({ where: { userId: user.id } }), beforeEvents);
+      throw rollbackRetention;
+    }, { timeout: 30_000 }), error => error === rollbackRetention);
+
+    // A fresh page has no outbox action or credential: recover an unanswered
+    // due target by leasing the same immutable target/snapshot in a new session.
+    await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
+    await prisma.evidenceObligation.updateMany({ where: { userId: user.id }, data: { status: "CANCELLED", activeKey: null } });
+    await prisma.review.updateMany({ where: { userId: user.id }, data: { nextReviewDate: new Date(Date.now() + 86400_000) } });
+    const recoveryWordId = (await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: probeItem.streamItemId } })).wordId!;
+    await prisma.review.upsert({
+      where: { userId_wordId: { userId: user.id, wordId: recoveryWordId } },
+      create: { userId: user.id, wordId: recoveryWordId, nextReviewDate: new Date(0) },
+      update: { nextReviewDate: new Date(0) },
+    });
+    const oldDue = await getOrCreateStudyStream(user.id);
+    assert.equal(oldDue.item?.selectionReason, "due-review");
+    assert.ok(oldDue.item?.objectiveQuestion);
+    const oldDueRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: oldDue.item.streamItemId } });
+    await prisma.studySession.update({ where: { id: oldDue.session.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+    const renewedDue = await getOrCreateStudyStream(user.id);
+    assert.ok(renewedDue.item?.objectiveQuestion);
+    assert.notEqual(renewedDue.session.id, oldDue.session.id);
+    const renewedDueRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: renewedDue.item.streamItemId } });
+    assert.equal(renewedDueRow.objectiveEvidenceTargetId, oldDueRow.objectiveEvidenceTargetId);
+    assert.equal(renewedDueRow.objectiveQuestionSnapshotId, oldDueRow.objectiveQuestionSnapshotId);
+    assert.deepEqual(renewedDue.item.objectiveQuestion, oldDue.item.objectiveQuestion);
+    const recoverySnapshot = await prisma.objectiveQuestionSnapshot.findUniqueOrThrow({ where: { id: oldDueRow.objectiveQuestionSnapshotId! } });
+    const newAnswer: StudyStreamActionInput = {
+      flowVersion: "v2", studySessionId: renewedDue.session.id, streamItemId: renewedDue.item.streamItemId,
+      itemCredential: renewedDue.item.itemCredential, clientKnownRevision: renewedDue.item.clientRevision,
+      operationId: `renewed-due-${suffix}`, actionKind: "OBJECTIVE_ANSWER", payload: { selectedOptionId: recoverySnapshot.correctOptionId },
+    };
+    await applyStudyStreamAction(user.id, newAnswer);
+    await assert.rejects(() => recoverExpiredStudyStreamAction(user.id, {
+      ...newAnswer, studySessionId: oldDue.session.id, streamItemId: oldDue.item!.streamItemId,
+      itemCredential: oldDue.item!.itemCredential, clientKnownRevision: oldDue.item!.clientRevision,
+      operationId: `old-due-late-${suffix}`,
+    }), error => error instanceof StudyStreamError && error.status === 409);
+    assert.equal(await prisma.reviewEvent.count({ where: { objectiveEvidenceTargetId: oldDueRow.objectiveEvidenceTargetId } }), 1);
+    assert.equal((await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: oldDueRow.id } })).status, "SUPERSEDED");
+
+    // Reverse the race: an offline old page wins after a new page has leased
+    // the target. The losing presentation must not keep resuming a spent goal.
+    await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
+    await prisma.review.update({ where: { userId_wordId: { userId: user.id, wordId: recoveryWordId } }, data: { nextReviewDate: new Date(0) } });
+    const reverseOld = await getOrCreateStudyStream(user.id);
+    assert.ok(reverseOld.item?.objectiveQuestion);
+    await prisma.studySession.update({ where: { id: reverseOld.session.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+    const reverseNew = await getOrCreateStudyStream(user.id);
+    assert.ok(reverseNew.item?.objectiveQuestion);
+    const reverseRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: reverseNew.item.streamItemId } });
+    const reverseSnapshot = await prisma.objectiveQuestionSnapshot.findUniqueOrThrow({ where: { id: reverseRow.objectiveQuestionSnapshotId! } });
+    const reverseAction: StudyStreamActionInput = {
+      ...newAnswer, studySessionId: reverseOld.session.id, streamItemId: reverseOld.item.streamItemId,
+      itemCredential: reverseOld.item.itemCredential, clientKnownRevision: reverseOld.item.clientRevision,
+      operationId: `old-due-winner-${suffix}`, payload: { selectedOptionId: reverseSnapshot.correctOptionId },
+    };
+    await recoverExpiredStudyStreamAction(user.id, reverseAction);
+    await assert.rejects(() => applyStudyStreamAction(user.id, {
+      ...reverseAction, studySessionId: reverseNew.session.id, streamItemId: reverseNew.item!.streamItemId,
+      itemCredential: reverseNew.item!.itemCredential, clientKnownRevision: reverseNew.item!.clientRevision,
+      operationId: `new-due-loser-${suffix}`,
+    }), error => error instanceof StudyStreamError && error.status === 409);
+    const afterReverse = await getOrCreateStudyStream(user.id);
+    assert.notEqual(afterReverse.item?.streamItemId, reverseNew.item.streamItemId);
+    assert.equal(await prisma.reviewEvent.count({ where: { objectiveEvidenceTargetId: reverseRow.objectiveEvidenceTargetId } }), 1);
+
     const dualFlowSessions = await prisma.studySession.groupBy({
       by: ["flowVersion"],
       where: { userId: user.id },
