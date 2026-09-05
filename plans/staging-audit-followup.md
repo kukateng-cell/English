@@ -1,6 +1,6 @@
 # Staging 審核第二輪修正
 
-狀態：進行中（程式及本地驗證完成，待候選 SHA hosted CI）
+狀態：已完成（程式及本地驗證、候選 SHA hosted CI 全部通過）
 
 ## 背景、目標與依賴
 
@@ -23,7 +23,7 @@
 - [x] 同列新提案取代舊答案，curated builder 與 CIS-010 一致；preview／正式一致測試。
 - [x] 舊反義詞 issue SQL／標籤／分頁／總數一致，DB fixture 驗證。
 - [x] 兩個 route 超限串流停止及 malformed JSON 回應測試。
-- [ ] unit、lint、typecheck、build、相關 DB／browser；commit／push 並檢查同一候選 SHA 的 hosted CI。
+- [x] unit、lint、typecheck、build、相關 DB／browser；commit／push 並檢查同一候選 SHA 的 hosted CI。
 
 ## 非目標、風險、發佈及 rollback
 
@@ -51,4 +51,6 @@
 - `06287b7` / run `33947013036`：fresh-seed、Catalog browser、V2、outbox 三引擎、motion、QA、unit、lint、types、build、ledger、migration、dependency audit 全通過。
 - Catalog DB 暴露 retry 衝突映射的舊 CSV 行號假設：改為先序列化，再按 parser 的物理行號映射；新增 marker + multiline regression。重複來源選擇 fixture 改用實際 preview rowNumber。
 - Student IA 的 9 個失敗全為舊文案 selectors（帳戶選單、載入更多、目前測試尚未完成）；同步測試與實際簡繁文案，未變更產品行為。
-- 補修本地：378 unit passed、lint/typecheck/diff-check 通過；`check:catalog-submission`、`check:catalog-teacher-workflow` 通過；`test:e2e:student-ia` 34 passed、2 existing skipped。等待補修 SHA hosted 結果。
+- 補修本地：378 unit passed、lint/typecheck/diff-check 通過；`check:catalog-submission`、`check:catalog-teacher-workflow` 通過；`test:e2e:student-ia` 34 passed、2 existing skipped（桌面 project 不執行 mobile-only geometry，手機 project 對應案例通過）。
+- 最終程式 SHA `cfce8b5032e3e5c8cd0c073ce3b201f81da18547` 已推送 staging；[GitHub Actions run 33947481675](https://github.com/kukateng-cell/English/actions/runs/33947481675) 完整成功：15 個 Quality matrix suites、production dependency audit、Required quality gate 全部通過。包含同一 SHA 的 Catalog DB／browser、V2 DB／browser、fresh seed、outbox、motion、IA、QA。
+- 後續只提交此完成紀錄；未部署 production，未合併 main。限制仍為未做手動 Excel 編輯／儲存（已做真實 LibreOffice round-trip），及 GitHub branch protection 需要外部 admin 權限。
