@@ -12,8 +12,8 @@ test("student shell exposes four real destinations without minting study session
   const nav = page.getByRole("navigation", { name: /学生主导航|學生主導航/ });
   await expect(nav).toBeVisible();
   for (const href of ["/", "/study", "/words", "/stats"]) await expect(nav.locator(`a[href="${href}"]`)).toHaveAttribute("href", href);
-  await expect(page.getByRole("button", { name: /账户菜单|賬戶菜單/ })).toBeVisible();
-  await page.getByRole("button", { name: /账户菜单|賬戶菜單/ }).click();
+  await expect(page.getByRole("button", { name: /帐户选单|帳戶選單/ })).toBeVisible();
+  await page.getByRole("button", { name: /帐户选单|帳戶選單/ }).click();
   await expect(page.getByRole("menu")).toBeVisible();
   await page.keyboard.press("Escape");
 
@@ -140,7 +140,7 @@ test("word pagination ignores a stale page after the student changes filters", a
 
   await page.goto("/words?level=A1");
   await expect(page.getByText("A1 current page", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /加载更多|加載更多/ }).click();
+  await page.getByRole("button", { name: /载入更多|載入更多/ }).click();
   await staleRequestStarted;
   await page.getByRole("button", { name: "B1", exact: true }).click();
   await expect(page.getByText("B1 current page", { exact: true })).toBeVisible();
@@ -150,7 +150,7 @@ test("word pagination ignores a stale page after the student changes filters", a
 
   await page.getByRole("button", { name: "A1", exact: true }).click();
   await expect(page.getByText("A1 current page", { exact: true })).toHaveCount(1);
-  await page.getByRole("button", { name: /加载更多|加載更多/ }).click();
+  await page.getByRole("button", { name: /载入更多|載入更多/ }).click();
   await expect(page.getByText("A1 stale page", { exact: true })).toHaveCount(1);
   await expect(page.getByText("A1 current page", { exact: true })).toHaveCount(1);
 });
@@ -193,7 +193,7 @@ test("a failed filter request never renders words or pagination from the previou
 
   await page.goto("/words?level=A1");
   await expect(page.getByText("A1 resolved word", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /加载更多|加載更多/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /载入更多|載入更多/ })).toBeVisible();
 
   await page.getByRole("button", { name: "B1", exact: true }).click();
   await expect(page).toHaveURL(/\/words\?level=B1$/);
@@ -201,5 +201,5 @@ test("a failed filter request never renders words or pagination from the previou
   await expect(page.getByRole("button", { name: /重试|重試/ })).toBeVisible();
   await expect(page.getByText("A1 resolved word", { exact: true })).toHaveCount(0);
   await expect(page.getByText("A1 resolved definition", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /加载更多|加載更多/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /载入更多|載入更多/ })).toHaveCount(0);
 });

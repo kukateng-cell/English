@@ -14,6 +14,7 @@
 - SQL 篩選、總數、排序及 response 問題標籤使用一致有效問題語義，不能分頁後剔除。
   實作採同一 RepeatableRead transaction：只讀取有 stored issues 的匯入列，用既有單一 TypeScript adapter 產生有效 issues，再以 JSON recordset 加入 SQL CTE，於篩選／計數／分頁之前套用；避免 SQL 重寫 Unicode／legacy message 規則。
 - 兩個獨立 POST/PATCH 入口 bounded reader，保留 413／422，直接 route 回歸。
+- Hosted CI 揭示 retry 的 CSV 衝突映射仍假定 header 只佔一行；改用匯出後實際 parser 行號，同時覆蓋標記與多行欄位，不放寬 stale guard。
 
 ## Checklist／測試矩陣
 
@@ -44,3 +45,10 @@
 - `DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development npm run test:e2e:catalog-workspace` 及針對失敗案例重跑：24 案例全部通過。修正過時文案 selectors 與 CSV 首行已是版本標記的舊測試假設，沒有放寬功能斷言。
 - `node --import tsx scripts/check-catalog-csv-spreadsheet.mjs`：系統 CSV export → 真實 LibreOffice import/XLSX save → CSV save → 系統 parser 通過；公式樣式文字、撇號、中文保留。未執行手動 Excel 修改；自動化驗證是實際另存格式 round-trip。
 - CI 加獨立 fresh-seed gate，browser-outbox 不再依賴 seed。無 production deploy、schema 改動或 main 合併。GitHub admin 分支保護仍是外部權限限制。
+
+## Hosted 首輪及補修
+
+- `06287b7` / run `33947013036`：fresh-seed、Catalog browser、V2、outbox 三引擎、motion、QA、unit、lint、types、build、ledger、migration、dependency audit 全通過。
+- Catalog DB 暴露 retry 衝突映射的舊 CSV 行號假設：改為先序列化，再按 parser 的物理行號映射；新增 marker + multiline regression。重複來源選擇 fixture 改用實際 preview rowNumber。
+- Student IA 的 9 個失敗全為舊文案 selectors（帳戶選單、載入更多、目前測試尚未完成）；同步測試與實際簡繁文案，未變更產品行為。
+- 補修本地：378 unit passed、lint/typecheck/diff-check 通過；`check:catalog-submission`、`check:catalog-teacher-workflow` 通過；`test:e2e:student-ia` 34 passed、2 existing skipped。等待補修 SHA hosted 結果。

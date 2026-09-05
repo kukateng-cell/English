@@ -3,6 +3,20 @@ import {
   type CatalogRetryMergeField,
 } from "./retry-merge";
 import type { CatalogSubmissionPreview } from "./submission";
+import { parseCatalogGovernanceCsv } from "./csv";
+
+/** Resolve zero-based record indexes to physical lines after CSV serialization. */
+export function catalogRetryCsvConflictRows(
+  csv: string,
+  conflictsByIndex: ReadonlyMap<number, readonly string[]>,
+): Map<number, readonly string[]> {
+  const rows = parseCatalogGovernanceCsv(new TextEncoder().encode(csv), "retry.csv");
+  return new Map([...conflictsByIndex].map(([index, fields]) => {
+    const row = rows[index];
+    if (!row) throw new Error("CATALOG_BATCH_RETRY_STALE");
+    return [row.sourceRow, fields];
+  }));
+}
 
 export type CatalogRetryEffectiveKind = "CREATE" | "UPDATE" | "RETIRE" | "REACTIVATE";
 

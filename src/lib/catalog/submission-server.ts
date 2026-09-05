@@ -56,6 +56,7 @@ import { threeWayMergeCatalogPayload } from "./retry-merge";
 import { isCatalogBatchRetrySourceStatus } from "./work-items";
 import {
   applyCatalogRetryMergeConflicts,
+  catalogRetryCsvConflictRows,
   catalogRetryEffectiveKind,
   catalogRetryGroupsAreContentOnly,
   mergeCatalogRetryConflictFields,
@@ -730,7 +731,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
         payload = firstPass.payload;
       }
     }
-    if (unresolvedConflicts.length) retryMergeConflicts.set(sourceRowNumber, unresolvedConflicts);
+    if (unresolvedConflicts.length) retryMergeConflicts.set(rows.length, unresolvedConflicts);
     const catalogKey = group.targetSense?.catalogEntry.catalogKey
       ?? group.targetCatalogKey
       ?? `retry-${source.id}`;
@@ -756,7 +757,7 @@ export async function createRetryCatalogSubmissionPreview(input: {
     fileName: `retry-${source.fileName}`.slice(0, 120),
     bytes: new TextEncoder().encode(csv),
     retrySourceBatchId: source.id,
-    retryMergeConflicts,
+    retryMergeConflicts: catalogRetryCsvConflictRows(csv, retryMergeConflicts),
   });
 }
 

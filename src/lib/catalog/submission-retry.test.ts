@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { catalogRowsToCsv, CATALOG_GOVERNANCE_HEADERS } from "./csv";
 import { payloadToSourceRow, type CatalogGovernancePayload } from "./governance";
 import { threeWayMergeCatalogPayload } from "./retry-merge";
 import {
@@ -8,6 +9,7 @@ import {
 } from "./submission";
 import {
   applyCatalogRetryMergeConflicts,
+  catalogRetryCsvConflictRows,
   catalogRetryEffectiveKind,
   catalogRetryGroupsAreContentOnly,
   mergeCatalogRetryConflictFields,
@@ -27,6 +29,18 @@ function payload(overrides: Partial<CatalogGovernancePayload> = {}): CatalogGove
     ...overrides,
   };
 }
+
+test("retry conflict rows follow CSV marker and multiline record offsets", () => {
+  const rows = ["First line\nSecond line", "One line"].map((exampleEn, index) =>
+    payloadToSourceRow(payload({ exampleEn }), {
+      catalogKey: "run", senseKey: `run-${index}`, sourceFile: "retry.csv", sourceRow: index + 2,
+    }, 1));
+  const csv = catalogRowsToCsv(rows, CATALOG_GOVERNANCE_HEADERS);
+  assert.deepEqual([...catalogRetryCsvConflictRows(csv, new Map([
+    [0, ["definitionZh"]], [1, ["exampleEn"]],
+  ]))], [[3, ["definitionZh"]], [5, ["exampleEn"]]]);
+  assert.throws(() => catalogRetryCsvConflictRows(csv, new Map([[2, ["exampleEn"]]])), /CATALOG_BATCH_RETRY_STALE/u);
+});
 
 test("batch retry preserves the effective child operation and excludes rejected proposals", () => {
   const groups = [

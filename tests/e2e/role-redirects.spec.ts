@@ -59,7 +59,7 @@ test("teacher and admin fixtures retain role boundaries when seeded credentials 
     for (const href of fixture.links) {
       await expect(workspaceNav.locator(`a[href="${href}"]`)).toBeVisible();
     }
-    await page.getByRole("button", { name: /賬戶菜單|账户菜单/ }).click();
+    await page.getByRole("button", { name: /帳戶選單|帐户选单/ }).click();
     await expect(page.getByRole("menu")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toBeHidden();

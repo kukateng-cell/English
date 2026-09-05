@@ -114,13 +114,13 @@ test("quiz navigation is visible but uses the same guarded exit path", async ({ 
   });
   await expect(page).toHaveURL(/\/study$/);
   await expect(page.getByTestId("study-navigation-notice")).toContainText(
-    /當前測試尚未完成|当前测试尚未完成/,
+    /目前測試尚未完成|目前测试尚未完成/,
   );
 
   await page.evaluate(() => window.history.back());
   await expect(page).toHaveURL(/\/study$/);
   await expect(page.getByTestId("study-navigation-notice")).toContainText(
-    /當前測試尚未完成|当前测试尚未完成/,
+    /目前測試尚未完成|目前测试尚未完成/,
   );
 });
 

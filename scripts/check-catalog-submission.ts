@@ -5,6 +5,7 @@ import { PrismaClient } from "../src/generated/prisma";
 import { CATALOG_GOVERNANCE_HEADERS, catalogRowsToCsv, type CatalogSourceRow } from "../src/lib/catalog/csv";
 import { revisionContentDigest, type CatalogGovernancePayload } from "../src/lib/catalog/governance";
 import { catalogBatchNeedsRevisionWhere } from "../src/lib/catalog/work-items";
+import { catalogRetryCsvConflictRows } from "../src/lib/catalog/submission-retry";
 import {
   claimCatalogSubmissionBatch,
   cancelCatalogSubmissionBatch,
@@ -635,15 +636,16 @@ async function main() {
     sourceRow: rowNumber,
     record_revision: String(approvedAfterNoChange.approvedRevision!.revision),
   }));
+  const conflictUnionCsv = catalogRowsToCsv(conflictUnionRows, CATALOG_GOVERNANCE_HEADERS);
   const conflictUnionPreview = await createCatalogSubmissionPreview({
     actorId: proposer.id,
     operationId: randomUUID(),
     fileName: CATALOG_CHECKER_FILE_NAME,
-    bytes: new TextEncoder().encode(catalogRowsToCsv(conflictUnionRows, CATALOG_GOVERNANCE_HEADERS)),
-    retryMergeConflicts: new Map([
-      [2, ["definitionZh"]],
-      [3, ["exampleEn"]],
-    ]),
+    bytes: new TextEncoder().encode(conflictUnionCsv),
+    retryMergeConflicts: catalogRetryCsvConflictRows(conflictUnionCsv, new Map([
+      [0, ["definitionZh"]],
+      [1, ["exampleEn"]],
+    ])),
   });
   conflictUnionBatchId = conflictUnionPreview.batch.id;
   if (
@@ -879,7 +881,7 @@ async function main() {
     sourceSelectionRequired = error instanceof Error && error.message === "CATALOG_SOURCE_SELECTION_REQUIRED";
   }
   if (!sourceSelectionRequired) throw new Error("different duplicate rows could merge without explicit source acknowledgement");
-  const duplicateResolved = await resolveCatalogSubmissionGroup({ batchId: duplicateBatchId, groupId: duplicatePreview.batch.groups[0]!.id, actorId: proposer.id, canReview: false, expectedBatchRevision: duplicatePreview.batch.revision, expectedGroupRevision: duplicatePreview.batch.groups[0]!.revision, resolution: "MERGE", reason: "adopt row three", sourceSelectionMode: "SOURCE_ROW", selectedSourceRowNumber: 3, acknowledgedSourceSetDigest: duplicatePreview.batch.groups[0]!.sourceSetDigest });
+  const duplicateResolved = await resolveCatalogSubmissionGroup({ batchId: duplicateBatchId, groupId: duplicatePreview.batch.groups[0]!.id, actorId: proposer.id, canReview: false, expectedBatchRevision: duplicatePreview.batch.revision, expectedGroupRevision: duplicatePreview.batch.groups[0]!.revision, resolution: "MERGE", reason: "adopt second source record", sourceSelectionMode: "SOURCE_ROW", selectedSourceRowNumber: duplicatePreview.batch.groups[0]!.sourceRows[1]!.rowNumber, acknowledgedSourceSetDigest: duplicatePreview.batch.groups[0]!.sourceSetDigest });
   if (duplicateResolved.batch.status !== "PREVIEW" || (duplicateResolved.group?.value.finalProposalPayload as { exampleEn?: string }).exampleEn !== duplicateAlternative.exampleEn) throw new Error("explicit duplicate source selection was not preserved");
 
   const claimRecoveryPayload: CatalogGovernancePayload = {
