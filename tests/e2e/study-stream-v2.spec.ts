@@ -134,6 +134,144 @@ test("an older bootstrap generation cannot roll back the current item revision",
   expect(afterUnmount).toEqual([9]);
 });
 
+test("a committed action with a failed refresh locks the old item until GET retry", async ({ page }) => {
+  let initialServed = false;
+  let refreshFailures = 0;
+  let actionCount = 0;
+  await page.route("**/api/study/stream**", async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    if (!initialServed) {
+      initialServed = true;
+      const response: PublicStreamResponse = {
+        ok: true, assigned: true, resumedFeedback: false,
+        session: { id: "refresh-session", mode: "unit", flowVersion: "v2", policyVersion: "retrieval-v1", revision: 0, expiresAt: new Date(Date.now() + 1800000).toISOString() },
+        item: {
+          streamItemId: "refresh-item-A", kind: "OBJECTIVE_PROBE", flowVersion: "v2", policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1", itemConstructionVersion: "retrieval-v1-mcq-curated-v2", selectionReason: "audit-refresh",
+          itemCredential: "refresh-credential-A-012345678901234567890123456789", credentialExpiresAt: new Date(Date.now() + 900000).toISOString(),
+          clientRevision: 0, prompt: "apple",
+          objectiveQuestion: { prompt: "apple", direction: "en-zh", itemConstructionVersion: "retrieval-v1-mcq-curated-v2", options: [1, 2, 3, 4].map(i => ({ id: `A-${i}`, text: `A option ${i}` })) },
+        },
+      };
+      await route.fulfill({ json: response });
+      return;
+    }
+    if (refreshFailures < 2) {
+      refreshFailures += 1;
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary refresh failure" }) });
+      return;
+    }
+    const response: PublicStreamResponse = {
+      ok: true, assigned: true, resumedFeedback: false,
+      session: { id: "refresh-session", mode: "unit", flowVersion: "v2", policyVersion: "retrieval-v1", revision: 1, expiresAt: new Date(Date.now() + 1800000).toISOString() },
+      item: {
+        streamItemId: "refresh-item-B", kind: "LEARNING_CARD", flowVersion: "v2", policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1", itemConstructionVersion: "retrieval-v1-mcq-curated-v2", selectionReason: "audit-refresh",
+        itemCredential: "refresh-credential-B-012345678901234567890123456789", credentialExpiresAt: new Date(Date.now() + 900000).toISOString(),
+        clientRevision: 1, prompt: "banana",
+      },
+    };
+    await route.fulfill({ json: response });
+  });
+  await page.route("**/api/study/actions", async route => {
+    actionCount += 1;
+    const action = route.request().postDataJSON() as StudyStreamActionInput;
+    await route.fulfill({ json: {
+      ok: true, operationId: action.operationId, actionKind: action.actionKind, duplicate: false,
+      itemStatus: "ANSWERED", clientRevision: 1, requiresFeedbackAck: true, nextItem: null,
+      feedback: { selectedOptionId: "A-1", correctOptionId: "A-2", quality: 2, isCorrect: false, acknowledged: false },
+    } });
+  });
+
+  await page.goto("/study?mode=unit&level=A1&category=daily-life");
+  await expect(page.getByRole("radio", { name: "A option 1" })).toBeEnabled();
+  await page.getByText("A option 1", { exact: true }).click();
+  await expect(page.getByTestId("study-stream-refresh-pending")).toBeVisible();
+  await expect(page.getByRole("radio", { name: "A option 1" })).toBeDisabled();
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => refreshFailures).toBe(2);
+  await expect(page.getByTestId("study-stream-refresh-pending")).toBeVisible();
+  await page.getByTestId("study-stream-refresh-pending").getByRole("button", { name: "重新載入" }).click();
+  await expect(page.getByText("banana", { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId("study-stream-refresh-pending")).toHaveCount(0);
+  expect(actionCount).toBe(1);
+});
+
+test("a terminal objective conflict removes only its outbox row and refreshes the current item", async ({ page }) => {
+  let initialServed = false;
+  let conflictReleased!: () => void;
+  const conflictGate = new Promise<void>(resolve => { conflictReleased = resolve; });
+  let actionCount = 0;
+  await page.route("**/api/study/stream**", async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    if (!initialServed) {
+      initialServed = true;
+      const response: PublicStreamResponse = {
+        ok: true, assigned: true, resumedFeedback: false,
+        session: { id: "terminal-session", mode: "global", flowVersion: "v2", policyVersion: "retrieval-v1", revision: 0, expiresAt: new Date(Date.now() + 1800000).toISOString() },
+        item: {
+          streamItemId: "terminal-item-A", kind: "OBJECTIVE_PROBE", flowVersion: "v2", policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1", itemConstructionVersion: "retrieval-v1-mcq-curated-v2", selectionReason: "audit-terminal",
+          itemCredential: "terminal-credential-A-012345678901234567890123456789", credentialExpiresAt: new Date(Date.now() + 900000).toISOString(),
+          clientRevision: 0, prompt: "apple",
+          objectiveQuestion: { prompt: "apple", direction: "en-zh", itemConstructionVersion: "retrieval-v1-mcq-curated-v2", options: [1, 2, 3, 4].map(i => ({ id: `A-${i}`, text: `A option ${i}` })) },
+        },
+      };
+      await route.fulfill({ json: response });
+      return;
+    }
+    const response: PublicStreamResponse = {
+      ok: true, assigned: true, resumedFeedback: false,
+      session: { id: "terminal-session", mode: "global", flowVersion: "v2", policyVersion: "retrieval-v1", revision: 1, expiresAt: new Date(Date.now() + 1800000).toISOString() },
+      item: {
+        streamItemId: "terminal-item-B", kind: "LEARNING_CARD", flowVersion: "v2", policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1", itemConstructionVersion: "retrieval-v1-mcq-curated-v2", selectionReason: "audit-terminal",
+        itemCredential: "terminal-credential-B-012345678901234567890123456789", credentialExpiresAt: new Date(Date.now() + 900000).toISOString(),
+        clientRevision: 1, prompt: "banana",
+      },
+    };
+    await route.fulfill({ json: response });
+  });
+  await page.route("**/api/study/actions", async route => {
+    actionCount += 1;
+    await conflictGate;
+    await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "該客觀證據目標已經完成", code: "OBJECTIVE_TARGET_CONSUMED" }) });
+  });
+
+  await page.goto("/study");
+  await page.getByText("A option 1", { exact: true }).click();
+  await expect.poll(() => actionCount).toBe(1);
+  const outboxRowsBeforeRelease = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(candidate => candidate.startsWith("english:study-stream-v2:outbox:"));
+    if (!key) throw new Error("missing V2 outbox");
+    const rows = JSON.parse(localStorage.getItem(key)!) as unknown[];
+    rows.push({
+      action: {
+        flowVersion: "v2", studySessionId: "secondary-session", streamItemId: "secondary-item",
+        operationId: "secondary-operation", itemCredential: "secondary-credential-012345678901234567890123456789",
+        actionKind: "REVEAL", clientKnownRevision: 0, payload: {},
+      },
+      status: "pending", attempts: 0, lastError: null, updatedAt: Date.now(),
+    });
+    localStorage.setItem(key, JSON.stringify(rows));
+    return rows.length;
+  });
+  expect(outboxRowsBeforeRelease).toBe(2);
+  conflictReleased();
+  await expect(page.getByText("banana", { exact: true }).first()).toBeVisible();
+  await expect.poll(() => actionCount).toBe(1);
+  const outboxRowsAfterRelease = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(candidate => candidate.startsWith("english:study-stream-v2:outbox:"));
+    if (!key) throw new Error("missing V2 outbox");
+    return JSON.parse(localStorage.getItem(key)!) as unknown[];
+  });
+  expect(outboxRowsAfterRelease).toHaveLength(1);
+  await expect(page.getByTestId("study-stream-refresh-pending")).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "尚未同步" })).toHaveCount(0);
+});
+
 test("local all-user assignment serves the V2 stream", async ({ page }) => {
   const response = await page.request.get("/api/study/stream?assignmentOnly=1");
   expect(response.ok()).toBe(true);

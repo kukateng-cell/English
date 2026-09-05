@@ -2103,17 +2103,17 @@ test("a future-backoff row does not starve session rotation", async ({ page }) =
   await page.clock.fastForward(rotationDelay + 1_000);
   await rotated;
 
-  const row = await page.evaluate(
-    ({ ownerId, operation }) => {
-      const raw = window.localStorage.getItem(
-        `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
-      );
-      return raw ? JSON.parse(raw) : null;
-    },
-    { ownerId: userId, operation: operationId },
-  );
-  expect(row?.studySessionId).toBe(replacementSessionId);
-  expect(row?.nextAttemptAt).toBe(retryAt);
+  await expect.poll(
+    () => page.evaluate(
+      ({ ownerId, operation }) => {
+        const raw = window.localStorage.getItem(
+          `study:review-item:${encodeURIComponent(ownerId)}:${encodeURIComponent(operation)}`,
+        );
+        return raw ? JSON.parse(raw) as { studySessionId?: string; nextAttemptAt?: number } : null;
+      },
+      { ownerId: userId, operation: operationId },
+    ),
+  ).toMatchObject({ studySessionId: replacementSessionId, nextAttemptAt: retryAt });
 });
 
 for (const failureStatus of [429, 500]) {

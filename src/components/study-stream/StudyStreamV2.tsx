@@ -80,6 +80,20 @@ function isRecoverableStudyStreamError(value: unknown): value is StudyStreamRequ
   return candidate.code === undefined && /session\s*(已过期|已失效)/iu.test(candidate.message);
 }
 
+function isTerminalStudyStreamConflict(
+  value: unknown,
+  action: StudyStreamActionInput,
+): value is StudyStreamRequestError {
+  if (!(value instanceof Error) || action.actionKind !== "OBJECTIVE_ANSWER") return false;
+  const candidate = value as StudyStreamRequestError;
+  return candidate.status === 409 && (
+    candidate.code === "OBJECTIVE_TARGET_CONSUMED" ||
+    candidate.code === "OBJECTIVE_TARGET_CLOSED" ||
+    candidate.code === "STALE_EVIDENCE_TARGET" ||
+    candidate.code === "SUPERSEDED_STREAM_ITEM"
+  );
+}
+
 function newOperationId(): string {
   return `stream-${crypto.randomUUID()}`;
 }
@@ -111,6 +125,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const [actionPending, setActionPending] = useState(false);
   const [syncBlocked, setSyncBlocked] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [refreshPending, setRefreshPending] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [outboxCount, setOutboxCount] = useState(0);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [epoch, setEpoch] = useState(0);
@@ -134,6 +150,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     setOutboxCount(0);
     setSyncBlocked(true);
     setSyncError("登入已失效，請重新登入");
+    setRefreshPending(false);
+    setRefreshError(null);
     if (typeof window !== "undefined") {
       const callbackUrl = `${window.location.pathname}${window.location.search}`;
       router.replace(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
@@ -232,8 +250,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     }
   }, [userId]);
 
-  const reloadStream = useCallback(async (credential?: string | null) => {
-    if (!mountedRef.current) return;
+  const reloadStream = useCallback(async (credential?: string | null): Promise<"loaded" | "stale" | "failed"> => {
+    if (!mountedRef.current) return "stale";
     const generation = ++bootstrapGenerationRef.current;
     const scope = scopeCheckpointKey();
     const isCurrent = () => generation === bootstrapGenerationRef.current &&
@@ -241,13 +259,16 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     setLoading(true);
     try {
       const data = await fetchStream(credential);
-      if (!isCurrent()) return;
+      if (!isCurrent()) return "stale";
       applyBootstrap(data);
       setSyncError(null);
+      setRefreshPending(false);
+      setRefreshError(null);
       setEpoch((value) => value + 1);
       refreshOutbox();
+      return "loaded";
     } catch (error) {
-      if (!isCurrent()) return;
+      if (!isCurrent()) return "stale";
       const status = error instanceof Error && "status" in error && typeof error.status === "number"
         ? error.status
         : null;
@@ -256,23 +277,45 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         : null;
       if (status === 401 || code === "SESSION_REVOKED") handleAuthInvalidation();
       setSyncError(errorText(error));
+      return "failed";
     } finally {
       if (isCurrent()) setLoading(false);
     }
   }, [applyBootstrap, fetchStream, handleAuthInvalidation, refreshOutbox]);
 
+  const refreshAuthoritativeState = useCallback(async (): Promise<boolean> => {
+    const result = await reloadStream();
+    if (result === "loaded") return true;
+    if (result === "failed" && !authInvalidatedRef.current && mountedRef.current) {
+      setRefreshPending(true);
+      setRefreshError("操作已儲存，但畫面尚未更新；請重新載入");
+    }
+    return false;
+  }, [reloadStream]);
+
   const applyActionResponse = useCallback(async (
     action: StudyStreamActionInput,
     response: PublicStreamActionResponse,
-  ) => {
+  ): Promise<boolean> => {
     if (response.operationId !== action.operationId || response.actionKind !== action.actionKind) {
       throw new Error("學習操作回執身份不符");
     }
     // Outbox is learner-wide, but this screen is scope-local. Never merge a
     // receipt's card, feedback or revision into whichever item is now visible.
     // Even a same-item replay can be older than the current server state.
-    await reloadStream();
-  }, [reloadStream]);
+    return refreshAuthoritativeState();
+  }, [refreshAuthoritativeState]);
+
+  const discardTerminalAction = useCallback(async (action: StudyStreamActionInput): Promise<boolean> => {
+    try {
+      await removeStudyStreamAction(userId, action.operationId);
+    } catch {
+      return false;
+    }
+    await refreshAuthoritativeState();
+    refreshOutbox();
+    return true;
+  }, [refreshAuthoritativeState, refreshOutbox, userId]);
 
   const flushOne = useCallback(async (rows?: ReturnType<typeof loadStudyStreamOutbox>) => {
     let availableRows: ReturnType<typeof loadStudyStreamOutbox>;
@@ -301,6 +344,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       const code = error instanceof Error && "code" in error && typeof error.code === "string"
         ? error.code
         : null;
+      if (isTerminalStudyStreamConflict(error, row.action) && await discardTerminalAction(row.action)) return;
       if (status === 401 || code === "SESSION_REVOKED") {
         handleAuthInvalidation();
         return;
@@ -331,7 +375,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
             refreshOutbox();
             return;
           }
-        } catch {
+        } catch (reboundError) {
+          if (isTerminalStudyStreamConflict(reboundError, row.action) && await discardTerminalAction(row.action)) return;
           // The original authorization/expiry error remains the actionable state.
         }
       }
@@ -344,13 +389,13 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setSyncError(errorText(error));
       refreshOutbox();
     }
-  }, [applyActionResponse, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, refreshOutbox, userId]);
+  }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, refreshOutbox, userId]);
 
   const submitAction = useCallback(async (
     actionKind: StudyStreamActionInput["actionKind"],
     payload: StudyStreamActionInput["payload"],
   ) => {
-    if (!item || !session || actionPending || syncBlocked) return;
+    if (!item || !session || actionPending || syncBlocked || refreshPending) return;
     const action: StudyStreamActionInput = {
       flowVersion: "v2",
       studySessionId: session.id,
@@ -382,6 +427,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       const code = error instanceof Error && "code" in error && typeof error.code === "string"
         ? error.code
         : null;
+      if (isTerminalStudyStreamConflict(error, action) && await discardTerminalAction(action)) return;
       if (status === 401 || code === "SESSION_REVOKED") {
         handleAuthInvalidation();
         return;
@@ -398,7 +444,14 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setActionPending(false);
       refreshOutbox();
     }
-  }, [actionPending, applyActionResponse, handleAuthInvalidation, item, postActionWithRecovery, refreshOutbox, session, syncBlocked, updateCheckpoint, userId]);
+  }, [actionPending, applyActionResponse, discardTerminalAction, handleAuthInvalidation, item, postActionWithRecovery, refreshOutbox, refreshPending, session, syncBlocked, updateCheckpoint, userId]);
+
+  const retryRefresh = useCallback(async () => {
+    if (!refreshPending || actionPending) return;
+    setActionPending(true);
+    await refreshAuthoritativeState();
+    if (mountedRef.current) setActionPending(false);
+  }, [actionPending, refreshAuthoritativeState, refreshPending]);
 
   const retrySync = useCallback(async () => {
     let rows: ReturnType<typeof loadStudyStreamOutbox>;
@@ -411,6 +464,12 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     }
     const row = rows[0];
     if (!row) {
+      if (refreshPending) {
+        setActionPending(true);
+        await refreshAuthoritativeState();
+        if (mountedRef.current) setActionPending(false);
+        return;
+      }
       setSyncBlocked(false);
       setSyncError(null);
       return;
@@ -425,7 +484,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     setActionPending(true);
     await flushOne();
     setActionPending(false);
-  }, [flushOne, userId]);
+  }, [flushOne, refreshAuthoritativeState, refreshPending, userId]);
 
   useEffect(() => {
     if (loadedRef.current) return;
@@ -504,6 +563,8 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return <ErrorBanner message={syncError} onRetry={() => void reloadStream()} />;
   }
 
+  const interactionDisabled = actionPending || syncBlocked || refreshPending;
+
   return (
     <div className="flex min-h-full flex-col pb-8">
       <div className="study-stream-header mx-auto flex w-full items-center justify-between px-5 pt-5 pb-3">
@@ -523,6 +584,12 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           <button type="button" onClick={() => void retrySync()} disabled={actionPending} className="shrink-0 font-semibold underline disabled:opacity-50">{tc("重試")}</button>
         </div>
       )}
+      {refreshPending && (
+        <div data-testid="study-stream-refresh-pending" className="mx-auto mb-4 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-[var(--warning)] bg-[var(--warning-bg)] px-4 py-3 text-[13px] text-[var(--text)]" role="alert">
+          <span>{tc(refreshError ?? "操作已儲存，但畫面尚未更新；請重新載入")}</span>
+          <button type="button" onClick={() => void retryRefresh()} disabled={actionPending || loading} className="shrink-0 font-semibold underline disabled:opacity-50">{tc("重新載入")}</button>
+        </div>
+      )}
       {outboxCount > 0 && !syncBlocked ? <p className="mx-auto mb-3 w-full max-w-md px-5 text-center text-[12px] text-[var(--muted)]">{tc(`待同步 ${outboxCount} 項`)}</p> : null}
 
       {unitSummary ? (
@@ -537,7 +604,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           item.kind === "LEARNING_CARD" ? (
             <LearningCardView
               item={item}
-              disabled={actionPending || syncBlocked}
+              disabled={interactionDisabled}
               epoch={epoch}
               onReveal={() => void submitAction("REVEAL", {})}
               onSelfRating={(rating) => void submitAction("SELF_RATING", { selfRating: rating })}
@@ -545,7 +612,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           ) : (
             <ObjectiveProbeView
               item={item}
-              disabled={actionPending || syncBlocked}
+              disabled={interactionDisabled}
               selectedOptionId={selectedOptionId}
               onSelect={(optionId) => {
                 setSelectedOptionId(optionId);

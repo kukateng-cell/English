@@ -736,6 +736,44 @@ async function getCurrentItem(
   });
 }
 
+async function retireInvalidObjectivePresentation(
+  tx: StreamTransaction,
+  item: StreamItemWithRelations,
+  currentReviewRevision: number,
+): Promise<boolean> {
+  if (
+    item.itemKind !== "OBJECTIVE_PROBE" ||
+    item.usedAt !== null ||
+    !item.objectiveEvidenceTarget
+  ) {
+    return false;
+  }
+  const target = item.objectiveEvidenceTarget;
+  if (target.status === "OPEN" && target.expectedReviewRevision === currentReviewRevision) {
+    return false;
+  }
+
+  // A review revision can move forward outside this presentation (for
+  // example, another tab answers the same word). Retire every still-leased
+  // presentation before creating a target for the new revision so a later
+  // GET cannot keep returning a deterministic 409 from the old target.
+  await tx.studyStreamItem.updateMany({
+    where: {
+      objectiveEvidenceTargetId: target.id,
+      usedAt: null,
+      status: "LEASED",
+    },
+    data: { status: "SUPERSEDED" },
+  });
+  if (target.status === "OPEN") {
+    await tx.objectiveEvidenceTarget.update({
+      where: { id: target.id },
+      data: { status: "CANCELLED", activeKey: null, obligationId: null },
+    });
+  }
+  return true;
+}
+
 async function ensureSession(
   tx: StreamTransaction,
   userId: string,
@@ -798,6 +836,14 @@ async function createObjectiveTarget(
     target &&
     (target.status !== "OPEN" || target.expectedReviewRevision !== expectedRevision)
   ) {
+    await tx.studyStreamItem.updateMany({
+      where: {
+        objectiveEvidenceTargetId: target.id,
+        usedAt: null,
+        status: "LEASED",
+      },
+      data: { status: "SUPERSEDED" },
+    });
     target = await tx.objectiveEvidenceTarget.update({
       where: { id: target.id },
       data: { status: "CANCELLED", activeKey: null, obligationId: null },
@@ -995,7 +1041,17 @@ export async function getOrCreateStudyStream(
           await tx.$queryRaw(
             Prisma.sql`SELECT "id" FROM "StudySession" WHERE "id" = ${session.id} FOR UPDATE`,
           );
-          const current = await getCurrentItem(tx, session.id);
+          let current = await getCurrentItem(tx, session.id);
+          if (current?.itemKind === "OBJECTIVE_PROBE" && current.usedAt === null && current.word) {
+            const review = await tx.review.findUnique({
+              where: { userId_wordId: { userId, wordId: current.word.id } },
+              select: { revision: true },
+            });
+            const currentReviewRevision = review?.revision ?? 0;
+            if (await retireInvalidObjectivePresentation(tx, current, currentReviewRevision)) {
+              current = null;
+            }
+          }
           if (current) {
             const ensured = await ensureCredential(tx, current, options.itemCredential, now);
             const feedback = ensured.item.usedAt
@@ -1110,6 +1166,12 @@ async function loadActionItem(
   }
   if (!credentialAccepted && !options.recoverExpiredCredential) {
     throw new StudyStreamError(403, "學習項目憑證無效或已過期", { code: "ITEM_CREDENTIAL_EXPIRED" });
+  }
+  if (item.status === "SUPERSEDED") {
+    throw new StudyStreamError(409, "學習項目已由其他裝置完成", { code: "SUPERSEDED_STREAM_ITEM" });
+  }
+  if (item.itemKind === "OBJECTIVE_PROBE" && item.usedAt !== null && input.actionKind === "OBJECTIVE_ANSWER") {
+    throw new StudyStreamError(409, "該客觀題已由其他操作完成", { code: "OBJECTIVE_TARGET_CONSUMED" });
   }
   if (item.usedAt === null && item.leaseExpiresAt <= now) {
     if (!options.recoverExpiredLease) {
@@ -1394,7 +1456,9 @@ async function processObjectiveAnswer(
   if (item.itemKind !== "OBJECTIVE_PROBE" || !item.word || !item.objectiveEvidenceTarget || !item.objectiveQuestionSnapshot) {
     throw new StudyStreamError(409, "目前項目不是有效的 Objective Probe");
   }
-  if (item.usedAt !== null) throw new StudyStreamError(409, "該客觀題已經提交");
+  if (item.usedAt !== null) {
+    throw new StudyStreamError(409, "該客觀題已由其他操作完成", { code: "OBJECTIVE_TARGET_CONSUMED" });
+  }
   if (!("selectedOptionId" in input.payload) || typeof input.payload.selectedOptionId !== "string") {
     throw new StudyStreamError(400, "選項無效");
   }
@@ -1405,7 +1469,11 @@ async function processObjectiveAnswer(
     throw new StudyStreamError(400, "選項不屬於目前題目");
   }
   if (item.objectiveEvidenceTarget.status !== "OPEN") {
-    throw new StudyStreamError(409, "該客觀證據目標已經完成");
+    throw new StudyStreamError(409, "該客觀證據目標已經完成", {
+      code: item.objectiveEvidenceTarget.status === "CONSUMED"
+        ? "OBJECTIVE_TARGET_CONSUMED"
+        : "OBJECTIVE_TARGET_CLOSED",
+    });
   }
   const review = await tx.review.findUnique({
     where: { userId_wordId: { userId, wordId: item.word.id } },
@@ -1445,7 +1513,9 @@ async function processObjectiveAnswer(
       consumedAt: new Date(),
     },
   });
-  if (consumedTarget.count !== 1) throw new StudyStreamError(409, "該客觀題已經被其他裝置提交");
+  if (consumedTarget.count !== 1) {
+    throw new StudyStreamError(409, "該客觀題已經被其他裝置提交", { code: "OBJECTIVE_TARGET_CONSUMED" });
+  }
 
   // The ordinary expand-migration window still has the legacy Review bridge
   // trigger installed. Mark this transaction as the V2 writer before touching

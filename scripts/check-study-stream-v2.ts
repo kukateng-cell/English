@@ -1027,7 +1027,7 @@ async function main() {
       ...newAnswer, studySessionId: oldDue.session.id, streamItemId: oldDue.item!.streamItemId,
       itemCredential: oldDue.item!.itemCredential, clientKnownRevision: oldDue.item!.clientRevision,
       operationId: `old-due-late-${suffix}`,
-    }), error => error instanceof StudyStreamError && error.status === 409);
+    }), error => error instanceof StudyStreamError && error.status === 409 && error.details.code === "SUPERSEDED_STREAM_ITEM");
     assert.equal(await prisma.reviewEvent.count({ where: { objectiveEvidenceTargetId: oldDueRow.objectiveEvidenceTargetId } }), 1);
     assert.equal((await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: oldDueRow.id } })).status, "SUPERSEDED");
 
@@ -1052,10 +1052,36 @@ async function main() {
       ...reverseAction, studySessionId: reverseNew.session.id, streamItemId: reverseNew.item!.streamItemId,
       itemCredential: reverseNew.item!.itemCredential, clientKnownRevision: reverseNew.item!.clientRevision,
       operationId: `new-due-loser-${suffix}`,
-    }), error => error instanceof StudyStreamError && error.status === 409);
+    }), error => error instanceof StudyStreamError && error.status === 409 && error.details.code === "SUPERSEDED_STREAM_ITEM");
     const afterReverse = await getOrCreateStudyStream(user.id);
     assert.notEqual(afterReverse.item?.streamItemId, reverseNew.item.streamItemId);
     assert.equal(await prisma.reviewEvent.count({ where: { objectiveEvidenceTargetId: reverseRow.objectiveEvidenceTargetId } }), 1);
+
+    // A review revision or target cancellation can invalidate an unanswered
+    // objective presentation while its session is still alive. The next GET
+    // must retire that presentation and issue a fresh target, rather than
+    // repeatedly returning an item that can only produce a terminal 409.
+    await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
+    await prisma.evidenceObligation.updateMany({ where: { userId: user.id }, data: { status: "CANCELLED", activeKey: null } });
+    await prisma.review.update({
+      where: { userId_wordId: { userId: user.id, wordId: recoveryWordId } },
+      data: { nextReviewDate: new Date(0) },
+    });
+    const staleBefore = await getOrCreateStudyStream(user.id);
+    assert.equal(staleBefore.item?.kind, "OBJECTIVE_PROBE");
+    assert.ok(staleBefore.item);
+    const staleBeforeRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: staleBefore.item.streamItemId } });
+    const staleBeforeTargetId = staleBeforeRow.objectiveEvidenceTargetId;
+    assert.ok(staleBeforeTargetId);
+    await prisma.review.update({
+      where: { userId_wordId: { userId: user.id, wordId: recoveryWordId } },
+      data: { revision: { increment: 1 }, nextReviewDate: new Date(0) },
+    });
+    const staleAfter = await getOrCreateStudyStream(user.id);
+    assert.equal(staleAfter.item?.kind, "OBJECTIVE_PROBE");
+    assert.notEqual(staleAfter.item?.streamItemId, staleBefore.item.streamItemId);
+    assert.equal((await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: staleBeforeRow.id } })).status, "SUPERSEDED");
+    assert.equal((await prisma.objectiveEvidenceTarget.findUniqueOrThrow({ where: { id: staleBeforeTargetId } })).status, "CANCELLED");
 
     const dualFlowSessions = await prisma.studySession.groupBy({
       by: ["flowVersion"],
