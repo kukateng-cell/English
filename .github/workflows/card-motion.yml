@@ -2,56 +2,8 @@ name: Study quality gate
 
 on:
   push:
-    paths:
-      - ".github/workflows/card-motion.yml"
-      - "package.json"
-      - "package-lock.json"
-      - "playwright.config.ts"
-      - "src/app/study/page.tsx"
-      - "src/app/(student)/study/**"
-      - "src/app/(student)/words/**"
-      - "src/app/api/study/**"
-      - "src/app/api/words/**"
-      - "src/app/api/auth/**"
-      - "src/app/api/catalog/**"
-      - "src/app/login/**"
-      - "src/app/auth-unavailable/**"
-      - "src/app/admin/**"
-      - "src/app/teacher/**"
-      - "src/components/WordCard.tsx"
-      - "src/components/catalog/**"
-      - "src/components/study-stream/**"
-      - "src/app/test/word-card-motion/**"
-      - "src/lib/auth.ts"
-      - "src/lib/login-limiter.ts"
-      - "src/lib/checkpoint.ts"
-      - "src/lib/review-queue.ts"
-      - "src/lib/session.ts"
-      - "src/lib/study-*.ts"
-      - "src/lib/learning-policy/**"
-      - "src/lib/study-stream/**"
-      - "src/lib/catalog/**"
-      - "outputs/catalog-identity/**"
-      - "outputs/*-word-catalog-reference-v1/*.csv"
-      - "src/lib/production-config.ts"
-      - "src/lib/production-config.test.ts"
-      - "src/lib/student-metrics.ts"
-      - "src/lib/leaderboard.ts"
-      - "src/lib/achievements.ts"
-      - "src/lib/swipe-motion.ts"
-      - "prisma/schema.prisma"
-      - "prisma/seed.ts"
-      - "prisma/migrations/**"
-      - "prisma/contract-migrations/**"
-      - "scripts/**"
-      - "src/proxy.ts"
-      - "tests/e2e/auth.setup.ts"
-      - "tests/e2e/study-workflow.spec.ts"
-      - "tests/e2e/word-card-release.spec.ts"
-      - "tests/e2e/**"
   pull_request:
-    branches:
-      - main
+    branches: [main, staging]
 
 permissions:
   contents: read
@@ -81,7 +33,12 @@ jobs:
         run: npm run audit:production
 
   study-quality:
-    name: Unit, database, migration, and browser regression
+    name: Quality (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, lint, types, build, migrations, ledger, catalog, stream-v2, browser-motion, browser-ia, browser-qa, browser-catalog, browser-v2, browser-outbox]
+
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -125,33 +82,43 @@ jobs:
         run: npx prisma generate
 
       - name: Run unit tests
+        if: matrix.suite == 'unit'
         run: npm test
 
       - name: Run ESLint with zero warnings
+        if: matrix.suite == 'lint'
         run: npm run lint -- --max-warnings=0
 
       - name: Run TypeScript typecheck
+        if: matrix.suite == 'types'
         run: npx tsc --noEmit
 
       - name: Verify migration checksums
+        if: matrix.suite == 'migrations'
         run: npm run test:migration-checksums
 
       - name: Replay migrations on a fresh schema
+        if: matrix.suite == 'migrations'
         run: npm run test:migrations
 
       - name: Verify expand, confirmed contract, and future ordinary deploy
+        if: matrix.suite == 'migrations'
         run: npm run test:migrations:contract
 
       - name: Deploy migrations to the CI database
+        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || startsWith(matrix.suite, 'browser-')
         run: npm run db:deploy
 
       - name: Run review ledger and concurrency checks
+        if: matrix.suite == 'ledger'
         run: npm run test:db
 
       - name: Seed the card-motion test account and words
+        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || startsWith(matrix.suite, 'browser-')
         run: npm run seed
 
       - name: Verify the formal catalog baseline
+        if: matrix.suite == 'catalog'
         run: |
           CATALOG_REQUIRE_INITIAL_BASELINE=1 npm run check:catalog
           npm run check:catalog-governance
@@ -161,30 +128,60 @@ jobs:
           npm run check:catalog-teacher-workflow
 
       - name: Run V2 stream integration and bounded soak
+        if: matrix.suite == 'stream-v2'
         run: |
           npm run test:db:stream-v2
           STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak
 
+      - name: Build independently for application and browser checks
+        if: matrix.suite == 'build' || (startsWith(matrix.suite, 'browser-') && matrix.suite != 'browser-motion' && matrix.suite != 'browser-outbox')
+        run: ENABLE_TEST_ROUTES=1 npm run build
+
       - name: Install Playwright browsers
+        if: startsWith(matrix.suite, 'browser-')
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Verify cross-browser emulated card release motion
+        if: matrix.suite == 'browser-motion'
         run: npm run test:e2e:card-motion
 
+      - name: Verify cross-tab durable outbox
+        if: matrix.suite == 'browser-outbox'
+        run: npm run test:browser:outbox
+
+      - name: Verify V2 browser workflow
+        if: matrix.suite == 'browser-v2'
+        run: npm run test:e2e:study-stream-v2
+
       - name: Verify student IA regression
+        if: matrix.suite == 'browser-ia'
         run: npm run test:e2e:student-ia
 
       - name: Verify student accessibility and fidelity regression
+        if: matrix.suite == 'browser-qa'
         run: npm run test:e2e:student-qa
 
       - name: Verify catalog workspace lifecycle and privacy regression
+        if: matrix.suite == 'browser-catalog'
         run: npm run test:e2e:catalog-workspace
 
       - name: Upload Playwright failure artifacts
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: card-motion-playwright-${{ github.run_attempt }}
+          name: card-motion-playwright-${{ matrix.suite }}-${{ github.run_attempt }}
           path: test-results/
           if-no-files-found: warn
           retention-days: 7
+
+  required-quality-gate:
+    name: Required quality gate
+    if: always()
+    needs: [dependency-audit, study-quality]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every independent check to pass
+        env:
+          AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+          QUALITY_RESULT: ${{ needs.study-quality.result }}
+        run: test "$AUDIT_RESULT" = success && test "$QUALITY_RESULT" = success

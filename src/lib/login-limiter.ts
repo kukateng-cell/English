@@ -468,7 +468,7 @@ export async function resetAccount(account: string): Promise<void> {
  * 反代 / 托管平台（Vercel / Supabase 等）通常在 x-forwarded-for 里给真实 IP；
  * 次选 x-real-ip；都拿不到时回退 "unknown"（共享 NAT / 本地开发常见）。
  */
-export function getClientIp(headers: unknown): string {
+export function getClientIp(headers: Headers | Record<string, string | string[] | undefined> | undefined): string {
   if (!headers || typeof headers !== "object") return "unknown";
   if (
     "get" in headers &&

@@ -8,6 +8,7 @@ export type QuestionDirection = "en-zh" | "zh-en";
 export interface QuestionWord {
   id: string;
   term: string;
+  lemma?: string;
   definition: string;
   senseId?: string | null;
   acceptedAnswers?: string[] | null;
@@ -148,6 +149,13 @@ export function buildObjectiveQuestion(
   const answerKey = normalizeQuestionText(answerText).toLocaleLowerCase("en-US");
   const targetAnswers = directionAnswerSet(word, direction);
   const targetSynonyms = normalizedSet(word.synonyms);
+  for (const sibling of source) {
+    if (sameText(sibling.term, word.term) || sameText(sibling.lemma ?? sibling.term, word.lemma ?? word.term) ||
+      (direction === "zh-en" && sameText(sibling.definition, word.definition))) {
+      for (const answer of directionAnswerSet(sibling, direction)) targetAnswers.add(answer);
+      if (direction === "zh-en") for (const synonym of normalizedSet(sibling.synonyms)) targetSynonyms.add(synonym);
+    }
+  }
   const candidates = isCuratedWord(word)
     ? curatedCandidates(word, direction).map((text, index) => ({
         id: `${word.senseId}:${direction}:${index}`,

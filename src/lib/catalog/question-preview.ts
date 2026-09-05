@@ -10,6 +10,7 @@ export function catalogPayloadToQuestionWord(input: {
     id: input.id,
     senseId: input.senseId,
     term: input.payload.term,
+    lemma: input.payload.lemma,
     definition: input.payload.definitionZh,
     acceptedAnswers: input.payload.acceptedAnswersZh,
     acceptedForms: input.payload.acceptedFormsEn,

@@ -18,9 +18,8 @@ export const CATALOG_XLSX_CONTENT_TYPE =
 
 function safeSpreadsheetText(value: unknown): string {
   const text = value === null || value === undefined ? "" : String(value);
-  return /^[=+@]/u.test(text.trimStart()) || /^-\d/u.test(text.trimStart())
-    ? `'${text}`
-    : text;
+  // ExcelJS serializes strings as text cells; formulas require a formula object.
+  return text;
 }
 
 function worksheetCellText(

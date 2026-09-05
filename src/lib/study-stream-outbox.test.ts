@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { indexedDB } from "fake-indexeddb";
 import { createStudyStreamCredential, type StudyStreamActionInput } from "@/lib/study-stream/contracts";
 import {
   StudyStreamOutboxCorruptError,
@@ -9,6 +10,7 @@ import {
   loadStudyStreamCheckpoint,
   saveStudyStreamCheckpoint,
   updateStudyStreamAction,
+  removeStudyStreamAction,
 } from "@/lib/study-stream/outbox";
 
 class MemoryStorage {
@@ -54,12 +56,12 @@ test("V2 outbox action schema keeps credentials and payload scoped to one operat
   assert.equal(Object.prototype.hasOwnProperty.call(action.payload, "wordId"), false);
 });
 
-test("V2 outbox rejects corruption and can rebind an expiring item credential", () => {
+test("V2 outbox rejects corruption and can rebind an expiring item credential", async () => {
   const previousWindow = globalThis.window;
   const storage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { localStorage: storage },
+    value: { localStorage: storage, indexedDB },
   });
   try {
     const userId = "outbox-user";
@@ -73,9 +75,9 @@ test("V2 outbox rejects corruption and can rebind an expiring item credential", 
       clientKnownRevision: 1,
       payload: { selfRating: "selfForgot" },
     };
-    assert.deepEqual(enqueueStudyStreamAction(userId, action), { ok: true });
+    assert.deepEqual(await enqueueStudyStreamAction(userId, action), { ok: true });
     const reboundCredential = createStudyStreamCredential();
-    updateStudyStreamAction(userId, action.operationId, {
+    await updateStudyStreamAction(userId, action.operationId, {
       studySessionId: action.studySessionId,
       streamItemId: action.streamItemId,
       itemCredential: reboundCredential,
@@ -136,18 +138,27 @@ test("V2 outbox rejects corruption and can rebind an expiring item credential", 
 
     storage.clear();
     for (let index = 0; index < STUDY_STREAM_OUTBOX_MAX_ROWS; index += 1) {
-      assert.deepEqual(enqueueStudyStreamAction(userId, {
+      assert.deepEqual(await enqueueStudyStreamAction(userId, {
         ...action,
         operationId: `operation-${index.toString().padStart(2, "0")}`,
       }), { ok: true });
     }
-    assert.deepEqual(enqueueStudyStreamAction(userId, {
+    assert.deepEqual(await enqueueStudyStreamAction(userId, {
       ...action,
       operationId: "operation-over-capacity",
     }), {
       ok: false,
       error: "待同步學習操作已達安全上限；請先恢復同步後再繼續學習",
     });
+    storage.clear();
+    const second = { ...action, operationId: "operation-second" };
+    await Promise.all([enqueueStudyStreamAction(userId, action), enqueueStudyStreamAction(userId, second)]);
+    assert.equal(loadStudyStreamOutbox(userId).length, 2);
+    await Promise.all([
+      removeStudyStreamAction(userId, action.operationId),
+      enqueueStudyStreamAction(userId, { ...action, operationId: "operation-third" }),
+    ]);
+    assert.deepEqual(loadStudyStreamOutbox(userId).map(row => row.action.operationId).sort(), ["operation-second", "operation-third"]);
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,

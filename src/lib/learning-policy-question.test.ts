@@ -88,7 +88,7 @@ test("public projection never exposes the answer key", () => {
   assert.deepEqual(publicQuestion.options, snapshot.options);
 });
 
-test("sense-level construction keeps a curated distractor used by another sense", () => {
+test("sense-level construction excludes another correct sense from curated distractors", () => {
   const sense: QuestionWord = {
     id: "run-a1",
     senseId: "sense-run-a1",
@@ -96,14 +96,23 @@ test("sense-level construction keeps a curated distractor used by another sense"
     definition: "跑步",
     enableEnToZh: true,
     enableZhToEn: false,
-    curatedDistractorsZh: ["經營", "跳躍", "游泳"],
+    curatedDistractorsZh: ["經營", "跳躍", "游泳", "坐下"],
     curatedDistractorsEn: ["walk", "jump", "swim", "stand", "sit"],
   };
   const snapshot = buildObjectiveQuestion(sense, [sense, { id: "run-a2", senseId: "sense-run-a2", term: "run", definition: "經營" }], "sense-seed");
   assert.ok(snapshot);
   assert.equal(snapshot.direction, "en-zh");
   assert.ok(snapshot.options.every((option) => option.text === "跑步" || sense.curatedDistractorsZh?.includes(option.text)));
-  assert.ok(snapshot.options.some((option) => option.text === "經營"));
+  assert.ok(!snapshot.options.some((option) => option.text === "經營"));
+});
+
+test("lemma siblings and accepted translations are excluded, failing closed if fewer than three remain", () => {
+  const sense: QuestionWord = { id: "ran", senseId: "sense-ran", term: "ran", lemma: "run", definition: "跑了", enableEnToZh: true, enableZhToEn: false, curatedDistractorsZh: ["經營", "管理", "游泳", "坐下"] };
+  const sibling: QuestionWord = { id: "run", term: "run", lemma: "run", definition: "經營", acceptedAnswers: ["管理"] };
+  assert.equal(buildObjectiveQuestion(sense, [sibling], "lemma-safe"), null);
+  const question = buildObjectiveQuestion({ ...sense, curatedDistractorsZh: [...sense.curatedDistractorsZh!, "跳躍"] }, [sibling], "lemma-safe");
+  assert.ok(question);
+  assert.ok(question.options.every(option => !["經營", "管理"].includes(option.text)));
 });
 
 test("teacher preview can request an enabled direction without changing default construction", () => {

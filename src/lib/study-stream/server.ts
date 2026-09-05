@@ -52,6 +52,7 @@ import {
   waitForTransactionRetry,
 } from "@/lib/transaction-retry";
 import { withCurrentCatalogWord } from "@/lib/catalog/runtime";
+import { loadQuestionAnswerContext } from "@/lib/learning-policy/question-source";
 
 const STREAM_SESSION_TTL_MS = 30 * 60_000;
 const STREAM_ITEM_LEASE_MS = 15 * 60_000;
@@ -819,16 +820,10 @@ async function createObjectiveTarget(
     where: { targetId: target.id },
   });
   if (!snapshot) {
-    const source = await tx.word.findMany({
-      // Curated distractors come from the target row.  The source query is
-      // only needed for sibling-sense answer exclusion, so do not cap it to
-      // an arbitrary unlocked-word window that could miss run=經營.
-      where: withCurrentCatalogWord({ term: word.term }),
-      orderBy: { id: "asc" },
-    });
+    const context = await loadQuestionAnswerContext(tx, word);
     const built = buildObjectiveQuestion(
-      questionWord(word),
-      source.map(questionWord),
+      { ...questionWord(word), lemma: context.lemma },
+      context.source,
       `${session.id}:${target.id}:${expectedRevision}`,
     );
     if (!built) throw new StudyStreamError(409, "目前詞條缺少安全的客觀題選項", { code: "NO_VALID_OBJECTIVE_SNAPSHOT" });

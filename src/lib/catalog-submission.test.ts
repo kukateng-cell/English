@@ -191,7 +191,7 @@ test("governance CSV reports the physical source line after a multiline quoted f
     () => parseCatalogGovernanceCsv(new TextEncoder().encode(malformed), "multiline.csv"),
     (error: unknown) => error instanceof CatalogCsvError
       && error.code === "CATALOG_CSV_COLUMN_COUNT_INVALID"
-      && error.message.includes("row 4"),
+      && error.message.includes("row 5"),
   );
 });
 

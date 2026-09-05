@@ -299,7 +299,7 @@ export default function AdminRosterPage() {
     const response = await rosterFetch(`/api/admin/roster/import/${importPreview.batchId}/commit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId: (importPreview as ImportPreview & { operationId?: string }).operationId }) });
     if (!response.ok) throw new Error(await responseMessage(response));
     const payload = await response.json() as { credentials?: Array<{ accountName: string; legalName: string; temporaryPassword: string }>; summary?: { rowCount?: number } };
-    setCredentials(payload.credentials ?? []); setLastImportBatchId(importPreview.batchId); setImportPreview(null); setMessage(`已匯入 ${payload.summary?.rowCount ?? 0} 行；臨時密碼只會顯示今次。`); await loadData();
+    setCredentials(payload.credentials ?? []); setLastImportBatchId(importPreview.batchId); setImportPreview(null); setMessage(`已匯入 ${payload.summary?.rowCount ?? 0} 行；臨時密碼只會在本次顯示。`); await loadData();
   }
   async function previewRotation() {
     if (!lastImportBatchId) throw new Error("沒有可重新產生密碼的最近匯入批次");

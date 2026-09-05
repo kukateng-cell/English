@@ -15,6 +15,8 @@ import {
 import { catalogPayloadToQuestionWord } from "@/lib/catalog/question-preview";
 import { buildObjectiveQuestion, type QuestionDirection } from "@/lib/learning-policy/question";
 import { CATALOG_STRUCTURED_ISSUE_VERSION } from "@/lib/catalog/validation-issue-contract";
+import { prisma } from "@/lib/prisma";
+import { loadQuestionAnswerContext } from "@/lib/learning-policy/question-source";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -49,7 +51,8 @@ export async function POST(req: Request) {
 
     const targetId = senseKey || `preview-${payloadFingerprint(payload).slice(0, 24)}`;
     const target = catalogPayloadToQuestionWord({ id: targetId, senseId: targetId, payload });
-    const question = buildObjectiveQuestion(target, [target], seed, {
+    const context = await loadQuestionAnswerContext(prisma, { ...target, senseId: null });
+    const question = buildObjectiveQuestion(target, [target, ...context.source], seed, {
       direction: direction as QuestionDirection,
     });
     if (!question) {

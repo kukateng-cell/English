@@ -287,7 +287,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     }
     try {
       const response = await postActionWithRecovery(row.action);
-      removeStudyStreamAction(userId, row.action.operationId);
+      await removeStudyStreamAction(userId, row.action.operationId);
       setSyncError(null);
       await applyActionResponse(row.action, response);
       refreshOutbox();
@@ -315,14 +315,14 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
               itemCredential: refreshed.item.itemCredential,
               clientKnownRevision: refreshed.item.clientRevision,
             };
-            updateStudyStreamAction(userId, row.action.operationId, {
+            await updateStudyStreamAction(userId, row.action.operationId, {
               studySessionId: rebound.studySessionId,
               streamItemId: rebound.streamItemId,
               itemCredential: rebound.itemCredential,
               clientKnownRevision: rebound.clientKnownRevision,
             });
             const response = await postAction(rebound);
-            removeStudyStreamAction(userId, rebound.operationId);
+            await removeStudyStreamAction(userId, rebound.operationId);
             await applyActionResponse(rebound, response);
             setSyncError(null);
             refreshOutbox();
@@ -333,7 +333,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         }
       }
       try {
-        markStudyStreamActionBlocked(userId, row.action.operationId, errorText(error));
+        await markStudyStreamActionBlocked(userId, row.action.operationId, errorText(error));
       } catch {
         // The visible sync error below is still actionable when storage is unavailable.
       }
@@ -358,17 +358,18 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       clientKnownRevision: item.clientRevision,
       payload,
     };
-    const queued = enqueueStudyStreamAction(userId, action);
+    setActionPending(true);
+    const queued = await enqueueStudyStreamAction(userId, action);
     if (!queued.ok) {
+      setActionPending(false);
       setSyncBlocked(true);
       setSyncError(queued.error);
       return;
     }
     setOutboxCount((count) => count + 1);
-    setActionPending(true);
     try {
       const response = await postActionWithRecovery(action);
-      removeStudyStreamAction(userId, action.operationId);
+      await removeStudyStreamAction(userId, action.operationId);
       await applyActionResponse(action, response);
       setSyncError(null);
     } catch (error) {
@@ -383,7 +384,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         return;
       }
       try {
-        markStudyStreamActionBlocked(userId, action.operationId, errorText(error));
+        await markStudyStreamActionBlocked(userId, action.operationId, errorText(error));
       } catch {
         // Keep the operation blocked in the visible state even if local storage is unavailable.
       }
@@ -412,7 +413,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       return;
     }
     try {
-      resetStudyStreamAction(userId, row.action.operationId);
+      await resetStudyStreamAction(userId, row.action.operationId);
     } catch (error) {
       setSyncBlocked(true);
       setSyncError(errorText(error));

@@ -970,7 +970,7 @@ async function main() {
         quality: 5,
         operationId: selfRatingInput.operationId,
       }),
-      (error: unknown) => error instanceof Error && error.message.includes("不同的学习流程"),
+      (error: unknown) => error instanceof Error && error.message.includes("不同的學習流程"),
     );
     const dualFlowSessions = await prisma.studySession.groupBy({
       by: ["flowVersion"],

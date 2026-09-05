@@ -339,15 +339,15 @@ type StrictCsvRecord = {
   sourceLine: number;
 };
 
-function strictCsvRecords(text: string, sourceFile: string): StrictCsvRecord[] {
+function strictCsvRecords(text: string, sourceFile: string, firstLine = 1): StrictCsvRecord[] {
   const records: StrictCsvRecord[] = [];
   let record: string[] = [];
   let field = "";
   let quoted = false;
   let closedQuote = false;
-  let physicalLine = 1;
-  let recordSourceLine = 1;
-  let quoteSourceLine = 1;
+  let physicalLine = firstLine;
+  let recordSourceLine = firstLine;
+  let quoteSourceLine = firstLine;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -482,12 +482,35 @@ function dangerousFormula(value: string): boolean {
   return /^-\d/u.test(trimmed);
 }
 
+const CATALOG_CSV_ESCAPE_MARKER = "#emm-catalog-csv-escaped-v1\r\n";
+
 /** Strict, fixed-template parser for teacher governance uploads. */
 export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string): CatalogSourceRow[] {
+  const text = governanceText(bytes, sourceFile);
+  const marker = text.match(/^#emm-catalog-csv-escaped-v1\r?\n/);
+  const escaped = Boolean(marker);
+  const records = strictCsvRecords(marker ? text.slice(marker[0].length) : text, sourceFile, marker ? 2 : 1);
+  if (escaped) {
+    for (const row of records.slice(1)) {
+      row.values = row.values.map((value) => {
+        if (!value.startsWith("'emm-v1:")) {
+          if (dangerousFormula(value)) throw new CatalogCsvError("CATALOG_CSV_FORMULA_INVALID", "Unescaped formula marker");
+          return value;
+        }
+        try {
+          const decoded = decodeURIComponent(value.slice(8));
+          if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(decoded)) throw new Error("control character");
+          return decoded;
+        }
+        catch { throw new CatalogCsvError("CATALOG_CSV_ESCAPE_INVALID", "Invalid escaped CSV text"); }
+      });
+    }
+  }
   return parseCatalogGovernanceRecords(
-    strictCsvRecords(governanceText(bytes, sourceFile), sourceFile),
+    records,
     sourceFile,
     "CSV",
+    escaped,
   );
 }
 
@@ -495,6 +518,7 @@ export function parseCatalogGovernanceRecords(
   records: readonly { values: readonly string[]; sourceLine: number }[],
   sourceFile: string,
   formatLabel: "CSV" | "XLSX",
+  literalText = false,
 ): CatalogSourceRow[] {
   const header = records[0]?.values.map((value) => clean(value));
   if (!header?.length) throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", `${sourceFile}: ${formatLabel} header is required`);
@@ -517,7 +541,7 @@ export function parseCatalogGovernanceRecords(
       Object.fromEntries(header.map((key, keyIndex) => [key, values[keyIndex] ?? ""])),
     ) as unknown as CatalogSourceRow;
     for (const key of CATALOG_HEADERS) {
-      if (dangerousFormula(record[key])) {
+      if (formatLabel === "CSV" && !literalText && dangerousFormula(record[key])) {
         throw new CatalogCsvError("CATALOG_CSV_FORMULA_INVALID", `${sourceFile}: row ${sourceLine} field ${key} begins with a spreadsheet formula marker`);
       }
     }
@@ -729,11 +753,18 @@ export function catalogRowsToCsv(
   rows: readonly Partial<Record<CatalogHeader, unknown>>[],
   headers: readonly CatalogHeader[] = CATALOG_HEADERS,
 ): string {
+  const escaped = headers.length === CATALOG_GOVERNANCE_HEADERS.length &&
+    headers.every((header, index) => header === CATALOG_GOVERNANCE_HEADERS[index]);
+  const encode = (value: unknown) => {
+    const text = value == null ? "" : String(value);
+    return neutralizeCsvCell(escaped && (dangerousFormula(text) || text.startsWith("'"))
+      ? `'emm-v1:${encodeURIComponent(text)}` : text);
+  };
   const lines = [headers.map(neutralizeCsvCell).join(",")];
   for (const row of rows) {
-    lines.push(headers.map((header) => neutralizeCsvCell(row[header])).join(","));
+    lines.push(headers.map((header) => encode(row[header])).join(","));
   }
-  return `\uFEFF${lines.join("\r\n")}\r\n`;
+  return `\uFEFF${escaped ? CATALOG_CSV_ESCAPE_MARKER : ""}${lines.join("\r\n")}\r\n`;
 }
 
 export function safeCatalogDownloadName(value: string, fallback = "word-catalog.csv"): string {

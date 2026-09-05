@@ -10,6 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
+| [staging-audit-remediation.md](./staging-audit-remediation.md) | 審核修正 | 已完成（分支保護待管理員） | seed、V2 outbox、題目安全、catalog輸入輸出、依賴及CI修正；374 unit、V2 DB／browser、三引擎雙分頁測試通過 |
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
 | [retrieval-first-learning-program.md](./retrieval-first-learning-program.md) | 主計劃／Program Plan | 進行中（本地基線完成） | Retrieval-first V2 local product 已完成並凍結；只餘未獲授權 external rollout／research gates |
 | [retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md) | RFC／產品及學習規範 | 已批准並生效 | 卡片語義、3 秒 long-press reveal、客觀證據、bounded verification debt、metrics 及 policy version |

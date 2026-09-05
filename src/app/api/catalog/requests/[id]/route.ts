@@ -65,7 +65,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const access = await catalogAccess(auth);
   if (!access.canReview) return response("CATALOG_REVIEW_FORBIDDEN", 403);
-  const limit = await consumeCatalogGovernanceLimit(auth.userId, getClientIp(req));
+  const limit = await consumeCatalogGovernanceLimit(auth.userId, getClientIp(req.headers));
   if (!limit.ok) {
     const limited = response(limit.backendUnavailable ? "RATE_LIMIT_BACKEND_UNAVAILABLE" : "CATALOG_RATE_LIMITED", limit.backendUnavailable ? 503 : 429);
     limited.headers.set("Retry-After", String(limit.retryAfterSec));

@@ -5,6 +5,7 @@
  * canonical vocabulary source: outputs/*-word-catalog-reference-v1/*.csv
  */
 import dotenv from "dotenv";
+import { assertSeedAccountRole } from "../src/lib/seed-account-guard";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../src/generated/prisma";
@@ -293,7 +294,7 @@ async function seedTestStudent(
 // ── 管理員 / 教師種子帳號 ──
 // 透過 CLI seed 建立，取代舊的公開 HTTP 端點 /api/seed-roles（避免無鑑權提權）。
 // 初始密碼必須來自環境變數 INITIAL_ADMIN_PASSWORD，嚴禁硬編碼（安全審計要求）。
-// 帳號已存在時僅校正角色，絕不覆蓋密碼；角色變更會撤銷舊 JWT。
+// 既有帳號只核對角色，絕不認領、升權或覆蓋既有身份與密碼。
 async function seedRoles(password: string) {
   const policyError = passwordPolicyError(password);
   if (policyError) throw new Error(`INITIAL_ADMIN_PASSWORD：${policyError}`);
@@ -321,29 +322,8 @@ async function seedRoles(password: string) {
         },
       });
     }
-    if (role === ROLES.TEACHER) {
-      await prisma.teacherProfile.upsert({
-        where: { userId: existing.id },
-        create: { userId: existing.id, legalName, accessRevision: 0, canResetStudentPassword: false },
-        update: {},
-      });
-    }
-    if (existing.role === role) {
-      return prisma.user.update({
-        where: { id: existing.id },
-        data: { accountNameCanonical: accountName },
-      });
-    }
-    if (existing.role === ROLES.ADMIN && role !== ROLES.ADMIN) {
-      console.warn(
-        `保留現有管理員帳號 ${accountName}，不會因 seed 的教師角色設定將其降級。`,
-      );
-      return existing;
-    }
-    return prisma.user.update({
-      where: { id: existing.id },
-      data: { role, tokenVersion: { increment: 1 }, accountNameCanonical: accountName },
-    });
+    assertSeedAccountRole(existing, role, accountName);
+    return existing;
   };
 
   const admin = await ensureRole("admin", "管理員", ROLES.ADMIN);
@@ -356,15 +336,19 @@ async function seedRoles(password: string) {
 
 async function seedTeacherCapabilityFixtures(password: string, databaseEnvironment: DatabaseEnvironment) {
   if (databaseEnvironment === "production") return;
+  // A matching name is not proof that seed owns an existing account.
+  const existing = await prisma.user.findUnique({ where: { accountName: "teacher-reset" } });
+  if (existing) {
+    assertSeedAccountRole(existing, ROLES.TEACHER, "teacher-reset");
+    return;
+  }
   const currentYear = await ensureSeedCurrentYear();
   const classA = await prisma.schoolClass.upsert({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "A" } }, create: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "A" }, update: { active: true } });
   const classB = await prisma.schoolClass.upsert({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "B" } }, create: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "B" }, update: { active: true } });
   const hash = await bcrypt.hash(password, 12);
   const accountName = "teacher-reset";
-  const teacher = await prisma.user.upsert({
-    where: { accountName },
-    create: { accountName, accountNameCanonical: accountName, passwordHash: hash, credentialRevision: 1, legacyName: "重設密碼測試老師", role: ROLES.TEACHER, mustChangePassword: false, teacherProfile: { create: { legalName: "重設密碼測試老師", canResetStudentPassword: true } } },
-    update: { accountNameCanonical: accountName, role: ROLES.TEACHER, status: "ACTIVE", teacherProfile: { upsert: { create: { legalName: "重設密碼測試老師", canResetStudentPassword: true }, update: { canResetStudentPassword: true } } } },
+  const teacher = await prisma.user.create({
+    data: { accountName, accountNameCanonical: accountName, passwordHash: hash, credentialRevision: 1, legacyName: "重設密碼測試老師", role: ROLES.TEACHER, mustChangePassword: false, teacherProfile: { create: { legalName: "重設密碼測試老師", canResetStudentPassword: true } } },
     select: { id: true },
   });
   await prisma.teacherClassAccess.upsert({ where: { teacherId_classId: { teacherId: teacher.id, classId: classA.id } }, create: { teacherId: teacher.id, classId: classA.id, canViewProgress: true, canResetStudentPassword: true }, update: { canViewProgress: true, canResetStudentPassword: true } });
@@ -379,6 +363,12 @@ async function main() {
   const initialPasswordError = passwordPolicyError(initialPassword ?? "");
   if (!initialPassword || initialPasswordError) {
     throw new Error(`INITIAL_ADMIN_PASSWORD：${initialPasswordError}`);
+  }
+
+  // Refuse all reserved-name collisions before catalog or account writes.
+  for (const [accountName, role] of [["admin", ROLES.ADMIN], ["teacher", ROLES.TEACHER], ...(databaseEnvironment !== "production" ? [["teacher-reset", ROLES.TEACHER]] : [])]) {
+    const existing = await prisma.user.findUnique({ where: { accountName } });
+    assertSeedAccountRole(existing, role, accountName);
   }
 
   const catalog = await prisma.$transaction(
@@ -398,7 +388,7 @@ async function main() {
       `revision=${catalog.catalogRevisionKey}`,
   );
 
-  // 管理員 / 教師帳號（每次 seed 都會 upsert，冪等）。
+  // 管理員 / 教師帳號：只建立缺少的帳號，不修改既有帳號。
   await seedRoles(initialPassword);
   await seedTeacherCapabilityFixtures(initialPassword, databaseEnvironment);
 

@@ -22,14 +22,14 @@ setup("authenticate a real study session", async ({ page }, testInfo) => {
     : "test-results/.auth/student-chromium.json";
 
   await page.goto("/login");
-  await page.getByRole("textbox", { name: /賬號|账号/ }).fill(username);
+  await page.getByRole("textbox", { name: /帳號|賬號|账号/ }).fill(username);
   await page.getByRole("textbox", { name: /密碼|密码/ }).fill(password);
   const callbackResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       response.url().includes("/api/auth/callback/credentials"),
   );
-  await page.getByRole("button", { name: /登錄|登录/ }).click();
+  await page.getByRole("button", { name: /登入|登錄|登录/ }).click();
   expect((await callbackResponse).ok()).toBe(true);
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
 

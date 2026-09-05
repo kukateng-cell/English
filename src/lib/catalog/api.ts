@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { readLimitedBody } from "./body";
+export { readLimitedBody } from "./body";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { catalogAccess, type CatalogActor } from "./access";
@@ -34,7 +36,7 @@ export async function requireCatalogActor(req: Request, options: { review?: bool
   const access = await catalogAccess(auth);
   if (options.review && !access.canReview) return { ok: false, response: catalogResponse("CATALOG_REVIEW_FORBIDDEN", 403) };
   if (options.rateLimit) {
-    const limit = await consumeCatalogGovernanceLimit(auth.userId, getClientIp(req));
+    const limit = await consumeCatalogGovernanceLimit(auth.userId, getClientIp(req.headers));
     if (!limit.ok) {
       const response = catalogResponse(limit.backendUnavailable ? "RATE_LIMIT_BACKEND_UNAVAILABLE" : "CATALOG_RATE_LIMITED", limit.backendUnavailable ? 503 : 429);
       response.headers.set("Retry-After", String(limit.retryAfterSec));
@@ -45,38 +47,12 @@ export async function requireCatalogActor(req: Request, options: { review?: bool
 }
 
 export async function parseJsonObject(req: Request, maxBytes: number): Promise<Record<string, unknown>> {
-  const raw = await req.text();
-  if (Buffer.byteLength(raw, "utf8") > maxBytes) throw new Error("CATALOG_INPUT_TOO_LARGE");
+  const raw = new TextDecoder().decode(await readLimitedBody(req, maxBytes, "CATALOG_INPUT_TOO_LARGE"));
   const value: unknown = JSON.parse(raw);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("CATALOG_INPUT_INVALID");
   return value as Record<string, unknown>;
 }
 
-export async function readLimitedBody(req: Request, maxBytes: number): Promise<Uint8Array> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > maxBytes) throw new Error("CATALOG_CSV_TOO_LARGE");
-  if (!req.body) return new Uint8Array();
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel("body limit exceeded");
-      throw new Error("CATALOG_CSV_TOO_LARGE");
-    }
-    chunks.push(value);
-  }
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
-}
 
 export function catalogRouteError(error: unknown): NextResponse {
   const code = error instanceof CatalogCsvError ? error.code : error instanceof Error ? error.message : "CATALOG_REQUEST_FAILED";

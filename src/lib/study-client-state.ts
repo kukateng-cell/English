@@ -14,7 +14,7 @@ import {
 export function clearStudyClientState(userId: string): void {
   clearCheckpointsForUser(userId);
   clearReviewQueueForUser(userId);
-  clearStudyStreamOutbox(userId);
+  void clearStudyStreamOutbox(userId);
   clearStudyStreamCheckpoints(userId);
 }
 
@@ -44,7 +44,11 @@ export function clearAllStudyClientState(): void {
         keys.push(key);
       }
     }
-    for (const key of keys) window.localStorage.removeItem(key);
+    for (const key of keys) {
+      if (key.startsWith("english:study-stream-v2:outbox:")) {
+        void clearStudyStreamOutbox(key.slice("english:study-stream-v2:outbox:".length));
+      } else window.localStorage.removeItem(key);
+    }
   } catch {
     // Storage failure must not prevent the fail-closed redirect.
   }

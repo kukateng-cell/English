@@ -184,7 +184,7 @@ export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return errorResponse("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return errorResponse(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 401 ? "AUTH_REQUIRED" : "ROLE_FORBIDDEN", auth.status);
-  const limit = await consumeCatalogGovernanceLimit(auth.userId, getClientIp(req));
+  const limit = await consumeCatalogGovernanceLimit(auth.userId, getClientIp(req.headers));
   if (!limit.ok) {
     const response = errorResponse(limit.backendUnavailable ? "RATE_LIMIT_BACKEND_UNAVAILABLE" : "CATALOG_RATE_LIMITED", limit.backendUnavailable ? 503 : 429);
     response.headers.set("Retry-After", String(limit.retryAfterSec));

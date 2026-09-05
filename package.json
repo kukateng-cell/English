@@ -20,6 +20,7 @@
     "test:e2e:admin-roster": "node scripts/run-admin-roster-e2e.mjs",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:db:stream-v2": "node --import tsx scripts/check-study-stream-v2.ts",
+    "test:browser:outbox": "node scripts/check-study-outbox-browser.mjs",
     "test:roster": "node --import tsx scripts/check-roster-access.ts",
     "test:roster:invariants": "node --import tsx scripts/check-roster-invariants.ts",
     "test:roster:lifecycle": "node --import tsx scripts/check-roster-lifecycle.ts",
@@ -78,6 +79,8 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "esbuild": "0.28.1",
+    "fake-indexeddb": "6.2.5",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
@@ -93,6 +96,8 @@
     "vercel": "41.7.2"
   },
   "overrides": {
+    "fast-uri": "3.1.6",
+    "mysql2": "3.24.3",
     "@prisma/config": {
       "deepmerge-ts": "8.0.0"
     },

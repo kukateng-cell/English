@@ -33,6 +33,19 @@ function governanceRow(
   };
 }
 
+test("editable exports preserve formula-like text and real apostrophes exactly", async () => {
+  for (const value of ["=SUM(A1)", "+hello", "-123", "@name", "'original", "'emm-v1:literal"]) {
+    const row = governanceRow({ definition_zh: value });
+    for (const format of ["CSV", "XLSX"] as const) {
+      const bytes = format === "CSV"
+        ? new TextEncoder().encode(catalogRowsToCsv([row], CATALOG_GOVERNANCE_HEADERS))
+        : await catalogRowsToXlsx([row], CATALOG_GOVERNANCE_HEADERS);
+      const parsed = await parseCatalogGovernanceFile(bytes, `roundtrip.${format.toLowerCase()}`, format);
+      assert.equal(parsed[0].definition_zh, value, `${format}: ${value}`);
+    }
+  }
+});
+
 test("catalog XLSX export keeps the 34-field contract and round-trips through upload parsing", async () => {
   const bytes = await catalogRowsToXlsx([governanceRow()], CATALOG_GOVERNANCE_HEADERS);
   const rows = await parseCatalogGovernanceFile(bytes, "catalog-export.xlsx", "XLSX");

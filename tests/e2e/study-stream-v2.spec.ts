@@ -167,19 +167,15 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
         await expect(back.locator(".word-card-term")).toHaveText(term);
         await expect(back.getByTestId("word-card-phonetic")).toHaveCount(1);
         await expect(back.locator(".word-card-answer-content")).toContainText("中文意思");
-        const answerAlignment = await back.evaluate((element) => {
-          const content = element.querySelector<HTMLElement>(".word-card-answer-content");
-          const definition = element.querySelector<HTMLElement>(".word-card-answer-definition");
-          if (!content || !definition) return null;
-          const contentRect = content.getBoundingClientRect();
-          const definitionRect = definition.getBoundingClientRect();
-          return {
-            contentCenter: contentRect.left + contentRect.width / 2,
-            definitionCenter: definitionRect.left + definitionRect.width / 2,
-          };
-        });
-        expect(answerAlignment).not.toBeNull();
-        expect(Math.abs((answerAlignment?.contentCenter ?? 0) - (answerAlignment?.definitionCenter ?? 0))).toBeLessThanOrEqual(1);
+        // Measure after the 3D flip settles; a mid-animation bounding box is
+        // perspective-projected and does not represent final alignment.
+        await expect.poll(async () => back.evaluate((element) => {
+          const content = element.querySelector<HTMLElement>(".word-card-answer-content")!;
+          const definition = element.querySelector<HTMLElement>(".word-card-answer-definition")!;
+          const a = content.getBoundingClientRect();
+          const b = definition.getBoundingClientRect();
+          return Math.abs(a.left + a.width / 2 - b.left - b.width / 2);
+        })).toBeLessThanOrEqual(1);
         await expect(back.locator(".keyboard-hint")).toHaveCount(0);
         await expect(back.getByRole("button", { name: "發音" })).toBeVisible();
         await page.mouse.up();
@@ -352,7 +348,7 @@ test("expired V2 item credential retry uses one bounded recovery request and cle
         await route.fulfill({
           status: 403,
           contentType: "application/json",
-          body: JSON.stringify({ error: "学习项目凭证无效或已过期", code: "ITEM_CREDENTIAL_INVALID" }),
+          body: JSON.stringify({ error: "學習項目憑證無效或已過期", code: "ITEM_CREDENTIAL_INVALID" }),
         });
         return;
       }
@@ -406,7 +402,7 @@ test("expired V2 item credential retry uses one bounded recovery request and cle
     await route.fulfill({
       status: 403,
       contentType: "application/json",
-      body: JSON.stringify({ error: "学习项目凭证无效或已过期", code: "ITEM_CREDENTIAL_EXPIRED" }),
+      body: JSON.stringify({ error: "學習項目憑證無效或已過期", code: "ITEM_CREDENTIAL_EXPIRED" }),
     });
   });
 
@@ -463,10 +459,10 @@ test("V2 assignment loading copy follows the selected Chinese locale", async ({ 
       { name: "locale", value: locale, url: "http://127.0.0.1:3100/" },
     ]);
     await page.goto("/study");
-    await expect(page.getByText(locale === "zh-Hant" ? "加載學習流程..." : "加载学习流程...", { exact: true })).toBeVisible();
+    await expect(page.getByText(locale === "zh-Hant" ? "載入學習流程..." : "加载学习流程...", { exact: true })).toBeVisible();
     releaseAssignment();
     assignmentGate = null;
-    await expect(page.getByText(locale === "zh-Hant" ? "加載學習流程..." : "加载学习流程...", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(locale === "zh-Hant" ? "載入學習流程..." : "加载学习流程...", { exact: true })).toHaveCount(0);
     await expect(page.locator('[data-testid="word-card-drag-layer"], [role="radiogroup"]')).toBeVisible();
   }
 });

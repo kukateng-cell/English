@@ -2,6 +2,7 @@ import {
   parseStudyStreamAction,
   type StudyStreamActionInput,
 } from "@/lib/study-stream/contracts";
+import { withStudyOutboxLock } from "./outbox-lock";
 
 const STORAGE_PREFIX = "english:study-stream-v2:outbox:";
 export const STUDY_STREAM_OUTBOX_MAX_ROWS = 20;
@@ -79,56 +80,64 @@ export function loadStudyStreamOutbox(userId: string): StudyStreamQueuedAction[]
   return read(userId);
 }
 
-export function enqueueStudyStreamAction(
+export async function enqueueStudyStreamAction(
   userId: string,
   action: StudyStreamActionInput,
-): { ok: true } | { ok: false; error: string } {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const rows = read(userId);
-    if (!rows.some((row) => row.action.operationId === action.operationId)) {
-      if (rows.length >= STUDY_STREAM_OUTBOX_MAX_ROWS) {
-        return { ok: false, error: "待同步學習操作已達安全上限；請先恢復同步後再繼續學習" };
+    return await withStudyOutboxLock(() => {
+      const rows = read(userId);
+      if (!rows.some((row) => row.action.operationId === action.operationId)) {
+        if (rows.length >= STUDY_STREAM_OUTBOX_MAX_ROWS) {
+          return { ok: false as const, error: "待同步學習操作已達安全上限；請先恢復同步後再繼續學習" };
+        }
+        rows.push({ action, status: "pending", attempts: 0, lastError: null, updatedAt: Date.now() });
+        write(userId, rows);
       }
-      rows.push({ action, status: "pending", attempts: 0, lastError: null, updatedAt: Date.now() });
-      write(userId, rows);
-    }
-    return { ok: true };
+      return { ok: true as const };
+    });
   } catch {
     return { ok: false, error: "瀏覽器無法儲存待同步學習操作，請允許網站儲存後重試" };
   }
 }
 
-export function removeStudyStreamAction(userId: string, operationId: string): void {
-  write(userId, read(userId).filter((row) => row.action.operationId !== operationId));
+export async function removeStudyStreamAction(userId: string, operationId: string): Promise<void> {
+  await withStudyOutboxLock(() => write(userId, read(userId).filter((row) => row.action.operationId !== operationId)));
 }
 
-export function updateStudyStreamAction(
+export async function updateStudyStreamAction(
   userId: string,
   operationId: string,
   patch: Pick<StudyStreamActionInput, "studySessionId" | "streamItemId" | "itemCredential" | "clientKnownRevision">,
-): void {
-  const rows = read(userId).map((row) => row.action.operationId === operationId
-    ? { ...row, action: { ...row.action, ...patch }, updatedAt: Date.now() }
-    : row);
-  write(userId, rows);
+): Promise<void> {
+  await withStudyOutboxLock(() => {
+    const rows = read(userId).map((row) => row.action.operationId === operationId
+      ? { ...row, action: { ...row.action, ...patch }, updatedAt: Date.now() }
+      : row);
+    write(userId, rows);
+  });
 }
 
-export function markStudyStreamActionBlocked(
+export async function markStudyStreamActionBlocked(
   userId: string,
   operationId: string,
   error: string,
-): void {
-  const rows = read(userId).map((row) => row.action.operationId === operationId
-    ? { ...row, status: "blocked" as const, attempts: row.attempts + 1, lastError: error, updatedAt: Date.now() }
-    : row);
-  write(userId, rows);
+): Promise<void> {
+  await withStudyOutboxLock(() => {
+    const rows = read(userId).map((row) => row.action.operationId === operationId
+      ? { ...row, status: "blocked" as const, attempts: row.attempts + 1, lastError: error, updatedAt: Date.now() }
+      : row);
+    write(userId, rows);
+  });
 }
 
-export function resetStudyStreamAction(userId: string, operationId: string): void {
-  const rows = read(userId).map((row) => row.action.operationId === operationId
-    ? { ...row, status: "pending" as const, lastError: null, updatedAt: Date.now() }
-    : row);
-  write(userId, rows);
+export async function resetStudyStreamAction(userId: string, operationId: string): Promise<void> {
+  await withStudyOutboxLock(() => {
+    const rows = read(userId).map((row) => row.action.operationId === operationId
+      ? { ...row, status: "pending" as const, lastError: null, updatedAt: Date.now() }
+      : row);
+    write(userId, rows);
+  });
 }
 
 export function studyStreamOutboxCount(userId: string): number {
@@ -136,10 +145,13 @@ export function studyStreamOutboxCount(userId: string): number {
 }
 
 /** Remove all V2 queued actions for one account after session invalidation. */
-export function clearStudyStreamOutbox(userId: string): void {
+export async function clearStudyStreamOutbox(userId: string): Promise<void> {
   if (typeof window === "undefined") return;
   try {
+    // Remove immediately for auth redirects, then serialize a second removal
+    // behind mutations already waiting for the cross-tab transaction.
     window.localStorage.removeItem(storageKey(userId));
+    await withStudyOutboxLock(() => window.localStorage.removeItem(storageKey(userId)));
   } catch {
     // Security callers still fail closed even when storage cannot be changed.
   }
