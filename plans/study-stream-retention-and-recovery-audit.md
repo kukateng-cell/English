@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：進行中（第四輪本地驗證完成；待 staging hosted CI）
+狀態：已完成（第四輪本地及 hosted CI）
 
 ## 背景與目標
 
@@ -27,7 +27,7 @@
 - [x] 真正 scheduler DB 測試：未答 due 過期後新 session 續用 target／snapshot；新舊答案兩種勝出次序均最多一次計分。
 - [x] 跨單元 REVEAL／OBJECTIVE 回執及舊 revision／generation 瀏覽器測試。
 - [x] unit、lint、typecheck、build、V2 DB／browser、card-motion 回歸。
-- [ ] commit／push staging，核對候選 SHA CI；記錄限制及實際結果。
+- [x] commit／push staging，核對候選 SHA CI；記錄限制及實際結果。
 - [x] POST 成功後 GET 失敗的 stale-state／只讀重載流程及瀏覽器回歸測試。
 - [x] terminal 409 的明確 server code、單一 outbox row 安全清理、保留其他 row 及瀏覽器回歸測試。
 - [x] V1 future-backoff rotation 的 WebKit 時序回歸測試。
@@ -43,5 +43,6 @@
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all npm run build`：通過。
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all npm run test:e2e:study-stream-v2`：12 passed（含 auth setup），覆蓋跨單元兩種回執、舊 revision／generation、POST 成功後 GET 失敗只讀重載、terminal 409 單一 outbox row 清理及既有 V2 suite。
 - 明確 `STUDY_V2_ASSIGNMENT_MODE=off` 重跑完整 `test:e2e:card-motion` 通過：primary 73 passed／4 existing skipped、WebKit 17 + 16 passed。未改動環境檔；future-backoff rotation 改為等待 localStorage 持久化後同時核對 sessionId 及 retryAt。
-- 兩位獨立 reviewer 已對最新工作樹覆核並 PASS；目前準備提交／推送，hosted CI 候選 SHA 尚待核對。
+- 兩位獨立 reviewer 已對最新工作樹覆核並 PASS。
+- 提交 `d9ed3db8eea972c80ac2943182efcc2e60d8016c` 已推送 staging；[run 33955990556](https://github.com/kukateng-cell/English/actions/runs/33955990556) 的 17 個 jobs 全部成功，包含 Required quality gate 及 production dependency audit。
 - 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。
