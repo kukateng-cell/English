@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：已完成（第六輪本地及 hosted CI）
+狀態：已完成（第七輪跨 session feedback 續接修正；本地驗證完成）
 
 ## 背景與目標
 
@@ -32,6 +32,12 @@
 - 補救任務進入 `EXPIRED`、`CANCELLED` 或 `ANSWERED` 後，所有未使用的 Learning Card presentation 必須退出續接流程；重新載入不可再次返回只能產生終結 409 的舊卡，同時保留歷史紀錄。
 - Objective Probe 提交時，ReviewEvent 的題目版本欄位必須與 immutable question snapshot 一致；詞庫批准更新後完成舊題，事件仍記錄當時的 content／catalog revision、term 及 level。
 
+第七輪審核新增範圍（`12adc3e` 後覆核）：
+
+- Objective Probe 已評分但尚未確認 feedback 時，即使原本的短期 session 已到期，重新進入仍必須恢復同一題的只讀 feedback；不得把已消耗題目重新變成可評分題，亦不得因遺漏 feedback 而直接排新題。
+- 恢復必須驗證使用者、單元範圍及 session 撤銷狀態，並保留雙分頁確認的冪等與跨帳戶隔離；feedback 確認後才可繼續排程。
+- 續接查詢在同一個 Serializable bootstrap transaction 內先於其他 current item／新題排程執行；回傳原題所屬 session 供只讀確認，並只對已答 Objective Probe 的 `FEEDBACK_ACK` 放寬 session expiry，不延長來源 session。
+
 ## Checklist／驗收矩陣
 
 - [x] 真正 cleanup DB 測試：V1 清理、V2 Encounter／客觀歷史及 coverage 所依賴的 distinct word 集合保留；測試在 rollback transaction 內，不刪現有資料。
@@ -46,6 +52,7 @@
 - [x] 正式 IP 限流預設值的共享課室容量測試；每人限額及 production fail-closed 行為保持不變。
 - [x] 過期／取消／完成 remediation obligation 的舊 Learning Card 不再續接，並以真正資料庫回歸覆蓋跨單元觸發過期及歷史保留。
 - [x] 詞庫更新後提交舊 Objective Probe 的版本 provenance 回歸：判分使用舊快照，ReviewEvent 版本欄位與快照一致且只計分一次。
+- [x] Objective Probe feedback 跨 session 到期續接：到期邊界、離開後超過 30 分鐘恢復、撤銷／跨帳戶隔離及雙分頁確認只產生一次結果。
 
 ## 發佈、rollback 及 Definition of Done
 
@@ -62,4 +69,7 @@
 - 提交 `4015a8f`（`fix: close V2 action and classroom queue audit gaps`）已推送 `staging`；[GitHub Actions run 33966106562](https://github.com/kukateng-cell/English/actions/runs/33966106562) 的 17 個 jobs（包括 required quality gate）全部成功。
 - 第六輪本地驗證：`npm run test:db:stream-v2` 兩次通過，`STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak` 三次通過；新增 snapshot cleanup 亦確認重跑不再增加本輪 orphan。兩位獨立 reviewer 已對最新工作樹覆核並 PASS。由於本地 `student-test` 已被先前 Playwright 執行污染，`npm run test:e2e:study-stream-v2` 重跑為 14/15（唯一失敗係 12 items 內未遇到 Learning Card）；今輪只改 server／DB regression／文件，fresh-DB hosted browser-v2 已通過。
 - 修正提交 `dcb5e0d` 已推送 `staging`；[GitHub Actions run 33975575941](https://github.com/kukateng-cell/English/actions/runs/33975575941) 的 17 個 jobs（包括 required quality gate、fresh-seed、stream-v2、browser-v2、browser-motion 及 dependency audit）全部成功。
+- 第七輪本地驗證：`npm run test:db:stream-v2` 通過；新增真正 PostgreSQL 回歸覆蓋 expired source session 跨 31 分鐘恢復、未確認 feedback 優先於排新題、已過期題不可重新評分、跨帳戶／撤銷隔離、雙分頁 ACK 及只產生一筆 ReviewEvent；`npm test` 380 tests 通過，`npx tsc --noEmit`、`npm run lint -- --quiet`、`git diff --check` 及 `npm run build` 通過。
+- 第七輪瀏覽器回歸：`npm run test:e2e:study-stream-v2 -- --grep "expired session resumes read-only"` 2 tests 通過（auth setup 及過期 feedback UI／ACK flow）；其後完整 `npm run test:e2e:study-stream-v2` 16 tests 通過（含 auth setup 及新回歸），hosted CI 仍以推送後結果為準。
+- 第七輪未新增 schema／migration，亦不涉及 production deploy、main merge、native device 或 research gate。
 - 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。

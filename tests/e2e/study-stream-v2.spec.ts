@@ -81,6 +81,151 @@ for (const actionKind of ["REVEAL", "OBJECTIVE_ANSWER"] as const) {
   });
 }
 
+test("an expired session resumes read-only Objective Probe feedback before scheduling", async ({ page }) => {
+  const sessionId = "expired-feedback-session";
+  const streamItemId = "expired-feedback-item";
+  const itemCredential = "expired-feedback-credential-012345678901234567890123456789";
+  const actions: StudyStreamActionInput[] = [];
+  let answered = false;
+  let feedbackAcknowledged = false;
+
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    const pendingFeedback = answered && !feedbackAcknowledged;
+    const response: PublicStreamResponse = pendingFeedback ? {
+      ok: true,
+      assigned: true,
+      resumedFeedback: true,
+      session: {
+        id: sessionId,
+        mode: "global",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        revision: 1,
+        // The server deliberately returns the expired source session while
+        // the learner confirms its read-only feedback.
+        expiresAt: new Date(Date.now() - 31 * 60_000).toISOString(),
+      },
+      item: {
+        streamItemId,
+        kind: "OBJECTIVE_PROBE",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1",
+        itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+        selectionReason: "audit-expired-feedback",
+        itemCredential,
+        credentialExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        clientRevision: 1,
+        prompt: "apple",
+        objectiveQuestion: {
+          prompt: "apple",
+          direction: "en-zh",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          options: [1, 2, 3, 4].map((index) => ({ id: `option-${index}`, text: `選項 ${index}` })),
+        },
+        feedback: {
+          selectedOptionId: "option-1",
+          correctOptionId: "option-2",
+          quality: 2,
+          isCorrect: false,
+          acknowledged: false,
+        },
+      },
+    } : {
+      ok: true,
+      assigned: true,
+      resumedFeedback: false,
+      session: {
+        id: sessionId,
+        mode: "global",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        revision: 0,
+        expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      },
+      item: feedbackAcknowledged ? {
+        streamItemId: "next-item",
+        kind: "LEARNING_CARD",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1",
+        itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+        selectionReason: "audit-expired-feedback",
+        itemCredential: "next-credential-012345678901234567890123456789",
+        credentialExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        clientRevision: 2,
+        prompt: "banana",
+      } : {
+        streamItemId,
+        kind: "OBJECTIVE_PROBE",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1",
+        itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+        selectionReason: "audit-expired-feedback",
+        itemCredential,
+        credentialExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        clientRevision: 0,
+        prompt: "apple",
+        objectiveQuestion: {
+          prompt: "apple",
+          direction: "en-zh",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          options: [1, 2, 3, 4].map((index) => ({ id: `option-${index}`, text: `選項 ${index}` })),
+        },
+      },
+    };
+    await route.fulfill({ json: response });
+  });
+
+  await page.route("**/api/study/actions", async (route) => {
+    const action = route.request().postDataJSON() as StudyStreamActionInput;
+    actions.push(action);
+    if (action.actionKind === "OBJECTIVE_ANSWER") {
+      answered = true;
+      await route.fulfill({ json: {
+        ok: true,
+        operationId: action.operationId,
+        actionKind: action.actionKind,
+        duplicate: false,
+        itemStatus: "ANSWERED",
+        clientRevision: 1,
+        requiresFeedbackAck: true,
+        feedback: { selectedOptionId: "option-1", correctOptionId: "option-2", quality: 2, isCorrect: false, acknowledged: false },
+        nextItem: null,
+      } });
+      return;
+    }
+    feedbackAcknowledged = true;
+    await route.fulfill({ json: {
+      ok: true,
+      operationId: action.operationId,
+      actionKind: action.actionKind,
+      duplicate: false,
+      itemStatus: "ACKNOWLEDGED",
+      clientRevision: 2,
+      requiresFeedbackAck: false,
+      feedback: { selectedOptionId: "option-1", correctOptionId: "option-2", quality: 2, isCorrect: false, acknowledged: true },
+      nextItem: null,
+    } });
+  });
+
+  await page.goto("/study");
+  await page.getByRole("radio", { name: "選項 1" }).locator("xpath=..").click();
+  await expect(page.getByTestId("study-stream-feedback-affordance")).toHaveClass(/is-visible/);
+  await expect(page.getByTestId("study-stream-probe-card")).toHaveAttribute("role", "button");
+  await expect(page.getByTestId("study-stream-probe-card")).toHaveAttribute("aria-label", "輕點一下任意區域");
+  await page.getByTestId("study-stream-probe-card").click({ position: { x: 48, y: 48 } });
+  await expect.poll(() => actions.some((action) => action.actionKind === "FEEDBACK_ACK")).toBe(true);
+  const ack = actions.find((action) => action.actionKind === "FEEDBACK_ACK");
+  expect(ack?.studySessionId).toBe(sessionId);
+  expect(ack?.streamItemId).toBe(streamItemId);
+  await expect(page.getByText("banana", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("study-stream-feedback-affordance")).toHaveCount(0);
+});
+
 test("an older bootstrap generation cannot roll back the current item revision", async ({ page }) => {
   let calls = 0;
   let releaseOld!: () => void;

@@ -1454,6 +1454,104 @@ async function main() {
     assert.equal(duplicateProvenanceAnswer.duplicate, true);
     assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id, objectiveQuestionSnapshotId: provenanceSnapshot.id } }), 1);
 
+    // Feedback is a read-only continuation of the scored question, not a
+    // lease owned by the short-lived session. Once the original session has
+    // expired, a fresh bootstrap must still return the same pending feedback
+    // (and never make the consumed question scorable again).
+    await prisma.studySession.update({
+      where: { id: provenanceProbe.session.id },
+      data: { expiresAt: new Date(Date.now() - 31 * 60_000) },
+    });
+    const otherAccountBootstrap = await getOrCreateStudyStream(studyDayOnlyUserId!);
+    assert.notEqual(otherAccountBootstrap.item?.streamItemId, provenanceProbe.item.streamItemId);
+
+    // A revoked session is not an eligible feedback source, even if its item
+    // still has an unacknowledged receipt. The normal bootstrap may create a
+    // replacement session/item, but it must not expose the revoked question.
+    await prisma.studySession.update({
+      where: { id: provenanceProbe.session.id },
+      data: { retiredAt: new Date() },
+    });
+    const revokedFeedbackReload = await getOrCreateStudyStream(user.id);
+    assert.notEqual(revokedFeedbackReload.item?.streamItemId, provenanceProbe.item.streamItemId);
+
+    // Retire any replacement V2 sessions created by the negative control, then
+    // restore only the original non-revoked (but expired) session for the real
+    // cross-session continuation assertions below.
+    await prisma.studySession.updateMany({
+      where: { userId: user.id, flowVersion: "v2", id: { not: provenanceProbe.session.id }, retiredAt: null },
+      data: { retiredAt: new Date() },
+    });
+    await prisma.studySession.update({
+      where: { id: provenanceProbe.session.id },
+      data: { retiredAt: null, expiresAt: new Date(Date.now() - 31 * 60_000) },
+    });
+    const expiredFeedbackA = await getOrCreateStudyStream(user.id);
+    assert.equal(expiredFeedbackA.resumedFeedback, true);
+    assert.equal(expiredFeedbackA.session.id, provenanceProbe.session.id);
+    assert.equal(expiredFeedbackA.item?.streamItemId, provenanceProbe.item.streamItemId);
+    assert.equal(expiredFeedbackA.item?.feedback?.acknowledged, false);
+    const expiredFeedbackItem = expiredFeedbackA.item;
+    assert.ok(expiredFeedbackItem);
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: expiredFeedbackA.session.id,
+        streamItemId: expiredFeedbackItem.streamItemId,
+        operationId: `provenance-expired-rescore-${suffix}`,
+        itemCredential: expiredFeedbackItem.itemCredential,
+        actionKind: "OBJECTIVE_ANSWER",
+        clientKnownRevision: expiredFeedbackItem.clientRevision,
+        payload: { selectedOptionId: provenanceSnapshot.correctOptionId },
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "SESSION_EXPIRED",
+    );
+    const expiredFeedbackB = await getOrCreateStudyStream(user.id, {
+      itemCredential: expiredFeedbackItem.itemCredential,
+    });
+    assert.equal(expiredFeedbackB.resumedFeedback, true);
+    assert.equal(expiredFeedbackB.session.id, provenanceProbe.session.id);
+    assert.equal(expiredFeedbackB.item?.streamItemId, provenanceProbe.item.streamItemId);
+    assert.ok(expiredFeedbackB.item);
+
+    // Two tabs can confirm the recovered feedback concurrently. Both callers
+    // receive an authoritative acknowledgement, while the scored event stays
+    // exactly once and the item leaves the pending-feedback state.
+    const expiredFeedbackAcks = await Promise.allSettled([expiredFeedbackA, expiredFeedbackB].map((state, index) =>
+      applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: state.session.id,
+        streamItemId: state.item!.streamItemId,
+        operationId: `provenance-expired-feedback-${suffix}-${index}`,
+        itemCredential: state.item!.itemCredential,
+        actionKind: "FEEDBACK_ACK",
+        clientKnownRevision: state.item!.clientRevision,
+        payload: {},
+      }),
+    ));
+    assert.equal(expiredFeedbackAcks.filter((result) => result.status === "fulfilled").length, 2);
+    for (const result of expiredFeedbackAcks) {
+      assert.equal(result.status, "fulfilled");
+      if (result.status === "fulfilled") {
+        assert.equal(result.value.response.itemStatus, "ACKNOWLEDGED");
+        assert.equal(result.value.response.feedback?.acknowledged, true);
+      }
+    }
+    const acknowledgedProvenanceItem = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: provenanceProbe.item.streamItemId },
+      select: { feedbackAcknowledgedAt: true, status: true },
+    });
+    assert.ok(acknowledgedProvenanceItem.feedbackAcknowledgedAt);
+    assert.equal(acknowledgedProvenanceItem.status, "ACKNOWLEDGED");
+    const expiredSourceSession = await prisma.studySession.findUniqueOrThrow({
+      where: { id: provenanceProbe.session.id },
+      select: { expiresAt: true },
+    });
+    assert.ok(expiredSourceSession.expiresAt.getTime() <= Date.now());
+    assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id, objectiveQuestionSnapshotId: provenanceSnapshot.id } }), 1);
+    const afterExpiredFeedback = await getOrCreateStudyStream(user.id);
+    assert.notEqual(afterExpiredFeedback.item?.streamItemId, provenanceProbe.item.streamItemId);
+
     const dualFlowSessions = await prisma.studySession.groupBy({
       by: ["flowVersion"],
       where: { userId: user.id },

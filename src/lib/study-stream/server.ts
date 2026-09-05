@@ -787,6 +787,49 @@ async function getCurrentItem(
   });
 }
 
+/**
+ * A scored Objective Probe owns a read-only feedback acknowledgement until
+ * the learner confirms it. That acknowledgement must survive rotation of the
+ * short-lived session that delivered the question. Only a non-revoked V2
+ * session for the exact requested scope can be considered; the question is
+ * never made scorable again because `usedAt` remains non-null.
+ */
+async function getPendingFeedbackItem(
+  tx: StreamTransaction,
+  userId: string,
+  scope: StreamScope,
+): Promise<(StreamItemWithRelations & { session: StudySession }) | null> {
+  return tx.studyStreamItem.findFirst({
+    where: {
+      itemKind: "OBJECTIVE_PROBE",
+      status: "ANSWERED",
+      usedAt: { not: null },
+      feedbackAcknowledgedAt: null,
+      operationId: { not: null },
+      objectiveQuestionSnapshotId: { not: null },
+      objectiveEvidenceTarget: { userId },
+      session: {
+        userId,
+        flowVersion: STUDY_STREAM_FLOW_VERSION,
+        mode: scope.mode,
+        scopeLevel: scope.level,
+        scopeCategory: scope.category,
+        // Expiry is intentionally not part of this predicate. An expired
+        // but non-revoked session is exactly the checkpoint we need to resume
+        // for a read-only feedback acknowledgement.
+        retiredAt: null,
+      },
+    },
+    orderBy: [{ usedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+    include: {
+      word: true,
+      objectiveEvidenceTarget: true,
+      objectiveQuestionSnapshot: true,
+      session: true,
+    },
+  });
+}
+
 async function retireInvalidWorkPresentation(
   tx: StreamTransaction,
   item: StreamItemWithRelations,
@@ -1146,6 +1189,26 @@ export async function getOrCreateStudyStream(
               current = null;
             }
           }
+
+          // A scored question may outlive the short-lived session that first
+          // delivered it. Restore its authoritative, read-only feedback
+          // before returning another current item or scheduling a fresh one,
+          // so a learner never skips feedback or receives a card that will
+          // immediately be rejected as stale.
+          const pendingFeedback = await getPendingFeedbackItem(tx, userId, scope);
+          if (pendingFeedback) {
+            const ensured = await ensureCredential(tx, pendingFeedback, options.itemCredential, now);
+            const feedback = await receiptFeedback(
+              tx,
+              userId,
+              ensured.item.operationId,
+              false,
+            );
+            if (!feedback) throw new StudyStreamError(409, "客觀題 feedback 回執已損壞");
+            const item = toPublicItem(ensured.item, ensured.credential, feedback);
+            if (!item) throw new StudyStreamError(409, "學習項目已失效，請重新載入");
+            return streamResponse(pendingFeedback.session, item, true, unitSummary);
+          }
           if (current) {
             const ensured = await ensureCredential(tx, current, options.itemCredential, now);
             const feedback = ensured.item.usedAt
@@ -1241,22 +1304,34 @@ async function loadActionItem(
   if (item.session.retiredAt !== null) {
     throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
   }
+  const isReadOnlyFeedbackAck =
+    input.actionKind === "FEEDBACK_ACK" &&
+    item.itemKind === "OBJECTIVE_PROBE" &&
+    item.usedAt !== null &&
+    item.operationId !== null &&
+    (item.status === "ANSWERED" || item.status === "ACKNOWLEDGED");
   if (item.session.expiresAt <= now) {
-    if (!options.recoverExpiredSession) {
+    // Feedback acknowledgement is a read-only continuation. It is allowed
+    // on an expired but non-revoked session after the item/credential/user
+    // checks above; scored answers and card actions remain fail-closed unless
+    // they use the explicit recovery endpoint.
+    if (!options.recoverExpiredSession && !isReadOnlyFeedbackAck) {
       throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_EXPIRED" });
     }
-    const recoveredExpiresAt = new Date(now.getTime() + STREAM_SESSION_TTL_MS);
-    const recovered = await tx.studySession.updateMany({
-      where: { id: item.session.id, userId, retiredAt: null, expiresAt: { lte: now } },
-      data: { expiresAt: recoveredExpiresAt },
-    });
-    if (recovered.count !== 1) {
-      throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
+    if (options.recoverExpiredSession) {
+      const recoveredExpiresAt = new Date(now.getTime() + STREAM_SESSION_TTL_MS);
+      const recovered = await tx.studySession.updateMany({
+        where: { id: item.session.id, userId, retiredAt: null, expiresAt: { lte: now } },
+        data: { expiresAt: recoveredExpiresAt },
+      });
+      if (recovered.count !== 1) {
+        throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
+      }
+      // Keep the in-transaction relation authoritative for revision updates
+      // and response construction below; the user lock serialises recovery
+      // with another tab/device using the same learner session.
+      item.session = { ...item.session, expiresAt: recoveredExpiresAt };
     }
-    // Keep the in-transaction relation authoritative for revision updates and
-    // response construction below; the user lock serialises recovery with
-    // another tab/device using the same learner session.
-    item.session = { ...item.session, expiresAt: recoveredExpiresAt };
   }
   if (!credentialAccepted && !options.recoverExpiredCredential) {
     throw new StudyStreamError(403, "學習項目憑證無效或已過期", { code: "ITEM_CREDENTIAL_EXPIRED" });
