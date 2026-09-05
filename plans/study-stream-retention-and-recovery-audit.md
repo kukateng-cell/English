@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：進行中（第六輪本地修正及驗證；hosted CI 待確認）
+狀態：已完成（第六輪本地及 hosted CI）
 
 ## 背景與目標
 
@@ -60,6 +60,6 @@
 - `STUDY_V2_ASSIGNMENT_MODE=off npm run test:e2e:card-motion`：通過；Chromium primary 73 passed／4 existing skipped，WebKit shard 1 為 17 passed、shard 2 為 16 passed。未改動環境檔；future-backoff rotation 等待 localStorage 持久化後同時核對 sessionId 及 retryAt。
 - 兩位獨立 reviewer 已對最新修正工作樹覆核並 PASS。
 - 提交 `4015a8f`（`fix: close V2 action and classroom queue audit gaps`）已推送 `staging`；[GitHub Actions run 33966106562](https://github.com/kukateng-cell/English/actions/runs/33966106562) 的 17 個 jobs（包括 required quality gate）全部成功。
-- 第六輪本地驗證：`npm run test:db:stream-v2` 兩次通過，`STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak` 三次通過；新增 snapshot cleanup 亦確認重跑不再增加本輪 orphan。兩位獨立 reviewer 已對最新工作樹覆核並 PASS。由於本地 `student-test` 已被先前 Playwright 執行污染，`npm run test:e2e:study-stream-v2` 重跑為 14/15（唯一失敗係 12 items 內未遇到 Learning Card）；今輪只改 server／DB regression／文件，待 hosted fresh-DB browser-v2 job 作最後確認。
-- 第六輪 hosted CI 綠燈後，需補記候選 SHA／run；在此之前不宣稱 required quality gate 已完成。
+- 第六輪本地驗證：`npm run test:db:stream-v2` 兩次通過，`STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak` 三次通過；新增 snapshot cleanup 亦確認重跑不再增加本輪 orphan。兩位獨立 reviewer 已對最新工作樹覆核並 PASS。由於本地 `student-test` 已被先前 Playwright 執行污染，`npm run test:e2e:study-stream-v2` 重跑為 14/15（唯一失敗係 12 items 內未遇到 Learning Card）；今輪只改 server／DB regression／文件，fresh-DB hosted browser-v2 已通過。
+- 修正提交 `dcb5e0d` 已推送 `staging`；[GitHub Actions run 33975575941](https://github.com/kukateng-cell/English/actions/runs/33975575941) 的 17 個 jobs（包括 required quality gate、fresh-seed、stream-v2、browser-v2、browser-motion 及 dependency audit）全部成功。
 - 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。
