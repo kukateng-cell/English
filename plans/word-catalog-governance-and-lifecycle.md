@@ -1,5 +1,7 @@
 # 詞庫詞義、CSV 匯入、審核及生命週期實施計劃
 
+> 現行規則補註：本文件早期的跨詞義 answer-safety 阻擋已由 `catalog-issue-guidance-and-selection-layout-corrections.md` 的 CIS-010 取代。Curated 題目只保護本列答案；初始批准集合仍按歷史 frozen baseline 保留，不以日常 validator 自動擴大。
+
 > 狀態：已完成（本地 implementation／verification；staging／Vercel、production rollout及 legacy cleanup 仍未完成）
 >
 > 日期：2026-08-22

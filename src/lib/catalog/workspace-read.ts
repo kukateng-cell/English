@@ -460,6 +460,7 @@ export interface CatalogWorkspacePageInput {
 
 export function catalogWorkspacePageSql(
   input: CatalogWorkspacePageInput,
+  effectiveIssues: Array<{ id: string; issues: CatalogStructuredIssue[]; count: number }>,
 ): Prisma.Sql {
   const standaloneCreateScope = input.canReview
     ? Prisma.sql`TRUE`
@@ -469,7 +470,10 @@ export function catalogWorkspacePageSql(
   const categoryFacetWhere = filterSql(input.filters, "category");
   const order = orderSql(input.filters.sort);
   return Prisma.sql`
-    WITH catalog_base AS MATERIALIZED (
+    WITH effective_issues AS MATERIALIZED (
+      SELECT * FROM jsonb_to_recordset(${JSON.stringify(effectiveIssues)}::jsonb)
+        AS effective(id text, issues jsonb, count integer)
+    ), catalog_base AS MATERIALIZED (
       SELECT
         import_row."id" AS "id", import_row."senseKey" AS "senseKey", import_row."catalogKey" AS "catalogKey",
         import_row."sourceFile" AS "sourceFile", import_row."sourceRow" AS "sourceRow",
@@ -489,37 +493,11 @@ export function catalogWorkspacePageSql(
         import_row."eligibilityResult" AS "eligibilityResult",
         CASE WHEN approved_revision."id" IS NOT NULL THEN '[]'::jsonb WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END AS "validationErrors",
         CASE WHEN jsonb_typeof(import_row."issues"->'warnings') = 'array' THEN import_row."issues"->'warnings' ELSE '[]'::jsonb END AS "validationWarnings",
-        CASE
-          WHEN approved_revision."id" IS NOT NULL THEN jsonb_build_object('version', CAST(${CATALOG_STRUCTURED_ISSUE_VERSION} AS text), 'issues', '[]'::jsonb)
-          ELSE jsonb_build_object(
-            'version', import_row."issues"->>'structuredIssueVersion',
-            'issues', CASE WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues' ELSE '[]'::jsonb END,
-            'sourceData', import_row."sourceData"
-          )
-        END AS "structuredIssuePayload",
-        CASE
-          WHEN approved_revision."id" IS NOT NULL THEN 0
-          WHEN import_row."issues"->>'structuredIssueVersion' IS NOT NULL
-            AND import_row."issues"->>'structuredIssueVersion' <> ${CATALOG_STRUCTURED_ISSUE_VERSION} THEN 1
-          WHEN import_row."issues"->>'structuredIssueVersion' = ${CATALOG_STRUCTURED_ISSUE_VERSION} THEN (
-            SELECT COUNT(*)::integer
-            FROM jsonb_array_elements(
-              CASE WHEN jsonb_typeof(import_row."issues"->'structuredIssues') = 'array' THEN import_row."issues"->'structuredIssues' ELSE '[]'::jsonb END
-            ) issue
-            WHERE COALESCE(issue->>'severity', 'ERROR') <> 'WARNING'
-              AND COALESCE(issue->>'code', '') <> 'CATALOG_DISTRACTOR_SIBLING_COLLISION'
-          )
-          ELSE (
-            SELECT COUNT(*)::integer
-            FROM jsonb_array_elements_text(
-              CASE WHEN jsonb_typeof(import_row."issues"->'errors') = 'array' THEN import_row."issues"->'errors' ELSE '[]'::jsonb END
-            ) error_message
-            WHERE error_message NOT IN (
-              'en-zh distractor collides with a sibling-sense answer',
-              'zh-en distractor collides with a sibling-sense answer'
-            )
-          )
-        END AS "issueCount",
+        jsonb_build_object(
+          'version', CAST(${CATALOG_STRUCTURED_ISSUE_VERSION} AS text),
+          'issues', CASE WHEN approved_revision."id" IS NOT NULL THEN '[]'::jsonb ELSE COALESCE(effective.issues, '[]'::jsonb) END
+        ) AS "structuredIssuePayload",
+        CASE WHEN approved_revision."id" IS NOT NULL THEN 0 ELSE COALESCE(effective.count, 0) END AS "issueCount",
         CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "contentScope",
         CASE WHEN approved_revision."id" IS NULL THEN 'IMPORT_DRAFT' ELSE 'CURRENT_CONTENT' END AS "issueScope",
         CASE WHEN pending."id" IS NULL THEN 'NONE' ELSE 'PENDING' END AS "workflowState",
@@ -536,6 +514,7 @@ export function catalogWorkspacePageSql(
         END AS "lastChangedAt",
         0 AS "sortGroup"
       FROM "CatalogImportRow" import_row
+      LEFT JOIN effective_issues effective ON effective.id = import_row."id"
       JOIN "CatalogImportBatch" import_batch ON import_batch."id" = import_row."batchId"
       LEFT JOIN "WordSense" sense ON sense."senseKey" = import_row."senseKey"
       LEFT JOIN "WordSenseRevision" approved_revision ON approved_revision."id" = sense."approvedRevisionId"
@@ -651,9 +630,24 @@ export function catalogWorkspacePageSql(
 export async function readCatalogWorkspacePage(
   input: CatalogWorkspacePageInput,
 ): Promise<CatalogWorkspacePageResult> {
-  const result = await prisma.$queryRaw<RawCatalogWorkspaceResult[]>(
-    catalogWorkspacePageSql(input),
-  );
+  const result = await prisma.$transaction(async tx => {
+    // Use the same snapshot and issue adapter for filtering, counts and labels.
+    // Only historical issue-bearing rows need application-side normalization.
+    const stored = await tx.$queryRaw<Array<{ id: string; issues: unknown; sourceData: unknown }>>(Prisma.sql`
+      SELECT "id", "issues", "sourceData" FROM "CatalogImportRow"
+      WHERE "batchId" = ${input.batchId} AND (
+        COALESCE("issues"->'errors', '[]'::jsonb) <> '[]'::jsonb OR
+        COALESCE("issues"->'warnings', '[]'::jsonb) <> '[]'::jsonb OR
+        COALESCE("issues"->'structuredIssues', '[]'::jsonb) <> '[]'::jsonb OR
+        ("issues"->>'structuredIssueVersion' IS NOT NULL AND "issues"->>'structuredIssueVersion' <> ${CATALOG_STRUCTURED_ISSUE_VERSION})
+      )
+    `);
+    const effective = stored.map(row => {
+      const issues = catalogStructuredIssuesFromImportRow(row.issues, catalogGovernancePayloadFromUnknown(row.sourceData));
+      return { id: row.id, issues, count: issues.filter(issue => issue.severity === "ERROR").length };
+    });
+    return tx.$queryRaw<RawCatalogWorkspaceResult[]>(catalogWorkspacePageSql(input, effective));
+  }, { isolationLevel: "RepeatableRead" });
   const row = result[0];
   if (!row) throw new Error("CATALOG_WORKSPACE_QUERY_EMPTY");
   return {

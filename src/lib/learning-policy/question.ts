@@ -149,7 +149,7 @@ export function buildObjectiveQuestion(
   const answerKey = normalizeQuestionText(answerText).toLocaleLowerCase("en-US");
   const targetAnswers = directionAnswerSet(word, direction);
   const targetSynonyms = normalizedSet(word.synonyms);
-  for (const sibling of source) {
+  for (const sibling of isCuratedWord(word) ? [] : source) {
     if (sameText(sibling.term, word.term) || sameText(sibling.lemma ?? sibling.term, word.lemma ?? word.term) ||
       (direction === "zh-en" && sameText(sibling.definition, word.definition))) {
       for (const answer of directionAnswerSet(sibling, direction)) targetAnswers.add(answer);

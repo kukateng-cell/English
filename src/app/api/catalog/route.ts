@@ -1,3 +1,4 @@
+import { readLimitedBody } from "@/lib/catalog/body";
 import { NextResponse } from "next/server";
 import { Prisma, prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
@@ -180,7 +181,12 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+export function createCatalogPost(dependencies: {
+  requireRole: typeof requireRole;
+  consumeCatalogGovernanceLimit: typeof consumeCatalogGovernanceLimit;
+} = { requireRole, consumeCatalogGovernanceLimit }) {
+  const { requireRole, consumeCatalogGovernanceLimit } = dependencies;
+  return async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return errorResponse("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return errorResponse(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 401 ? "AUTH_REQUIRED" : "ROLE_FORBIDDEN", auth.status);
@@ -190,14 +196,14 @@ export async function POST(req: Request) {
     response.headers.set("Retry-After", String(limit.retryAfterSec));
     return response;
   }
-  const rawBody = await req.text().catch(() => "");
-  if (Buffer.byteLength(rawBody, "utf8") > MAX_REQUEST_BYTES) return errorResponse("CATALOG_INPUT_TOO_LARGE", 413);
   let body: Record<string, unknown>;
   try {
+    const rawBody = new TextDecoder().decode(await readLimitedBody(req, MAX_REQUEST_BYTES, "CATALOG_INPUT_TOO_LARGE"));
     const parsed: unknown = JSON.parse(rawBody);
     if (!isRecord(parsed)) throw new Error("invalid body");
     body = parsed;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "CATALOG_INPUT_TOO_LARGE") return errorResponse("CATALOG_INPUT_TOO_LARGE", 413);
     return errorResponse("CATALOG_INPUT_INVALID", 422);
   }
   const operationId = typeof body.operationId === "string" ? body.operationId.trim() : "";
@@ -554,3 +560,6 @@ export async function POST(req: Request) {
     return errorResponse("CATALOG_REQUEST_FAILED", 500);
   }
 }
+}
+
+export const POST = createCatalogPost();

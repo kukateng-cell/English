@@ -172,7 +172,7 @@ async function main() {
         const planRows = await prisma.$queryRaw<
           Array<{ "QUERY PLAN": unknown }>
         >(
-          Prisma.sql`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${catalogWorkspacePageSql(input)}`,
+          Prisma.sql`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${catalogWorkspacePageSql(input, [])}`,
         );
         const warmSamples: number[] = [];
         let last = first.value;

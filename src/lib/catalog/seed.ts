@@ -5,7 +5,6 @@ import path from "node:path";
 import type { Prisma } from "../../generated/prisma";
 import {
   CATALOG_NORMALIZATION_VERSION,
-  CATALOG_VALIDATOR_VERSION,
   CATALOG_STRUCTURED_ISSUE_VERSION,
   type CatalogActivationResult,
   type CatalogPrimaryDisposition,
@@ -13,9 +12,9 @@ import {
   buildCatalogImportReport,
   normalizeCatalogRow,
   parseCatalogCsv,
-  validateCatalogRow,
   type NormalizedCatalogRow,
 } from "./csv";
+import { validateInitialBaselineRow } from "./initial-baseline-validation";
 import { CATALOG_TAXONOMY_VERSION, isCatalogCategory } from "./taxonomy";
 import {
   CATALOG_IDENTITY_MANIFEST_PATH,
@@ -137,8 +136,10 @@ export async function seedCatalog(
     }
     return normalizeCatalogRow({ ...sourceRow, catalog_key: assignment.catalogKey, sense_key: assignment.senseKey }, 0);
   });
+  const byTerm = new Map<string, NormalizedCatalogRow[]>();
+  for (const row of rows) byTerm.set(row.normalizedTerm, [...(byTerm.get(row.normalizedTerm) ?? []), row]);
   const validations = rows.map((row) => {
-    const validation = validateCatalogRow(row);
+    const validation = validateInitialBaselineRow(row, (byTerm.get(row.normalizedTerm) ?? []).filter(sibling => sibling.senseKey !== row.senseKey));
     if (!isCatalogCategory(row.category)) {
       validation.errors.push(`unknown category: ${row.category}`);
       validation.issues.push({ code: "CATALOG_CATEGORY_UNKNOWN", field: "category", direction: null, severity: "ERROR" });
@@ -214,7 +215,7 @@ export async function seedCatalog(
       revisionKey: catalogRevisionKey,
       sourceDigest,
       taxonomyDigest: digest(JSON.stringify(CATALOG_TAXONOMY_VERSION)),
-      validatorVersion: CATALOG_VALIDATOR_VERSION,
+      validatorVersion: activationManifest.validatorVersion,
       normalizationVersion: CATALOG_NORMALIZATION_VERSION,
       activationBasis: "INITIAL_BASELINE_MANIFEST",
       status: "BUILDING",
@@ -230,7 +231,7 @@ export async function seedCatalog(
     create: {
       sourceDigest,
       taxonomyDigest: digest(JSON.stringify(CATALOG_TAXONOMY_VERSION)),
-      validatorVersion: CATALOG_VALIDATOR_VERSION,
+      validatorVersion: activationManifest.validatorVersion,
       normalizationVersion: CATALOG_NORMALIZATION_VERSION,
       status: "BUILDING",
       catalogRevisionId: catalogRevision.id,

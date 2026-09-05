@@ -460,6 +460,40 @@ async function main() {
     );
 
     console.log(JSON.stringify({ ready: true, fixtureRows: reviewer.filteredTotal, proposerRows: proposerView.filteredTotal, otherTeacherRows: otherView.filteredTotal, pendingRows: pendingOnly.filteredTotal, enToZhRows: enToZh.filteredTotal, zeroRows: beforeFixture.filteredTotal, overflowRequests: 1002, tailMutationStaledSignature: true, zeroResultFacetsRetained: true, sortTraversal, pagedSenseHistoryRows: pagedFixtureHistoryIds.size, reviewerCursorIsolation: true, crossSenseCursorIsolation: true, historySnapshotInsertionExcluded: true }, null, 2));
+    const collisionTerm = `${fixture}_antonym`;
+    const collisionPayload = { ...payload(collisionTerm, "接受", true), enableZhToEn: true, distractorEn: ["reject", "leave", "walk", "sit", "jump"], antonymsEn: ["reject"] };
+    const legacy = { errors: ["zh-en distractor collides with an accepted answer or answer-safety synonym/antonym"], warnings: [] };
+    const collision = await prisma.catalogImportRow.create({ data: {
+      batchId: readyBatch.id, sourceFile: `${fixture}.csv`, sourceRow: 2,
+      rowDigest: `${fixture}_antonym`, primaryDisposition: "VALIDATION_FAILED", eligibilityResult: "DRAFT_BLOCKED",
+      catalogKey: `${fixture}_antonym_catalog`, senseKey: `${fixture}_antonym_sense`, sourceData: collisionPayload, issues: legacy,
+    } });
+    for (const structured of [false, true]) {
+      await prisma.catalogImportRow.update({ where: { id: collision.id }, data: { issues: structured ? {
+        ...legacy, structuredIssueVersion: "catalog-structured-issues-v1", structuredIssues: [{ code: "CATALOG_DISTRACTOR_ACCEPTED_COLLISION", field: "distractorEn", direction: "ZH_TO_EN", severity: "ERROR" }],
+      } : legacy } });
+      const query = (extra: Record<string, string>, offset = 0): Promise<import("../src/lib/catalog/workspace-read").CatalogWorkspacePageResult> => readCatalogWorkspacePage({ batchId: readyBatch.id,
+        filters: parseCatalogWorkspaceQuery(new URLSearchParams({ q: collisionTerm, ...extra })).filters,
+        offset, limit: 1, canReview: true, actorUserId: proposerId });
+      const issueFilters: Array<Record<string, string>> = [{}, { issues: "NONE" }, { readiness: "BOTH" }];
+      for (const filter of issueFilters) {
+        const result = await query(filter);
+        assert.equal(result.filteredTotal, 1);
+        assert.equal(result.rows[0]?.issueCount, 0);
+        assert.equal(result.rows[0]?.readinessState, "BOTH");
+        const next = await query(filter, 1);
+        assert.equal(next.filteredTotal, 1);
+        assert.equal(next.rows.length, 0);
+      }
+      assert.equal((await query({ readiness: "UNAVAILABLE" })).filteredTotal, 0);
+    }
+    await prisma.catalogImportRow.update({ where: { id: collision.id }, data: { sourceData: { ...collisionPayload, synonymsEn: ["reject"] } } });
+    const blocked = await readCatalogWorkspacePage({ batchId: readyBatch.id,
+      filters: parseCatalogWorkspaceQuery(new URLSearchParams({ q: collisionTerm, readiness: "UNAVAILABLE" })).filters,
+      offset: 0, limit: 1, canReview: true, actorUserId: proposerId });
+    assert.equal(blocked.filteredTotal, 1);
+    assert.equal(blocked.rows[0]?.issueCount, 1);
+    console.log("Effective legacy/structured antonym issues: SQL filters, counts, pages and labels agree");
   } finally {
     await prisma.catalogChangeRequest.deleteMany({ where: { operationId: { startsWith: operationPrefix } } });
     if (submissionBatchId) {

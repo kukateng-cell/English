@@ -52,7 +52,6 @@ import {
   waitForTransactionRetry,
 } from "@/lib/transaction-retry";
 import { withCurrentCatalogWord } from "@/lib/catalog/runtime";
-import { loadQuestionAnswerContext } from "@/lib/learning-policy/question-source";
 
 const STREAM_SESSION_TTL_MS = 30 * 60_000;
 const STREAM_ITEM_LEASE_MS = 15 * 60_000;
@@ -820,10 +819,9 @@ async function createObjectiveTarget(
     where: { targetId: target.id },
   });
   if (!snapshot) {
-    const context = await loadQuestionAnswerContext(tx, word);
     const built = buildObjectiveQuestion(
-      { ...questionWord(word), lemma: context.lemma },
-      context.source,
+      questionWord(word),
+      [questionWord(word)],
       `${session.id}:${target.id}:${expectedRevision}`,
     );
     if (!built) throw new StudyStreamError(409, "目前詞條缺少安全的客觀題選項", { code: "NO_VALID_OBJECTIVE_SNAPSHOT" });

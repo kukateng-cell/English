@@ -65,6 +65,19 @@ test("catalog CSV upload remains compatible with the shared governance contract"
   assert.equal(rows[0]?.sense_key, "sense_accept");
 });
 
+test("CSV marker survives spreadsheet quoting, padding and line endings", async () => {
+  const exported = catalogRowsToCsv([governanceRow({ definition_zh: "=literal" })], CATALOG_GOVERNANCE_HEADERS);
+  for (const marker of ["#emm-catalog-csv-escaped-v1", '"#emm-catalog-csv-escaped-v1"', "#emm-catalog-csv-escaped-v1" + ",".repeat(33), '"#emm-catalog-csv-escaped-v1"' + ",".repeat(33)]) {
+    for (const ending of ["\r\n", "\n"]) {
+      const text = exported.replace("#emm-catalog-csv-escaped-v1", marker).replaceAll("\r\n", ending);
+      const rows = await parseCatalogGovernanceFile(new TextEncoder().encode(text), "sheet.csv", "CSV");
+      assert.equal(rows[0].definition_zh, "=literal");
+      assert.equal(rows[0].sourceRow, 3);
+    }
+  }
+  await assert.rejects(parseCatalogGovernanceFile(new TextEncoder().encode(exported.replace("#emm-catalog-csv-escaped-v1", "#emm-catalog-csv-escaped-v1,unexpected")), "bad.csv", "CSV"), /marker record/);
+});
+
 test("catalog XLSX upload rejects formulas instead of evaluating them", async () => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Data");

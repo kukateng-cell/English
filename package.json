@@ -21,6 +21,7 @@
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
     "test:db:stream-v2": "node --import tsx scripts/check-study-stream-v2.ts",
     "test:browser:outbox": "node scripts/check-study-outbox-browser.mjs",
+    "test:db:fresh-seed": "node scripts/check-fresh-seed.mjs",
     "test:roster": "node --import tsx scripts/check-roster-access.ts",
     "test:roster:invariants": "node --import tsx scripts/check-roster-invariants.ts",
     "test:roster:lifecycle": "node --import tsx scripts/check-roster-lifecycle.ts",

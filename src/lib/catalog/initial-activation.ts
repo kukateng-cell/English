@@ -4,8 +4,9 @@ import path from "node:path";
 import {
   CATALOG_NORMALIZATION_VERSION,
   CATALOG_SCHEMA_VERSION,
-  CATALOG_VALIDATOR_VERSION,
 } from "./csv";
+// Historical approval version, intentionally independent of daily validation.
+export const CATALOG_INITIAL_VALIDATOR_VERSION = "catalog-validator-v1" as const;
 
 export const CATALOG_INITIAL_ACTIVATION_MANIFEST_PATH =
   "outputs/catalog-identity/word-catalog-v1.initial-activation.json";
@@ -18,7 +19,7 @@ export interface CatalogInitialActivationManifest {
   manifestVersion: typeof CATALOG_INITIAL_ACTIVATION_MANIFEST_VERSION;
   schemaVersion: typeof CATALOG_SCHEMA_VERSION;
   sourceDigest: string;
-  validatorVersion: typeof CATALOG_VALIDATOR_VERSION;
+  validatorVersion: typeof CATALOG_INITIAL_VALIDATOR_VERSION;
   normalizationVersion: typeof CATALOG_NORMALIZATION_VERSION;
   selectionRule: typeof CATALOG_INITIAL_ACTIVATION_SELECTION_RULE;
   selectionDigests: {
@@ -74,7 +75,7 @@ export async function readCatalogInitialActivationManifest(
     parsed.manifestVersion !== CATALOG_INITIAL_ACTIVATION_MANIFEST_VERSION ||
     parsed.schemaVersion !== CATALOG_SCHEMA_VERSION ||
     parsed.sourceDigest !== sourceDigest ||
-    parsed.validatorVersion !== CATALOG_VALIDATOR_VERSION ||
+    parsed.validatorVersion !== CATALOG_INITIAL_VALIDATOR_VERSION ||
     parsed.normalizationVersion !== CATALOG_NORMALIZATION_VERSION ||
     parsed.selectionRule !== CATALOG_INITIAL_ACTIVATION_SELECTION_RULE ||
     !parsed.selectionDigests ||

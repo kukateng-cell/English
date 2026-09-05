@@ -1,3 +1,4 @@
+import { readLimitedBody } from "@/lib/catalog/body";
 import { NextResponse } from "next/server";
 import { Prisma, prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
@@ -54,7 +55,12 @@ async function resolvedReplay(id: string): Promise<NextResponse | null> {
   }
 }
 
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export function createCatalogReviewPatch(dependencies: {
+  requireRole: typeof requireRole;
+  consumeCatalogGovernanceLimit: typeof consumeCatalogGovernanceLimit;
+} = { requireRole, consumeCatalogGovernanceLimit }) {
+  const { requireRole, consumeCatalogGovernanceLimit } = dependencies;
+  return async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!isSameOriginMutation(req)) return response("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) {
@@ -71,14 +77,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     limited.headers.set("Retry-After", String(limit.retryAfterSec));
     return limited;
   }
-  const rawBody = await req.text().catch(() => "");
-  if (Buffer.byteLength(rawBody, "utf8") > 32 * 1024) return response("CATALOG_INPUT_TOO_LARGE", 413);
   let body: Record<string, unknown>;
   try {
+    const rawBody = new TextDecoder().decode(await readLimitedBody(req, 32 * 1024, "CATALOG_INPUT_TOO_LARGE"));
     const parsed: unknown = JSON.parse(rawBody);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid body");
     body = parsed as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "CATALOG_INPUT_TOO_LARGE") return response("CATALOG_INPUT_TOO_LARGE", 413);
     return response("CATALOG_INPUT_INVALID", 422);
   }
   const decision = body.decision === "APPROVE" || body.decision === "REJECT" ? body.decision : null;
@@ -132,3 +138,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return response("CATALOG_REVIEW_FAILED", 500);
   }
 }
+}
+
+export const PATCH = createCatalogReviewPatch();

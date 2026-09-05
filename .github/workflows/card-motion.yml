@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [unit, lint, types, build, migrations, ledger, catalog, stream-v2, browser-motion, browser-ia, browser-qa, browser-catalog, browser-v2, browser-outbox]
+        suite: [unit, lint, types, build, migrations, fresh-seed, ledger, catalog, stream-v2, browser-motion, browser-ia, browser-qa, browser-catalog, browser-v2, browser-outbox]
 
     runs-on: ubuntu-latest
     services:
@@ -106,7 +106,7 @@ jobs:
         run: npm run test:migrations:contract
 
       - name: Deploy migrations to the CI database
-        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || startsWith(matrix.suite, 'browser-')
+        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || (startsWith(matrix.suite, 'browser-') && matrix.suite != 'browser-outbox')
         run: npm run db:deploy
 
       - name: Run review ledger and concurrency checks
@@ -114,8 +114,12 @@ jobs:
         run: npm run test:db
 
       - name: Seed the card-motion test account and words
-        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || startsWith(matrix.suite, 'browser-')
+        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || (startsWith(matrix.suite, 'browser-') && matrix.suite != 'browser-outbox')
         run: npm run seed
+
+      - name: Verify fresh initialization and repeat bootstrap
+        if: matrix.suite == 'fresh-seed'
+        run: npm run test:db:fresh-seed
 
       - name: Verify the formal catalog baseline
         if: matrix.suite == 'catalog'

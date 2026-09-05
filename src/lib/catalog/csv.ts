@@ -487,9 +487,15 @@ const CATALOG_CSV_ESCAPE_MARKER = "#emm-catalog-csv-escaped-v1\r\n";
 /** Strict, fixed-template parser for teacher governance uploads. */
 export function parseCatalogGovernanceCsv(bytes: Uint8Array, sourceFile: string): CatalogSourceRow[] {
   const text = governanceText(bytes, sourceFile);
-  const marker = text.match(/^#emm-catalog-csv-escaped-v1\r?\n/);
-  const escaped = Boolean(marker);
-  const records = strictCsvRecords(marker ? text.slice(marker[0].length) : text, sourceFile, marker ? 2 : 1);
+  const records = strictCsvRecords(text, sourceFile);
+  const first = records[0]?.values;
+  const escaped = first?.[0] === CATALOG_CSV_ESCAPE_MARKER.trim();
+  if (escaped) {
+    if (first!.slice(1).some(value => value.trim() !== "")) {
+      throw new CatalogCsvError("CATALOG_CSV_HEADER_INVALID", "CSV marker record must not contain other values");
+    }
+    records.shift();
+  }
   if (escaped) {
     for (const row of records.slice(1)) {
       row.values = row.values.map((value) => {

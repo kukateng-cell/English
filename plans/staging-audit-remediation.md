@@ -2,6 +2,8 @@
 
 狀態：已完成（程式及本地驗證；GitHub 分支保護待 repository admin）
 
+> 第二輪覆核發現 fresh seed 與四項邊界未完成，後續由 [staging-audit-followup.md](./staging-audit-followup.md) 修正。下文跨詞義排除為本輪歷史，已確認誤覆蓋 CIS-010；新實作恢復只保護本列答案。
+
 ## 背景與目標
 
 依據使用者提供的 `staging@d136b90` 審核報告，逐項核實及修正 seed 權限、V2 durable outbox、多義詞題目安全、catalog IP／body 邊界、可逆匯出、依賴及 CI。以目前程式與可執行測試確認報告，完成後 commit／push。

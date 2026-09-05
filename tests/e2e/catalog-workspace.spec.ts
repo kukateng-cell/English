@@ -2,6 +2,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 import { CATALOG_STRUCTURED_ISSUE_VERSION } from "../../src/lib/catalog/validation-issue-contract";
+import { CATALOG_GOVERNANCE_HEADERS, parseCatalogGovernanceCsv } from "../../src/lib/catalog/csv";
 
 const ORIGIN = "http://127.0.0.1:3100";
 
@@ -490,7 +491,7 @@ test("new catalog entry starts with spelling precheck and explains the authoring
     await expect(
       dialog
         .getByRole("paragraph")
-        .filter({ hasText: /詞庫暫時未有呢個英文詞|词库暂时未有呢个英文词/ }),
+        .filter({ hasText: /詞庫暫時沒有這個英文詞|词库暂时没有这个英文词/ }),
     ).toBeVisible();
     await spelling.fill("run");
     await expect(dialog.getByText(/詞庫已有同一英文的詞義|词库已有同一英文的词义/)).toBeVisible();
@@ -527,7 +528,7 @@ test("new catalog entry starts with spelling precheck and explains the authoring
     await expect(
       dialog
         .getByRole("paragraph")
-        .filter({ hasText: /詞庫暫時未有呢個英文詞|词库暂时未有呢个英文词/ }),
+        .filter({ hasText: /詞庫暫時沒有這個英文詞|词库暂时没有这个英文词/ }),
     ).toBeVisible();
     reviewer.page.once("dialog", (confirmation) => confirmation.accept());
     await dialog.getByRole("button", { name: /繼續填寫詞義|继续填写词义/ }).click();
@@ -542,7 +543,7 @@ test("new catalog entry starts with spelling precheck and explains the authoring
     await expect(
       dialog
         .getByRole("paragraph")
-        .filter({ hasText: /詞庫暫時未有呢個英文詞|词库暂时未有呢个英文词/ }),
+        .filter({ hasText: /詞庫暫時沒有這個英文詞|词库暂时没有这个英文词/ }),
     ).toBeVisible();
 
     await dialog.getByLabel(/英文詞（必填）|英文词（必填）/).fill("slowword");
@@ -1870,7 +1871,7 @@ test("catalog to global history restores loaded rows, filters, selection, scroll
     await expect(reviewer.page.locator("[data-catalog-row]")).toHaveCount(16);
 
     const targetRow = reviewer.page.locator(`[data-catalog-row="${target.id}"]`);
-    const checkbox = targetRow.getByRole("checkbox", { name: /選取匯出|选取导出/ });
+    const checkbox = targetRow.getByRole("checkbox", { name: /選取要匯出的詞條|选取要导出的词条/ });
     await checkbox.check();
     await targetRow.scrollIntoViewIfNeeded();
     const savedScrollY = await reviewer.page.evaluate(() => window.scrollY);
@@ -2180,8 +2181,8 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
       )
       .toBe(true);
     await feedbackDialog.getByLabel(/問題類型|问题类型/).selectOption("DISTRACTOR");
-    await feedbackDialog.getByLabel(/發現咗咩問題|发现咗咩问题/).fill("呢組干擾項對學生嚟講太容易");
-    await feedbackDialog.getByLabel(/建議點改|建议点改/).fill("改用同一語境但意思不同的詞");
+    await feedbackDialog.getByLabel(/你發現了甚麼問題|你发现了什么问题/).fill("呢組干擾項對學生嚟講太容易");
+    await feedbackDialog.getByLabel(/建議如何修改|建议如何修改/).fill("改用同一語境但意思不同的詞");
     const feedbackOperationIds: string[] = [];
     let hideFirstFeedbackResponse = true;
     await proposer.page.route("**/api/catalog/feedback", async (route) => {
@@ -2319,7 +2320,7 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     await retryItem.getByRole("button", { name: /修改後重新提交|修改后重新提交/ }).click();
     const retryDialog = proposer.page.getByRole("dialog");
     await expect(retryDialog.getByText(/重新提交修正版/)).toBeVisible();
-    await expect(retryDialog.getByText(/正式版本同原提案有欄位衝突|正式版本同原提案有栏位冲突/)).toBeVisible();
+    await expect(retryDialog.getByText(/正式版本與原提案有欄位衝突|正式版本与原提案有栏位冲突/)).toBeVisible();
     await retryDialog.getByLabel(/衝突欄位 definitionZh|冲突栏位 definitionZh/).selectOption("PROPOSAL");
     await retryDialog.getByTestId("catalog-definition-zh").fill("按審核意見修正的瀏覽器詞庫回歸測試詞");
     await retryDialog.getByLabel(/修改理由/).fill("已按審核意見修正中文釋義");
@@ -2395,7 +2396,9 @@ test("catalog workspace keeps drafts private and completes one-reviewer lifecycl
     });
     expect(exportResponse.ok(), await exportResponse.text()).toBeTruthy();
     const csv = await exportResponse.text();
-    expect(csv.split("\n", 1)[0]!.split(",")).toHaveLength(34);
+    // Version marker precedes the unchanged 34-field header.
+    expect(csv.split(/\r?\n/)[1]!.split(",")).toEqual(CATALOG_GOVERNANCE_HEADERS);
+    expect(parseCatalogGovernanceCsv(Buffer.from(csv, "utf8"), "export.csv")).toHaveLength(1);
     const previewResponse = await proposer.page.request.post("/api/catalog/submissions/preview", {
       headers: {
         ...proposerHeaders,
