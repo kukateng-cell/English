@@ -732,7 +732,6 @@ for (const actionKind of ["REVEAL", "SELF_RATING"] as const) {
 }
 
 test("terminal direct submit preserves pending rows when authoritative refresh fails", async ({ page }) => {
-  let streamCalls = 0;
   let actionCalls = 0;
   let actionSubmitted = false;
   const sessionId = "terminal-refresh-failure-session";
@@ -742,7 +741,6 @@ test("terminal direct submit preserves pending rows when authoritative refresh f
   await page.route("**/api/study/stream**", async (route) => {
     const url = new URL(route.request().url());
     if (url.searchParams.has("assignmentOnly")) return route.continue();
-    streamCalls += 1;
     if (actionSubmitted) {
       await route.fulfill({
         status: 503,
