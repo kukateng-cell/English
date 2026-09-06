@@ -10,7 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
-| [study-stream-consistency-and-recovery-audit.md](./study-stream-consistency-and-recovery-audit.md) | V2 集中審核修正 | 已完成（本地驗證；雙 reviewer PASS；push 後 hosted CI／production gate 待確認） | 已完成 SCH-01 補驗 obligation gap filler 及 SYN-01 舊 outbox 安全升級／fail-closed；UI-01、新版 recovery proof、SCH-02／SYN-02／MET-01／API-01 及 body cap 維持已關閉 |
+| [study-stream-consistency-and-recovery-audit.md](./study-stream-consistency-and-recovery-audit.md) | V2 集中審核修正 | 已完成（本地驗證；雙 reviewer PASS；push 後 hosted CI／production gate 待確認） | SCH-01 排程及新版恢復流程維持已關閉；CI-01 obligation 狀態測試已改為按原始 ID／狀態驗證，舊待同步列在本次部署確認不存在，維持 fail-closed 相容性限制 |
 | [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 已完成（第九輪本地驗證；hosted CI 待推送） | 已完成直接提交 terminal 409／403 reconciliation 後嘅 pending drain，以及權威重載失敗／blocked 保留操作控制；待本次推送後 hosted CI |
 | [staging-audit-followup.md](./staging-audit-followup.md) | 審核第二／三輪 | 第二輪 CI 全通過；第三輪局部補修本地完成 | fresh seed、CSV、CIS-010 預覽、問題篩選、route cap；第三輪負號公式編碼、379 unit 及真實試算表 round-trip 通過；分支規則待管理員 |
 | [staging-audit-remediation.md](./staging-audit-remediation.md) | 審核修正 | 已完成（分支保護待管理員） | seed、V2 outbox、題目安全、catalog輸入輸出、依賴及CI修正；374 unit、V2 DB／browser、三引擎雙分頁測試通過 |

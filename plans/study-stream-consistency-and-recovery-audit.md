@@ -1,6 +1,6 @@
 # V2 學習一致性、排程及恢復審核修正
 
-狀態：已完成（a304944 覆核收尾；本地驗證及雙 reviewer PASS；push 後 hosted CI／production gate 待確認）
+狀態：已完成（aef0459 CI-01 收尾；本地驗證及雙 reviewer PASS；push 後 hosted CI／production gate 待確認）
 
 ## 背景及目標
 
@@ -82,6 +82,12 @@
 - [x] 保留已通過的新版 item-bound recovery proof、immutable operation fingerprint、UI-01 retry drain 及既有 terminal reconciliation，不以放寬未知 credential、清空 outbox 或新 `operationId` 取代修正。
 - [x] 以真正 PostgreSQL／React／Playwright 驗收補驗 gap，並覆蓋舊 row、K1 淘汰、session／scope 失配、terminal／revoked／unknown credential 及其他 row 保留；兩位 reviewer 明確 PASS。
 
+### I：aef0459 最終覆核（CI-01／legacy applicability）
+
+- [x] SCH-01：本輪覆核沒有重現補驗任務間隔卡住；保留現有獨立 gap filler，不再改動已通過的排程流程。
+- [x] CI-01：PostgreSQL regression 改以被派發 obligation 的 `id` 及狀態數量驗證 `LEASED`／`PENDING`，不假設資料庫返回次序。
+- [x] SYN-01：已確認本次部署沒有需要遷移的舊待同步 outbox row；不為不存在的資料改動啟動順序或放寬授權，保留無法驗證舊操作時的 fail-closed 安全限制及支援記錄。
+
 ## 風險及緩解
 
 - 歷史查詢可能增加 scheduler 成本：以 learner-scoped bounded window／索引查詢，並以長序列效能測試確認不退化。
@@ -98,7 +104,7 @@
 
 ## 實際驗證及限制
 
-前一輪（G）及 H 段均由兩位獨立 reviewer 明確 PASS；本輪已完成以下驗證：
+前一輪（G）、H 段及 I 段均由兩位獨立 reviewer 明確 PASS；本輪已完成以下驗證：
 
 - `npm test`：400 tests passed。
 - `npx tsc --noEmit`、`npm run lint`、`git diff --check`：通過。

@@ -1685,20 +1685,21 @@ async function main() {
         },
       },
     });
-    const obligationGapWork = await prisma.evidenceObligation.createMany({
-      data: obligationGapWords.slice(1, 4).map((word) => ({
-        userId: obligationGapUser.id,
-        wordId: word.id,
-        senseId: word.senseId,
-        kind: "EVIDENCE_OBLIGATION",
-        status: "PENDING",
-        selectionReason: "obligation-gap-regression",
-        policyVersion: "retrieval-v1",
-        eligibleAt: new Date(obligationGapNow.getTime() - 1_000),
-        expiresAt: new Date(obligationGapNow.getTime() + 24 * 60 * 60_000),
-        activeKey: `${obligationGapUser.id}:EVIDENCE_OBLIGATION:${word.id}`,
-      })),
-    });
+    const obligationGapRowsToCreate = obligationGapWords.slice(1, 4).map((word, index) => ({
+      id: `obligation-gap-${suffix}-${index}`,
+      userId: obligationGapUser.id,
+      wordId: word.id,
+      senseId: word.senseId,
+      kind: "EVIDENCE_OBLIGATION",
+      status: "PENDING",
+      selectionReason: "obligation-gap-regression",
+      policyVersion: "retrieval-v1",
+      eligibleAt: new Date(obligationGapNow.getTime() - 1_000),
+      expiresAt: new Date(obligationGapNow.getTime() + 24 * 60 * 60_000),
+      activeKey: `${obligationGapUser.id}:EVIDENCE_OBLIGATION:${word.id}`,
+    }));
+    const obligationGapIds = obligationGapRowsToCreate.map((row) => row.id);
+    const obligationGapWork = await prisma.evidenceObligation.createMany({ data: obligationGapRowsToCreate });
     assert.equal(obligationGapWork.count, 3);
     const obligationGapOptions = {
       mode: "unit" as const,
@@ -1750,12 +1751,21 @@ async function main() {
       select: { workObligationId: true },
     });
     assert.ok(obligationGapProbeRow.workObligationId);
-    const obligationGapStatuses = await prisma.evidenceObligation.findMany({
+    const obligationGapRows = await prisma.evidenceObligation.findMany({
       where: { userId: obligationGapUser.id },
-      select: { status: true },
+      select: { id: true, status: true },
       orderBy: { createdAt: "asc" },
     });
-    assert.deepEqual(obligationGapStatuses.map((row) => row.status), ["LEASED", "PENDING", "PENDING"]);
+    assert.equal(obligationGapRows.length, obligationGapIds.length);
+    assert.deepEqual(new Set(obligationGapRows.map((row) => row.id)), new Set(obligationGapIds));
+    if (!obligationGapProbeRow.workObligationId) throw new Error("obligation-gap probe lost its obligation identity");
+    const obligationGapStatusesById = new Map(obligationGapRows.map((row) => [row.id, row.status]));
+    for (const obligationId of obligationGapIds) {
+      assert.equal(
+        obligationGapStatusesById.get(obligationId),
+        obligationId === obligationGapProbeRow.workObligationId ? "LEASED" : "PENDING",
+      );
+    }
 
     // A long-running learner can have more encounters than the bounded
     // contact-time history window. The contacted/untouched partition must
