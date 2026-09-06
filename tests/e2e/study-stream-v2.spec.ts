@@ -226,6 +226,227 @@ test("an expired session resumes read-only Objective Probe feedback before sched
   await expect(page.getByTestId("study-stream-feedback-affordance")).toHaveCount(0);
 });
 
+test("an initial stream timeout is shown as an error instead of an empty stream", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.clock.install();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let streamRequestSeen = false;
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    streamRequestSeen = true;
+    try {
+      await gate;
+      await route.fulfill({
+        json: {
+          ok: true,
+          assigned: true,
+          resumedFeedback: false,
+          session: {
+            id: "timeout-session",
+            mode: "global",
+            flowVersion: "v2",
+            policyVersion: "retrieval-v1",
+            revision: 0,
+            expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+          },
+          item: null,
+        } satisfies PublicStreamResponse,
+      });
+    } catch {
+      // The browser aborts the request after the application deadline.
+    }
+  });
+
+  try {
+    await page.goto("/study");
+    await expect.poll(() => streamRequestSeen).toBe(true);
+    await page.clock.fastForward(15_001);
+    await expect(page.getByRole("alert").filter({ hasText: "網絡要求逾時" })).toBeVisible();
+    await expect(page.getByText("目前沒有可安全安排的學習項目", { exact: true })).toHaveCount(0);
+  } finally {
+    release();
+  }
+});
+
+for (const timeoutPhase of ["csrf", "action"] as const) {
+  test(`a ${timeoutPhase} timeout keeps the direct operation and sibling pending`, async ({ page }) => {
+    test.setTimeout(60_000);
+    const usesFakeClock = timeoutPhase === "action";
+    if (usesFakeClock) await page.clock.install();
+    const sessionId = `timeout-${timeoutPhase}-session`;
+    const streamItemId = `timeout-${timeoutPhase}-item`;
+    const itemCredential = `timeout-${timeoutPhase}-credential-012345678901234567890123456789`;
+    let actionCalls = 0;
+    let csrfCalls = 0;
+    let revealed = false;
+    let releaseAction!: () => void;
+    const actionGate = new Promise<void>((resolve) => { releaseAction = resolve; });
+    let releaseCsrf!: () => void;
+    const csrfGate = new Promise<void>((resolve) => { releaseCsrf = resolve; });
+    let csrfShouldHang = false;
+
+    await page.route("**/api/study/stream**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.has("assignmentOnly")) return route.continue();
+      await route.fulfill({
+        json: {
+          ok: true,
+          assigned: true,
+          resumedFeedback: false,
+          session: {
+            id: sessionId,
+            mode: "global",
+            flowVersion: "v2",
+            policyVersion: "retrieval-v1",
+            revision: 0,
+            expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+          },
+          item: {
+            streamItemId,
+            kind: "LEARNING_CARD",
+            flowVersion: "v2",
+            policyVersion: "retrieval-v1",
+            qualityPolicyVersion: "retrieval-v1-quality-v1",
+            itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+            selectionReason: "timeout-test",
+            itemCredential,
+            credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+            clientRevision: 0,
+            prompt: "timeout-card",
+            ...(revealed ? {
+              learningCard: {
+                term: "timeout-card",
+                phonetic: null,
+                definition: "逾時測試",
+                pos: null,
+                examples: [],
+              },
+            } : {}),
+          },
+        } satisfies PublicStreamResponse,
+      });
+    });
+    await page.route("**/api/auth/csrf", async (route) => {
+      csrfCalls += 1;
+      if (timeoutPhase === "csrf" && csrfShouldHang) {
+        try {
+          await csrfGate;
+          await route.fulfill({ json: { csrfToken: "timeout-test-token" } });
+        } catch {
+          // The application deadline aborts the hanging CSRF request.
+        }
+        return;
+      }
+      await route.fulfill({ json: { csrfToken: "timeout-test-token" } });
+    });
+    await page.route("**/api/study/actions", async (route) => {
+      const action = route.request().postDataJSON() as StudyStreamActionInput;
+      if (action.actionKind === "REVEAL") {
+        revealed = true;
+        await route.fulfill({
+          json: {
+            ok: true,
+            operationId: action.operationId,
+            actionKind: action.actionKind,
+            duplicate: false,
+            itemStatus: "REVEALED",
+            clientRevision: 0,
+            requiresFeedbackAck: false,
+            learningCard: {
+              term: "timeout-card",
+              phonetic: null,
+              definition: "逾時測試",
+              pos: null,
+              examples: [],
+            },
+            nextItem: null,
+          },
+        });
+        return;
+      }
+      actionCalls += 1;
+      try {
+        await actionGate;
+        await route.fulfill({
+          json: {
+            ok: true,
+            operationId: action.operationId,
+            actionKind: action.actionKind,
+            duplicate: false,
+            itemStatus: "REVEALED",
+            clientRevision: 0,
+            requiresFeedbackAck: false,
+            nextItem: null,
+          },
+        });
+      } catch {
+        // The client aborts after the application deadline.
+      }
+    });
+
+    try {
+      await page.goto("/study");
+      await expect(page.getByText("timeout-card", { exact: true })).toBeVisible();
+      const hint = page.getByTestId("word-card-hint");
+      const box = (await hint.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      if (usesFakeClock) await page.clock.fastForward(3_250);
+      else await page.waitForTimeout(3_250);
+      await page.mouse.up();
+      await expect(page.getByTestId("word-card-back-face")).toBeVisible();
+      csrfShouldHang = timeoutPhase === "csrf";
+
+      const authSession = await page.request.get("/api/auth/session");
+      const authPayload = await authSession.json() as { user?: { id?: string } };
+      const userId = authPayload.user?.id;
+      if (!userId) throw new Error("missing authenticated user id");
+      const siblingOperationId = `timeout-${timeoutPhase}-sibling`;
+      await page.evaluate(({ userId: currentUserId, sessionId: currentSessionId, streamItemId: currentItemId, itemCredential: credential, operationId }) => {
+        const key = `english:study-stream-v2:outbox:${currentUserId}`;
+        localStorage.setItem(key, JSON.stringify([{
+          action: {
+            flowVersion: "v2",
+            studySessionId: currentSessionId,
+            streamItemId: currentItemId,
+            operationId,
+            itemCredential: credential,
+            actionKind: "SELF_RATING",
+            clientKnownRevision: 0,
+            payload: { selfRating: "selfRecalled" },
+          },
+          status: "pending",
+          attempts: 0,
+          lastError: null,
+          updatedAt: Date.now(),
+        }]));
+      }, { userId, sessionId, streamItemId, itemCredential, operationId: siblingOperationId });
+
+      await page.getByRole("button", { name: "和剛才想的一樣" }).click();
+      if (timeoutPhase === "csrf") {
+        // One token request is used for the reveal; the second is the
+        // deliberately black-holed request for the self-rating.
+        await expect.poll(() => csrfCalls).toBeGreaterThan(1);
+        await page.waitForTimeout(15_500);
+      } else {
+        await expect.poll(() => actionCalls).toBe(1);
+        await page.clock.fastForward(15_001);
+      }
+      await expect(page.getByRole("alert").filter({ hasText: "網絡要求逾時" })).toBeVisible();
+      await expect.poll(async () => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "[]").map((row: { action: StudyStreamActionInput; status: string }) => `${row.action.operationId}:${row.status}`), `english:study-stream-v2:outbox:${userId}`)).toEqual([
+        `timeout-${timeoutPhase}-sibling:pending`,
+        expect.stringMatching(new RegExp(`^stream-.*:pending$`)),
+      ]);
+      expect(actionCalls).toBe(timeoutPhase === "csrf" ? 0 : 1);
+    } finally {
+      releaseCsrf();
+      releaseAction();
+    }
+  });
+}
+
 test("an older bootstrap generation cannot roll back the current item revision", async ({ page }) => {
   let calls = 0;
   let releaseOld!: () => void;

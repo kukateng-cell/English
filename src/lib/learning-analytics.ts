@@ -1,13 +1,17 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Prisma, StudentGrade, ClassCode, Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
-import { currentCatalogReviewEventWhere, currentCatalogSenseWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
+import { currentCatalogReviewEventWhere, currentCatalogSenseWhere, isEligibleOperationalObjectiveEvent, withCurrentCatalogWord } from "@/lib/catalog/runtime";
 import { todayKey, offsetDay } from "@/lib/streak";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { CLASS_LABELS, compareStudentNumberSortKey, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
-import { OBJECTIVE_QUALITY_POLICY_VERSION } from "@/lib/learning-policy/types";
+import {
+  OBJECTIVE_ITEM_CONSTRUCTION_VERSION,
+  OBJECTIVE_QUALITY_POLICY_VERSION,
+} from "@/lib/learning-policy/types";
 import { MAX_ANALYTICS_CLASS_SELECTION, MAX_ANALYTICS_EXPORT_BODY_BYTES } from "@/lib/learning-analytics-contract";
+import { readLimitedBody } from "@/lib/request-body";
 
 const BODY_LIMIT = 16 * 1024;
 const MAX_DAYS = 180;
@@ -78,7 +82,8 @@ type Member = {
   startedAt: Date | null;
 };
 
-type CandidateExcluded = { historical: number; nonWinning: number; unsupportedPurpose: number; missingProvenance: number; unknownPolicyVersion: number; invalidPolicyOutcome: number };
+type CandidateExcluded = { historical: number; bridge: number; nonWinning: number; unsupportedPurpose: number; missingProvenance: number; unknownPolicyVersion: number; invalidPolicyOutcome: number };
+export type ObjectiveEventDisposition = keyof CandidateExcluded | "eligible";
 type ObjectiveMetric = {
   objectiveCandidateCount: number;
   correctCount: number;
@@ -111,6 +116,12 @@ type Metric = {
 };
 
 type CursorPayload = { v: number; id: string; accountName: string; studentNumber: number | null; sort: AnalyticsStudentSort; fingerprint: string; scopeRevision: number; asOf: string; effectiveFrom: string; effectiveTo: string };
+
+/** Keep migration/backfill events out of the operational objective bucket. */
+export function objectiveEventKindBucket(eventKind: string, isHistorical: boolean): "review" | "historical" | "bridge" {
+  if (isHistorical) return "historical";
+  return eventKind === "REVIEW" ? "review" : "bridge";
+}
 
 export function analyticsStudentCursorFingerprint(input: {
   role: Role;
@@ -212,8 +223,7 @@ function jsonObject(value: unknown): Record<string, unknown> | null {
 export type AnalyticsQueryRoute = "STUDENTS" | "CLASSES" | "TIMELINE";
 
 export async function readAnalyticsQuery(req: Request, options: { route?: AnalyticsQueryRoute } = {}): Promise<AnalyticsQuery> {
-  const contentLength = Number(req.headers.get("content-length") ?? 0); if (Number.isFinite(contentLength) && contentLength > BODY_LIMIT) throw new Error("PAYLOAD_TOO_LARGE");
-  const raw = await req.text().catch(() => ""); if (Buffer.byteLength(raw, "utf8") > BODY_LIMIT) throw new Error("PAYLOAD_TOO_LARGE");
+  const raw = new TextDecoder().decode(await readLimitedBody(req, BODY_LIMIT));
   let body: Record<string, unknown>;
   try {
     const parsed = jsonObject(raw ? JSON.parse(raw) : {});
@@ -350,8 +360,56 @@ async function readMembers(db: Db, input: MemberScopeInput) {
   });
 }
 
+type LoadedReviewEvent = {
+  id: string;
+  operationId: string;
+  userId: string;
+  submittedWordId: string;
+  wordId: string | null;
+  senseId: string | null;
+  contentRevisionId: string | null;
+  catalogRevisionId: string | null;
+  quality: number;
+  createdAt: Date;
+  eventKind: string;
+  isHistorical: boolean;
+  evidenceKind: string | null;
+  flowVersion: string | null;
+  qualityPolicyVersion: string | null;
+  itemConstructionVersion: string | null;
+  probePurpose: string | null;
+  objectiveEvidenceTargetId: string | null;
+  objectiveQuestionSnapshotId: string | null;
+  objectiveEvidenceTarget: {
+    id: string;
+    userId: string;
+    wordId: string | null;
+    senseId: string | null;
+    policyVersion: string;
+    itemConstructionVersion: string;
+    status: string;
+    winningOperationId: string | null;
+    winningReviewEventId: string | null;
+    purpose: string;
+    obligation: { status: string } | null;
+    questionSnapshot: {
+      id: string;
+      targetId: string | null;
+      wordId: string | null;
+      senseId: string | null;
+      contentRevisionId: string | null;
+      catalogRevisionId: string | null;
+      contentVersion: string;
+      itemConstructionVersion: string;
+    } | null;
+  } | null;
+};
+
 type LoadedActivity = {
-  reviewEvents: Array<{ id: string; operationId: string; userId: string; submittedWordId: string; quality: number; createdAt: Date; isHistorical: boolean; evidenceKind: string | null; flowVersion: string | null; qualityPolicyVersion: string | null; probePurpose: string | null; objectiveEvidenceTargetId: string | null; objectiveQuestionSnapshotId: string | null; objectiveEvidenceTarget: { status: string; winningOperationId: string | null; winningReviewEventId: string | null; purpose: string; obligation: { status: string } | null; questionSnapshot: { id: string } | null } | null }>;
+  /** Current operational REVIEW rows used for the regular review metric. */
+  reviewEvents: LoadedReviewEvent[];
+  /** Broader immutable event universe used to account for excluded objective rows. */
+  objectiveReviewEvents: LoadedReviewEvent[];
   encounters: Array<{ userId: string; wordId: string | null; acknowledgedAt: Date }>;
   studyDays: Array<{ userId: string; date: string; createdAt: Date }>;
   reviews: Array<{ userId: string; interval: number; nextReviewDate: Date }>;
@@ -373,15 +431,73 @@ export function countEncountersForLocalDate(rows: Array<{ acknowledgedAt: Date }
 }
 
 async function loadActivity(db: Db, memberIds: string[], range: EffectiveRange, asOf: Date): Promise<LoadedActivity> {
-  if (!memberIds.length) return { reviewEvents: [], encounters: [], studyDays: [], reviews: [], wordCount: await db.word.count({ where: withCurrentCatalogWord() }), reviewEventsByUser: new Map(), encountersByUser: new Map(), studyDaysByUser: new Map(), reviewsByUser: new Map() };
+  if (!memberIds.length) return { reviewEvents: [], objectiveReviewEvents: [], encounters: [], studyDays: [], reviews: [], wordCount: await db.word.count({ where: withCurrentCatalogWord() }), reviewEventsByUser: new Map(), encountersByUser: new Map(), studyDaysByUser: new Map(), reviewsByUser: new Map() };
   const from = atShanghaiStart(range.from); const to = atShanghaiEnd(range.to);
   // An interactive Prisma transaction is backed by one PostgreSQL client.
   // Running these reads with Promise.all makes pg queue overlapping
   // client.query calls; under the small local pool this can leave the
   // analytics request waiting until the transaction times out and becomes a
   // generic 500. Keep the reads on the snapshot connection sequential.
-  const reviewEvents = await db.reviewEvent.findMany({ where: { AND: [currentCatalogReviewEventWhere(), { userId: { in: memberIds }, createdAt: { gte: from, lt: to, lte: asOf } }] }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { id: true, operationId: true, userId: true, submittedWordId: true, quality: true, createdAt: true, isHistorical: true, evidenceKind: true, flowVersion: true, qualityPolicyVersion: true, probePurpose: true, objectiveEvidenceTargetId: true, objectiveQuestionSnapshotId: true, objectiveEvidenceTarget: { select: { status: true, winningOperationId: true, winningReviewEventId: true, purpose: true, obligation: { select: { status: true } }, questionSnapshot: { select: { id: true } } } } } });
+  const reviewEventSelect = {
+    id: true,
+    operationId: true,
+    userId: true,
+    submittedWordId: true,
+    wordId: true,
+    senseId: true,
+    contentRevisionId: true,
+    catalogRevisionId: true,
+    quality: true,
+    createdAt: true,
+    eventKind: true,
+    isHistorical: true,
+    evidenceKind: true,
+    flowVersion: true,
+    qualityPolicyVersion: true,
+    itemConstructionVersion: true,
+    probePurpose: true,
+    objectiveEvidenceTargetId: true,
+    objectiveQuestionSnapshotId: true,
+    objectiveEvidenceTarget: {
+      select: {
+        id: true,
+        userId: true,
+        wordId: true,
+        senseId: true,
+        policyVersion: true,
+        itemConstructionVersion: true,
+        status: true,
+        winningOperationId: true,
+        winningReviewEventId: true,
+        purpose: true,
+        obligation: { select: { status: true } },
+        questionSnapshot: {
+          select: {
+            id: true,
+            targetId: true,
+            wordId: true,
+            senseId: true,
+            contentRevisionId: true,
+            catalogRevisionId: true,
+            contentVersion: true,
+            itemConstructionVersion: true,
+          },
+        },
+      },
+    },
+  } as const;
+  const reviewEvents = await db.reviewEvent.findMany({ where: { AND: [currentCatalogReviewEventWhere(), { userId: { in: memberIds }, createdAt: { gte: from, lt: to, lte: asOf } }] }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: reviewEventSelect });
   if (reviewEvents.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
+  // Keep the objective candidate universe broader than the current operational
+  // projection. Historical and bridge rows must reach objectiveFor() so its
+  // exclusion buckets and candidate/eligible conservation remain meaningful;
+  // only the final provenance helper decides whether a row affects metrics.
+  const objectiveReviewEvents = await db.reviewEvent.findMany({
+    where: { userId: { in: memberIds }, createdAt: { gte: from, lt: to, lte: asOf } },
+    take: MAX_ANALYTICS_ACTIVITY_ROWS + 1,
+    select: reviewEventSelect,
+  });
+  if (objectiveReviewEvents.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
   const encounters = await db.studyEncounter.findMany({ where: { userId: { in: memberIds }, senseId: { not: null }, sense: { is: currentCatalogSenseWhere() }, acknowledgedAt: { gte: from, lt: to, lte: asOf } }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, wordId: true, acknowledgedAt: true } });
   if (encounters.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
   const studyDays = await db.studyDay.findMany({ where: { userId: { in: memberIds }, date: { gte: range.from, lte: range.to }, createdAt: { lte: asOf } }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, date: true, createdAt: true } });
@@ -389,27 +505,55 @@ async function loadActivity(db: Db, memberIds: string[], range: EffectiveRange, 
   const reviews = await db.review.findMany({ where: { userId: { in: memberIds }, word: withCurrentCatalogWord() }, take: MAX_ANALYTICS_ACTIVITY_ROWS + 1, select: { userId: true, interval: true, nextReviewDate: true } });
   if (reviews.length > MAX_ANALYTICS_ACTIVITY_ROWS) throw new Error("ANALYTICS_SCOPE_TOO_LARGE");
   const wordCount = await db.word.count({ where: withCurrentCatalogWord() });
-  return { reviewEvents, encounters, studyDays, reviews, wordCount, reviewEventsByUser: indexByUser(reviewEvents), encountersByUser: indexByUser(encounters), studyDaysByUser: indexByUser(studyDays), reviewsByUser: indexByUser(reviews) };
+  return { reviewEvents, objectiveReviewEvents, encounters, studyDays, reviews, wordCount, reviewEventsByUser: indexByUser(reviewEvents), encountersByUser: indexByUser(encounters), studyDaysByUser: indexByUser(studyDays), reviewsByUser: indexByUser(reviews) };
 }
 
-function objectiveFor(memberIds: string[], events: LoadedActivity["reviewEvents"], dateFrom?: string, dateTo?: string) {
-  const excluded: CandidateExcluded = { historical: 0, nonWinning: 0, unsupportedPurpose: 0, missingProvenance: 0, unknownPolicyVersion: 0, invalidPolicyOutcome: 0 };
+export function classifyObjectiveEvent(event: LoadedReviewEvent): ObjectiveEventDisposition {
+  const kindBucket = objectiveEventKindBucket(event.eventKind, event.isHistorical);
+  if (kindBucket === "historical") return "historical";
+  // LEGACY_BRIDGE and other non-REVIEW rows are immutable migration or
+  // diagnostic records, never operational objective attempts. Keep them in
+  // their own exclusion bucket instead of coercing their event kind below.
+  if (kindBucket === "bridge") return "bridge";
+  if (!event.objectiveEvidenceTargetId || !event.objectiveQuestionSnapshotId || event.flowVersion !== "v2") return "missingProvenance";
+
+  // A missing relation is a provenance gap, not a losing/non-winning attempt.
+  // The distinction matters for conservation diagnostics: a target or
+  // snapshot deleted by retention must not look like a valid competing winner.
+  const target = event.objectiveEvidenceTarget;
+  const snapshot = target?.questionSnapshot;
+  if (!target || !snapshot) return "missingProvenance";
+  if (target.status !== "CONSUMED" || target.purpose !== event.probePurpose || target.winningReviewEventId !== event.id || target.winningOperationId !== event.operationId || snapshot.id !== event.objectiveQuestionSnapshotId) return "nonWinning";
+  if (event.probePurpose === "EVIDENCE_OBLIGATION" && target.obligation?.status !== "ANSWERED") return "missingProvenance";
+  if (event.probePurpose === "DUE_REVIEW" && target.obligation !== null) return "missingProvenance";
+  if (event.probePurpose !== "DUE_REVIEW" && event.probePurpose !== "EVIDENCE_OBLIGATION") return "unsupportedPurpose";
+  if (event.qualityPolicyVersion !== OBJECTIVE_QUALITY_POLICY_VERSION || event.itemConstructionVersion !== OBJECTIVE_ITEM_CONSTRUCTION_VERSION) return "unknownPolicyVersion";
+  // Retrieval-v1's server policy only accepts these two operational qualities.
+  if (event.quality !== 4 && event.quality !== 2) return "invalidPolicyOutcome";
+  if (!isEligibleOperationalObjectiveEvent(event)) return "missingProvenance";
+  return "eligible";
+}
+
+export function isObjectiveEventCandidate(event: LoadedReviewEvent): boolean {
+  return event.flowVersion === "v2" || event.evidenceKind === "OBJECTIVE_PROBE" || Boolean(event.objectiveEvidenceTargetId) || Boolean(event.objectiveQuestionSnapshotId) || event.probePurpose !== null;
+}
+
+function objectiveFor(memberIds: string[], events: LoadedReviewEvent[], dateFrom?: string, dateTo?: string) {
+  const excluded: CandidateExcluded = { historical: 0, bridge: 0, nonWinning: 0, unsupportedPurpose: 0, missingProvenance: 0, unknownPolicyVersion: 0, invalidPolicyOutcome: 0 };
   const perStudent = new Map<string, { correct: number; attempts: number }>();
+  const allowedMembers = new Set(memberIds);
   let candidate = 0; let correct = 0; let eligible = 0;
   for (const event of events) {
+    if (!allowedMembers.has(event.userId)) continue;
     const date = localDate(event.createdAt); if (dateFrom && (date < dateFrom || date > dateTo!)) continue;
-    const marker = event.evidenceKind === "OBJECTIVE_PROBE" || Boolean(event.objectiveEvidenceTargetId) || Boolean(event.objectiveQuestionSnapshotId) || event.probePurpose !== null;
-    if (!marker) continue;
+    // Any V2 ReviewEvent is an objective candidate marker, even when its
+    // provenance fields are incomplete. That row must be counted and placed
+    // in missingProvenance instead of disappearing from the denominator.
+    if (!isObjectiveEventCandidate(event)) continue;
     candidate += 1;
-    if (event.isHistorical) { excluded.historical += 1; continue; }
-    if (!event.objectiveEvidenceTargetId || !event.objectiveQuestionSnapshotId || !event.flowVersion || event.flowVersion !== "v2") { excluded.missingProvenance += 1; continue; }
-    if (!event.objectiveEvidenceTarget || event.objectiveEvidenceTarget.status !== "CONSUMED" || event.objectiveEvidenceTarget.purpose !== event.probePurpose || event.objectiveEvidenceTarget.winningReviewEventId !== event.id || event.objectiveEvidenceTarget.winningOperationId !== event.operationId || event.objectiveEvidenceTarget.questionSnapshot?.id !== event.objectiveQuestionSnapshotId) { excluded.nonWinning += 1; continue; }
-    if (event.objectiveEvidenceTarget.obligation && !["ANSWERED", "EXPIRED"].includes(event.objectiveEvidenceTarget.obligation.status)) { excluded.missingProvenance += 1; continue; }
-    if (event.probePurpose !== "DUE_REVIEW" && event.probePurpose !== "EVIDENCE_OBLIGATION") { excluded.unsupportedPurpose += 1; continue; }
-    if (event.qualityPolicyVersion !== OBJECTIVE_QUALITY_POLICY_VERSION) { excluded.unknownPolicyVersion += 1; continue; }
-    // Retrieval-v1's server policy only accepts these two operational qualities.
+    const disposition = classifyObjectiveEvent(event);
+    if (disposition !== "eligible") { excluded[disposition] += 1; continue; }
     const quality = event.quality;
-    if (quality !== 4 && quality !== 2) { excluded.invalidPolicyOutcome += 1; continue; }
     eligible += 1; if (quality === 4) correct += 1;
     const current = perStudent.get(event.userId) ?? { correct: 0, attempts: 0 }; current.attempts += 1; if (quality === 4) current.correct += 1; perStudent.set(event.userId, current);
   }
@@ -441,7 +585,16 @@ function metricFor(members: Member[], activity: LoadedActivity, range: Effective
     stock.set(member.id, { mastered: masteredRows.length, due: memberStock.filter((row) => row.nextReviewDate <= asOf).length });
   }
   const eligibleIds = new Set(eligible.map((member) => member.id));
-  const objective = objectiveFor([...eligibleIds], reviews, from, to).metric;
+  const membersById = new Map(members.map((member) => [member.id, member]));
+  const objectiveEvents = activity.objectiveReviewEvents.filter((event) => {
+    if (!eligibleIds.has(event.userId)) return false;
+    const member = membersById.get(event.userId);
+    if (!member) return false;
+    const exposureStart = member.startedAt ? localDate(member.startedAt) : from;
+    const date = localDate(event.createdAt);
+    return date >= from && date <= to && date >= exposureStart && event.createdAt <= asOf;
+  });
+  const objective = objectiveFor([...eligibleIds], objectiveEvents, from, to).metric;
   const mastery = members.map((member) => (activity.wordCount ? (stock.get(member.id)?.mastered ?? 0) / activity.wordCount * 100 : 0));
   const dueStudentCount = members.filter((member) => (stock.get(member.id)?.due ?? 0) > 0).length;
   const dueReviewCount = [...stock.values()].reduce((sum, value) => sum + value.due, 0);
@@ -629,10 +782,7 @@ const MAX_EXPORT_STUDENT_SCOPE = 500;
 const MAX_EXPORT_ROWS = 100_000;
 
 export async function readLearningAnalyticsExportRequest(req: Request): Promise<LearningAnalyticsExportRequest> {
-  const contentLength = Number(req.headers.get("content-length") ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_ANALYTICS_EXPORT_BODY_BYTES) throw new Error("PAYLOAD_TOO_LARGE");
-  const raw = await req.text().catch(() => "");
-  if (Buffer.byteLength(raw, "utf8") > MAX_ANALYTICS_EXPORT_BODY_BYTES) throw new Error("PAYLOAD_TOO_LARGE");
+  const raw = new TextDecoder().decode(await readLimitedBody(req, MAX_ANALYTICS_EXPORT_BODY_BYTES));
   let body: Record<string, unknown>;
   try {
     const parsed = jsonObject(raw ? JSON.parse(raw) : {});

@@ -9,8 +9,10 @@ import { checkStudyCredentialRate } from "@/lib/study-limiter";
 import { getClientIp } from "@/lib/login-limiter";
 import { canResumeStudySession } from "@/lib/study-session";
 import { isSameOriginMutation } from "@/lib/csrf";
+import { readLimitedBody } from "@/lib/request-body";
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+const BODY_LIMIT = 16 * 1024;
 
 export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
@@ -23,7 +25,18 @@ export async function POST(req: Request) {
       { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } },
     );
   }
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  let body: Record<string, unknown> | null = null;
+  try {
+    const raw = new TextDecoder().decode(await readLimitedBody(req, BODY_LIMIT));
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      body = parsed as Record<string, unknown>;
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === "PAYLOAD_TOO_LARGE") {
+      return NextResponse.json({ error: "請求內容過大" }, { status: 413 });
+    }
+  }
   const previousSessionId =
     typeof body?.previousSessionId === "string" ? body.previousSessionId.trim() : "";
   const rotationKey =

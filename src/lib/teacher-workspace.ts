@@ -1,7 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Level, Role } from "@/generated/prisma";
 import { prisma, Prisma } from "@/lib/prisma";
-import { currentCatalogSenseWhere, eligibleOperationalObjectiveEventWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
+import {
+  currentCatalogSenseWhere,
+  eligibleOperationalObjectiveEventWhere,
+  isEligibleOperationalObjectiveEvent,
+  withCurrentCatalogWord,
+} from "@/lib/catalog/runtime";
 import { ROLES } from "@/lib/roles";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
@@ -11,6 +16,7 @@ import { compareStudentNumberSortKey, STUDENT_GRADES } from "@/lib/roster-domain
 import type { StudentGrade } from "@/generated/prisma";
 import { issuePasswordResetPrecondition, PASSWORD_RESET_AUDIENCES } from "@/lib/password-reset-precondition";
 import { readRecentAuthGrantForSession } from "@/lib/recent-auth";
+import { readLimitedBody } from "@/lib/request-body";
 
 const CURSOR_VERSION = 2;
 const MAX_SEARCH_GRAPHEMES = 80;
@@ -38,6 +44,18 @@ export type TeacherWorkspaceContext = {
   classes: Array<{ id: string; grade: StudentGrade; classCode: string; revision: number }>;
   studentWhere: Prisma.UserWhereInput;
 };
+
+/** Parse the narrow class-summary body without treating JSON null/arrays as an empty query. */
+export function normalizeTeacherClassSummaryQuery(input: unknown): { grade?: StudentGrade } {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("QUERY_INVALID");
+  const body = input as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== "grade")) throw new Error("QUERY_INVALID");
+  if (body.grade === undefined) return { grade: undefined };
+  if (typeof body.grade !== "string" || !STUDENT_GRADES.includes(body.grade as StudentGrade)) {
+    throw new Error("QUERY_INVALID");
+  }
+  return { grade: body.grade as StudentGrade };
+}
 
 type CursorPayload = {
   v: number;
@@ -117,11 +135,14 @@ export function normalizeTeacherWorkspaceQuery(input: unknown): TeacherWorkspace
 }
 
 export async function readTeacherWorkspaceQuery(req: Request) {
-  const contentLength = Number(req.headers.get("content-length") ?? 0);
-  if (contentLength > 16 * 1024) throw new Error("QUERY_INVALID");
-  const raw = await req.text().catch(() => "");
-  if (Buffer.byteLength(raw, "utf8") > 16 * 1024) throw new Error("QUERY_INVALID");
-  const body = (() => { try { return JSON.parse(raw || "{}"); } catch { return null; } })();
+  let body: unknown;
+  try {
+    const raw = new TextDecoder().decode(await readLimitedBody(req, 16 * 1024, "QUERY_INVALID"));
+    body = raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    if (error instanceof Error && error.message === "QUERY_INVALID") throw error;
+    body = null;
+  }
   return normalizeTeacherWorkspaceQuery(body);
 }
 
@@ -417,8 +438,15 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
       where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId: { in: userIds } }] },
       select: {
         id: true,
+        operationId: true,
         userId: true,
         createdAt: true,
+        submittedWordId: true,
+        wordId: true,
+        senseId: true,
+        contentRevisionId: true,
+        catalogRevisionId: true,
+        quality: true,
         evidenceKind: true,
         flowVersion: true,
         qualityPolicyVersion: true,
@@ -426,7 +454,33 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
         probePurpose: true,
         objectiveEvidenceTargetId: true,
         objectiveQuestionSnapshotId: true,
-        objectiveEvidenceTarget: { select: { winningReviewEventId: true } },
+        objectiveEvidenceTarget: {
+          select: {
+            id: true,
+            userId: true,
+            wordId: true,
+            senseId: true,
+            policyVersion: true,
+            itemConstructionVersion: true,
+            status: true,
+            purpose: true,
+            winningOperationId: true,
+            winningReviewEventId: true,
+            obligation: { select: { status: true } },
+            questionSnapshot: {
+              select: {
+                id: true,
+                targetId: true,
+                wordId: true,
+                senseId: true,
+                contentRevisionId: true,
+                catalogRevisionId: true,
+                contentVersion: true,
+                itemConstructionVersion: true,
+              },
+            },
+          },
+        },
       },
     }),
     prisma.studyDay.findMany({ where: { userId: { in: userIds }, date: { gte: sevenDayStart, lte: todayDate } }, select: { userId: true, date: true } }),
@@ -445,21 +499,9 @@ async function metricSnapshot(userIds: string[], now = new Date()) {
   const reviewCount = new Map<string, number>();
   const validEvents: Array<{ userId: string; createdAt: Date }> = [];
   for (const event of reviewEvents) {
+    if (!isEligibleOperationalObjectiveEvent({ ...event, eventKind: "REVIEW" })) continue;
     reviewCount.set(event.userId, (reviewCount.get(event.userId) ?? 0) + 1);
-    if (
-      event.evidenceKind === "OBJECTIVE_PROBE" &&
-      event.flowVersion === "v2" &&
-      event.probePurpose !== "OPERATIONAL_DIAGNOSTIC" &&
-      event.probePurpose !== "RESEARCH_DIAGNOSTIC" &&
-      (event.probePurpose === "DUE_REVIEW" || event.probePurpose === "EVIDENCE_OBLIGATION") &&
-      Boolean(event.qualityPolicyVersion) &&
-      Boolean(event.itemConstructionVersion) &&
-      Boolean(event.objectiveEvidenceTargetId) &&
-      Boolean(event.objectiveQuestionSnapshotId) &&
-      event.objectiveEvidenceTarget?.winningReviewEventId === event.id
-    ) {
-      objectiveCount.set(event.userId, (objectiveCount.get(event.userId) ?? 0) + 1);
-    }
+    objectiveCount.set(event.userId, (objectiveCount.get(event.userId) ?? 0) + 1);
     validEvents.push({ userId: event.userId, createdAt: event.createdAt });
   }
   const daySets = new Map<string, Set<string>>();

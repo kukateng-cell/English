@@ -13,6 +13,7 @@ import { securityEventData } from "@/lib/security-events";
 import { consumePasswordResetLimits, passwordResetLimitErrorCode } from "@/lib/password-reset-limiter";
 import { assertPasswordResetPrecondition, readPasswordResetPrecondition, PASSWORD_RESET_AUDIENCES, PasswordResetPreconditionError } from "@/lib/password-reset-precondition";
 import { rosterResponse } from "@/lib/roster-api";
+import { readLimitedBody } from "@/lib/request-body";
 
 const BODY_LIMIT = 16 * 1024;
 
@@ -28,12 +29,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!id || Buffer.byteLength(id, "utf8") > 128) return rosterResponse("REQUEST_INVALID", 422);
   const token = await getRequestToken(req);
   if (!token?.sessionJti || token.id !== auth.userId) return rosterResponse("AUTH_REQUIRED", 401);
-  if (Number(req.headers.get("content-length") ?? 0) > BODY_LIMIT) return rosterResponse("PAYLOAD_TOO_LARGE", 413);
-  const rawBody = await req.text().catch(() => "");
-  if (Buffer.byteLength(rawBody, "utf8") > BODY_LIMIT) return rosterResponse("PAYLOAD_TOO_LARGE", 413);
-  let body: { resetPrecondition?: unknown } | null = null;
-  try { body = JSON.parse(rawBody) as { resetPrecondition?: unknown }; } catch { return rosterResponse("REQUEST_INVALID", 422); }
-  if (typeof body.resetPrecondition !== "string" || !body.resetPrecondition) return rosterResponse("RESET_PRECONDITION_INVALID", 422);
+  let body: Record<string, unknown> | null;
+  try {
+    const rawBody = new TextDecoder().decode(await readLimitedBody(req, BODY_LIMIT));
+    const parsed: unknown = rawBody ? JSON.parse(rawBody) : null;
+    body = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch (error) {
+    if (error instanceof Error && error.message === "PAYLOAD_TOO_LARGE") return rosterResponse("PAYLOAD_TOO_LARGE", 413);
+    return rosterResponse("REQUEST_INVALID", 422);
+  }
+  if (!body || typeof body.resetPrecondition !== "string" || !body.resetPrecondition) return rosterResponse("RESET_PRECONDITION_INVALID", 422);
   let precondition;
   try {
     precondition = assertPasswordResetPrecondition(

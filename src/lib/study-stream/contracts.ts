@@ -44,6 +44,7 @@ export interface PublicStreamItemBase {
   qualityPolicyVersion: typeof OBJECTIVE_QUALITY_POLICY_VERSION;
   itemConstructionVersion: typeof OBJECTIVE_ITEM_CONSTRUCTION_VERSION;
   selectionReason: string;
+  selectionOverrideReason?: string | null;
   itemCredential: string;
   credentialExpiresAt: string;
   clientRevision: number;
@@ -225,6 +226,7 @@ export function canonicalActionPayload(input: StudyStreamActionInput): string {
     flowVersion: input.flowVersion,
     studySessionId: input.studySessionId,
     streamItemId: input.streamItemId,
+    operationId: input.operationId,
     actionKind: input.actionKind,
     clientKnownRevision: input.clientKnownRevision,
     payload: input.payload,
@@ -233,4 +235,22 @@ export function canonicalActionPayload(input: StudyStreamActionInput): string {
 
 export function actionFingerprint(input: StudyStreamActionInput): string {
   return createHash("sha256").update(canonicalActionPayload(input), "utf8").digest("hex");
+}
+
+/**
+ * Receipts written before operationId became part of the canonical identity
+ * remain replayable during the expand-only rollout. New receipts always use
+ * actionFingerprint(); this compatibility helper is only accepted when the
+ * operationId lookup already proves the same user-owned operation.
+ */
+export function legacyActionFingerprint(input: StudyStreamActionInput): string {
+  const legacyPayload = JSON.stringify({
+    flowVersion: input.flowVersion,
+    studySessionId: input.studySessionId,
+    streamItemId: input.streamItemId,
+    actionKind: input.actionKind,
+    clientKnownRevision: input.clientKnownRevision,
+    payload: input.payload,
+  });
+  return createHash("sha256").update(legacyPayload, "utf8").digest("hex");
 }

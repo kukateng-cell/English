@@ -884,6 +884,7 @@ model StudyStreamItem {
   senseId                     String?
   itemKind                    String
   selectionReason             String
+  selectionOverrideReason     String?
   policyVersion               String
   status                      String                     @default("LEASED")
   leaseExpiresAt              DateTime

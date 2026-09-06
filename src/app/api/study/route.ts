@@ -36,6 +36,9 @@ import {
 } from "@/lib/transaction-retry";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { withCurrentCatalogWord } from "@/lib/catalog/runtime";
+import { readLimitedBody } from "@/lib/request-body";
+
+const STUDY_ACTION_BODY_LIMIT = 32 * 1024;
 
 /**
  * Fisher–Yates 洗牌（返回新数组副本，不修改入参）。
@@ -450,7 +453,15 @@ export async function POST(req: Request) {
   }
   const userId = auth.userId;
 
-  const body = await req.json().catch(() => null);
+  let body: unknown = null;
+  try {
+    const raw = new TextDecoder().decode(await readLimitedBody(req, STUDY_ACTION_BODY_LIMIT));
+    body = raw ? JSON.parse(raw) as unknown : null;
+  } catch (error) {
+    if (error instanceof Error && error.message === "PAYLOAD_TOO_LARGE") {
+      return NextResponse.json({ error: "請求內容過大" }, { status: 413 });
+    }
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "請求體格式錯誤" }, { status: 400 });
   }

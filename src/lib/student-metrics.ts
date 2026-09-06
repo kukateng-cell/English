@@ -8,6 +8,7 @@ import {
   currentCatalogSenseWhere,
   currentCatalogWordCtesSql,
   eligibleOperationalObjectiveEventWhere,
+  isEligibleOperationalObjectiveEvent,
   withCurrentCatalogWord,
 } from "@/lib/catalog/runtime";
 
@@ -246,7 +247,7 @@ export async function getStudentLearningMetrics(
     reviewedWordCount,
     newWordCount,
     reviewEventCount,
-    objectiveRecognitionCount,
+    objectiveRecognitionEvents,
     selfRatedEncounterCount,
     legacyUnknownEventCount,
     unlockedTotalWords,
@@ -258,7 +259,55 @@ export async function getStudentLearningMetrics(
     prisma.review.count({ where: { userId, lastReviewedAt: { gte: todayStart }, word: withCurrentCatalogWord() } }),
     prisma.review.count({ where: { userId, totalReviews: 1, lastReviewedAt: { gte: todayStart }, word: withCurrentCatalogWord() } }),
     prisma.reviewEvent.count({ where: { AND: [currentCatalogReviewEventWhere(), { userId, createdAt: { gte: todayStart } }] } }),
-    prisma.reviewEvent.count({ where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId, createdAt: { gte: todayStart } }] } }),
+    prisma.reviewEvent.findMany({
+      where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId, createdAt: { gte: todayStart } }] },
+      select: {
+        id: true,
+        operationId: true,
+        userId: true,
+        submittedWordId: true,
+        wordId: true,
+        senseId: true,
+        contentRevisionId: true,
+        catalogRevisionId: true,
+        isHistorical: true,
+        quality: true,
+        evidenceKind: true,
+        flowVersion: true,
+        qualityPolicyVersion: true,
+        itemConstructionVersion: true,
+        probePurpose: true,
+        objectiveEvidenceTargetId: true,
+        objectiveQuestionSnapshotId: true,
+        objectiveEvidenceTarget: {
+          select: {
+            id: true,
+            userId: true,
+            wordId: true,
+            senseId: true,
+            policyVersion: true,
+            itemConstructionVersion: true,
+            status: true,
+            purpose: true,
+            winningOperationId: true,
+            winningReviewEventId: true,
+            obligation: { select: { status: true } },
+            questionSnapshot: {
+              select: {
+                id: true,
+                targetId: true,
+                wordId: true,
+                senseId: true,
+                contentRevisionId: true,
+                catalogRevisionId: true,
+                contentVersion: true,
+                itemConstructionVersion: true,
+              },
+            },
+          },
+        },
+      },
+    }),
     prisma.studyEncounter.count({ where: { userId, senseId: { not: null }, sense: currentCatalogSenseWhere(), createdAt: { gte: todayStart } } }),
     prisma.reviewEvent.count({ where: { AND: [currentCatalogReviewEventWhere(), { userId, evidenceKind: "LEGACY_UNKNOWN", createdAt: { gte: todayStart } }] } }),
     prisma.word.count({ where: unlockedWordWhere }),
@@ -266,6 +315,9 @@ export async function getStudentLearningMetrics(
     prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL }, word: unlockedWordWhere } }),
     fetchLibraryLevelAggregates(userId),
   ]);
+  const objectiveRecognitionCount = objectiveRecognitionEvents.filter((event) =>
+    isEligibleOperationalObjectiveEvent({ ...event, eventKind: "REVIEW" }),
+  ).length;
   const libraryByLevel = buildLibraryByLevel(levelAggregates, unlockedLevels);
   const allLevelTotals = levelAggregates.reduce(
     (totals, row) => ({

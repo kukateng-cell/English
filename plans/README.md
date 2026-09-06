@@ -10,6 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
+| [study-stream-consistency-and-recovery-audit.md](./study-stream-consistency-and-recovery-audit.md) | V2 集中審核修正 | 已完成（本地驗證；hosted CI／production gates deferred） | SCH-01／02、SYN-01／02、UI-01、MET-01、API-01 及網絡逾時／body cap，按 A–E 五個工作包完成修正及驗收 |
 | [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 已完成（第九輪本地驗證；hosted CI 待推送） | 已完成直接提交 terminal 409／403 reconciliation 後嘅 pending drain，以及權威重載失敗／blocked 保留操作控制；待本次推送後 hosted CI |
 | [staging-audit-followup.md](./staging-audit-followup.md) | 審核第二／三輪 | 第二輪 CI 全通過；第三輪局部補修本地完成 | fresh seed、CSV、CIS-010 預覽、問題篩選、route cap；第三輪負號公式編碼、379 unit 及真實試算表 round-trip 通過；分支規則待管理員 |
 | [staging-audit-remediation.md](./staging-audit-remediation.md) | 審核修正 | 已完成（分支保護待管理員） | seed、V2 outbox、題目安全、catalog輸入輸出、依賴及CI修正；374 unit、V2 DB／browser、三引擎雙分頁測試通過 |

@@ -4,6 +4,7 @@ import {
   actionFingerprint,
   createStudyStreamCredential,
   digestStudyStreamCredential,
+  legacyActionFingerprint,
   parseStudyStreamAction,
 } from "@/lib/study-stream/contracts";
 import { resolveStudyFlowAssignment } from "@/lib/study-stream/assignment";
@@ -18,7 +19,7 @@ function validAction() {
     actionKind: "SELF_RATING",
     clientKnownRevision: 0,
     payload: { selfRating: "selfRecalled" },
-  };
+  } as const;
 }
 
 test("V2 parser accepts only the typed intent payload", () => {
@@ -55,6 +56,13 @@ test("credential digest is one-way and action fingerprints are stable", () => {
   const parsed = parseStudyStreamAction(action);
   assert.equal(parsed.ok, true);
   if (parsed.ok) assert.equal(actionFingerprint(parsed.value), actionFingerprint(parsed.value));
+});
+
+test("operation identity is part of the new fingerprint while legacy receipts remain recognisable", () => {
+  const first = validAction();
+  const second = { ...first, operationId: "operation-456" };
+  assert.notEqual(actionFingerprint(first), actionFingerprint(second));
+  assert.equal(legacyActionFingerprint(first), legacyActionFingerprint(second));
 });
 
 test("V2 assignment is deny-by-default and internal-user scoped", () => {

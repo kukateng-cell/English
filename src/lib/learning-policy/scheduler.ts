@@ -15,6 +15,9 @@ function compareUrgency(left: CandidateRecord, right: CandidateRecord): number {
   const leftEligible = left.eligibleAt ?? 0;
   const rightEligible = right.eligibleAt ?? 0;
   if (leftEligible !== rightEligible) return leftEligible - rightEligible;
+  const leftPriority = left.selectionPriority ?? Number.POSITIVE_INFINITY;
+  const rightPriority = right.selectionPriority ?? Number.POSITIVE_INFINITY;
+  if (leftPriority !== rightPriority) return leftPriority - rightPriority;
   return left.id.localeCompare(right.id);
 }
 
@@ -29,6 +32,27 @@ function eligibleCandidates(state: SelectionState): CandidateRecord[] {
     }
     return true;
   });
+}
+
+function spacedCandidates(
+  eligible: readonly CandidateRecord[],
+  state: SelectionState,
+): { candidates: readonly CandidateRecord[]; overridden: boolean } {
+  const spacing = new Set(
+    state.recentWordIds?.length
+      ? state.recentWordIds
+      : state.lastWordId
+        ? [state.lastWordId]
+        : [],
+  );
+  if (spacing.size === 0) return { candidates: eligible, overridden: false };
+  // A tiny unit may contain only a recently seen word. Keep an explicit
+  // fallback rather than silently ending the stream; when alternatives exist,
+  // every candidate source observes the same learner-scoped spacing rule.
+  const spaced = eligible.filter((candidate) => !spacing.has(candidate.wordId));
+  return spaced.length > 0
+    ? { candidates: spaced, overridden: false }
+    : { candidates: eligible, overridden: true };
 }
 
 function digestInput(candidates: readonly CandidateRecord[]): string[] {
@@ -68,20 +92,25 @@ export function selectNextItem(
   const eligible = eligibleCandidates(state);
   if (eligible.length === 0) return decision(null, "no-candidate", eligible);
 
+  // A currently leased card belongs to this session and must be resumable
+  // even if its word is also in the learner-scoped spacing window.
   const currentLease = eligible.find(
     (candidate) => candidate.leasedToCurrentSession,
   );
   if (currentLease) return decision(currentLease, "resume-leased", eligible);
 
+  const spaced = spacedCandidates(eligible, state);
+  const selectionEligible = spaced.candidates;
+
   const activeWork = state.activeWork.filter((work) =>
     isWorkEligible(work, state.now),
   );
   const workIds = new Set(activeWork.map((work) => work.id));
-  const workCandidates = eligible
+  const workCandidates = selectionEligible
     .filter((candidate) => candidate.workId && workIds.has(candidate.workId))
     .sort(compareUrgency);
 
-  const dueProbes = eligible
+  const dueProbes = selectionEligible
     .filter(
       (candidate) =>
         candidate.kind === "OBJECTIVE_PROBE" &&
@@ -89,13 +118,13 @@ export function selectNextItem(
         !candidate.workId,
     )
     .sort(compareUrgency);
-  const remediationCards = eligible
+  const remediationCards = selectionEligible
     .filter(
       (candidate) =>
         candidate.kind === "LEARNING_CARD" && candidate.workId !== undefined,
     )
     .sort(compareUrgency);
-  const ordinary = eligible
+  const ordinary = selectionEligible
     .filter(
       (candidate) =>
         !candidate.workId &&
@@ -116,31 +145,47 @@ export function selectNextItem(
     state.consecutiveProbes === 0 ||
     state.acknowledgedItemsSinceProbe >= policy.minInterveningItems;
   const probeMayRun = interveningGapOpen || !nonProbeCandidate;
+  const softCapOverride = probeSoftCapped && !nonProbeCandidate;
+  const overrideReason = [
+    gapOverride ? "max-eligible-service-gap" : null,
+    softCapOverride ? "probe-soft-cap-exhausted" : null,
+    spaced.overridden ? "spacing-only-candidate" : null,
+  ].filter((reason): reason is string => reason !== null).join("+") || undefined;
 
   if (oldestWork && ((!probeSoftCapped && interveningGapOpen) || gapOverride || !nonProbeCandidate)) {
     return decision(
       oldestWork,
       "evidence-work",
-      eligible,
-      gapOverride ? "max-eligible-service-gap" : undefined,
+      selectionEligible,
+      overrideReason,
     );
   }
   if (dueProbes[0] && ((!probeSoftCapped && interveningGapOpen) || probeMayRun)) {
-    return decision(dueProbes[0], "due-review", eligible);
+    return decision(dueProbes[0], "due-review", selectionEligible, overrideReason);
   }
   if (nonProbeCandidate) {
-    return decision(nonProbeCandidate, "probe-soft-cap-rest", eligible);
+    return decision(
+      nonProbeCandidate,
+      spaced.overridden ? "spacing-override" : "probe-soft-cap-rest",
+      selectionEligible,
+      overrideReason,
+    );
   }
   if (oldestWork) {
     return decision(
       oldestWork,
       "evidence-work",
-      eligible,
-      "probe-only-legal-item",
+      selectionEligible,
+      ["probe-only-legal-item", overrideReason].filter(Boolean).join("+") || undefined,
     );
   }
-  if (dueProbes[0]) return decision(dueProbes[0], "due-review", eligible);
-  return decision(eligible.slice().sort(compareUrgency)[0], "fallback", eligible);
+  if (dueProbes[0]) return decision(dueProbes[0], "due-review", selectionEligible, overrideReason);
+  return decision(
+    selectionEligible.slice().sort(compareUrgency)[0],
+    spaced.overridden ? "spacing-override" : "fallback",
+    selectionEligible,
+    overrideReason,
+  );
 }
 
 export function combinedDebtWithinCap(

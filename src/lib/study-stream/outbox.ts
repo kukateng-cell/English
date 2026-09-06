@@ -108,7 +108,7 @@ export async function removeStudyStreamAction(userId: string, operationId: strin
 export async function updateStudyStreamAction(
   userId: string,
   operationId: string,
-  patch: Pick<StudyStreamActionInput, "studySessionId" | "streamItemId" | "itemCredential" | "clientKnownRevision">,
+  patch: Pick<StudyStreamActionInput, "itemCredential">,
 ): Promise<void> {
   await withStudyOutboxLock(() => {
     const rows = read(userId).map((row) => row.action.operationId === operationId

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyticsStudentCursorFingerprint, comparisonPeriods, countEncountersForLocalDate, readAnalyticsQuery, readLearningAnalyticsExportRequest, shouldIncludeUnassignedClassReport, shouldRejectUnfilteredClassExport } from "@/lib/learning-analytics";
+import { analyticsStudentCursorFingerprint, classifyObjectiveEvent, comparisonPeriods, countEncountersForLocalDate, isObjectiveEventCandidate, objectiveEventKindBucket, readAnalyticsQuery, readLearningAnalyticsExportRequest, shouldIncludeUnassignedClassReport, shouldRejectUnfilteredClassExport } from "@/lib/learning-analytics";
 import { MAX_ANALYTICS_CLASS_SELECTION, MAX_ANALYTICS_EXPORT_BODY_BYTES } from "@/lib/learning-analytics-contract";
 
 async function parse(body: unknown, headers?: HeadersInit) {
@@ -42,6 +42,81 @@ test("student exports are not rejected by the class comparison cap", () => {
   assert.equal(shouldRejectUnfilteredClassExport("STUDENTS", false, MAX_ANALYTICS_CLASS_SELECTION + 1), false);
   assert.equal(shouldRejectUnfilteredClassExport("CLASSES", false, MAX_ANALYTICS_CLASS_SELECTION + 1), true);
   assert.equal(shouldRejectUnfilteredClassExport("CLASSES", true, MAX_ANALYTICS_CLASS_SELECTION + 1), false);
+});
+
+test("analytics keeps bridge events out of operational objective metrics", () => {
+  assert.equal(objectiveEventKindBucket("REVIEW", false), "review");
+  assert.equal(objectiveEventKindBucket("LEGACY_BRIDGE", false), "bridge");
+  assert.equal(objectiveEventKindBucket("HISTORICAL_BACKFILL", true), "historical");
+});
+
+test("analytics treats incomplete V2 objective rows as candidates with missing provenance", () => {
+  type ObjectiveEvent = Parameters<typeof classifyObjectiveEvent>[0];
+  const base: ObjectiveEvent = {
+    id: "event-1",
+    operationId: "operation-1",
+    userId: "student-1",
+    submittedWordId: "word-1",
+    wordId: "word-1",
+    senseId: "sense-1",
+    contentRevisionId: "content-1",
+    catalogRevisionId: "catalog-1",
+    quality: 4,
+    createdAt: new Date("2026-08-17T08:00:00.000Z"),
+    eventKind: "REVIEW",
+    isHistorical: false,
+    evidenceKind: null,
+    flowVersion: "v2",
+    qualityPolicyVersion: null,
+    itemConstructionVersion: null,
+    probePurpose: null,
+    objectiveEvidenceTargetId: null,
+    objectiveQuestionSnapshotId: null,
+    objectiveEvidenceTarget: null,
+  };
+  assert.equal(isObjectiveEventCandidate(base), true);
+  assert.equal(classifyObjectiveEvent(base), "missingProvenance");
+
+  const missingTarget: ObjectiveEvent = {
+    ...base,
+    evidenceKind: "OBJECTIVE_PROBE",
+    probePurpose: "DUE_REVIEW",
+    objectiveEvidenceTargetId: "target-1",
+    objectiveQuestionSnapshotId: "snapshot-1",
+  };
+  assert.equal(classifyObjectiveEvent(missingTarget), "missingProvenance");
+
+  const targetWithoutSnapshot: NonNullable<ObjectiveEvent["objectiveEvidenceTarget"]> = {
+    id: "target-1",
+    userId: "student-1",
+    wordId: "word-1",
+    senseId: "sense-1",
+    policyVersion: "retrieval-v1",
+    itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+    status: "CONSUMED",
+    winningOperationId: "operation-1",
+    winningReviewEventId: "event-1",
+    purpose: "DUE_REVIEW",
+    obligation: null,
+    questionSnapshot: null,
+  };
+  assert.equal(classifyObjectiveEvent({ ...missingTarget, objectiveEvidenceTarget: targetWithoutSnapshot }), "missingProvenance");
+
+  const nonWinningTarget = {
+    ...targetWithoutSnapshot,
+    status: "SUPERSEDED",
+    questionSnapshot: {
+      id: "snapshot-1",
+      targetId: "target-1",
+      wordId: "word-1",
+      senseId: "sense-1",
+      contentRevisionId: "content-1",
+      catalogRevisionId: "catalog-1",
+      contentVersion: "retrieval-v1-mcq-curated-v2",
+      itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+    },
+  } satisfies NonNullable<ObjectiveEvent["objectiveEvidenceTarget"]>;
+  assert.equal(classifyObjectiveEvent({ ...missingTarget, objectiveEvidenceTarget: nonWinningTarget }), "nonWinning");
 });
 
 test("unassigned class summary is limited to an admin full-range report", () => {
@@ -125,6 +200,29 @@ test("analytics parser enforces range, body and selection limits", async () => {
     body: JSON.stringify({}),
   });
   await assert.rejects(() => readAnalyticsQuery(oversized), /PAYLOAD_TOO_LARGE/);
+});
+
+test("analytics parser cancels an oversized chunked body without Content-Length", async () => {
+  let pulls = 0;
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(8 * 1024));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const request = new Request("http://localhost/api/learning-analytics/query", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: stream,
+    duplex: "half",
+  } as RequestInit);
+  await assert.rejects(() => readAnalyticsQuery(request), /PAYLOAD_TOO_LARGE/);
+  assert.equal(cancelled, true);
+  assert.ok(pulls <= 4, `analytics body was over-read: ${pulls}`);
 });
 
 test("analytics parser accepts the inclusive 180-day boundary", async () => {

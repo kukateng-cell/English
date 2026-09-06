@@ -255,6 +255,84 @@ test("scheduler inserts the full two-item probe gap before another probe", () =>
   assert.equal(fullGap.candidate?.id, "probe-gap");
 });
 
+test("scheduler applies learner-scoped word spacing to every candidate source", () => {
+  const result = selectNextItem({
+    mode: "global",
+    now,
+    consecutiveProbes: 0,
+    acknowledgedItemsSinceProbe: 0,
+    lastWordId: "word-recent",
+    recentWordIds: ["word-recent", "word-older"],
+    activeWork: [],
+    candidates: [
+      { id: "due-recent", wordId: "word-recent", kind: "OBJECTIVE_PROBE", purpose: "DUE_REVIEW", selectionReason: "due-review" },
+      { id: "new-other", wordId: "word-other", kind: "LEARNING_CARD", selectionReason: "new-word" },
+    ],
+  });
+  assert.equal(result.candidate?.id, "new-other");
+
+  const explicitFallback = selectNextItem({
+    mode: "unit",
+    now,
+    consecutiveProbes: 0,
+    acknowledgedItemsSinceProbe: 0,
+    recentWordIds: ["word-only"],
+    activeWork: [],
+    candidates: [{ id: "only", wordId: "word-only", kind: "LEARNING_CARD", selectionReason: "new-word" }],
+  });
+  assert.equal(explicitFallback.candidate?.id, "only");
+  assert.equal(explicitFallback.reason, "spacing-override");
+  assert.equal(explicitFallback.overrideReason, "spacing-only-candidate");
+});
+
+test("scheduler preserves untouched-word priority within the same urgency tier", () => {
+  const selected = selectNextItem({
+    mode: "global",
+    now,
+    consecutiveProbes: 0,
+    acknowledgedItemsSinceProbe: 0,
+    activeWork: [],
+    candidates: [
+      { id: "contacted", wordId: "word-contacted", kind: "LEARNING_CARD", selectionPriority: 1_000_001, selectionReason: "unverified-contact" },
+      { id: "untouched", wordId: "word-untouched", kind: "LEARNING_CARD", selectionPriority: 1, selectionReason: "new-word" },
+    ],
+  });
+  assert.equal(selected.candidate?.id, "untouched");
+});
+
+test("scheduler preserves database order for due reviews within one urgency tier", () => {
+  const selected = selectNextItem({
+    mode: "global",
+    now,
+    consecutiveProbes: 0,
+    acknowledgedItemsSinceProbe: 0,
+    activeWork: [],
+    candidates: [
+      {
+        id: "z-old",
+        wordId: "word-old",
+        kind: "OBJECTIVE_PROBE",
+        purpose: "DUE_REVIEW",
+        eligibleAt: now,
+        expiresAt: now + 86_400_000,
+        selectionPriority: 0,
+        selectionReason: "due-review",
+      },
+      {
+        id: "a-new",
+        wordId: "word-new",
+        kind: "OBJECTIVE_PROBE",
+        purpose: "DUE_REVIEW",
+        eligibleAt: now,
+        expiresAt: now + 86_400_000,
+        selectionPriority: 1,
+        selectionReason: "due-review",
+      },
+    ],
+  });
+  assert.equal(selected.candidate?.id, "z-old");
+});
+
 test("scheduler fail-closes expired work, respects mode scope and has an explicit no-candidate result", () => {
   const expired = work("expired", "word-expired", {
     expiresAt: now - 1,

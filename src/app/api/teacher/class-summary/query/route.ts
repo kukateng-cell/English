@@ -2,21 +2,33 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { rosterResponse, stableRosterCode } from "@/lib/roster-api";
-import { queryTeacherClassSummary } from "@/lib/teacher-workspace";
-import { STUDENT_GRADES } from "@/lib/roster-domain";
+import { normalizeTeacherClassSummaryQuery, queryTeacherClassSummary } from "@/lib/teacher-workspace";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { getRequestToken } from "@/lib/recent-auth";
+import { readLimitedBody } from "@/lib/request-body";
+
+const BODY_LIMIT = 16 * 1024;
 
 export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return rosterResponse("CSRF_ORIGIN_INVALID", 403);
   const auth = await requireRole(ROLES.TEACHER, ROLES.ADMIN);
   if (!auth.ok) return rosterResponse(auth.status === 503 ? "AUTH_BACKEND_UNAVAILABLE" : auth.status === 403 ? "ROLE_FORBIDDEN" : "AUTH_REQUIRED", auth.status);
   try {
-    if (Number(req.headers.get("content-length") ?? 0) > 16 * 1024) throw new Error("QUERY_INVALID");
-    const rawBody = await req.text().catch(() => "");
-    if (Buffer.byteLength(rawBody, "utf8") > 16 * 1024) throw new Error("QUERY_INVALID");
-    const body = (() => { try { return JSON.parse(rawBody) as { grade?: unknown }; } catch { return null; } })();
-    const grade = typeof body?.grade === "string" && STUDENT_GRADES.includes(body.grade as never) ? body.grade as typeof STUDENT_GRADES[number] : body?.grade ? (() => { throw new Error("QUERY_INVALID"); })() : undefined;
+    let body: unknown;
+    try {
+      const rawBody = new TextDecoder().decode(await readLimitedBody(req, BODY_LIMIT));
+      const parsed: unknown = rawBody ? JSON.parse(rawBody) : null;
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("QUERY_INVALID");
+      }
+      body = parsed;
+    } catch (error) {
+      if (error instanceof Error && error.message === "PAYLOAD_TOO_LARGE") {
+        return rosterResponse("PAYLOAD_TOO_LARGE", 413);
+      }
+      throw new Error("QUERY_INVALID");
+    }
+    const { grade } = normalizeTeacherClassSummaryQuery(body);
     const token = await getRequestToken(req);
     const sessionToken = token?.id === auth.userId ? token : null;
     const result = await queryTeacherClassSummary({ userId: auth.userId, role: auth.role, grade, auth: { tokenVersion: sessionToken?.tokenVersion, credentialRevision: sessionToken?.credentialRevision } });

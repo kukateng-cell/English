@@ -85,6 +85,8 @@ export interface CandidateRecord {
   leasedToCurrentSession?: boolean;
   /** Used by the scheduler to keep a Unit candidate inside its scope. */
   mode?: StreamMode;
+  /** Stable learner-facing priority within an urgency tier (lower first). */
+  selectionPriority?: number;
   selectionReason: string;
 }
 
@@ -94,6 +96,8 @@ export interface SelectionState {
   consecutiveProbes: number;
   acknowledgedItemsSinceProbe: number;
   lastWordId?: string | null;
+  /** Learner-scoped recent acknowledged words used for spacing. */
+  recentWordIds?: readonly string[];
   activeWork: WorkRecord[];
   candidates: CandidateRecord[];
 }

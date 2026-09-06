@@ -11,7 +11,11 @@ import { ROLES } from "@/lib/roles";
 import { todayKey, offsetDay } from "@/lib/streak";
 import { isMasteredByInterval } from "@/lib/mastered";
 import type { RewardIconName } from "@/lib/reward-icons";
-import { eligibleOperationalObjectiveEventWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
+import {
+  eligibleOperationalObjectiveEventWhere,
+  isEligibleOperationalObjectiveEvent,
+  withCurrentCatalogWord,
+} from "@/lib/catalog/runtime";
 
 export type LeaderboardType = "streak" | "words" | "studyDays";
 export type LeaderboardIcon = Extract<RewardIconName, "flame" | "word-stack" | "calendar-check">;
@@ -361,7 +365,53 @@ export async function getLeaderboard(
     }),
     prisma.reviewEvent.findMany({
       where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId: { in: participantIds } }] },
-      select: { userId: true, createdAt: true },
+      select: {
+        id: true,
+        operationId: true,
+        userId: true,
+        createdAt: true,
+        submittedWordId: true,
+        wordId: true,
+        senseId: true,
+        contentRevisionId: true,
+        catalogRevisionId: true,
+        isHistorical: true,
+        quality: true,
+        evidenceKind: true,
+        flowVersion: true,
+        qualityPolicyVersion: true,
+        itemConstructionVersion: true,
+        probePurpose: true,
+        objectiveEvidenceTargetId: true,
+        objectiveQuestionSnapshotId: true,
+        objectiveEvidenceTarget: {
+          select: {
+            id: true,
+            userId: true,
+            wordId: true,
+            senseId: true,
+            policyVersion: true,
+            itemConstructionVersion: true,
+            status: true,
+            purpose: true,
+            winningOperationId: true,
+            winningReviewEventId: true,
+            obligation: { select: { status: true } },
+            questionSnapshot: {
+              select: {
+                id: true,
+                targetId: true,
+                wordId: true,
+                senseId: true,
+                contentRevisionId: true,
+                catalogRevisionId: true,
+                contentVersion: true,
+                itemConstructionVersion: true,
+              },
+            },
+          },
+        },
+      },
     }),
   ]);
 
@@ -384,6 +434,7 @@ export async function getLeaderboard(
   // provenance-complete V2 objective ledger events.
   const objectiveDatesByUser = new Map<string, Set<string>>();
   for (const event of objectiveEvents) {
+    if (!isEligibleOperationalObjectiveEvent({ ...event, eventKind: "REVIEW" })) continue;
     const dates = objectiveDatesByUser.get(event.userId) ?? new Set<string>();
     dates.add(todayKey(event.createdAt));
     objectiveDatesByUser.set(event.userId, dates);

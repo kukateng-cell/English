@@ -10,6 +10,9 @@ import {
 import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
 import { observeStudyStreamRequest } from "@/lib/study-stream/observability";
 import { isSameOriginMutation } from "@/lib/csrf";
+import { readLimitedBody } from "@/lib/request-body";
+
+const BODY_LIMIT = 32 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,7 +60,15 @@ export async function POST(req: Request) {
       context.outcome = "assignment-off";
       return NextResponse.json({ error: "目前帳戶未分配 Retrieval-first Learning Stream" }, { status: 404 });
     }
-    const body = await req.json().catch(() => null);
+    let body: unknown = null;
+    try {
+      const raw = new TextDecoder().decode(await readLimitedBody(req, BODY_LIMIT));
+      body = raw ? JSON.parse(raw) as unknown : null;
+    } catch (error) {
+      if (error instanceof Error && error.message === "PAYLOAD_TOO_LARGE") {
+        return NextResponse.json({ error: "請求內容過大" }, { status: 413 });
+      }
+    }
     const input = parseRenewInput(body);
     if (!input) return NextResponse.json({ error: "憑證續期請求格式錯誤" }, { status: 400 });
     const rate = await checkStudyCredentialRate(auth.userId, getClientIp(req.headers));

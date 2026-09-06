@@ -32,7 +32,7 @@ async function main() {
     prisma.studySession.count({ where: { retiredAt: null } }),
     prisma.studyStreamItem.count({ where: { status: { in: ["LEASED", "ANSWERED"] } } }),
     prisma.studyStreamItem.count({ where: { itemKind: "LEARNING_CARD", status: "ACKNOWLEDGED" } }),
-    prisma.objectiveEvidenceTarget.findMany({ select: { id: true, status: true, senseId: true, obligationId: true, winningOperationId: true, winningReviewEventId: true, obligation: { select: { status: true } }, questionSnapshot: { select: { id: true, senseId: true, direction: true, options: true, correctOptionId: true } }, streamItems: { select: { id: true, status: true, senseId: true, objectiveEvidenceTargetId: true, objectiveQuestionSnapshotId: true, workObligationId: true, clientRevision: true } }, reviewEvents: { select: { id: true, operationId: true, senseId: true } } } }),
+    prisma.objectiveEvidenceTarget.findMany({ select: { id: true, status: true, purpose: true, policyVersion: true, itemConstructionVersion: true, senseId: true, obligationId: true, winningOperationId: true, winningReviewEventId: true, obligation: { select: { status: true } }, questionSnapshot: { select: { id: true, senseId: true, direction: true, options: true, correctOptionId: true } }, streamItems: { select: { id: true, status: true, senseId: true, objectiveEvidenceTargetId: true, objectiveQuestionSnapshotId: true, workObligationId: true, clientRevision: true } }, reviewEvents: { select: { id: true, operationId: true, senseId: true } } } }),
     prisma.evidenceObligation.count({ where: { kind: "REMEDIATION", status: { notIn: ["ANSWERED", "EXPIRED"] } } }),
     prisma.operationReceipt.groupBy({ by: ["actionKind"], _count: { _all: true } }),
     prisma.user.findMany({ where: { accountName: { in: ["admin", "teacher", "teacher-reset", "teacher-analytics-3", "teacher-analytics-4", "student-test", "student-test_webkit"] } }, select: { accountName: true, role: true, status: true } }),
@@ -48,7 +48,13 @@ async function main() {
     const options = target.questionSnapshot?.options;
     const validOptions = Array.isArray(options) && options.length === 4 && typeof target.questionSnapshot?.correctOptionId === "string";
     const directionValid = target.questionSnapshot?.direction === "en-zh" || target.questionSnapshot?.direction === "zh-en";
-    if (target.status !== "CONSUMED" || !target.senseId || !target.obligationId || target.obligation?.status !== "ANSWERED" || !target.questionSnapshot || target.questionSnapshot.senseId !== target.senseId || !directionValid || !validOptions || !target.winningOperationId || !target.winningReviewEventId || winner.length !== 1 || winner[0]?.senseId !== target.senseId || !stream || !stream.senseId || stream.senseId !== target.senseId || stream.status !== "ACKNOWLEDGED" || stream.objectiveEvidenceTargetId !== target.id || stream.objectiveQuestionSnapshotId !== target.questionSnapshot.id || stream.workObligationId !== target.obligationId || (stream.clientRevision ?? 0) < 2) fail("Objective V2 target／obligation／snapshot／winner／stream lineage不完整。");
+    const obligationValid = target.purpose === "DUE_REVIEW"
+      ? target.obligationId === null && target.obligation === null
+      : target.purpose === "EVIDENCE_OBLIGATION" && Boolean(target.obligationId) && target.obligation?.status === "ANSWERED";
+    const streamObligationValid = target.purpose === "DUE_REVIEW"
+      ? stream?.workObligationId === null
+      : stream?.workObligationId === target.obligationId;
+    if (target.status !== "CONSUMED" || target.policyVersion !== "retrieval-v1" || target.itemConstructionVersion !== "retrieval-v1-mcq-curated-v2" || !target.senseId || !obligationValid || !target.questionSnapshot || target.questionSnapshot.senseId !== target.senseId || !directionValid || !validOptions || !target.winningOperationId || !target.winningReviewEventId || winner.length !== 1 || winner[0]?.senseId !== target.senseId || !stream || !stream.senseId || stream.senseId !== target.senseId || stream.status !== "ACKNOWLEDGED" || stream.objectiveEvidenceTargetId !== target.id || stream.objectiveQuestionSnapshotId !== target.questionSnapshot.id || !streamObligationValid || (stream.clientRevision ?? 0) < 2) fail("Objective V2 target／obligation／snapshot／winner／stream lineage不完整。");
   }
   if (remediationObligations !== 0) fail("示範資料仍有未完成的 remediation obligation。");
   const receiptCounts = new Map(receipts.map((row) => [row.actionKind, row._count._all]));

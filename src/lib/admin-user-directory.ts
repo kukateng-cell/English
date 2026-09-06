@@ -3,6 +3,7 @@ import type { AccountStatus, ClassCode, EnrollmentStatus, Role, StudentGrade } f
 import { prisma, Prisma } from "@/lib/prisma";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { compareStudentNumberSortKey, parseClassCode, parseStudentGrade, STUDENT_GRADES } from "@/lib/roster-domain";
+import { readLimitedBody } from "@/lib/request-body";
 
 export const ADMIN_DIRECTORY_LIMIT_DEFAULT = 50;
 export const ADMIN_DIRECTORY_LIMIT_MAX = 100;
@@ -147,12 +148,14 @@ export function parseAdminDirectoryQuery(input: unknown): AdminDirectoryQuery {
 }
 
 export async function readAdminDirectoryQuery(req: Request) {
-  const contentLength = Number(req.headers.get("content-length") ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > BODY_LIMIT) throw new Error("PAYLOAD_TOO_LARGE");
-  const raw = await req.text().catch(() => "");
-  if (Buffer.byteLength(raw, "utf8") > BODY_LIMIT) throw new Error("PAYLOAD_TOO_LARGE");
   let body: unknown = null;
-  try { body = raw ? JSON.parse(raw) : {}; } catch { throw new Error("QUERY_INVALID"); }
+  try {
+    const raw = new TextDecoder().decode(await readLimitedBody(req, BODY_LIMIT));
+    body = raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    if (error instanceof Error && error.message === "PAYLOAD_TOO_LARGE") throw error;
+    throw new Error("QUERY_INVALID");
+  }
   return parseAdminDirectoryQuery(body);
 }
 

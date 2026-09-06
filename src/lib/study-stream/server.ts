@@ -39,6 +39,7 @@ import {
   actionFingerprint,
   createStudyStreamCredential,
   digestStudyStreamCredential,
+  legacyActionFingerprint,
   STUDY_STREAM_CREDENTIAL_TTL_MS,
   STUDY_STREAM_FLOW_VERSION,
   type PublicStreamActionResponse,
@@ -52,7 +53,11 @@ import {
   isRetryableTransactionConflict,
   waitForTransactionRetry,
 } from "@/lib/transaction-retry";
-import { withCurrentCatalogWord } from "@/lib/catalog/runtime";
+import {
+  eligibleOperationalObjectiveEventWhere,
+  isEligibleOperationalObjectiveEvent,
+  withCurrentCatalogWord,
+} from "@/lib/catalog/runtime";
 
 const STREAM_SESSION_TTL_MS = 30 * 60_000;
 const STREAM_ITEM_LEASE_MS = 15 * 60_000;
@@ -145,7 +150,7 @@ function isCredentialDigest(value: unknown): value is string {
 
 function parseCredentialLineage(value: Prisma.JsonValue | null): CredentialGrant[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
+  const parsed = value.flatMap((entry) => {
     if (!isRecord(entry)) return [];
     const parentDigest = entry.parentDigest;
     if (
@@ -160,7 +165,14 @@ function parseCredentialLineage(value: Prisma.JsonValue | null): CredentialGrant
       expiresAt: entry.expiresAt,
       parentDigest,
     }];
-  }).slice(-MAX_CREDENTIAL_LINEAGE_GRANTS);
+  });
+  if (parsed.length <= MAX_CREDENTIAL_LINEAGE_GRANTS) return parsed;
+  // Keep the original grant as a durable recovery anchor and bound the rest
+  // to the newest grants. A device that was offline through many rotations can
+  // still prove the item it originally received without making the lineage an
+  // unbounded JSON log.
+  const [root, ...recent] = parsed;
+  return [root, ...recent.slice(-(MAX_CREDENTIAL_LINEAGE_GRANTS - 1))];
 }
 
 function initialCredentialLineage(
@@ -208,7 +220,9 @@ function rotatedCredentialLineage(
   }];
   const unique = new Map<string, CredentialGrant>();
   for (const grant of next) unique.set(grant.digest, grant);
-  return [...unique.values()].slice(-MAX_CREDENTIAL_LINEAGE_GRANTS) as unknown as Prisma.InputJsonValue;
+  const grants = [...unique.values()];
+  const [root, ...recent] = grants;
+  return [root, ...recent.slice(-(MAX_CREDENTIAL_LINEAGE_GRANTS - 1))] as unknown as Prisma.InputJsonValue;
 }
 
 function matchesCredentialDigest(
@@ -464,12 +478,105 @@ async function activeWork(
       word: scope.where,
     },
     orderBy: [{ expiresAt: "asc" }, { createdAt: "asc" }],
-    take: MAX_CANDIDATES,
+    // Filtered presentation rows can occupy the first part of the review
+    // index (for example an already leased target). Read a bounded surplus
+    // before applying application-level admission checks so legal candidates
+    // are not starved behind stale rows.
+    take: MAX_CANDIDATES * 8,
   });
   return rows.flatMap((row) => {
     const work = toWorkRecord(row);
     return work ? [work] : [];
   });
+}
+
+type LearnerStreamHistory = {
+  acknowledged: Array<{
+    itemKind: string;
+    usedAt: Date | null;
+    feedbackAcknowledgedAt: Date | null;
+    wordId: string | null;
+    acknowledgedAt: Date;
+    id: string;
+  }>;
+  recentWordIds: string[];
+  contactTimes: Map<string, number>;
+};
+
+async function learnerStreamHistory(
+  tx: StreamTransaction,
+  userId: string,
+  scope: StreamScope,
+): Promise<LearnerStreamHistory> {
+  // Learning Card acknowledgement is recorded as a durable encounter. It is
+  // deliberately queried independently from the short-lived stream item so a
+  // later credential renewal cannot change the historical ordering.
+  const encounters = await tx.studyEncounter.findMany({
+    where: {
+      wordId: { not: null },
+      userId,
+      streamItem: {
+        itemKind: "LEARNING_CARD",
+        session: { userId, flowVersion: STUDY_STREAM_FLOW_VERSION },
+      },
+    },
+    orderBy: [{ acknowledgedAt: "desc" }, { id: "desc" }],
+    take: 80,
+    select: { id: true, wordId: true, acknowledgedAt: true },
+  });
+  // Objective probes do not create StudyEncounter rows. Their feedback
+  // acknowledgement is the durable completion timestamp for spacing and
+  // consecutive-probe policy. Scope is intentionally learner-wide: a new
+  // short session or switching global/unit views must not reset fatigue rules.
+  const probes = await tx.studyStreamItem.findMany({
+    where: {
+      wordId: { not: null },
+      itemKind: "OBJECTIVE_PROBE",
+      usedAt: { not: null },
+      feedbackAcknowledgedAt: { not: null },
+      session: { userId, flowVersion: STUDY_STREAM_FLOW_VERSION },
+    },
+    orderBy: [{ feedbackAcknowledgedAt: "desc" }, { id: "desc" }],
+    take: 80,
+    select: { id: true, wordId: true, usedAt: true, feedbackAcknowledgedAt: true },
+  });
+  const acknowledged = [
+    ...encounters.map((row) => ({
+      id: row.id,
+      itemKind: "LEARNING_CARD",
+      usedAt: row.acknowledgedAt,
+      feedbackAcknowledgedAt: row.acknowledgedAt,
+      wordId: row.wordId,
+      acknowledgedAt: row.acknowledgedAt,
+    })),
+    ...probes.flatMap((row) => row.feedbackAcknowledgedAt
+      ? [{
+          id: row.id,
+          itemKind: "OBJECTIVE_PROBE",
+          usedAt: row.usedAt,
+          feedbackAcknowledgedAt: row.feedbackAcknowledgedAt,
+          wordId: row.wordId,
+          acknowledgedAt: row.feedbackAcknowledgedAt,
+        }]
+      : []),
+  ].sort((left, right) => right.acknowledgedAt.getTime() - left.acknowledgedAt.getTime() || right.id.localeCompare(left.id)).slice(0, 40);
+  const contacts = await tx.studyEncounter.findMany({
+    where: { userId, wordId: { not: null }, word: scope.where },
+    orderBy: [{ acknowledgedAt: "asc" }, { id: "asc" }],
+    take: MAX_CANDIDATES * 8,
+    select: { wordId: true, acknowledgedAt: true },
+  });
+  const contactTimes = new Map<string, number>();
+  for (const row of contacts) {
+    if (row.wordId && !contactTimes.has(row.wordId)) contactTimes.set(row.wordId, row.acknowledgedAt.getTime());
+  }
+  return {
+    acknowledged,
+    recentWordIds: acknowledged
+      .slice(0, RETRIEVAL_V1_POLICY.minInterveningItems)
+      .flatMap((row) => row.wordId ? [row.wordId] : []),
+    contactTimes,
+  };
 }
 
 function candidateForWork(
@@ -497,8 +604,9 @@ async function buildCandidates(
   session: StudySession,
   scope: StreamScope,
   now: Date,
-): Promise<{ candidates: CandidateRecord[]; active: WorkRecord[] }> {
+): Promise<{ candidates: CandidateRecord[]; active: WorkRecord[]; history: LearnerStreamHistory }> {
   await expireWork(tx, userId, now);
+  const history = await learnerStreamHistory(tx, userId, scope);
   const active = await activeWork(tx, userId, scope, now);
   const candidates: CandidateRecord[] = active.map((work) => candidateForWork(work, scope.mode));
   const workWordIds = new Set(active.map((work) => work.wordId));
@@ -510,7 +618,7 @@ async function buildCandidates(
       word: scope.where,
     },
     orderBy: [{ nextReviewDate: "asc" }, { id: "asc" }],
-    take: MAX_CANDIDATES,
+    take: MAX_CANDIDATES * 8,
     select: { id: true, wordId: true, senseId: true },
   });
   const openTargets = await tx.objectiveEvidenceTarget.findMany({
@@ -524,7 +632,7 @@ async function buildCandidates(
     select: { wordId: true, purpose: true },
   });
   const openTargetKeys = new Set(openTargets.map((target) => `${target.purpose}:${target.wordId}`));
-  for (const review of due) {
+  for (const [selectionPriority, review] of due.entries()) {
     if (workWordIds.has(review.wordId)) continue;
     if (openTargetKeys.has(`DUE_REVIEW:${review.wordId}`)) continue;
     candidates.push({
@@ -536,33 +644,48 @@ async function buildCandidates(
       eligibleAt: now.getTime(),
       expiresAt: now.getTime() + RETRIEVAL_V1_POLICY.maxObligationAgeMs,
       mode: scope.mode,
+      // Preserve the deterministic nextReviewDate/id ordering established by
+      // the database query when scheduler urgency fields tie.
+      selectionPriority,
       selectionReason: "due-review",
     });
   }
 
-  const recent = await tx.studyStreamItem.findMany({
-    where: { sessionId: session.id },
-    orderBy: { createdAt: "desc" },
-    take: 12,
-    select: { wordId: true },
-  });
-  const recentWordIds = new Set(recent.flatMap((row) => row.wordId ? [row.wordId] : []));
-  const newWords = await tx.word.findMany({
-    where: {
-      AND: [scope.where, { reviews: { none: { userId } } }],
-    },
+  const newWordWhere: Prisma.WordWhereInput = {
+    AND: [scope.where, { reviews: { none: { userId } } }],
+  };
+  // Partition the bounded pool before sorting. Once a word has an encounter,
+  // it moves out of the untouched partition, allowing later alphabetic words
+  // to enter on the next request instead of starving behind a fixed prefix.
+  const untouchedWords = await tx.word.findMany({
+    where: { AND: [newWordWhere, { studyEncounters: { none: { userId } } }] },
     orderBy: { term: "asc" },
-    take: MAX_CANDIDATES,
+    take: MAX_CANDIDATES * 8,
   });
-  for (const word of newWords) {
-    if (workWordIds.has(word.id) || recentWordIds.has(word.id)) continue;
+  const contactedWords = await tx.word.findMany({
+    where: { AND: [newWordWhere, { studyEncounters: { some: { userId } } }] },
+    orderBy: { term: "asc" },
+    take: MAX_CANDIDATES * 8,
+  });
+  const newWords = [...untouchedWords, ...contactedWords];
+  newWords.sort((left, right) => {
+    const leftContact = history.contactTimes.get(left.id);
+    const rightContact = history.contactTimes.get(right.id);
+    if (leftContact === undefined && rightContact !== undefined) return -1;
+    if (leftContact !== undefined && rightContact === undefined) return 1;
+    if (leftContact !== undefined && rightContact !== undefined && leftContact !== rightContact) return leftContact - rightContact;
+    return left.term.localeCompare(right.term, "en", { sensitivity: "base" }) || left.id.localeCompare(right.id);
+  });
+  for (const [selectionPriority, word] of newWords.entries()) {
+    if (workWordIds.has(word.id)) continue;
     candidates.push({
       id: `new:${word.id}`,
       wordId: word.id,
       senseId: word.senseId,
       kind: "LEARNING_CARD",
       mode: scope.mode,
-      selectionReason: "new-word",
+      selectionPriority,
+      selectionReason: history.contactTimes.has(word.id) ? "unverified-contact" : "new-word",
     });
   }
 
@@ -574,46 +697,55 @@ async function buildCandidates(
         word: scope.where,
       },
       orderBy: [{ lastReviewedAt: "asc" }, { id: "asc" }],
-      take: MAX_CANDIDATES,
+      take: MAX_CANDIDATES * 8,
       select: { id: true, wordId: true, senseId: true },
     });
-    for (const review of ordinary) {
-      if (workWordIds.has(review.wordId) || recentWordIds.has(review.wordId)) continue;
+    for (const [selectionPriority, review] of ordinary.entries()) {
+      if (workWordIds.has(review.wordId)) continue;
       candidates.push({
         id: `ordinary:${review.id}`,
         wordId: review.wordId,
         senseId: review.senseId,
         kind: "LEARNING_CARD",
         mode: scope.mode,
+        // Preserve the database's lastReviewedAt/id order when scheduler
+        // urgency fields tie. This is the ordinary-review counterpart to the
+        // due-review priority above.
+        selectionPriority,
         selectionReason: "spaced-learning-card",
       });
     }
   }
-  return { candidates, active };
+  return { candidates, active, history };
 }
 
-function recentStreamShape(rows: Array<{ itemKind: string; usedAt: Date | null; feedbackAcknowledgedAt: Date | null }>): {
+export function recentStreamShape(rows: Array<{ itemKind: string; usedAt: Date | null; feedbackAcknowledgedAt: Date | null }>): {
   consecutiveProbes: number;
   acknowledgedItemsSinceProbe: number;
 } {
   let consecutiveProbes = 0;
   let acknowledgedItemsSinceProbe = 0;
-  let seenProbe = false;
+  let started = false;
   for (const row of rows) {
     const acknowledged = row.usedAt !== null && (
       row.itemKind !== "OBJECTIVE_PROBE" || row.feedbackAcknowledgedAt !== null
     );
     if (!acknowledged) continue;
-    if (!seenProbe && row.itemKind === "OBJECTIVE_PROBE") {
+    if (!started) {
+      started = true;
+      if (row.itemKind === "OBJECTIVE_PROBE") consecutiveProbes = 1;
+      else acknowledgedItemsSinceProbe = 1;
+      continue;
+    }
+    if (consecutiveProbes > 0) {
+      // Rows are newest-first. Once a non-probe follows the newest probe run,
+      // older probes are outside the current run and must not be counted.
+      if (row.itemKind !== "OBJECTIVE_PROBE") break;
       consecutiveProbes += 1;
-      seenProbe = true;
       continue;
     }
-    if (!seenProbe) {
-      acknowledgedItemsSinceProbe += 1;
-      continue;
-    }
-    break;
+    if (row.itemKind === "OBJECTIVE_PROBE") break;
+    acknowledgedItemsSinceProbe += 1;
   }
   return { consecutiveProbes, acknowledgedItemsSinceProbe };
 }
@@ -732,6 +864,7 @@ function toPublicItem(
     qualityPolicyVersion: RETRIEVAL_V1_POLICY.qualityPolicyVersion,
     itemConstructionVersion: RETRIEVAL_V1_POLICY.itemConstructionVersion,
     selectionReason: row.selectionReason,
+    selectionOverrideReason: row.selectionOverrideReason,
     itemCredential: credential,
     credentialExpiresAt: row.credentialExpiresAt.toISOString(),
     clientRevision: row.clientRevision ?? 0,
@@ -1081,6 +1214,7 @@ async function createStreamItem(
   session: StudySession,
   candidate: CandidateRecord,
   now: Date,
+  selectionOverrideReason?: string,
 ): Promise<{ item: StreamItemWithRelations; credential: string }> {
   const credential = createStudyStreamCredential();
   const credentialExpiresAt = new Date(now.getTime() + STUDY_STREAM_CREDENTIAL_TTL_MS);
@@ -1114,6 +1248,7 @@ async function createStreamItem(
       senseId: candidate.senseId ?? null,
       itemKind: candidate.kind,
       selectionReason: candidate.selectionReason,
+      selectionOverrideReason: selectionOverrideReason ?? null,
       policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
       status: "LEASED",
       leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
@@ -1196,17 +1331,58 @@ async function getUnitSummary(
     select: { wordId: true },
     distinct: ["wordId"],
   });
-  const objectiveRecognitionCount = await tx.reviewEvent.count({
-    where: {
-      userId,
-      wordId: { in: wordIds },
-      eventKind: "REVIEW",
-      evidenceKind: "OBJECTIVE_PROBE",
-      flowVersion: STUDY_STREAM_FLOW_VERSION,
-      objectiveEvidenceTargetId: { not: null },
-      isHistorical: false,
+  const objectiveRecognitionEvents = await tx.reviewEvent.findMany({
+    where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId, wordId: { in: wordIds } }] },
+    select: {
+      id: true,
+      operationId: true,
+      userId: true,
+      submittedWordId: true,
+      wordId: true,
+      senseId: true,
+      contentRevisionId: true,
+      catalogRevisionId: true,
+      isHistorical: true,
+      quality: true,
+      evidenceKind: true,
+      flowVersion: true,
+      qualityPolicyVersion: true,
+      itemConstructionVersion: true,
+      probePurpose: true,
+      objectiveEvidenceTargetId: true,
+      objectiveQuestionSnapshotId: true,
+      objectiveEvidenceTarget: {
+        select: {
+          id: true,
+          userId: true,
+          wordId: true,
+          senseId: true,
+          policyVersion: true,
+          itemConstructionVersion: true,
+          status: true,
+          purpose: true,
+          winningOperationId: true,
+          winningReviewEventId: true,
+          obligation: { select: { status: true } },
+          questionSnapshot: {
+            select: {
+              id: true,
+              targetId: true,
+              wordId: true,
+              senseId: true,
+              contentRevisionId: true,
+              catalogRevisionId: true,
+              contentVersion: true,
+              itemConstructionVersion: true,
+            },
+          },
+        },
+      },
     },
   });
+  const objectiveRecognitionCount = objectiveRecognitionEvents.filter((event) =>
+    isEligibleOperationalObjectiveEvent({ ...event, eventKind: "REVIEW" }),
+  ).length;
   return {
     totalWordCount: wordIds.length,
     encounteredWordCount: encountered.filter((row) => row.wordId !== null).length,
@@ -1287,13 +1463,7 @@ export async function getOrCreateStudyStream(
           }
 
           const built = await buildCandidates(tx, userId, session, scope, now);
-          const recent = await tx.studyStreamItem.findMany({
-            where: { sessionId: session.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-            select: { itemKind: true, usedAt: true, feedbackAcknowledgedAt: true },
-          });
-          const shape = recentStreamShape(recent);
+          const shape = recentStreamShape(built.history.acknowledged);
           const excluded = new Set<string>();
           for (let selectionAttempt = 0; selectionAttempt < built.candidates.length; selectionAttempt += 1) {
             const candidates = built.candidates.filter((candidate) => !excluded.has(candidate.id));
@@ -1302,13 +1472,21 @@ export async function getOrCreateStudyStream(
               now: now.getTime(),
               consecutiveProbes: shape.consecutiveProbes,
               acknowledgedItemsSinceProbe: shape.acknowledgedItemsSinceProbe,
-              lastWordId: null,
+              lastWordId: built.history.recentWordIds[0] ?? null,
+              recentWordIds: built.history.recentWordIds,
               activeWork: built.active,
               candidates,
             });
             if (!decision.candidate) break;
             try {
-              const created = await createStreamItem(tx, userId, session, decision.candidate, now);
+              const created = await createStreamItem(
+                tx,
+                userId,
+                session,
+                decision.candidate,
+                now,
+                decision.overrideReason,
+              );
               const item = toPublicItem(created.item, created.credential);
               if (!item) throw new StudyStreamError(409, "學習項目已失效，請重新載入");
               return streamResponse(session, item, false, unitSummary);
@@ -1503,7 +1681,10 @@ async function preflightReceipt(
   });
   if (!receipt) return null;
   if (
-    receipt.requestFingerprint !== actionFingerprint(input) ||
+    (
+      receipt.requestFingerprint !== actionFingerprint(input) &&
+      receipt.requestFingerprint !== legacyActionFingerprint(input)
+    ) ||
     receipt.flowVersion !== STUDY_STREAM_FLOW_VERSION ||
     receipt.actionKind !== input.actionKind
   ) {
@@ -2027,6 +2208,34 @@ export async function reconcileStudyStreamAction(
           }
           if (item.session.retiredAt !== null) {
             throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
+          }
+          // Reconciliation is allowed to discard an obsolete action only
+          // after its immutable operation identity has been checked. If the
+          // operation already has a receipt, the fingerprint (including the
+          // operationId, action kind, revision and payload) must match exactly.
+          // Older receipts are accepted through the legacy fingerprint solely
+          // because the user+operationId lookup already binds their identity.
+          const receipt = await tx.operationReceipt.findUnique({
+            where: { userId_operationId: { userId, operationId: input.operationId } },
+            select: { requestFingerprint: true, flowVersion: true, actionKind: true },
+          });
+          if (receipt && (
+            receipt.flowVersion !== STUDY_STREAM_FLOW_VERSION ||
+            receipt.actionKind !== input.actionKind ||
+            (receipt.requestFingerprint !== actionFingerprint(input) &&
+              receipt.requestFingerprint !== legacyActionFingerprint(input))
+          )) {
+            throw new StudyStreamError(409, "operationId 已用於不同的學習操作");
+          }
+          // A missing receipt for the item-winning operation is an integrity
+          // failure, not proof that an arbitrary payload is safe to discard.
+          // Keep it retryable so the client cannot silently lose that action.
+          if (!receipt && item.operationId === input.operationId) {
+            throw new StudyStreamError(409, "學習操作回執遺失，請重新載入");
+          }
+          const itemRevision = item.clientRevision ?? item.session.revision;
+          if (input.clientKnownRevision > itemRevision) {
+            throw new StudyStreamError(409, "學習項目版本已更新", { code: "STALE_STREAM_ITEM" });
           }
           const conflict = terminalActionConflict(item, input.actionKind);
           if (conflict) {

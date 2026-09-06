@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeTeacherCursor, encodeTeacherCursor, normalizeTeacherWorkspaceQuery } from "@/lib/teacher-workspace";
+import { decodeTeacherCursor, encodeTeacherCursor, normalizeTeacherClassSummaryQuery, normalizeTeacherWorkspaceQuery } from "@/lib/teacher-workspace";
+
+test("class summary parser fails closed for null, arrays and invalid grades", () => {
+  assert.deepEqual(normalizeTeacherClassSummaryQuery({}), { grade: undefined });
+  assert.deepEqual(normalizeTeacherClassSummaryQuery({ grade: "JUNIOR_1" }), { grade: "JUNIOR_1" });
+  for (const value of [null, [], "P1", 0, false, { grade: null }, { grade: "" }, { grade: "NOT_A_GRADE" }, { extra: true }]) {
+    assert.throws(() => normalizeTeacherClassSummaryQuery(value), /QUERY_INVALID/u);
+  }
+});
 
 test("teacher workspace query normalizes search without changing filter meaning", () => {
   assert.deepEqual(normalizeTeacherWorkspaceQuery({ search: "  ＡＢＣ　學生  ", limit: 20 }), {

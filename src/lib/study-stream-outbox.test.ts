@@ -78,13 +78,10 @@ test("V2 outbox rejects corruption and can rebind an expiring item credential", 
     assert.deepEqual(await enqueueStudyStreamAction(userId, action), { ok: true });
     const reboundCredential = createStudyStreamCredential();
     await updateStudyStreamAction(userId, action.operationId, {
-      studySessionId: action.studySessionId,
-      streamItemId: action.streamItemId,
       itemCredential: reboundCredential,
-      clientKnownRevision: 2,
     });
     assert.equal(loadStudyStreamOutbox(userId)[0]?.action.itemCredential, reboundCredential);
-    assert.equal(loadStudyStreamOutbox(userId)[0]?.action.clientKnownRevision, 2);
+    assert.equal(loadStudyStreamOutbox(userId)[0]?.action.clientKnownRevision, action.clientKnownRevision);
 
     storage.setItem("english:study-stream-v2:outbox:corrupt", "{");
     assert.throws(
