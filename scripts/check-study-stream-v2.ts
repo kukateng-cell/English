@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import type { StudyStreamActionInput } from "../src/lib/study-stream/contracts";
+import type { Prisma as PrismaTypes } from "../src/generated/prisma";
 import { CATALOG_CATEGORIES } from "../src/lib/catalog/taxonomy";
 import {
   currentCatalogWordCtesSql,
@@ -16,6 +17,7 @@ async function main() {
   const {
     applyStudyStreamAction,
     getOrCreateStudyStream,
+    reconcileStudyStreamAction,
     recoverExpiredStudyStreamAction,
     renewStudyStreamCredential,
     StudyStreamError,
@@ -508,6 +510,302 @@ async function main() {
     assert.equal(replayedRecovery.duplicate, true);
     assert.deepEqual(replayedRecovery.response, recovered.response);
 
+    // A second device can rotate the same item's short-lived credential more
+    // times than the bounded lineage retains. Once that item has an
+    // authoritative terminal outcome, the old device must converge on the
+    // terminal result instead of being trapped in a credential-invalid
+    // outbox retry. The terminal check must not revive or extend the session.
+    const evictedInitialCredential = createStudyStreamCredential();
+    const evictedSession = await prisma.studySession.create({
+      data: {
+        userId: user.id,
+        queueFingerprint: `evicted-completed-${suffix}`,
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        flowVersion: "v2",
+        learningPolicyVersion: "retrieval-v1",
+        mode: "global",
+        revision: 0,
+        streamItems: {
+          create: {
+            streamItemKey: `evicted-completed-${suffix}`,
+            wordId: wordIds[4],
+            itemKind: "LEARNING_CARD",
+            selectionReason: "credential-eviction-test",
+            policyVersion: "retrieval-v1",
+            status: "LEASED",
+            leaseExpiresAt: new Date(Date.now() + 15 * 60_000),
+            credentialDigest: digestStudyStreamCredential(evictedInitialCredential),
+            credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+            credentialLineage: [{
+              digest: digestStudyStreamCredential(evictedInitialCredential),
+              issuedAt: Date.now(),
+              expiresAt: Date.now() + 15 * 60_000,
+              parentDigest: null,
+            }],
+            clientRevision: 0,
+          },
+        },
+      },
+      include: { streamItems: true },
+    });
+    const evictedItem = evictedSession.streamItems[0];
+    assert.ok(evictedItem);
+    let evictedCurrentCredential = evictedInitialCredential;
+    let credentialAfterSevenRotations = evictedInitialCredential;
+    for (let rotation = 1; rotation <= 8; rotation += 1) {
+      const renewal = await renewStudyStreamCredential(user.id, {
+        studySessionId: evictedSession.id,
+        streamItemId: evictedItem.id,
+        itemCredential: evictedCurrentCredential,
+        clientKnownRevision: 0,
+      });
+      evictedCurrentCredential = renewal.itemCredential;
+      if (rotation === 7) credentialAfterSevenRotations = renewal.itemCredential;
+    }
+    const evictedLineage = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: evictedItem.id },
+      select: { credentialLineage: true },
+    });
+    assert.ok(Array.isArray(evictedLineage.credentialLineage));
+    const evictedLineageDigests = evictedLineage.credentialLineage.flatMap((entry) => {
+      if (typeof entry !== "object" || entry === null || !("digest" in entry)) return [];
+      return typeof entry.digest === "string" ? [entry.digest] : [];
+    });
+    assert.equal(evictedLineageDigests.includes(digestStudyStreamCredential(evictedInitialCredential)), false);
+    assert.equal(evictedLineageDigests.includes(digestStudyStreamCredential(credentialAfterSevenRotations)), true);
+
+    const evictedReveal = await applyStudyStreamAction(user.id, {
+      flowVersion: "v2",
+      studySessionId: evictedSession.id,
+      streamItemId: evictedItem.id,
+      operationId: `evicted-device-b-reveal-${suffix}`,
+      itemCredential: evictedCurrentCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: 0,
+      payload: {},
+    });
+    assert.equal(evictedReveal.response.itemStatus, "LEASED");
+    const evictedCompletion = await applyStudyStreamAction(user.id, {
+      flowVersion: "v2",
+      studySessionId: evictedSession.id,
+      streamItemId: evictedItem.id,
+      operationId: `evicted-device-b-self-${suffix}`,
+      itemCredential: evictedCurrentCredential,
+      actionKind: "SELF_RATING",
+      clientKnownRevision: 0,
+      payload: { selfRating: "selfRecalled" },
+    });
+    assert.equal(evictedCompletion.response.itemStatus, "ACKNOWLEDGED");
+    const evictedEncounterCount = await prisma.studyEncounter.count({ where: { userId: user.id } });
+    const evictedReceiptCount = await prisma.operationReceipt.count({ where: { userId: user.id } });
+    const oldDeviceAction: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: evictedSession.id,
+      streamItemId: evictedItem.id,
+      operationId: `evicted-device-a-self-${suffix}`,
+      itemCredential: evictedInitialCredential,
+      actionKind: "SELF_RATING",
+      clientKnownRevision: 0,
+      payload: { selfRating: "selfForgot" },
+    };
+    // Action routes remain strict even when the item is terminal. The
+    // authenticated read-only reconciliation path is what lets an old device
+    // converge after K0 has fallen out of the bounded lineage.
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, oldDeviceAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    const activeTerminal = await reconcileStudyStreamAction(user.id, oldDeviceAction);
+    assert.equal(activeTerminal.ok, true);
+    assert.equal(activeTerminal.terminal, true);
+    if (activeTerminal.terminal) assert.equal(activeTerminal.code, "STREAM_ITEM_COMPLETED");
+    await prisma.studySession.update({
+      where: { id: evictedSession.id },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    const retainedTerminalExpiryBefore = await prisma.studySession.findUniqueOrThrow({
+      where: { id: evictedSession.id },
+      select: { expiresAt: true },
+    });
+    await assert.rejects(
+      () => recoverExpiredStudyStreamAction(user.id, {
+        ...oldDeviceAction,
+        operationId: `evicted-device-retained-recovery-${suffix}`,
+        itemCredential: credentialAfterSevenRotations,
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 409 && error.details.code === "STREAM_ITEM_COMPLETED",
+    );
+    const retainedTerminalExpiryAfter = await prisma.studySession.findUniqueOrThrow({
+      where: { id: evictedSession.id },
+      select: { expiresAt: true },
+    });
+    assert.equal(retainedTerminalExpiryAfter.expiresAt.getTime(), retainedTerminalExpiryBefore.expiresAt.getTime());
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, oldDeviceAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    await assert.rejects(
+      () => recoverExpiredStudyStreamAction(user.id, {
+        ...oldDeviceAction,
+        operationId: `evicted-device-a-recovery-${suffix}`,
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    const expiredTerminal = await reconcileStudyStreamAction(user.id, {
+      ...oldDeviceAction,
+      operationId: `evicted-device-a-reconcile-${suffix}`,
+    });
+    assert.equal(expiredTerminal.ok, true);
+    assert.equal(expiredTerminal.terminal, true);
+    if (expiredTerminal.terminal) assert.equal(expiredTerminal.code, "STREAM_ITEM_COMPLETED");
+    const unknownCredentialAction: StudyStreamActionInput = {
+      ...oldDeviceAction,
+      operationId: `evicted-device-unknown-${suffix}`,
+      itemCredential: createStudyStreamCredential(),
+    };
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, unknownCredentialAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    const unknownCredentialReconciliation = await reconcileStudyStreamAction(user.id, unknownCredentialAction);
+    assert.equal(unknownCredentialReconciliation.ok, true);
+    assert.equal(unknownCredentialReconciliation.terminal, true);
+    if (unknownCredentialReconciliation.terminal) assert.equal(unknownCredentialReconciliation.code, "STREAM_ITEM_COMPLETED");
+    await assert.rejects(
+      () => reconcileStudyStreamAction(studyDayOnlyUserId!, unknownCredentialAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403,
+    );
+    await prisma.studySession.update({
+      where: { id: evictedSession.id },
+      data: { retiredAt: new Date() },
+    });
+    await assert.rejects(
+      () => reconcileStudyStreamAction(user.id, unknownCredentialAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "SESSION_REVOKED",
+    );
+    const evictedCompletedRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: evictedItem.id },
+      select: { status: true, usedAt: true },
+    });
+    assert.equal(evictedCompletedRow.status, "ACKNOWLEDGED");
+    assert.ok(evictedCompletedRow.usedAt);
+    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), evictedEncounterCount);
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), evictedReceiptCount);
+    const evictedSessionAfterTerminal = await prisma.studySession.findUniqueOrThrow({
+      where: { id: evictedSession.id },
+      select: { expiresAt: true },
+    });
+    assert.ok(evictedSessionAfterTerminal.expiresAt.getTime() <= Date.now());
+
+    // The same eight-rotation boundary must not grant a credentialless
+    // mutation while the item is still unresolved. Such a row can recover by
+    // asking the server for the same item and rebinding to its new credential.
+    const pendingInitialCredential = createStudyStreamCredential();
+    const pendingSession = await prisma.studySession.create({
+      data: {
+        userId: user.id,
+        queueFingerprint: `evicted-pending-${suffix}`,
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        flowVersion: "v2",
+        learningPolicyVersion: "retrieval-v1",
+        mode: "global",
+        revision: 0,
+        streamItems: {
+          create: {
+            streamItemKey: `evicted-pending-${suffix}`,
+            wordId: wordIds[3],
+            itemKind: "LEARNING_CARD",
+            selectionReason: "credential-eviction-test",
+            policyVersion: "retrieval-v1",
+            status: "LEASED",
+            leaseExpiresAt: new Date(Date.now() + 15 * 60_000),
+            credentialDigest: digestStudyStreamCredential(pendingInitialCredential),
+            credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+            credentialLineage: [{
+              digest: digestStudyStreamCredential(pendingInitialCredential),
+              issuedAt: Date.now(),
+              expiresAt: Date.now() + 15 * 60_000,
+              parentDigest: null,
+            }],
+            clientRevision: 0,
+          },
+        },
+      },
+      include: { streamItems: true },
+    });
+    const pendingItem = pendingSession.streamItems[0];
+    assert.ok(pendingItem);
+    let pendingCurrentCredential = pendingInitialCredential;
+    for (let rotation = 0; rotation < 8; rotation += 1) {
+      const renewal = await renewStudyStreamCredential(user.id, {
+        studySessionId: pendingSession.id,
+        streamItemId: pendingItem.id,
+        itemCredential: pendingCurrentCredential,
+        clientKnownRevision: 0,
+      });
+      pendingCurrentCredential = renewal.itemCredential;
+    }
+    const unresolvedReconciliation = await reconcileStudyStreamAction(user.id, {
+      flowVersion: "v2",
+      studySessionId: pendingSession.id,
+      streamItemId: pendingItem.id,
+      operationId: `evicted-pending-reconcile-${suffix}`,
+      itemCredential: pendingInitialCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: 0,
+      payload: {},
+    });
+    assert.equal(unresolvedReconciliation.ok, true);
+    assert.equal(unresolvedReconciliation.terminal, false);
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: pendingSession.id,
+        streamItemId: pendingItem.id,
+        operationId: `evicted-pending-invalid-${suffix}`,
+        itemCredential: pendingInitialCredential,
+        actionKind: "REVEAL",
+        clientKnownRevision: 0,
+        payload: {},
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    const reboundPending = await getOrCreateStudyStream(user.id, { itemCredential: pendingInitialCredential });
+    assert.equal(reboundPending.session.id, pendingSession.id);
+    assert.equal(reboundPending.item?.streamItemId, pendingItem.id);
+    assert.notEqual(reboundPending.item?.itemCredential, pendingInitialCredential);
+    assert.ok(reboundPending.item?.itemCredential);
+    const reboundReveal = await applyStudyStreamAction(user.id, {
+      flowVersion: "v2",
+      studySessionId: pendingSession.id,
+      streamItemId: pendingItem.id,
+      operationId: `evicted-pending-rebound-${suffix}`,
+      itemCredential: reboundPending.item.itemCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: reboundPending.item.clientRevision,
+      payload: {},
+    });
+    assert.equal(reboundReveal.response.itemStatus, "LEASED");
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, {
+        flowVersion: "v2",
+        studySessionId: pendingSession.id,
+        streamItemId: pendingItem.id,
+        operationId: `evicted-pending-unknown-${suffix}`,
+        itemCredential: createStudyStreamCredential(),
+        actionKind: "REVEAL",
+        clientKnownRevision: reboundPending.item?.clientRevision ?? 0,
+        payload: {},
+      }),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    // Keep the remainder of this integration flow focused on its objective
+    // probe fixture rather than the unresolved credential-eviction control.
+    await prisma.studySession.update({
+      where: { id: pendingSession.id },
+      data: { retiredAt: new Date() },
+    });
+
     await prisma.evidenceObligation.update({
       where: { id: obligation.id },
       data: { eligibleAt: new Date(Date.now() - 1_000) },
@@ -585,6 +883,21 @@ async function main() {
     assert.equal(lateAck.response.itemStatus, "ACKNOWLEDGED");
     assert.equal(lateAck.response.feedback?.acknowledged, true);
     assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id } }), 1);
+    const feedbackReceiptCount = await prisma.operationReceipt.count({ where: { userId: user.id } });
+    const unknownFeedbackAction: StudyStreamActionInput = {
+      ...ackInput,
+      operationId: `stream-feedback-unknown-${suffix}`,
+      itemCredential: createStudyStreamCredential(),
+    };
+    await assert.rejects(
+      () => applyStudyStreamAction(user.id, unknownFeedbackAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "ITEM_CREDENTIAL_INVALID",
+    );
+    const unknownFeedbackReconciliation = await reconcileStudyStreamAction(user.id, unknownFeedbackAction);
+    assert.equal(unknownFeedbackReconciliation.ok, true);
+    assert.equal(unknownFeedbackReconciliation.terminal, true);
+    if (unknownFeedbackReconciliation.terminal) assert.equal(unknownFeedbackReconciliation.code, "FEEDBACK_ALREADY_ACKNOWLEDGED");
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), feedbackReceiptCount);
     const remediation = await getOrCreateStudyStream(user.id);
     assert.ok(remediation.item);
     assert.equal(remediation.item.kind, "LEARNING_CARD");
@@ -620,8 +933,8 @@ async function main() {
     });
     assert.equal(answeredRemediation.status, "ANSWERED");
     assert.equal(answeredRemediation.activeKey, null);
-    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 10);
-    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 17);
+    assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 11);
+    assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), 20);
 
     // Exact negative controls prevent a vacuous SQL/Prisma equivalence pass on
     // a database containing only current words.
@@ -786,7 +1099,7 @@ async function main() {
     const metrics = await getStudentLearningMetrics(user.id);
     assert.equal(metrics.reviewEventCount, 1);
     assert.equal(metrics.objectiveRecognitionCount, 1);
-    assert.equal(metrics.selfRatedEncounterCount, 10);
+    assert.equal(metrics.selfRatedEncounterCount, 11);
     assert.equal(metrics.legacyUnknownEventCount, 0);
     assert.ok(metrics.learnedCount >= 1, "repetitions=1 must count as learned");
     assert.ok(metrics.masteredCount >= 1, "interval=22 must count as mastered");
@@ -900,7 +1213,7 @@ async function main() {
     });
     const dashboard = await getStudentDashboard(user.id);
     assert.equal(dashboard.today.objectiveRecognitionCount, 1);
-    assert.equal(dashboard.today.selfRatedEncounterCount, 10);
+    assert.equal(dashboard.today.selfRatedEncounterCount, 11);
     assert.equal(dashboard.library.masteredCount, 0);
     const unitSummaryAfter = await getOrCreateStudyStream(user.id, {
       mode: "unit",
@@ -1551,6 +1864,53 @@ async function main() {
     assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id, objectiveQuestionSnapshotId: provenanceSnapshot.id } }), 1);
     const afterExpiredFeedback = await getOrCreateStudyStream(user.id);
     assert.notEqual(afterExpiredFeedback.item?.streamItemId, provenanceProbe.item.streamItemId);
+
+    // A read-only feedback acknowledgement may itself arrive after the
+    // source session and its current credential have expired. It must not
+    // revive that short-lived session merely to record the acknowledgement.
+    const pendingFeedbackFixture = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: provenanceProbe.item.streamItemId },
+      select: { credentialLineage: true, credentialDigest: true },
+    });
+    const expiredLineage = Array.isArray(pendingFeedbackFixture.credentialLineage)
+      ? pendingFeedbackFixture.credentialLineage.map((entry) => {
+          if (typeof entry !== "object" || entry === null || !("digest" in entry)) return entry;
+          return { ...entry, expiresAt: Date.now() - 1_000 };
+        })
+      : [];
+    await prisma.studyStreamItem.update({
+      where: { id: provenanceProbe.item.streamItemId },
+      data: {
+        status: "ANSWERED",
+        feedbackAcknowledgedAt: null,
+        credentialExpiresAt: new Date(Date.now() - 1_000),
+        credentialLineage: expiredLineage as unknown as PrismaTypes.InputJsonValue,
+      },
+    });
+    const pendingFeedbackSessionBeforeRecovery = await prisma.studySession.findUniqueOrThrow({
+      where: { id: provenanceProbe.session.id },
+      select: { expiresAt: true },
+    });
+    const expiredCredentialFeedback = await recoverExpiredStudyStreamAction(user.id, {
+      flowVersion: "v2",
+      studySessionId: provenanceProbe.session.id,
+      streamItemId: provenanceProbe.item.streamItemId,
+      operationId: `provenance-expired-credential-feedback-${suffix}`,
+      itemCredential: provenanceProbe.item.itemCredential,
+      actionKind: "FEEDBACK_ACK",
+      clientKnownRevision: provenanceProbe.item.clientRevision,
+      payload: {},
+    });
+    assert.equal(expiredCredentialFeedback.response.itemStatus, "ACKNOWLEDGED");
+    const pendingFeedbackSessionAfterRecovery = await prisma.studySession.findUniqueOrThrow({
+      where: { id: provenanceProbe.session.id },
+      select: { expiresAt: true },
+    });
+    assert.equal(
+      pendingFeedbackSessionAfterRecovery.expiresAt.getTime(),
+      pendingFeedbackSessionBeforeRecovery.expiresAt.getTime(),
+    );
+    assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id, objectiveQuestionSnapshotId: provenanceSnapshot.id } }), 1);
 
     const dualFlowSessions = await prisma.studySession.groupBy({
       by: ["flowVersion"],

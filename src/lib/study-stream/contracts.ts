@@ -113,6 +113,22 @@ export interface PublicStreamActionResponse {
   nextItem: PublicStreamItemBase | null;
 }
 
+export type StudyStreamActionReconciliation =
+  | {
+      ok: true;
+      terminal: true;
+      code:
+        | "SUPERSEDED_STREAM_ITEM"
+        | "STREAM_ITEM_COMPLETED"
+        | "OBJECTIVE_TARGET_CONSUMED"
+        | "FEEDBACK_ALREADY_ACKNOWLEDGED";
+      message: string;
+    }
+  | {
+      ok: true;
+      terminal: false;
+    };
+
 const ACTION_KEYS = new Set([
   "flowVersion",
   "studySessionId",

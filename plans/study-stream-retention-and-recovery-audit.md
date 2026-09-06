@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：已完成（第七輪跨 session feedback 續接修正；本地驗證完成）
+狀態：已完成（第八輪跨裝置憑證淘汰終結；本地驗證，hosted CI 待本次推送）
 
 ## 背景與目標
 
@@ -38,6 +38,12 @@
 - 恢復必須驗證使用者、單元範圍及 session 撤銷狀態，並保留雙分頁確認的冪等與跨帳戶隔離；feedback 確認後才可繼續排程。
 - 續接查詢在同一個 Serializable bootstrap transaction 內先於其他 current item／新題排程執行；回傳原題所屬 session 供只讀確認，並只對已答 Objective Probe 的 `FEEDBACK_ACK` 放寬 session expiry，不延長來源 session。
 
+第八輪審核新增範圍（`fc8bea43` 後覆核）：
+
+- 憑證 lineage 超過保留上限後，若同一項目已由另一裝置明確完成，舊裝置的待同步操作必須經伺服器核對帳戶／session／item 歸屬及終結狀態後安全返回 terminal result；不得因舊 bearer digest 被淘汰而卡在一般 credential 403。
+- 未完成項目仍須維持嚴格 credential 驗證及既有 bounded recovery；未知憑證、撤銷 session、不同帳戶及結果不明的操作不得被當成已完成。其他 outbox row 必須保留，不能以放寬所有 403 或清空佇列解決。
+- 已完成 Learning Card、已消耗 Objective Probe 及可重播的 feedback acknowledgement 要分別沿用既有 terminal／read-only 語義；完成核對不得重新評分、建立重複 encounter／ReviewEvent、延長 session 或改寫歷史。
+
 ## Checklist／驗收矩陣
 
 - [x] 真正 cleanup DB 測試：V1 清理、V2 Encounter／客觀歷史及 coverage 所依賴的 distinct word 集合保留；測試在 rollback transaction 內，不刪現有資料。
@@ -53,6 +59,7 @@
 - [x] 過期／取消／完成 remediation obligation 的舊 Learning Card 不再續接，並以真正資料庫回歸覆蓋跨單元觸發過期及歷史保留。
 - [x] 詞庫更新後提交舊 Objective Probe 的版本 provenance 回歸：判分使用舊快照，ReviewEvent 版本欄位與快照一致且只計分一次。
 - [x] Objective Probe feedback 跨 session 到期續接：到期邊界、離開後超過 30 分鐘恢復、撤銷／跨帳戶隔離及雙分頁確認只產生一次結果。
+- [x] 跨裝置 credential lineage 7→8 輪換邊界：已完成項目的舊操作經只讀 reconciliation 安全 terminal、未完成項目可 bounded rebind 後實際提交、未知 credential／撤銷／跨帳戶 fail closed，並由獨立 browser contexts 驗證其他 outbox row 保留。
 
 ## 發佈、rollback 及 Definition of Done
 
@@ -72,4 +79,7 @@
 - 第七輪本地驗證：`npm run test:db:stream-v2` 通過；新增真正 PostgreSQL 回歸覆蓋 expired source session 跨 31 分鐘恢復、未確認 feedback 優先於排新題、已過期題不可重新評分、跨帳戶／撤銷隔離、雙分頁 ACK 及只產生一筆 ReviewEvent；`npm test` 380 tests 通過，`npx tsc --noEmit`、`npm run lint -- --quiet`、`git diff --check` 及 `npm run build` 通過。
 - 第七輪瀏覽器回歸：`npm run test:e2e:study-stream-v2 -- --grep "expired session resumes read-only"` 2 tests 通過（auth setup 及過期 feedback UI／ACK flow）；其後完整 `npm run test:e2e:study-stream-v2` 16 tests 通過（含 auth setup 及新回歸），hosted CI 仍以推送後結果為準。
 - 第七輪未新增 schema／migration，亦不涉及 production deploy、main merge、native device 或 research gate。
+- 第八輪本地驗證：`npm run test:db:stream-v2` 通過，覆蓋 K0 在 8 次輪換後被淘汰、已完成 Learning Card 的 action/recovery 嚴格 403 加只讀 terminal reconciliation、未完成 item rebind 後實際 REVEAL、未知 credential／撤銷／跨帳戶隔離、receipt／encounter 不增加，以及 expired feedback ACK credential recovery 不延長來源 session。
+- 第八輪瀏覽器回歸：`npm run test:e2e:study-stream-v2 -- --reporter=line` 18/18 通過；包括雙獨立 browser contexts、完成項 terminal convergence、其他 outbox row 保留及 reconciliation route client flow。
+- 第八輪 `npm test` 380 passed、`npm run lint -- --quiet`、`npx tsc --noEmit --pretty false`、`git diff --check` 及 `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all npm run build` 通過；兩位獨立 reviewer 均對最終工作樹 PASS。未新增 schema／migration，未執行 production deploy、main merge 或 GitHub ruleset 變更。
 - 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。

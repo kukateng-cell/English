@@ -15,6 +15,7 @@ import type {
   PublicStreamActionResponse,
   PublicStreamItemBase,
   PublicStreamResponse,
+  StudyStreamActionReconciliation,
   StudyStreamActionInput,
 } from "@/lib/study-stream/contracts";
 import {
@@ -234,6 +235,24 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return data as PublicStreamActionResponse;
   }, []);
 
+  const reconcileAction = useCallback(async (action: StudyStreamActionInput): Promise<StudyStreamActionReconciliation> => {
+    const response = await rosterFetch("/api/study/actions/reconcile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(action),
+    });
+    const data = await readResponse(response);
+    if (
+      typeof data !== "object" || data === null ||
+      (data as Record<string, unknown>).ok !== true ||
+      typeof (data as Record<string, unknown>).terminal !== "boolean"
+    ) {
+      throw new Error("學習操作狀態回執無效");
+    }
+    return data as StudyStreamActionReconciliation;
+  }, []);
+
   const postActionWithRecovery = useCallback(async (action: StudyStreamActionInput): Promise<PublicStreamActionResponse> => {
     try {
       return await postAction(action);
@@ -367,6 +386,28 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       }
       if (status === 403) {
         try {
+          // A credential may have fallen out of the bounded lineage on
+          // another device. Reconcile only the exact authenticated
+          // account/session/item tuple; the endpoint is read-only and never
+          // returns feedback or creates a receipt.
+          const reconciliation = await reconcileAction(row.action);
+          if (reconciliation.terminal) {
+            const discarded = await discardTerminalAction(row.action);
+            if (discarded.removed) return discarded.refreshed ? "terminal" : "stopped";
+          }
+        } catch (reconciliationError) {
+          const reconciliationStatus = reconciliationError instanceof Error && "status" in reconciliationError && typeof reconciliationError.status === "number"
+            ? reconciliationError.status
+            : null;
+          const reconciliationCode = reconciliationError instanceof Error && "code" in reconciliationError && typeof reconciliationError.code === "string"
+            ? reconciliationError.code
+            : null;
+          if (reconciliationStatus === 401 || reconciliationCode === "SESSION_REVOKED") {
+            handleAuthInvalidation();
+            return "blocked";
+          }
+        }
+        try {
           const reboundState = await fetchStream(row.action.itemCredential);
           if (
             reboundState.item &&
@@ -409,7 +450,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       refreshOutbox();
       return "blocked";
     }
-  }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, refreshOutbox, userId]);
+  }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, reconcileAction, refreshOutbox, userId]);
 
   const flushRunningRef = useRef(false);
   const flushPending = useCallback(async (): Promise<void> => {
@@ -497,6 +538,26 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         handleAuthInvalidation();
         return;
       }
+      if (status === 403) {
+        try {
+          const reconciliation = await reconcileAction(action);
+          if (reconciliation.terminal) {
+            const discarded = await discardTerminalAction(action);
+            if (discarded.removed) return;
+          }
+        } catch (reconciliationError) {
+          const reconciliationStatus = reconciliationError instanceof Error && "status" in reconciliationError && typeof reconciliationError.status === "number"
+            ? reconciliationError.status
+            : null;
+          const reconciliationCode = reconciliationError instanceof Error && "code" in reconciliationError && typeof reconciliationError.code === "string"
+            ? reconciliationError.code
+            : null;
+          if (reconciliationStatus === 401 || reconciliationCode === "SESSION_REVOKED") {
+            handleAuthInvalidation();
+            return;
+          }
+        }
+      }
       try {
         await markStudyStreamActionBlocked(userId, action.operationId, errorText(error));
       } catch {
@@ -509,7 +570,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setActionPending(false);
       refreshOutbox();
     }
-  }, [actionPending, applyActionResponse, discardTerminalAction, flushPending, handleAuthInvalidation, item, postActionWithRecovery, refreshOutbox, refreshPending, session, syncBlocked, updateCheckpoint, userId]);
+  }, [actionPending, applyActionResponse, discardTerminalAction, flushPending, handleAuthInvalidation, item, postActionWithRecovery, reconcileAction, refreshOutbox, refreshPending, session, syncBlocked, updateCheckpoint, userId]);
 
   const retryRefresh = useCallback(async () => {
     if (!refreshPending || actionPending) return;

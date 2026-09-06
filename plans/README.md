@@ -10,7 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
-| [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 已完成（第七輪本地驗證；hosted CI 待推送後） | 追加 Objective Probe 已答未確認 feedback 跨 session 到期續接；雙 reviewer 及本地 DB／browser 回歸完成 |
+| [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 已完成（第八輪本地驗證；hosted CI 待推送） | 已完成 credential eviction 後嘅 strict action/recovery、只讀終結 reconciliation、未完成項目 bounded rebind、expired feedback ACK 不延長 session，以及雙 browser context 回歸；待本次推送後 hosted CI |
 | [staging-audit-followup.md](./staging-audit-followup.md) | 審核第二／三輪 | 第二輪 CI 全通過；第三輪局部補修本地完成 | fresh seed、CSV、CIS-010 預覽、問題篩選、route cap；第三輪負號公式編碼、379 unit 及真實試算表 round-trip 通過；分支規則待管理員 |
 | [staging-audit-remediation.md](./staging-audit-remediation.md) | 審核修正 | 已完成（分支保護待管理員） | seed、V2 outbox、題目安全、catalog輸入輸出、依賴及CI修正；374 unit、V2 DB／browser、三引擎雙分頁測試通過 |
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |

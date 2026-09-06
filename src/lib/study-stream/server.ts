@@ -44,6 +44,7 @@ import {
   type PublicStreamActionResponse,
   type PublicStreamItemBase,
   type PublicStreamResponse,
+  type StudyStreamActionReconciliation,
   type PublicStreamUnitSummary,
   type StudyStreamActionInput,
 } from "@/lib/study-stream/contracts";
@@ -184,10 +185,12 @@ function rotatedCredentialLineage(
 ): Prisma.InputJsonValue {
   const now = issuedAt.getTime();
   // Keep a bounded history even after a grant expires. Normal action
-  // validation still checks grant expiry; the explicit recovery path uses
-  // only this digest match after it has revalidated the owning user, item,
-  // session and typed operation. Dropping an expired predecessor here would
-  // make a browser refresh irrecoverably invalidate its durable outbox row.
+  // validation still checks grant expiry; the explicit recovery path for an
+  // unresolved item uses only this digest match after it has revalidated the
+  // owning user, item, session and typed operation. A completed item can
+  // converge through its authoritative terminal state even after a
+  // predecessor is evicted; unresolved rows still rebind through a current
+  // credential rather than bypassing this check.
   const known = parseCredentialLineage(item.credentialLineage);
   const current = known.some((grant) => grant.digest === item.credentialDigest)
     ? known
@@ -226,6 +229,65 @@ function acceptsCredential(
   if (digest === item.credentialDigest && item.credentialExpiresAt > now) return true;
   return parseCredentialLineage(item.credentialLineage)
     .some((grant) => grant.digest === digest && grant.expiresAt > now.getTime());
+}
+
+type TerminalActionConflict = {
+  code: "SUPERSEDED_STREAM_ITEM" | "STREAM_ITEM_COMPLETED" | "OBJECTIVE_TARGET_CONSUMED";
+  message: string;
+};
+
+/**
+ * A durable item state can outlive the short credential lineage retained on
+ * the row. Once the server has recorded a terminal outcome, an old device
+ * must be able to converge on that outcome without presenting a bearer
+ * digest which has already fallen out of the bounded lineage. This helper is
+ * deliberately limited to actions whose outcome is already authoritative;
+ * an unconsumed item still requires a valid credential (and may use the
+ * explicit bounded recovery path instead).
+ */
+function terminalActionConflict(
+  item: StudyStreamItem,
+  actionKind: StudyStreamActionInput["actionKind"],
+): TerminalActionConflict | null {
+  if (item.status === "SUPERSEDED") {
+    return {
+      code: "SUPERSEDED_STREAM_ITEM",
+      message: "學習項目已由其他裝置完成",
+    };
+  }
+  if (
+    item.itemKind === "LEARNING_CARD" &&
+    item.usedAt !== null &&
+    (actionKind === "REVEAL" || actionKind === "SELF_RATING")
+  ) {
+    return {
+      code: "STREAM_ITEM_COMPLETED",
+      message: "學習項目已由其他操作完成",
+    };
+  }
+  if (
+    item.itemKind === "OBJECTIVE_PROBE" &&
+    item.usedAt !== null &&
+    actionKind === "OBJECTIVE_ANSWER"
+  ) {
+    return {
+      code: "OBJECTIVE_TARGET_CONSUMED",
+      message: "該客觀題已由其他操作完成",
+    };
+  }
+  return null;
+}
+
+function isCompletedFeedbackReplay(
+  item: StudyStreamItem,
+  actionKind: StudyStreamActionInput["actionKind"],
+): boolean {
+  return actionKind === "FEEDBACK_ACK" &&
+    item.itemKind === "OBJECTIVE_PROBE" &&
+    item.usedAt !== null &&
+    item.feedbackAcknowledgedAt !== null &&
+    item.operationId !== null &&
+    item.status === "ACKNOWLEDGED";
 }
 
 function asFeedback(value: unknown): StoredFeedback | null {
@@ -1296,7 +1358,12 @@ async function loadActionItem(
   if (!item || item.session.userId !== userId || item.session.flowVersion !== STUDY_STREAM_FLOW_VERSION) {
     throw new StudyStreamError(403, "學習項目憑證無效或不屬於目前帳戶");
   }
+  const completionConflict = terminalActionConflict(item, input.actionKind);
+  const completedFeedbackReplay = isCompletedFeedbackReplay(item, input.actionKind);
   const credentialMatches = matchesCredentialDigest(item, input.itemCredential);
+  // Action routes remain bearer-credential protected. A terminal item's
+  // authoritative state is reconciled through the separate read-only status
+  // path below; never let an unknown credential reach an action processor.
   if (!credentialMatches) {
     throw new StudyStreamError(403, "學習項目憑證無效或已過期", { code: "ITEM_CREDENTIAL_INVALID" });
   }
@@ -1318,7 +1385,7 @@ async function loadActionItem(
     if (!options.recoverExpiredSession && !isReadOnlyFeedbackAck) {
       throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_EXPIRED" });
     }
-    if (options.recoverExpiredSession) {
+    if (options.recoverExpiredSession && !completionConflict && !completedFeedbackReplay && !isReadOnlyFeedbackAck) {
       const recoveredExpiresAt = new Date(now.getTime() + STREAM_SESSION_TTL_MS);
       const recovered = await tx.studySession.updateMany({
         where: { id: item.session.id, userId, retiredAt: null, expiresAt: { lte: now } },
@@ -1332,6 +1399,12 @@ async function loadActionItem(
       // with another tab/device using the same learner session.
       item.session = { ...item.session, expiresAt: recoveredExpiresAt };
     }
+  }
+  if (completionConflict) {
+    // An expired session still follows the normal session barrier. The
+    // explicit recovery endpoint reaches this terminal check without
+    // extending the already-completed item's source session.
+    throw new StudyStreamError(409, completionConflict.message, { code: completionConflict.code });
   }
   if (!credentialAccepted && !options.recoverExpiredCredential) {
     throw new StudyStreamError(403, "學習項目憑證無效或已過期", { code: "ITEM_CREDENTIAL_EXPIRED" });
@@ -1922,6 +1995,69 @@ export async function applyStudyStreamAction(
   input: StudyStreamActionInput,
 ): Promise<ActionTransactionResult> {
   return applyStudyStreamActionTx(userId, input);
+}
+
+/**
+ * Check whether a queued action's exact account/session/item tuple has already
+ * reached an authoritative terminal state. This is intentionally separate
+ * from action processing: it does not accept the supplied bearer credential,
+ * return card/feedback content, create a receipt, score anything, or extend a
+ * session. It only gives an authenticated client enough information to remove
+ * one stale outbox row after a credential lineage has been evicted. Pending
+ * and revoked tuples remain unresolved/fail closed for the normal retry path.
+ */
+export async function reconcileStudyStreamAction(
+  userId: string,
+  input: StudyStreamActionInput,
+): Promise<StudyStreamActionReconciliation> {
+  for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          await lockStreamUser(tx, userId);
+          const item = await tx.studyStreamItem.findFirst({
+            where: {
+              id: input.streamItemId,
+              sessionId: input.studySessionId,
+            },
+            include: { session: true },
+          });
+          if (!item || item.session.userId !== userId || item.session.flowVersion !== STUDY_STREAM_FLOW_VERSION) {
+            throw new StudyStreamError(403, "學習項目憑證無效或不屬於目前帳戶");
+          }
+          if (item.session.retiredAt !== null) {
+            throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
+          }
+          const conflict = terminalActionConflict(item, input.actionKind);
+          if (conflict) {
+            return {
+              ok: true as const,
+              terminal: true as const,
+              code: conflict.code,
+              message: conflict.message,
+            };
+          }
+          if (isCompletedFeedbackReplay(item, input.actionKind)) {
+            return {
+              ok: true as const,
+              terminal: true as const,
+              code: "FEEDBACK_ALREADY_ACKNOWLEDGED" as const,
+              message: "客觀題 feedback 已由其他操作確認",
+            };
+          }
+          return { ok: true as const, terminal: false as const };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      const retryable = isRetryableTransactionConflict(error) || (
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+      );
+      if (!retryable || attempt === MAX_TRANSACTION_ATTEMPTS) throw error;
+      await waitForTransactionRetry(attempt - 1);
+    }
+  }
+  throw new Error("Study action reconciliation transaction retry exhausted");
 }
 
 /**

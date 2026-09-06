@@ -928,6 +928,404 @@ test("V2 gives a retrieval opportunity before Learning Card self-rating", async 
   throw new Error("The local V2 stream did not expose a Learning Card within 12 items");
 });
 
+test("an evicted credential on an already completed item converges through terminal reconciliation", async ({ page }) => {
+  const sessionId = "evicted-terminal-session";
+  const streamItemId = "evicted-terminal-item";
+  const oldCredential = "evicted-terminal-credential-012345678901234567890123456789";
+  let streamCalls = 0;
+  let actionCalls = 0;
+  let recoveryCalls = 0;
+  let reconciliationCalls = 0;
+  const siblingOperationId = "evicted-sibling-operation-01";
+  let serveNextItem = false;
+  let revealed = false;
+
+  await page.addInitScript(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (key.includes("study-stream-v2:")) localStorage.removeItem(key);
+    }
+  });
+
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    streamCalls += 1;
+    const next = serveNextItem;
+    const response: PublicStreamResponse = {
+      ok: true,
+      assigned: true,
+      resumedFeedback: false,
+      session: {
+        id: sessionId,
+        mode: "global",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        revision: next ? 1 : 0,
+        expiresAt: next
+          ? new Date(Date.now() + 30 * 60_000).toISOString()
+          : new Date(Date.now() - 1_000).toISOString(),
+      },
+      item: next ? {
+        streamItemId: "evicted-next-item",
+        kind: "LEARNING_CARD",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1",
+        itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+        selectionReason: "evicted-terminal-test",
+        itemCredential: "evicted-next-credential-012345678901234567890123456789",
+        credentialExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        clientRevision: 1,
+        prompt: "banana",
+      } : {
+        streamItemId,
+        kind: "LEARNING_CARD",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1",
+        itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+        selectionReason: "evicted-terminal-test",
+        itemCredential: oldCredential,
+        credentialExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        clientRevision: 0,
+        prompt: "apple",
+        ...(revealed ? {
+          learningCard: {
+            term: "apple",
+            phonetic: null,
+            definition: "蘋果",
+            pos: null,
+            examples: [],
+          },
+        } : {}),
+      },
+    };
+    await route.fulfill({ json: response });
+  });
+
+  await page.route("**/api/study/actions**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === "/api/study/actions/reconcile") {
+      reconciliationCalls += 1;
+      serveNextItem = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          terminal: true,
+          code: "STREAM_ITEM_COMPLETED",
+          message: "學習項目已由其他操作完成",
+        }),
+      });
+      return;
+    }
+    if (pathname === "/api/study/actions/recover") {
+      recoveryCalls += 1;
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "學習項目憑證無效或已過期", code: "ITEM_CREDENTIAL_INVALID" }),
+      });
+      return;
+    }
+    if (pathname !== "/api/study/actions") return route.continue();
+    actionCalls += 1;
+    const action = route.request().postDataJSON() as StudyStreamActionInput;
+    if (action.actionKind === "REVEAL") {
+      revealed = true;
+      await route.fulfill({
+        json: {
+          ok: true,
+          operationId: action.operationId,
+          actionKind: action.actionKind,
+          duplicate: false,
+          itemStatus: "LEASED",
+          clientRevision: 0,
+          requiresFeedbackAck: false,
+          learningCard: {
+            term: "apple",
+            phonetic: null,
+            definition: "蘋果",
+            pos: null,
+            examples: [],
+          },
+          nextItem: null,
+        },
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "學習 session 已過期或已撤銷", code: "SESSION_EXPIRED" }),
+    });
+  });
+
+  await page.goto("/study");
+  const hint = page.getByTestId("word-card-hint");
+  await expect(hint).toBeVisible();
+  const hintBox = (await hint.boundingBox())!;
+  await page.mouse.move(hintBox.x + hintBox.width / 2, hintBox.y + hintBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(3_250);
+  await page.mouse.up();
+  await expect(page.getByTestId("word-card-back-face")).toBeVisible();
+  const authPayload = await page.evaluate(async () => {
+    const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+    return response.json() as Promise<{ user?: { id?: string } }>;
+  });
+  const userId = authPayload.user?.id;
+  expect(userId).toBeTruthy();
+  await page.evaluate(({ userId: currentUserId, operationId }) => {
+    const action = {
+      flowVersion: "v2",
+      studySessionId: "evicted-sibling-session",
+      streamItemId: "evicted-sibling-item",
+      operationId,
+      itemCredential: "evicted-sibling-credential-012345678901234567890123456789",
+      actionKind: "REVEAL",
+      clientKnownRevision: 0,
+      payload: {},
+    };
+    localStorage.setItem(`english:study-stream-v2:outbox:${currentUserId}`, JSON.stringify([{
+      action,
+      status: "pending",
+      attempts: 0,
+      lastError: null,
+      updatedAt: Date.now(),
+    }]));
+  }, { userId, operationId: siblingOperationId });
+  await page.getByRole("button", { name: "和剛才想的一樣" }).click();
+
+  await expect(page.getByText("banana", { exact: true })).toBeVisible();
+  expect(actionCalls).toBe(2);
+  expect(recoveryCalls).toBe(1);
+  expect(reconciliationCalls).toBe(1);
+  expect(streamCalls).toBeGreaterThanOrEqual(2);
+  await expect(page.getByRole("alert").filter({ hasText: "尚未同步" })).toHaveCount(0);
+  const outboxRows = await page.evaluate(() => Object.keys(localStorage)
+    .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
+    .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")));
+  expect(outboxRows).toHaveLength(1);
+  expect(outboxRows[0]?.action?.operationId).toBe(siblingOperationId);
+});
+
+test("two independent browser contexts reconcile an evicted completed action without dropping another row", async ({ browser }) => {
+  const storageState = "test-results/.auth/student-chromium.json";
+  const sessionId = "two-device-session-01";
+  const streamItemId = "two-device-item-01";
+  const oldCredential = "two-device-credential-k0-012345678901234567890123456789";
+  const siblingOperationId = "two-device-sibling-operation-01";
+  let completed = false;
+  let aRevealed = false;
+  let aSelfRatingAttempts = 0;
+  let bStreamReads = 0;
+
+  const contextA = await browser.newContext({ storageState });
+  const contextB = await browser.newContext({ storageState });
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  const installRoutes = async (page: typeof pageA, device: "A" | "B") => {
+    await page.route("**/api/study/stream**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.has("assignmentOnly")) {
+        await route.fulfill({ json: { ok: true, assigned: true, flowVersion: "v2" } });
+        return;
+      }
+      const read = device === "B" ? bStreamReads++ : 0;
+      const credential = device === "B"
+        ? `two-device-credential-k${Math.min(read, 8)}-012345678901234567890123456789`
+        : oldCredential;
+      const next = completed;
+      const response: PublicStreamResponse = {
+        ok: true,
+        assigned: true,
+        resumedFeedback: false,
+        session: {
+          id: sessionId,
+          mode: "global",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          revision: next ? 1 : 0,
+          expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+        },
+        item: next ? {
+          streamItemId: "two-device-next-item",
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          selectionReason: "two-device-terminal-test",
+          itemCredential: "two-device-next-credential-012345678901234567890123456789",
+          credentialExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+          clientRevision: 1,
+          prompt: "banana",
+        } : {
+          streamItemId,
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          selectionReason: "two-device-terminal-test",
+          itemCredential: credential,
+          credentialExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+          clientRevision: 0,
+          prompt: "apple",
+          ...((device === "A" && aRevealed) || device === "B" ? {
+            learningCard: {
+              term: "apple",
+              phonetic: null,
+              definition: "蘋果",
+              pos: null,
+              examples: [],
+            },
+          } : {}),
+        },
+      };
+      await route.fulfill({ json: response });
+    });
+
+    await page.route("**/api/study/actions**", async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      const action = route.request().postDataJSON() as StudyStreamActionInput;
+      if (pathname === "/api/study/actions/reconcile") {
+        await route.fulfill({
+          json: completed
+            ? { ok: true, terminal: true, code: "STREAM_ITEM_COMPLETED", message: "學習項目已由其他操作完成" }
+            : { ok: true, terminal: false },
+        });
+        return;
+      }
+      if (pathname === "/api/study/actions/recover") {
+        await route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "學習項目憑證無效或已過期", code: "ITEM_CREDENTIAL_INVALID" }),
+        });
+        return;
+      }
+      if (pathname !== "/api/study/actions") return route.continue();
+      if (action.actionKind === "REVEAL") {
+        if (device === "A") aRevealed = true;
+        await route.fulfill({
+          json: {
+            ok: true,
+            operationId: action.operationId,
+            actionKind: action.actionKind,
+            duplicate: false,
+            itemStatus: "LEASED",
+            clientRevision: 0,
+            requiresFeedbackAck: false,
+            learningCard: { term: "apple", phonetic: null, definition: "蘋果", pos: null, examples: [] },
+            nextItem: null,
+          },
+        });
+        return;
+      }
+      if (action.actionKind === "SELF_RATING" && device === "A" && aSelfRatingAttempts === 0) {
+        aSelfRatingAttempts += 1;
+        await route.abort("failed");
+        return;
+      }
+      if (action.actionKind === "SELF_RATING" && device === "B") {
+        completed = true;
+        await route.fulfill({
+          json: {
+            ok: true,
+            operationId: action.operationId,
+            actionKind: action.actionKind,
+            duplicate: false,
+            itemStatus: "ACKNOWLEDGED",
+            clientRevision: 1,
+            requiresFeedbackAck: false,
+            nextItem: null,
+          },
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "學習項目憑證無效或已過期", code: "ITEM_CREDENTIAL_INVALID" }),
+      });
+    });
+  };
+
+  try {
+    await installRoutes(pageA, "A");
+    await installRoutes(pageB, "B");
+    await pageA.goto("/study");
+    const hintA = pageA.getByTestId("word-card-hint");
+    await expect(hintA).toBeVisible();
+    const hintBoxA = (await hintA.boundingBox())!;
+    await pageA.mouse.move(hintBoxA.x + hintBoxA.width / 2, hintBoxA.y + hintBoxA.height / 2);
+    await pageA.mouse.down();
+    await pageA.waitForTimeout(3_250);
+    await pageA.mouse.up();
+    await expect(pageA.getByTestId("word-card-back-face")).toBeVisible();
+    await pageA.getByRole("button", { name: "和剛才想的一樣" }).click();
+    await expect(pageA.getByRole("alert").filter({ hasText: "網絡暫時不可用" })).toBeVisible();
+
+    const authPayload = await pageA.evaluate(async () => {
+      const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+      return response.json() as Promise<{ user?: { id?: string } }>;
+    });
+    const userId = authPayload.user?.id;
+    expect(userId).toBeTruthy();
+    await pageA.evaluate(({ currentUserId, operationId }) => {
+      const action = {
+        flowVersion: "v2",
+        studySessionId: "two-device-sibling-session",
+        streamItemId: "two-device-sibling-item",
+        operationId,
+        itemCredential: "two-device-sibling-credential-012345678901234567890123456789",
+        actionKind: "REVEAL",
+        clientKnownRevision: 0,
+        payload: {},
+      };
+      const key = `english:study-stream-v2:outbox:${currentUserId}`;
+      const rows = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown[];
+      rows.push({
+        action,
+        status: "blocked",
+        attempts: 1,
+        lastError: "保留作並發測試",
+        updatedAt: Date.now(),
+      });
+      localStorage.setItem(key, JSON.stringify(rows));
+    }, { currentUserId: userId, operationId: siblingOperationId });
+
+    for (let read = 0; read < 9; read += 1) {
+      await pageB.goto("/study");
+      await expect(pageB.getByTestId("word-card-hint")).toBeVisible();
+    }
+    const hintB = pageB.getByTestId("word-card-hint");
+    const hintBoxB = (await hintB.boundingBox())!;
+    await pageB.mouse.move(hintBoxB.x + hintBoxB.width / 2, hintBoxB.y + hintBoxB.height / 2);
+    await pageB.mouse.down();
+    await pageB.waitForTimeout(3_250);
+    await pageB.mouse.up();
+    await expect(pageB.getByTestId("word-card-back-face")).toBeVisible();
+    await pageB.getByRole("button", { name: "和剛才想的一樣" }).click();
+    await expect(pageB.getByText("banana", { exact: true })).toBeVisible();
+
+    await pageA.getByRole("button", { name: "重試" }).click();
+    await expect(pageA.getByText("banana", { exact: true })).toBeVisible();
+    const outboxRows = await pageA.evaluate(() => Object.keys(localStorage)
+      .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
+      .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")));
+    expect(outboxRows).toHaveLength(1);
+    expect(outboxRows[0]?.action?.operationId).toBe(siblingOperationId);
+  } finally {
+    await contextA.close();
+    await contextB.close();
+  }
+});
+
 test("expired V2 item credential retry uses one bounded recovery request and clears the outbox", async ({ page }) => {
   const sessionId = "recovery-session-01";
   const streamItemId = "recovery-item-01";
