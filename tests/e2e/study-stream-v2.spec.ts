@@ -383,6 +383,10 @@ test("a terminal objective conflict removes only its outbox row and refreshes th
   let conflictReleased!: () => void;
   const conflictGate = new Promise<void>(resolve => { conflictReleased = resolve; });
   let actionCount = 0;
+  const secondaryOperationId = "secondary-operation";
+  let siblingRequestSeen = false;
+  let releaseSiblingResponse!: () => void;
+  const siblingResponseGate = new Promise<void>(resolve => { releaseSiblingResponse = resolve; });
   await page.route("**/api/study/stream**", async route => {
     const url = new URL(route.request().url());
     if (url.searchParams.has("assignmentOnly")) return route.continue();
@@ -417,37 +421,62 @@ test("a terminal objective conflict removes only its outbox row and refreshes th
   await page.route("**/api/study/actions", async route => {
     actionCount += 1;
     await conflictGate;
+    const action = route.request().postDataJSON() as StudyStreamActionInput;
+    if (action.operationId === secondaryOperationId) {
+      siblingRequestSeen = true;
+      await siblingResponseGate;
+      await route.fulfill({
+        json: {
+          ok: true,
+          operationId: action.operationId,
+          actionKind: action.actionKind,
+          duplicate: false,
+          itemStatus: "REVEALED",
+          clientRevision: 1,
+          requiresFeedbackAck: false,
+          nextItem: null,
+        },
+      });
+      return;
+    }
     await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "該客觀證據目標已經完成", code: "OBJECTIVE_TARGET_CONSUMED" }) });
   });
 
   await page.goto("/study");
   await page.getByText("A option 1", { exact: true }).click();
   await expect.poll(() => actionCount).toBe(1);
-  const outboxRowsBeforeRelease = await page.evaluate(() => {
+  const outboxRowsBeforeRelease = await page.evaluate((secondaryOperationId) => {
     const key = Object.keys(localStorage).find(candidate => candidate.startsWith("english:study-stream-v2:outbox:"));
     if (!key) throw new Error("missing V2 outbox");
     const rows = JSON.parse(localStorage.getItem(key)!) as unknown[];
     rows.push({
       action: {
         flowVersion: "v2", studySessionId: "secondary-session", streamItemId: "secondary-item",
-        operationId: "secondary-operation", itemCredential: "secondary-credential-012345678901234567890123456789",
+        operationId: secondaryOperationId, itemCredential: "secondary-credential-012345678901234567890123456789",
         actionKind: "REVEAL", clientKnownRevision: 0, payload: {},
       },
       status: "pending", attempts: 0, lastError: null, updatedAt: Date.now(),
     });
     localStorage.setItem(key, JSON.stringify(rows));
     return rows.length;
-  });
+  }, secondaryOperationId);
   expect(outboxRowsBeforeRelease).toBe(2);
   conflictReleased();
   await expect(page.getByText("banana", { exact: true }).first()).toBeVisible();
-  await expect.poll(() => actionCount).toBe(1);
-  const outboxRowsAfterRelease = await page.evaluate(() => {
+  await expect.poll(() => siblingRequestSeen).toBe(true);
+  const siblingRowsBeforeResponse = await page.evaluate(() => {
     const key = Object.keys(localStorage).find(candidate => candidate.startsWith("english:study-stream-v2:outbox:"));
     if (!key) throw new Error("missing V2 outbox");
-    return JSON.parse(localStorage.getItem(key)!) as unknown[];
+    return JSON.parse(localStorage.getItem(key)!) as Array<{ action: StudyStreamActionInput; status: string }>;
   });
-  expect(outboxRowsAfterRelease).toHaveLength(1);
+  expect(siblingRowsBeforeResponse).toHaveLength(1);
+  expect(siblingRowsBeforeResponse[0]?.action.operationId).toBe(secondaryOperationId);
+  expect(siblingRowsBeforeResponse[0]?.status).toBe("pending");
+  releaseSiblingResponse();
+  await expect.poll(() => actionCount).toBe(2);
+  await expect.poll(async () => page.evaluate(() => Object.keys(localStorage)
+    .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
+    .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")))).toHaveLength(0);
   await expect(page.getByTestId("study-stream-refresh-pending")).toHaveCount(0);
   await expect(page.getByRole("alert").filter({ hasText: "尚未同步" })).toHaveCount(0);
 });
@@ -567,8 +596,13 @@ test("one outbox trigger drains every pending action and resumes after a tempora
 for (const actionKind of ["REVEAL", "SELF_RATING"] as const) {
   test(`late ${actionKind} completion conflict is removed from the outbox`, async ({ page }) => {
     let actionCalls = 0;
+    const actionOperationIds: string[] = [];
+    let siblingRequestSeen = false;
+    let releaseSiblingResponse!: () => void;
+    const siblingResponseGate = new Promise<void>(resolve => { releaseSiblingResponse = resolve; });
     const sessionId = `terminal-${actionKind.toLowerCase()}-session`;
     const itemCredential = `terminal-${actionKind.toLowerCase()}-credential-012345678901234567890123456789`;
+    const siblingOperationId = `terminal-${actionKind.toLowerCase()}-sibling-operation`;
     await page.route("**/api/study/stream**", async (route) => {
       const url = new URL(route.request().url());
       if (url.searchParams.has("assignmentOnly")) return route.continue();
@@ -606,6 +640,25 @@ for (const actionKind of ["REVEAL", "SELF_RATING"] as const) {
     await page.route("**/api/study/actions", async (route) => {
       if (new URL(route.request().url()).pathname !== "/api/study/actions") return route.continue();
       actionCalls += 1;
+      const action = route.request().postDataJSON() as StudyStreamActionInput;
+      actionOperationIds.push(action.operationId);
+      if (action.operationId === siblingOperationId) {
+        siblingRequestSeen = true;
+        await siblingResponseGate;
+        await route.fulfill({
+          json: {
+            ok: true,
+            operationId: action.operationId,
+            actionKind: action.actionKind,
+            duplicate: false,
+            itemStatus: "REVEALED",
+            clientRevision: 0,
+            requiresFeedbackAck: false,
+            nextItem: null,
+          },
+        });
+        return;
+      }
       await route.fulfill({
         status: 409,
         contentType: "application/json",
@@ -614,14 +667,34 @@ for (const actionKind of ["REVEAL", "SELF_RATING"] as const) {
     });
 
     await page.goto("/study");
+    const authSession = await page.request.get("/api/auth/session");
+    const authPayload = await authSession.json() as { user?: { id?: string } };
+    const userId = authPayload.user?.id;
+    if (!userId) throw new Error("missing authenticated user id");
+    const key = `english:study-stream-v2:outbox:${userId}`;
+    const siblingAction: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: sessionId,
+      streamItemId: `terminal-${actionKind.toLowerCase()}-sibling-item`,
+      operationId: siblingOperationId,
+      itemCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: 0,
+      payload: {},
+    };
     if (actionKind === "SELF_RATING") {
+      await expect(page.getByRole("button", { name: "和剛才想的一樣" })).toBeEnabled();
+      await page.evaluate(({ key: outboxKey, action }) => {
+        localStorage.setItem(outboxKey, JSON.stringify([{
+          action,
+          status: "pending",
+          attempts: 0,
+          lastError: null,
+          updatedAt: Date.now(),
+        }]));
+      }, { key, action: siblingAction });
       await page.getByRole("button", { name: "和剛才想的一樣" }).click();
     } else {
-      const authSession = await page.request.get("/api/auth/session");
-      const authPayload = await authSession.json() as { user?: { id?: string } };
-      const userId = authPayload.user?.id;
-      if (!userId) throw new Error("missing authenticated user id");
-      const key = `english:study-stream-v2:outbox:${userId}`;
       const action: StudyStreamActionInput = {
         flowVersion: "v2",
         studySessionId: sessionId,
@@ -632,18 +705,133 @@ for (const actionKind of ["REVEAL", "SELF_RATING"] as const) {
         clientKnownRevision: 0,
         payload: {},
       };
-      await page.evaluate(({ key, action }) => {
-        localStorage.setItem(key, JSON.stringify([{ action, status: "pending", attempts: 0, lastError: null, updatedAt: Date.now() }]));
-        window.dispatchEvent(new StorageEvent("storage", { key }));
-      }, { key, action });
+      await page.evaluate(({ key: outboxKey, actions }) => {
+        localStorage.setItem(outboxKey, JSON.stringify(actions.map(action => ({
+          action,
+          status: "pending",
+          attempts: 0,
+          lastError: null,
+          updatedAt: Date.now(),
+        }))));
+        window.dispatchEvent(new StorageEvent("storage", { key: outboxKey }));
+      }, { key, actions: [action, siblingAction] });
     }
-    await expect.poll(() => actionCalls).toBe(1);
+    await expect.poll(() => siblingRequestSeen).toBe(true);
+    const siblingRowsBeforeResponse = await page.evaluate((outboxKey) => JSON.parse(localStorage.getItem(outboxKey) ?? "[]") as Array<{ action: StudyStreamActionInput; status: string }>, key);
+    expect(siblingRowsBeforeResponse).toHaveLength(1);
+    expect(siblingRowsBeforeResponse[0]?.action.operationId).toBe(siblingOperationId);
+    expect(siblingRowsBeforeResponse[0]?.status).toBe("pending");
+    releaseSiblingResponse();
+    await expect.poll(() => actionCalls).toBe(2);
+    expect(actionOperationIds).toContain(siblingOperationId);
     await expect.poll(async () => page.evaluate(() => Object.keys(localStorage)
       .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
       .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")))).toEqual([]);
     await expect(page.getByRole("alert").filter({ has: page.getByRole("button", { name: "重試" }) })).toHaveCount(0);
   });
 }
+
+test("terminal direct submit preserves pending rows when authoritative refresh fails", async ({ page }) => {
+  let streamCalls = 0;
+  let actionCalls = 0;
+  let actionSubmitted = false;
+  const sessionId = "terminal-refresh-failure-session";
+  const itemCredential = "terminal-refresh-failure-credential-012345678901234567890123456789";
+  const siblingOperationId = "terminal-refresh-failure-sibling-operation";
+
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    streamCalls += 1;
+    if (actionSubmitted) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "temporary refresh failure" }),
+      });
+      return;
+    }
+    const response: PublicStreamResponse = {
+      ok: true,
+      assigned: true,
+      resumedFeedback: false,
+      session: {
+        id: sessionId,
+        mode: "global",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        revision: 0,
+        expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+      },
+      item: {
+        streamItemId: "terminal-refresh-failure-item",
+        kind: "LEARNING_CARD",
+        flowVersion: "v2",
+        policyVersion: "retrieval-v1",
+        qualityPolicyVersion: "retrieval-v1-quality-v1",
+        itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+        selectionReason: "audit-terminal-refresh-failure",
+        itemCredential,
+        credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        clientRevision: 0,
+        prompt: "terminal refresh failure",
+        learningCard: {
+          term: "terminal refresh failure",
+          phonetic: null,
+          definition: "終結重載失敗",
+          pos: null,
+          examples: [],
+        },
+      },
+    };
+    await route.fulfill({ json: response });
+  });
+
+  await page.route("**/api/study/actions", async (route) => {
+    if (new URL(route.request().url()).pathname !== "/api/study/actions") return route.continue();
+    actionCalls += 1;
+    actionSubmitted = true;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "學習項目已由其他操作完成", code: "STREAM_ITEM_COMPLETED" }),
+    });
+  });
+
+  await page.goto("/study");
+  await expect(page.getByRole("button", { name: "和剛才想的一樣" })).toBeEnabled();
+  const authSession = await page.request.get("/api/auth/session");
+  const authPayload = await authSession.json() as { user?: { id?: string } };
+  const userId = authPayload.user?.id;
+  if (!userId) throw new Error("missing authenticated user id");
+  const key = `english:study-stream-v2:outbox:${userId}`;
+  const siblingAction: StudyStreamActionInput = {
+    flowVersion: "v2",
+    studySessionId: sessionId,
+    streamItemId: "terminal-refresh-failure-sibling-item",
+    operationId: siblingOperationId,
+    itemCredential,
+    actionKind: "REVEAL",
+    clientKnownRevision: 0,
+    payload: {},
+  };
+  await page.evaluate(({ key: outboxKey, action }) => {
+    localStorage.setItem(outboxKey, JSON.stringify([{
+      action,
+      status: "pending",
+      attempts: 0,
+      lastError: null,
+      updatedAt: Date.now(),
+    }]));
+  }, { key, action: siblingAction });
+
+  await page.getByRole("button", { name: "和剛才想的一樣" }).click();
+  await expect.poll(() => actionCalls).toBe(1);
+  await expect(page.getByTestId("study-stream-refresh-pending")).toBeVisible();
+  await expect.poll(async () => page.evaluate((outboxKey) => JSON.parse(localStorage.getItem(outboxKey) ?? "[]").map((row: { action: StudyStreamActionInput; status: string }) => `${row.action.operationId}:${row.status}`), key)).toEqual([
+    `${siblingOperationId}:pending`,
+  ]);
+});
 
 test("local all-user assignment serves the V2 stream", async ({ page }) => {
   const response = await page.request.get("/api/study/stream?assignmentOnly=1");
@@ -934,9 +1122,13 @@ test("an evicted credential on an already completed item converges through termi
   const oldCredential = "evicted-terminal-credential-012345678901234567890123456789";
   let streamCalls = 0;
   let actionCalls = 0;
+  const actionOperationIds: string[] = [];
   let recoveryCalls = 0;
   let reconciliationCalls = 0;
   const siblingOperationId = "evicted-sibling-operation-01";
+  let siblingRequestSeen = false;
+  let releaseSiblingResponse!: () => void;
+  const siblingResponseGate = new Promise<void>(resolve => { releaseSiblingResponse = resolve; });
   let serveNextItem = false;
   let revealed = false;
 
@@ -1032,7 +1224,12 @@ test("an evicted credential on an already completed item converges through termi
     if (pathname !== "/api/study/actions") return route.continue();
     actionCalls += 1;
     const action = route.request().postDataJSON() as StudyStreamActionInput;
+    actionOperationIds.push(action.operationId);
     if (action.actionKind === "REVEAL") {
+      if (action.operationId === siblingOperationId) {
+        siblingRequestSeen = true;
+        await siblingResponseGate;
+      }
       revealed = true;
       await route.fulfill({
         json: {
@@ -1099,7 +1296,16 @@ test("an evicted credential on an already completed item converges through termi
   await page.getByRole("button", { name: "和剛才想的一樣" }).click();
 
   await expect(page.getByText("banana", { exact: true })).toBeVisible();
-  expect(actionCalls).toBe(2);
+  await expect.poll(() => siblingRequestSeen).toBe(true);
+  const siblingRowsBeforeResponse = await page.evaluate(() => Object.keys(localStorage)
+    .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
+    .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")) as Array<{ action: StudyStreamActionInput; status: string }>);
+  expect(siblingRowsBeforeResponse).toHaveLength(1);
+  expect(siblingRowsBeforeResponse[0]?.action.operationId).toBe(siblingOperationId);
+  expect(siblingRowsBeforeResponse[0]?.status).toBe("pending");
+  releaseSiblingResponse();
+  await expect.poll(() => actionCalls).toBe(3);
+  expect(actionOperationIds).toContain(siblingOperationId);
   expect(recoveryCalls).toBe(1);
   expect(reconciliationCalls).toBe(1);
   expect(streamCalls).toBeGreaterThanOrEqual(2);
@@ -1107,8 +1313,7 @@ test("an evicted credential on an already completed item converges through termi
   const outboxRows = await page.evaluate(() => Object.keys(localStorage)
     .filter((key) => key.startsWith("english:study-stream-v2:outbox:"))
     .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? "[]")));
-  expect(outboxRows).toHaveLength(1);
-  expect(outboxRows[0]?.action?.operationId).toBe(siblingOperationId);
+  expect(outboxRows).toHaveLength(0);
 });
 
 test("two independent browser contexts reconcile an evicted completed action without dropping another row", async ({ browser }) => {

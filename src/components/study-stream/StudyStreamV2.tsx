@@ -532,7 +532,10 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         : null;
       if (isTerminalStudyStreamConflict(error, action)) {
         const discarded = await discardTerminalAction(action);
-        if (discarded.removed) return;
+        if (discarded.removed) {
+          if (discarded.refreshed) await flushPending();
+          return;
+        }
       }
       if (status === 401 || code === "SESSION_REVOKED") {
         handleAuthInvalidation();
@@ -543,7 +546,10 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           const reconciliation = await reconcileAction(action);
           if (reconciliation.terminal) {
             const discarded = await discardTerminalAction(action);
-            if (discarded.removed) return;
+            if (discarded.removed) {
+              if (discarded.refreshed) await flushPending();
+              return;
+            }
           }
         } catch (reconciliationError) {
           const reconciliationStatus = reconciliationError instanceof Error && "status" in reconciliationError && typeof reconciliationError.status === "number"

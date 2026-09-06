@@ -1,6 +1,6 @@
 # V2 保留、過期排程及跨單元回執修正
 
-狀態：已完成（第八輪跨裝置憑證淘汰終結；本地驗證，hosted CI 待本次推送）
+狀態：已完成（第九輪終結後多筆 outbox 排送；本地驗證，hosted CI 待本次推送）
 
 ## 背景與目標
 
@@ -44,6 +44,11 @@
 - 未完成項目仍須維持嚴格 credential 驗證及既有 bounded recovery；未知憑證、撤銷 session、不同帳戶及結果不明的操作不得被當成已完成。其他 outbox row 必須保留，不能以放寬所有 403 或清空佇列解決。
 - 已完成 Learning Card、已消耗 Objective Probe 及可重播的 feedback acknowledgement 要分別沿用既有 terminal／read-only 語義；完成核對不得重新評分、建立重複 encounter／ReviewEvent、延長 session 或改寫歷史。
 
+第九輪審核新增範圍（`80be01f` 後覆核）：
+
+- 直接提交遇到 terminal 409，或先收到 credential 403 再由 reconciliation 確認終結時，移除目前操作後若權威畫面重載成功，必須接續以現有有上限 drain 排送其他 pending row。
+- 權威重載失敗時保留其他 pending row 並停止排送；blocked、結果未明或授權拒絕不得被強行清除或自動重試。
+
 ## Checklist／驗收矩陣
 
 - [x] 真正 cleanup DB 測試：V1 清理、V2 Encounter／客觀歷史及 coverage 所依賴的 distinct word 集合保留；測試在 rollback transaction 內，不刪現有資料。
@@ -60,6 +65,7 @@
 - [x] 詞庫更新後提交舊 Objective Probe 的版本 provenance 回歸：判分使用舊快照，ReviewEvent 版本欄位與快照一致且只計分一次。
 - [x] Objective Probe feedback 跨 session 到期續接：到期邊界、離開後超過 30 分鐘恢復、撤銷／跨帳戶隔離及雙分頁確認只產生一次結果。
 - [x] 跨裝置 credential lineage 7→8 輪換邊界：已完成項目的舊操作經只讀 reconciliation 安全 terminal、未完成項目可 bounded rebind 後實際提交、未知 credential／撤銷／跨帳戶 fail closed，並由獨立 browser contexts 驗證其他 outbox row 保留。
+- [x] 直接提交 terminal 409／403 reconciliation 後的多筆 outbox drain：畫面重載成功時確實排送並移除下一筆 pending，重載失敗或下一筆 blocked 時保留後續操作。
 
 ## 發佈、rollback 及 Definition of Done
 
@@ -82,4 +88,8 @@
 - 第八輪本地驗證：`npm run test:db:stream-v2` 通過，覆蓋 K0 在 8 次輪換後被淘汰、已完成 Learning Card 的 action/recovery 嚴格 403 加只讀 terminal reconciliation、未完成 item rebind 後實際 REVEAL、未知 credential／撤銷／跨帳戶隔離、receipt／encounter 不增加，以及 expired feedback ACK credential recovery 不延長來源 session。
 - 第八輪瀏覽器回歸：`npm run test:e2e:study-stream-v2 -- --reporter=line` 18/18 通過；包括雙獨立 browser contexts、完成項 terminal convergence、其他 outbox row 保留及 reconciliation route client flow。
 - 第八輪 `npm test` 380 passed、`npm run lint -- --quiet`、`npx tsc --noEmit --pretty false`、`git diff --check` 及 `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all npm run build` 通過；兩位獨立 reviewer 均對最終工作樹 PASS。未新增 schema／migration，未執行 production deploy、main merge 或 GitHub ruleset 變更。
+- 第九輪已完成：`submitAction()` 兩個 terminal 出口只在權威重載成功後呼叫既有有上限 `flushPending()`；重載失敗會保留後續 row 並顯示只讀重載提示。
+- 第九輪針對性瀏覽器回歸：直接 `STREAM_ITEM_COMPLETED`／terminal 409、403 後 reconciliation 各自帶 sibling pending row，均確認 sibling 實際收到成功回執後才移除；重載失敗控制確認 sibling 保持 `pending`。
+- 第九輪完整 V2 瀏覽器回歸：`npm run test:e2e:study-stream-v2 -- --reporter=line` 19/19 通過；`npm test` 380 passed；`npm run lint -- --quiet`、`npx tsc --noEmit --pretty false`、`git diff --check` 及最新 build 通過。
+- 第九輪未新增 schema／migration，未執行 production deploy、main merge 或 GitHub ruleset 變更；hosted CI 以本次推送後結果為準。
 - 本次未新增 schema／migration，未做 production deploy、main merge、原生裝置／screen-reader matrix；V2 session 長期 archival／retention 解耦仍待後續設計。GitHub 強制合併規則仍需要管理員權限，本次沒有改動。
