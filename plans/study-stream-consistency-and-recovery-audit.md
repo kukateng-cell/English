@@ -1,6 +1,6 @@
 # V2 學習一致性、排程及恢復審核修正
 
-狀態：已完成（本地 unit／DB／browser／migration 驗證；此次 push 後 hosted CI 及 production gates 待執行）
+狀態：已完成（追加 scheduler history／長期 contacted partition 修正；本地驗證通過）
 
 ## 背景及目標
 
@@ -61,6 +61,13 @@
 - [x] analytics export 及同類入口改用共用 bounded reader；超限途中停止讀取並維持既有 413／422 語義，補無 Content-Length 的串流測試。
 - [x] 單元／route 測試覆蓋 parser、byte boundary、reader cancellation 及權限／錯誤回應不洩漏資料。
 
+### F：最新 staging 審核追加修正（P2-1／P2-2）
+
+- [x] 由真正的 learner history projection 產生 `hasPreviousProbe`，令 `minInterveningItems` 在 Probe 後的第一張卡仍然生效；保留連續 Probe 計數的獨立語義。
+- [x] contacted／untouched partition 以資料庫查詢結果為準；bounded contact-time history 不得令已接觸詞重新標成 `new-word` 或優先於 untouched words。
+- [x] 補上 history → scheduler 的 Probe gap 回歸，以及超過 640 encounters、最新 contact timestamp 不在 bounded window 的候選分類／排序回歸。
+- [x] 跑 unit、TypeScript、lint、build、DB／browser stream-v2 及 migration 相關驗收；兩位 reviewer 明確 PASS。
+
 ## 風險及緩解
 
 - 歷史查詢可能增加 scheduler 成本：以 learner-scoped bounded window／索引查詢，並以長序列效能測試確認不退化。
@@ -79,11 +86,11 @@
 
 本輪完成並由兩位獨立 reviewer 明確 PASS：
 
-- `npm test`：394 tests passed。
+- `npm test`：397 tests passed。
 - `npx tsc --noEmit`、`npm run lint`、`git diff --check`：通過。
 - `npm run build`：Next.js production build 通過。
 - `npm run test:e2e:study-stream-v2`：22/22 Chromium tests passed，包含 GET／CSRF／action timeout、refresh／storage、生命週期 generation、terminal reconciliation 及獨立 browser contexts。
-- `npm run test:db:stream-v2`：真正 PostgreSQL integration checks passed，包含 scheduler 長序列、cross-session history、7→8 credential boundary、expired K1 terminal reconciliation、pending K1 rebind 及 provenance／metrics checks。
+- `npm run test:db:stream-v2`：真正 PostgreSQL integration checks passed，包含 scheduler 長序列、cross-session history、超過 640 encounters 的 contacted／untouched candidate partition、7→8 credential boundary、expired K1 terminal reconciliation、pending K1 rebind 及 provenance／metrics checks。
 - `npm run test:migration-checksums`：通過；`npm run test:migrations`：67 migrations fresh replay 及 interrupted replay 通過。
 
 已知未執行或不在本次授權範圍：此次 push 後 GitHub hosted CI 尚待重新跑；production deploy／config gate、contract migration、完整原生 mobile／VoiceOver／TalkBack matrix、長時間容量／壓力測試及正式資料清理均未執行。新增欄位只使用正常 expand migration，沒有執行 contract migration。
@@ -97,3 +104,5 @@
 | SCA-003 | timeout 後先保留操作並 reconciliation，不把 timeout 當成功或失敗 | 已採用 |
 | SCA-004 | 學生／教師統計按 probe purpose 共用 provenance eligibility | 已採用 |
 | SCA-005 | 所有受保護 JSON／串流入口 fail closed 並在讀取途中 enforce byte cap | 已採用 |
+| SCA-006 | `hasPreviousProbe` 與 `consecutiveProbes` 分開；Probe gap 由實際 learner history 決定 | 已採用 |
+| SCA-007 | contacted／untouched database partition 優先於 bounded contact-time window | 已採用 |

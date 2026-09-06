@@ -37,6 +37,7 @@ async function main() {
   const testUnitCategory = CATALOG_CATEGORIES[0];
   let userId: string | null = null;
   let studyDayOnlyUserId: string | null = null;
+  let longHistoryUserId: string | null = null;
   const wordIds: string[] = [];
   const cleanupWordIds: string[] = [];
   const catalogFixtureWordIds: string[] = [];
@@ -1442,6 +1443,171 @@ async function main() {
     assert.equal(dueOrderItem.itemKind, "OBJECTIVE_PROBE");
     assert.equal(dueOrderItem.wordId, dueOrderWords[0].id);
     assert.equal(dueOrderItem.selectionReason, "due-review");
+
+    // A long-running learner can have more encounters than the bounded
+    // contact-time history window. The contacted/untouched partition must
+    // remain authoritative even when the latest contacted word is absent
+    // from that 640-row timestamp window.
+    const longHistoryUser = await prisma.user.create({
+      data: {
+        accountName: `codex-long-history-${suffix}`,
+        passwordHash: "not-a-login-account",
+        mustChangePassword: false,
+        studentProfile: {
+          create: {
+            legalName: "長期歷史測試學生",
+            nickname: "長期歷史測試生",
+            nicknameNormalized: "長期歷史測試生",
+          },
+        },
+      },
+    });
+    longHistoryUserId = longHistoryUser.id;
+    await prisma.studentEnrollment.create({
+      data: {
+        studentId: longHistoryUser.id,
+        academicYearId: currentAcademicYear.id,
+        grade: "JUNIOR_1",
+        status: "ACTIVE",
+        isCurrent: true,
+        origin: "SEED",
+        startedAt: new Date(),
+      },
+    });
+    const longHistoryWords = await prisma.word.findMany({
+      where: withCurrentCatalogWord({ level: "A1", category: unitCategoryToStorage(testUnitCategory) }),
+      orderBy: [{ term: "asc" }, { id: "asc" }],
+      take: 3,
+      select: { id: true, senseId: true, term: true },
+    });
+    if (longHistoryWords.length < 3) throw new Error("unlocked A1 unit has fewer than three words for long-history regression");
+    const [longHistoryTarget, longHistoryUntouched, longHistoryFiller] = longHistoryWords;
+    const longHistoryScopeWords = await prisma.word.findMany({
+      where: withCurrentCatalogWord({ level: "A1", category: unitCategoryToStorage(testUnitCategory) }),
+      select: { id: true, senseId: true },
+    });
+    const longHistoryReviewWords = longHistoryScopeWords.filter((word) =>
+      word.id !== longHistoryTarget.id && word.id !== longHistoryUntouched.id,
+    );
+    await prisma.review.createMany({
+      data: longHistoryReviewWords.map((word, index) => ({
+        id: `long-history-review-${suffix}-${index}`,
+        userId: longHistoryUser.id,
+        wordId: word.id,
+        senseId: word.senseId,
+        nextReviewDate: new Date(Date.now() + 86_400_000),
+      })),
+    });
+    const longHistorySession = await prisma.studySession.create({
+      data: {
+        userId: longHistoryUser.id,
+        queueFingerprint: `long-history-${suffix}`,
+        expiresAt: new Date(Date.now() - 60_000),
+        retiredAt: new Date(Date.now() - 60_000),
+        flowVersion: "v2",
+        learningPolicyVersion: "retrieval-v1",
+        mode: "unit",
+        scopeLevel: "A1",
+        scopeCategory: unitCategoryToStorage(testUnitCategory),
+        revision: 0,
+      },
+    });
+    const longHistoryItems: Array<PrismaTypes.StudyStreamItemCreateManyInput> = [];
+    const longHistoryEncounters: Array<PrismaTypes.StudyEncounterCreateManyInput> = [];
+    const longHistoryCount = 643;
+    for (let index = 0; index < longHistoryCount; index += 1) {
+      // Rows 0–639 are old filler contacts; the target is row 640, followed
+      // by two newer filler contacts so it is not in recentWordIds either.
+      const word = index === 640 ? longHistoryTarget : longHistoryFiller;
+      const acknowledgedAt = new Date(Date.now() - (longHistoryCount - index) * 1_000);
+      const streamItemId = `long-history-item-${suffix}-${index}`;
+      const operationId = `long-history-operation-${suffix}-${index}`;
+      const credential = `long-history-credential-${suffix}-${index}`;
+      longHistoryItems.push({
+        id: streamItemId,
+        sessionId: longHistorySession.id,
+        streamItemKey: `long-history-key-${suffix}-${index}`,
+        wordId: word.id,
+        senseId: word.senseId,
+        itemKind: "LEARNING_CARD",
+        selectionReason: "long-history-regression",
+        policyVersion: "retrieval-v1",
+        status: "ACKNOWLEDGED",
+        leaseExpiresAt: new Date(Date.now() + 15 * 60_000),
+        credentialDigest: digestStudyStreamCredential(credential),
+        credentialExpiresAt: new Date(Date.now() + 15 * 60_000),
+        usedAt: acknowledgedAt,
+        feedbackAcknowledgedAt: acknowledgedAt,
+        operationId,
+        clientRevision: 1,
+      });
+      longHistoryEncounters.push({
+        id: `long-history-encounter-${suffix}-${index}`,
+        userId: longHistoryUser.id,
+        wordId: word.id,
+        senseId: word.senseId,
+        streamItemId,
+        operationId,
+        selfRating: "selfRecalled",
+        selectionReason: "long-history-regression",
+        policyVersion: "retrieval-v1",
+        requiresVerification: false,
+        createdAt: acknowledgedAt,
+        acknowledgedAt,
+      });
+    }
+    await prisma.studyStreamItem.createMany({ data: longHistoryItems });
+    await prisma.studyEncounter.createMany({ data: longHistoryEncounters });
+
+    const longHistoryOptions = { mode: "unit" as const, level: "A1", category: testUnitCategory };
+    const firstLongHistory = await getOrCreateStudyStream(longHistoryUser.id, longHistoryOptions);
+    assert.ok(firstLongHistory.item);
+    assert.equal(firstLongHistory.item.kind, "LEARNING_CARD");
+    const firstLongHistoryRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: firstLongHistory.item.streamItemId },
+      select: { wordId: true, selectionReason: true },
+    });
+    assert.equal(firstLongHistoryRow.wordId, longHistoryUntouched.id);
+    assert.equal(firstLongHistoryRow.selectionReason, "new-word");
+
+    // Close that card directly as a durable fixture (without admitting work)
+    // so the next selection is forced to compare the two contacted words.
+    const untouchedAcknowledgedAt = new Date();
+    const untouchedOperationId = `long-history-untouched-${suffix}`;
+    await prisma.studyStreamItem.update({
+      where: { id: firstLongHistory.item.streamItemId },
+      data: {
+        status: "ACKNOWLEDGED",
+        usedAt: untouchedAcknowledgedAt,
+        feedbackAcknowledgedAt: untouchedAcknowledgedAt,
+        operationId: untouchedOperationId,
+        clientRevision: 1,
+      },
+    });
+    await prisma.studyEncounter.create({
+      data: {
+        userId: longHistoryUser.id,
+        wordId: longHistoryUntouched.id,
+        senseId: longHistoryUntouched.senseId,
+        streamItemId: firstLongHistory.item.streamItemId,
+        operationId: untouchedOperationId,
+        selfRating: "selfRecalled",
+        selectionReason: "long-history-regression",
+        policyVersion: "retrieval-v1",
+        requiresVerification: false,
+        createdAt: untouchedAcknowledgedAt,
+        acknowledgedAt: untouchedAcknowledgedAt,
+      },
+    });
+    const secondLongHistory = await getOrCreateStudyStream(longHistoryUser.id, longHistoryOptions);
+    assert.ok(secondLongHistory.item);
+    const secondLongHistoryRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: secondLongHistory.item.streamItemId },
+      select: { wordId: true, selectionReason: true },
+    });
+    assert.equal(secondLongHistoryRow.wordId, longHistoryTarget.id);
+    assert.equal(secondLongHistoryRow.selectionReason, "unverified-contact");
+
     const leaderboard = await getLeaderboard(user.id);
     const scoredStreak = leaderboard.lists.find((list) => list.type === "streak");
     assert.equal(scoredStreak?.label, "客觀認讀連續天數");
@@ -2155,7 +2321,7 @@ async function main() {
     // stream items and review events (all are SetNull on delete). Collect and
     // remove every snapshot owned by this disposable learner before deleting
     // the user, otherwise each integration run would leave orphan snapshots.
-    const snapshotOwnerIds = [userId, studyDayOnlyUserId].filter(
+    const snapshotOwnerIds = [userId, studyDayOnlyUserId, longHistoryUserId].filter(
       (id): id is string => id !== null,
     );
     if (snapshotOwnerIds.length > 0) {
@@ -2178,6 +2344,7 @@ async function main() {
     }
     if (userId) await prisma.user.delete({ where: { id: userId } });
     if (studyDayOnlyUserId) await prisma.user.delete({ where: { id: studyDayOnlyUserId } });
+    if (longHistoryUserId) await prisma.user.delete({ where: { id: longHistoryUserId } });
     const disposableWordIds = [...cleanupWordIds, ...catalogFixtureWordIds];
     if (disposableWordIds.length > 0) {
       await prisma.word.deleteMany({ where: { id: { in: disposableWordIds } } });

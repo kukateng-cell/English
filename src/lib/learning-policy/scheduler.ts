@@ -137,22 +137,28 @@ export function selectNextItem(
     oldestWork && state.acknowledgedItemsSinceProbe >= policy.maxEligibleServiceGap;
   const probeSoftCapped = state.consecutiveProbes >= policy.maxConsecutiveProbes;
   const nonProbeCandidate = [...remediationCards, ...ordinary].sort(compareUrgency)[0];
-  // `consecutiveProbes` is also the bounded indicator that a previous probe
-  // exists in the retained recent shape. Until the minimum number of
-  // acknowledged non-probe items has intervened, a probe may only be selected
-  // when no non-probe candidate can keep the stream live.
+  // A probe run can be zero even when an older probe exists (for example the
+  // newest history is `Learning Card → Objective Probe`). Keep that fact
+  // separate from the length of the current consecutive run; otherwise the
+  // first card after a probe would incorrectly open the whole two-item gap.
   const interveningGapOpen =
-    state.consecutiveProbes === 0 ||
+    !state.hasPreviousProbe ||
     state.acknowledgedItemsSinceProbe >= policy.minInterveningItems;
-  const probeMayRun = interveningGapOpen || !nonProbeCandidate;
-  const softCapOverride = probeSoftCapped && !nonProbeCandidate;
+  // The soft consecutive-probe cap may be overridden when a probe is the
+  // only legal item, but the minimum intervening-item gap is a hard spacing
+  // invariant. If that gap is closed and no non-probe item exists, return an
+  // explicit no-candidate result so the UI can offer a safe rest/exit path.
+  const probeOnlySoftCapOverride = probeSoftCapped && !nonProbeCandidate;
   const overrideReason = [
     gapOverride ? "max-eligible-service-gap" : null,
-    softCapOverride ? "probe-soft-cap-exhausted" : null,
+    probeOnlySoftCapOverride ? "probe-soft-cap-exhausted" : null,
     spaced.overridden ? "spacing-only-candidate" : null,
   ].filter((reason): reason is string => reason !== null).join("+") || undefined;
 
-  if (oldestWork && ((!probeSoftCapped && interveningGapOpen) || gapOverride || !nonProbeCandidate)) {
+  if (oldestWork && (
+    gapOverride ||
+    (interveningGapOpen && (!probeSoftCapped || !nonProbeCandidate))
+  )) {
     return decision(
       oldestWork,
       "evidence-work",
@@ -160,7 +166,7 @@ export function selectNextItem(
       overrideReason,
     );
   }
-  if (dueProbes[0] && ((!probeSoftCapped && interveningGapOpen) || probeMayRun)) {
+  if (dueProbes[0] && interveningGapOpen && (!probeSoftCapped || !nonProbeCandidate)) {
     return decision(dueProbes[0], "due-review", selectionEligible, overrideReason);
   }
   if (nonProbeCandidate) {
@@ -171,15 +177,14 @@ export function selectNextItem(
       overrideReason,
     );
   }
-  if (oldestWork) {
+  if (!interveningGapOpen) {
     return decision(
-      oldestWork,
-      "evidence-work",
+      null,
+      "probe-gap-closed",
       selectionEligible,
-      ["probe-only-legal-item", overrideReason].filter(Boolean).join("+") || undefined,
+      ["min-intervening-items", overrideReason].filter(Boolean).join("+") || undefined,
     );
   }
-  if (dueProbes[0]) return decision(dueProbes[0], "due-review", selectionEligible, overrideReason);
   return decision(
     selectionEligible.slice().sort(compareUrgency)[0],
     spaced.overridden ? "spacing-override" : "fallback",

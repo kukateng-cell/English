@@ -166,6 +166,7 @@ test("scheduler keeps active work bounded, respects delay and gives a rest after
     now,
     consecutiveProbes: 0,
     acknowledgedItemsSinceProbe: 0,
+    hasPreviousProbe: false,
     activeWork: [delayed],
     candidates: [
       { id: "probe-delayed", wordId: delayed.wordId, kind: "OBJECTIVE_PROBE", workId: delayed.id, purpose: "EVIDENCE_OBLIGATION", eligibleAt: delayed.eligibleAt, expiresAt: delayed.expiresAt, selectionReason: "obligation" },
@@ -180,6 +181,7 @@ test("scheduler keeps active work bounded, respects delay and gives a rest after
     now,
     consecutiveProbes: 0,
     acknowledgedItemsSinceProbe: 0,
+    hasPreviousProbe: false,
     activeWork: [work("obligation-1", "word-1")],
     candidates: [
       { id: "probe-1", wordId: "word-1", kind: "OBJECTIVE_PROBE", workId: "obligation-1", purpose: "EVIDENCE_OBLIGATION", selectionReason: "obligation", eligibleAt: now - 1, expiresAt: now + 1_000 },
@@ -204,6 +206,7 @@ test("oldest eligible work is served by the simulation-backed six-item gap", () 
     now,
     consecutiveProbes: RETRIEVAL_V1_POLICY.maxConsecutiveProbes,
     acknowledgedItemsSinceProbe: RETRIEVAL_V1_POLICY.maxEligibleServiceGap,
+    hasPreviousProbe: true,
     activeWork: [work("obligation-oldest", "word-oldest")],
     candidates: [
       candidate,
@@ -239,6 +242,7 @@ test("scheduler inserts the full two-item probe gap before another probe", () =>
     now,
     consecutiveProbes: 1,
     acknowledgedItemsSinceProbe: 1,
+    hasPreviousProbe: true,
     activeWork: [],
     candidates: [probe, learningOne],
   });
@@ -249,6 +253,7 @@ test("scheduler inserts the full two-item probe gap before another probe", () =>
     now,
     consecutiveProbes: 1,
     acknowledgedItemsSinceProbe: 2,
+    hasPreviousProbe: true,
     activeWork: [],
     candidates: [probe, learningOne, learningTwo],
   });
@@ -261,6 +266,7 @@ test("scheduler applies learner-scoped word spacing to every candidate source", 
     now,
     consecutiveProbes: 0,
     acknowledgedItemsSinceProbe: 0,
+    hasPreviousProbe: false,
     lastWordId: "word-recent",
     recentWordIds: ["word-recent", "word-older"],
     activeWork: [],
@@ -276,6 +282,7 @@ test("scheduler applies learner-scoped word spacing to every candidate source", 
     now,
     consecutiveProbes: 0,
     acknowledgedItemsSinceProbe: 0,
+    hasPreviousProbe: false,
     recentWordIds: ["word-only"],
     activeWork: [],
     candidates: [{ id: "only", wordId: "word-only", kind: "LEARNING_CARD", selectionReason: "new-word" }],
@@ -291,6 +298,7 @@ test("scheduler preserves untouched-word priority within the same urgency tier",
     now,
     consecutiveProbes: 0,
     acknowledgedItemsSinceProbe: 0,
+    hasPreviousProbe: false,
     activeWork: [],
     candidates: [
       { id: "contacted", wordId: "word-contacted", kind: "LEARNING_CARD", selectionPriority: 1_000_001, selectionReason: "unverified-contact" },
@@ -306,6 +314,7 @@ test("scheduler preserves database order for due reviews within one urgency tier
     now,
     consecutiveProbes: 0,
     acknowledgedItemsSinceProbe: 0,
+    hasPreviousProbe: false,
     activeWork: [],
     candidates: [
       {
@@ -350,6 +359,7 @@ test("scheduler fail-closes expired work, respects mode scope and has an explici
       now,
       consecutiveProbes: 0,
       acknowledgedItemsSinceProbe: 0,
+      hasPreviousProbe: false,
       activeWork: [expired],
       candidates: [
         {
@@ -373,6 +383,7 @@ test("scheduler fail-closes expired work, respects mode scope and has an explici
       now,
       consecutiveProbes: 0,
       acknowledgedItemsSinceProbe: 0,
+      hasPreviousProbe: false,
       activeWork: [],
       candidates: [unitOnly],
     }).candidate?.id,
@@ -443,6 +454,7 @@ test("long deterministic scheduler sequence never exceeds combined cap or duplic
       now: now + index,
       consecutiveProbes: index % 5,
       acknowledgedItemsSinceProbe,
+      hasPreviousProbe: index % 5 > 0 || acknowledgedItemsSinceProbe > 0,
       activeWork: active,
       candidates,
     }).candidate;

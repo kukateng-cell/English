@@ -95,6 +95,8 @@ export interface SelectionState {
   now: number;
   consecutiveProbes: number;
   acknowledgedItemsSinceProbe: number;
+  /** Whether the retained learner history contains any acknowledged probe. */
+  hasPreviousProbe: boolean;
   lastWordId?: string | null;
   /** Learner-scoped recent acknowledged words used for spacing. */
   recentWordIds?: readonly string[];

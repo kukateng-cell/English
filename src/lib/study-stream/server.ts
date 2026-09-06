@@ -598,6 +598,42 @@ function candidateForWork(
   };
 }
 
+type NewWordSortRecord = Pick<Word, "id" | "term">;
+
+/**
+ * Keep the database's contacted/untouched partition authoritative when
+ * ordering new-word candidates. `contactTimes` is deliberately bounded for
+ * scheduler cost, so a contacted word may not have a timestamp in that map.
+ */
+export function compareNewWordCandidates(
+  left: NewWordSortRecord,
+  right: NewWordSortRecord,
+  contactedWordIds: ReadonlySet<string>,
+  contactTimes: ReadonlyMap<string, number>,
+): number {
+  const leftContacted = contactedWordIds.has(left.id);
+  const rightContacted = contactedWordIds.has(right.id);
+  if (leftContacted !== rightContacted) return leftContacted ? 1 : -1;
+
+  const leftContact = contactTimes.get(left.id);
+  const rightContact = contactTimes.get(right.id);
+  if (leftContacted && rightContacted) {
+    if (leftContact === undefined && rightContact !== undefined) return 1;
+    if (leftContact !== undefined && rightContact === undefined) return -1;
+    if (leftContact !== undefined && rightContact !== undefined && leftContact !== rightContact) {
+      return leftContact - rightContact;
+    }
+  }
+  return left.term.localeCompare(right.term, "en", { sensitivity: "base" }) || left.id.localeCompare(right.id);
+}
+
+export function newWordSelectionReason(
+  wordId: string,
+  contactedWordIds: ReadonlySet<string>,
+): "unverified-contact" | "new-word" {
+  return contactedWordIds.has(wordId) ? "unverified-contact" : "new-word";
+}
+
 async function buildCandidates(
   tx: StreamTransaction,
   userId: string,
@@ -667,15 +703,14 @@ async function buildCandidates(
     orderBy: { term: "asc" },
     take: MAX_CANDIDATES * 8,
   });
+  // The contacted/untouched query is the authoritative partition. The
+  // learner history intentionally has a bounded contact-time window, so a
+  // long-running learner may have contacted words whose first timestamp is
+  // outside that window; they must not be promoted back to "new" merely
+  // because their timestamp was not loaded.
+  const contactedWordIds = new Set(contactedWords.map((word) => word.id));
   const newWords = [...untouchedWords, ...contactedWords];
-  newWords.sort((left, right) => {
-    const leftContact = history.contactTimes.get(left.id);
-    const rightContact = history.contactTimes.get(right.id);
-    if (leftContact === undefined && rightContact !== undefined) return -1;
-    if (leftContact !== undefined && rightContact === undefined) return 1;
-    if (leftContact !== undefined && rightContact !== undefined && leftContact !== rightContact) return leftContact - rightContact;
-    return left.term.localeCompare(right.term, "en", { sensitivity: "base" }) || left.id.localeCompare(right.id);
-  });
+  newWords.sort((left, right) => compareNewWordCandidates(left, right, contactedWordIds, history.contactTimes));
   for (const [selectionPriority, word] of newWords.entries()) {
     if (workWordIds.has(word.id)) continue;
     candidates.push({
@@ -685,7 +720,7 @@ async function buildCandidates(
       kind: "LEARNING_CARD",
       mode: scope.mode,
       selectionPriority,
-      selectionReason: history.contactTimes.has(word.id) ? "unverified-contact" : "new-word",
+      selectionReason: newWordSelectionReason(word.id, contactedWordIds),
     });
   }
 
@@ -722,9 +757,11 @@ async function buildCandidates(
 export function recentStreamShape(rows: Array<{ itemKind: string; usedAt: Date | null; feedbackAcknowledgedAt: Date | null }>): {
   consecutiveProbes: number;
   acknowledgedItemsSinceProbe: number;
+  hasPreviousProbe: boolean;
 } {
   let consecutiveProbes = 0;
   let acknowledgedItemsSinceProbe = 0;
+  let hasPreviousProbe = false;
   let started = false;
   for (const row of rows) {
     const acknowledged = row.usedAt !== null && (
@@ -733,7 +770,10 @@ export function recentStreamShape(rows: Array<{ itemKind: string; usedAt: Date |
     if (!acknowledged) continue;
     if (!started) {
       started = true;
-      if (row.itemKind === "OBJECTIVE_PROBE") consecutiveProbes = 1;
+      if (row.itemKind === "OBJECTIVE_PROBE") {
+        consecutiveProbes = 1;
+        hasPreviousProbe = true;
+      }
       else acknowledgedItemsSinceProbe = 1;
       continue;
     }
@@ -742,12 +782,16 @@ export function recentStreamShape(rows: Array<{ itemKind: string; usedAt: Date |
       // older probes are outside the current run and must not be counted.
       if (row.itemKind !== "OBJECTIVE_PROBE") break;
       consecutiveProbes += 1;
+      hasPreviousProbe = true;
       continue;
     }
-    if (row.itemKind === "OBJECTIVE_PROBE") break;
+    if (row.itemKind === "OBJECTIVE_PROBE") {
+      hasPreviousProbe = true;
+      break;
+    }
     acknowledgedItemsSinceProbe += 1;
   }
-  return { consecutiveProbes, acknowledgedItemsSinceProbe };
+  return { consecutiveProbes, acknowledgedItemsSinceProbe, hasPreviousProbe };
 }
 
 function snapshotToData(snapshot: ObjectiveQuestionSnapshot): ObjectiveQuestionSnapshotData | null {
@@ -1472,6 +1516,7 @@ export async function getOrCreateStudyStream(
               now: now.getTime(),
               consecutiveProbes: shape.consecutiveProbes,
               acknowledgedItemsSinceProbe: shape.acknowledgedItemsSinceProbe,
+              hasPreviousProbe: shape.hasPreviousProbe,
               lastWordId: built.history.recentWordIds[0] ?? null,
               recentWordIds: built.history.recentWordIds,
               activeWork: built.active,
