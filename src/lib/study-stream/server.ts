@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Prisma, prisma } from "@/lib/prisma";
 import type {
   ObjectiveEvidenceTarget,
@@ -64,8 +64,42 @@ const STREAM_ITEM_LEASE_MS = 15 * 60_000;
 const MAX_TRANSACTION_ATTEMPTS = 5;
 const MAX_CANDIDATES = 80;
 const MAX_CREDENTIAL_LINEAGE_GRANTS = 8;
+const STUDY_STREAM_RECOVERY_TOKEN_PREFIX = "study-stream-recovery-v1:";
+const LOCAL_STUDY_STREAM_RECOVERY_SECRET = "local-study-stream-recovery-secret";
 
 type StreamTransaction = Prisma.TransactionClient;
+
+function studyStreamRecoverySecret(): string {
+  const configured = process.env.STUDY_STREAM_RECOVERY_SECRET ??
+    process.env.NEXTAUTH_SECRET ??
+    process.env.AUTH_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("STUDY_STREAM_RECOVERY_SECRET_MISSING");
+  }
+  return LOCAL_STUDY_STREAM_RECOVERY_SECRET;
+}
+
+/**
+ * Create a stable, server-owned recovery proof for one opaque stream item.
+ * The proof is intentionally separate from the short-lived credential and
+ * from action fingerprints. The recovery endpoint still checks the
+ * authenticated account, exact session/item tuple, operation identity and
+ * terminal/revocation state before accepting it.
+ */
+export function createStudyStreamRecoveryCredential(streamItemId: string): string {
+  return createHmac("sha256", studyStreamRecoverySecret())
+    .update(STUDY_STREAM_RECOVERY_TOKEN_PREFIX, "utf8")
+    .update(streamItemId, "utf8")
+    .digest("base64url");
+}
+
+function matchesStudyStreamRecoveryCredential(streamItemId: string, supplied: string | null | undefined): boolean {
+  if (!supplied) return false;
+  const expected = Buffer.from(createStudyStreamRecoveryCredential(streamItemId), "utf8");
+  const actual = Buffer.from(supplied, "utf8");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
 
 export class StudyStreamError extends Error {
   constructor(
@@ -685,6 +719,21 @@ async function buildCandidates(
       selectionPriority,
       selectionReason: "due-review",
     });
+    // A due review is normally served as an Objective Probe. When the
+    // learner-wide probe gap is closed, however, the same due word remains a
+    // safe non-scoring Learning Card candidate that can provide the required
+    // intervening items. The card and probe share the review identity, so a
+    // probe selected first makes the card disappear on the next request once
+    // the Review revision advances; no duplicate score can be produced.
+    candidates.push({
+      id: `due-card:${review.id}`,
+      wordId: review.wordId,
+      senseId: review.senseId,
+      kind: "LEARNING_CARD",
+      mode: scope.mode,
+      selectionPriority,
+      selectionReason: "due-review-gap-filler",
+    });
   }
 
   const newWordWhere: Prisma.WordWhereInput = {
@@ -724,7 +773,11 @@ async function buildCandidates(
     });
   }
 
-  if (candidates.every((candidate) => candidate.kind === "OBJECTIVE_PROBE")) {
+  const recentWordIds = new Set(history.recentWordIds);
+  const hasSpacedLearningCard = candidates.some(
+    (candidate) => candidate.kind === "LEARNING_CARD" && !recentWordIds.has(candidate.wordId),
+  );
+  if (!hasSpacedLearningCard) {
     const ordinary = await tx.review.findMany({
       where: {
         userId,
@@ -911,6 +964,7 @@ function toPublicItem(
     selectionOverrideReason: row.selectionOverrideReason,
     itemCredential: credential,
     credentialExpiresAt: row.credentialExpiresAt.toISOString(),
+    recoveryCredential: createStudyStreamRecoveryCredential(row.id),
     clientRevision: row.clientRevision ?? 0,
     prompt: row.itemKind === "OBJECTIVE_PROBE"
       ? row.objectiveQuestionSnapshot?.prompt ?? ""
@@ -1564,6 +1618,7 @@ async function loadActionItem(
     recoverExpiredSession?: boolean;
     recoverExpiredCredential?: boolean;
     recoverExpiredLease?: boolean;
+    recoveryCredential?: string | null;
   } = {},
 ): Promise<StreamItemWithRelations & { session: StudySession }> {
   const item = await tx.studyStreamItem.findFirst({
@@ -1584,10 +1639,18 @@ async function loadActionItem(
   const completionConflict = terminalActionConflict(item, input.actionKind);
   const completedFeedbackReplay = isCompletedFeedbackReplay(item, input.actionKind);
   const credentialMatches = matchesCredentialDigest(item, input.itemCredential);
+  const recoveryCredentialMatches = matchesStudyStreamRecoveryCredential(
+    item.id,
+    options.recoveryCredential,
+  );
   // Action routes remain bearer-credential protected. A terminal item's
   // authoritative state is reconciled through the separate read-only status
   // path below; never let an unknown credential reach an action processor.
-  if (!credentialMatches) {
+  // The item-bound proof is accepted only by the explicit recovery path and
+  // never by the ordinary action route.
+  if (!credentialMatches && !(
+    options.recoverExpiredCredential && recoveryCredentialMatches
+  )) {
     throw new StudyStreamError(403, "學習項目憑證無效或已過期", { code: "ITEM_CREDENTIAL_INVALID" });
   }
   const credentialAccepted = acceptsCredential(item, input.itemCredential, now);
@@ -2186,6 +2249,7 @@ async function applyStudyStreamActionTx(
     recoverExpiredSession?: boolean;
     recoverExpiredCredential?: boolean;
     recoverExpiredLease?: boolean;
+    recoveryCredential?: string | null;
   } = {},
 ): Promise<ActionTransactionResult> {
   for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
@@ -2325,11 +2389,13 @@ export async function reconcileStudyStreamAction(
 export async function recoverExpiredStudyStreamAction(
   userId: string,
   input: StudyStreamActionInput,
+  recoveryCredential?: string | null,
 ): Promise<ActionTransactionResult> {
   return applyStudyStreamActionTx(userId, input, {
     recoverExpiredSession: true,
     recoverExpiredCredential: true,
     recoverExpiredLease: true,
+    recoveryCredential,
   });
 }
 

@@ -18,6 +18,7 @@ async function main() {
   const {
     applyStudyStreamAction,
     getOrCreateStudyStream,
+    createStudyStreamRecoveryCredential,
     reconcileStudyStreamAction,
     recoverExpiredStudyStreamAction,
     renewStudyStreamCredential,
@@ -37,6 +38,7 @@ async function main() {
   const testUnitCategory = CATALOG_CATEGORIES[0];
   let userId: string | null = null;
   let studyDayOnlyUserId: string | null = null;
+  let scheduleGapUserId: string | null = null;
   let longHistoryUserId: string | null = null;
   const wordIds: string[] = [];
   const cleanupWordIds: string[] = [];
@@ -843,6 +845,16 @@ async function main() {
       where: { id: pendingSession.id },
       data: { expiresAt: new Date(Date.now() - 1_000) },
     });
+    // K1 was the credential actually captured by a second device. It is
+    // evicted after the eighth rotation while K0 remains as the lineage root.
+    // The item-bound recovery proof must still recover this unresolved action
+    // after the source session expires, without reading the current URL/scope.
+    const expiredK1Recovery = await recoverExpiredStudyStreamAction(user.id, {
+      ...pendingRevealAction,
+      operationId: `evicted-pending-k1-proof-recovery-${suffix}`,
+      itemCredential: pendingEvictedCredential,
+    }, createStudyStreamRecoveryCredential(pendingItem.id));
+    assert.equal(expiredK1Recovery.response.itemStatus, "LEASED");
     const expiredPendingRecovery = await recoverExpiredStudyStreamAction(user.id, {
       flowVersion: "v2",
       studySessionId: pendingSession.id,
@@ -1443,6 +1455,130 @@ async function main() {
     assert.equal(dueOrderItem.itemKind, "OBJECTIVE_PROBE");
     assert.equal(dueOrderItem.wordId, dueOrderWords[0].id);
     assert.equal(dueOrderItem.selectionReason, "due-review");
+
+    // A unit whose every word already has a due Review must still make
+    // progress after a confirmed Objective Probe. Due probes are the normal
+    // evidence source, while due-review-gap-filler cards provide the two
+    // non-scoring acknowledged items required by the learner-wide spacing
+    // policy before the next probe can be issued.
+    const scheduleGapUser = await prisma.user.create({
+      data: {
+        accountName: `codex-schedule-gap-${suffix}`,
+        passwordHash: "not-a-login-account",
+        mustChangePassword: false,
+        studentProfile: {
+          create: {
+            legalName: "排程間隔測試學生",
+            nickname: "排程間隔測試生",
+            nicknameNormalized: "排程間隔測試生",
+          },
+        },
+      },
+    });
+    scheduleGapUserId = scheduleGapUser.id;
+    await prisma.studentEnrollment.create({
+      data: {
+        studentId: scheduleGapUser.id,
+        academicYearId: currentAcademicYear.id,
+        grade: "JUNIOR_1",
+        status: "ACTIVE",
+        isCurrent: true,
+        origin: "SEED",
+        startedAt: new Date(),
+      },
+    });
+    const scheduleGapWords = await prisma.word.findMany({
+      where: withCurrentCatalogWord({ level: "A1", category: unitCategoryToStorage(testUnitCategory) }),
+      orderBy: [{ term: "asc" }, { id: "asc" }],
+      select: { id: true, senseId: true },
+    });
+    if (scheduleGapWords.length < 3) throw new Error("unlocked A1 unit has fewer than three words for probe-gap regression");
+    const scheduleGapNow = new Date();
+    await prisma.review.createMany({
+      data: scheduleGapWords.map((word) => ({
+        userId: scheduleGapUser.id,
+        wordId: word.id,
+        senseId: word.senseId,
+        nextReviewDate: new Date(scheduleGapNow.getTime() - 60_000),
+      })),
+    });
+    const scheduleGapCredential = createStudyStreamCredential();
+    const scheduleGapSession = await prisma.studySession.create({
+      data: {
+        userId: scheduleGapUser.id,
+        queueFingerprint: `schedule-gap-history-${suffix}`,
+        expiresAt: new Date(scheduleGapNow.getTime() - 60_000),
+        retiredAt: new Date(scheduleGapNow.getTime() - 60_000),
+        flowVersion: "v2",
+        learningPolicyVersion: "retrieval-v1",
+        mode: "unit",
+        scopeLevel: "A1",
+        scopeCategory: unitCategoryToStorage(testUnitCategory),
+        revision: 0,
+        streamItems: {
+          create: {
+            streamItemKey: `schedule-gap-history-${suffix}`,
+            wordId: scheduleGapWords[0].id,
+            itemKind: "OBJECTIVE_PROBE",
+            selectionReason: "schedule-gap-history",
+            policyVersion: "retrieval-v1",
+            status: "ACKNOWLEDGED",
+            leaseExpiresAt: new Date(scheduleGapNow.getTime() - 30_000),
+            credentialDigest: digestStudyStreamCredential(scheduleGapCredential),
+            credentialExpiresAt: new Date(scheduleGapNow.getTime() - 30_000),
+            usedAt: new Date(scheduleGapNow.getTime() - 45_000),
+            feedbackAcknowledgedAt: new Date(scheduleGapNow.getTime() - 30_000),
+            clientRevision: 0,
+          },
+        },
+      },
+    });
+    const completeGapCard = async (stream: Awaited<ReturnType<typeof getOrCreateStudyStream>>, label: string) => {
+      assert.equal(stream.item?.kind, "LEARNING_CARD");
+      assert.equal(stream.item?.selectionReason, "due-review-gap-filler");
+      assert.ok(stream.item);
+      await applyStudyStreamAction(scheduleGapUser.id, {
+        flowVersion: "v2",
+        studySessionId: stream.session.id,
+        streamItemId: stream.item.streamItemId,
+        operationId: `schedule-gap-${label}-reveal-${suffix}`,
+        itemCredential: stream.item.itemCredential,
+        actionKind: "REVEAL",
+        clientKnownRevision: stream.item.clientRevision,
+        payload: {},
+      });
+      await applyStudyStreamAction(scheduleGapUser.id, {
+        flowVersion: "v2",
+        studySessionId: stream.session.id,
+        streamItemId: stream.item.streamItemId,
+        operationId: `schedule-gap-${label}-rating-${suffix}`,
+        itemCredential: stream.item.itemCredential,
+        actionKind: "SELF_RATING",
+        clientKnownRevision: stream.item.clientRevision,
+        payload: { selfRating: "selfRecalled" },
+      });
+    };
+    const gapFirst = await getOrCreateStudyStream(scheduleGapUser.id, {
+      mode: "unit",
+      level: "A1",
+      category: testUnitCategory,
+    });
+    await completeGapCard(gapFirst, "first");
+    const gapSecond = await getOrCreateStudyStream(scheduleGapUser.id, {
+      mode: "unit",
+      level: "A1",
+      category: testUnitCategory,
+    });
+    await completeGapCard(gapSecond, "second");
+    const gapProbe = await getOrCreateStudyStream(scheduleGapUser.id, {
+      mode: "unit",
+      level: "A1",
+      category: testUnitCategory,
+    });
+    assert.equal(gapProbe.item?.kind, "OBJECTIVE_PROBE");
+    assert.equal(gapProbe.item?.selectionReason, "due-review");
+    assert.notEqual(gapFirst.item?.streamItemId, gapSecond.item?.streamItemId);
+    assert.notEqual(scheduleGapSession.id, gapFirst.session.id);
 
     // A long-running learner can have more encounters than the bounded
     // contact-time history window. The contacted/untouched partition must
@@ -2321,7 +2457,7 @@ async function main() {
     // stream items and review events (all are SetNull on delete). Collect and
     // remove every snapshot owned by this disposable learner before deleting
     // the user, otherwise each integration run would leave orphan snapshots.
-    const snapshotOwnerIds = [userId, studyDayOnlyUserId, longHistoryUserId].filter(
+    const snapshotOwnerIds = [userId, studyDayOnlyUserId, scheduleGapUserId, longHistoryUserId].filter(
       (id): id is string => id !== null,
     );
     if (snapshotOwnerIds.length > 0) {
@@ -2344,6 +2480,7 @@ async function main() {
     }
     if (userId) await prisma.user.delete({ where: { id: userId } });
     if (studyDayOnlyUserId) await prisma.user.delete({ where: { id: studyDayOnlyUserId } });
+    if (scheduleGapUserId) await prisma.user.delete({ where: { id: scheduleGapUserId } });
     if (longHistoryUserId) await prisma.user.delete({ where: { id: longHistoryUserId } });
     const disposableWordIds = [...cleanupWordIds, ...catalogFixtureWordIds];
     if (disposableWordIds.length > 0) {

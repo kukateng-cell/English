@@ -81,12 +81,16 @@ interface StudyStreamRequestError extends Error {
 
 type FlushOneResult = "empty" | "processed" | "terminal" | "blocked" | "stopped";
 
-function isRecoverableStudyStreamError(value: unknown): value is StudyStreamRequestError {
+function isRecoverableStudyStreamError(
+  value: unknown,
+  hasRecoveryCredential = false,
+): value is StudyStreamRequestError {
   if (!(value instanceof Error)) return false;
   const candidate = value as StudyStreamRequestError;
   if (candidate.code === "SESSION_EXPIRED") return true;
   if (candidate.code === "ITEM_CREDENTIAL_EXPIRED") return true;
   if (candidate.code === "EXPIRED_ITEM_LEASE") return true;
+  if (hasRecoveryCredential && candidate.code === "ITEM_CREDENTIAL_INVALID") return true;
   // Keep compatibility with an older same-version server response that did
   // not include the allowlisted code, but never infer recovery from a
   // SESSION_REVOKED response or from the generic credential error.
@@ -249,12 +253,18 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return data as PublicStreamActionResponse;
   }, []);
 
-  const recoverAction = useCallback(async (action: StudyStreamActionInput): Promise<PublicStreamActionResponse> => {
+  const recoverAction = useCallback(async (
+    action: StudyStreamActionInput,
+    recoveryCredential?: string,
+  ): Promise<PublicStreamActionResponse> => {
+    const body = recoveryCredential
+      ? { ...action, recoveryCredential }
+      : action;
     const response = await rosterFetch("/api/study/actions/recover", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify(action),
+      body: JSON.stringify(body),
     }, { timeoutMs: STUDY_REQUEST_TIMEOUT_MS });
     const data = await readResponse(response);
     if (typeof data !== "object" || data === null || (data as Record<string, unknown>).ok !== true) {
@@ -281,15 +291,18 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return data as StudyStreamActionReconciliation;
   }, []);
 
-  const postActionWithRecovery = useCallback(async (action: StudyStreamActionInput): Promise<PublicStreamActionResponse> => {
+  const postActionWithRecovery = useCallback(async (
+    action: StudyStreamActionInput,
+    recoveryCredential?: string,
+  ): Promise<PublicStreamActionResponse> => {
     try {
       return await postAction(action);
     } catch (error) {
       // Exactly one explicit recovery request is allowed. If the recovery
       // route rejects it, the durable outbox remains blocked and no client
       // loop silently resubmits the same operation.
-      if (!isRecoverableStudyStreamError(error)) throw error;
-      return recoverAction(action);
+      if (!isRecoverableStudyStreamError(error, Boolean(recoveryCredential))) throw error;
+      return recoverAction(action, recoveryCredential);
     }
   }, [postAction, recoverAction]);
 
@@ -411,7 +424,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       return "blocked";
     }
     try {
-      const response = await postActionWithRecovery(row.action);
+      const response = await postActionWithRecovery(row.action, row.recoveryCredential);
       await removeStudyStreamAction(userId, row.action.operationId);
       timeoutNoticeRef.current = false;
       const refreshed = await applyActionResponse(row.action, response);
@@ -483,6 +496,9 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
             };
             await updateStudyStreamAction(userId, row.action.operationId, {
               itemCredential: rebound.itemCredential,
+              ...(reboundState.item.recoveryCredential
+                ? { recoveryCredential: reboundState.item.recoveryCredential }
+                : {}),
             });
             const response = await postAction(rebound);
             await removeStudyStreamAction(userId, rebound.operationId);
@@ -574,7 +590,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       payload,
     };
     setActionPending(true);
-    const queued = await enqueueStudyStreamAction(userId, action);
+    const queued = await enqueueStudyStreamAction(userId, action, item.recoveryCredential);
     if (!queued.ok) {
       setActionPending(false);
       setSyncBlocked(true);
@@ -583,7 +599,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     }
     setOutboxCount((count) => count + 1);
     try {
-      const response = await postActionWithRecovery(action);
+      const response = await postActionWithRecovery(action, item.recoveryCredential);
       await removeStudyStreamAction(userId, action.operationId);
       timeoutNoticeRef.current = false;
       const refreshed = await applyActionResponse(action, response);
@@ -664,6 +680,22 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     if (refreshed) await flushPending();
     if (mountedRef.current) setActionPending(false);
   }, [actionPending, flushPending, refreshAuthoritativeState, refreshPending]);
+
+  const retryInitialLoad = useCallback(async () => {
+    if (actionPending) return;
+    timeoutNoticeRef.current = false;
+    setActionPending(true);
+    try {
+      // Keep this boundary above reloadStream: reloadStream is also used
+      // after every action and must not recursively drain the outbox. A
+      // successful manual retry always re-reads storage before flushing, so
+      // rows created while the first GET was failing are not missed.
+      const result = await reloadStream();
+      if (result === "loaded") await flushPending();
+    } finally {
+      if (mountedRef.current) setActionPending(false);
+    }
+  }, [actionPending, flushPending, reloadStream]);
 
   const retrySync = useCallback(async () => {
     timeoutNoticeRef.current = false;
@@ -778,7 +810,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return <div className="flex min-h-full items-center justify-center text-[var(--muted)]">{tc("載入連續學習流...")}</div>;
   }
   if (streamError && !item) {
-    return <ErrorBanner message={streamError} onRetry={() => void reloadStream()} />;
+    return <ErrorBanner message={streamError} onRetry={() => void retryInitialLoad()} />;
   }
 
   const interactionDisabled = actionPending || syncBlocked || refreshPending;
@@ -842,7 +874,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         ) : (
           <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center text-center">
             <p className="mb-4 text-[var(--muted)]">{tc(unitSummary ? "本單元目前沒有可安全安排的學習項目" : "目前沒有可安全安排的學習項目")}</p>
-            <button type="button" onClick={() => void reloadStream()} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold">{tc("重新載入")}</button>
+            <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50">{tc("重新載入")}</button>
           </div>
         )}
       </div>

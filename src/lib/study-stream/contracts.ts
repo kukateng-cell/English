@@ -47,6 +47,11 @@ export interface PublicStreamItemBase {
   selectionOverrideReason?: string | null;
   itemCredential: string;
   credentialExpiresAt: string;
+  /**
+   * Item-bound proof for the explicit recovery route. This is transport
+   * authorization only and must never be included in an action fingerprint.
+   */
+  recoveryCredential?: string;
   clientRevision: number;
   prompt: string;
   /** Presentation-only context; never used as an action identity or score input. */
@@ -147,6 +152,10 @@ export type ParseActionResult =
   | { ok: true; value: StudyStreamActionInput }
   | { ok: false; error: string };
 
+export type ParseRecoveryActionResult =
+  | { ok: true; value: { action: StudyStreamActionInput; recoveryCredential: string | null } }
+  | { ok: false; error: string };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -209,6 +218,37 @@ export function parseStudyStreamAction(value: unknown): ParseActionResult {
       actionKind: value.actionKind as StudyStreamActionKind,
       clientKnownRevision,
       payload,
+    },
+  };
+}
+
+/**
+ * The recovery proof is deliberately kept outside StudyStreamActionInput so
+ * refreshing transport authorization cannot mutate the immutable operation
+ * fingerprint. It is accepted only by the explicit recovery route; omitting
+ * it keeps compatibility with actions created before the proof was issued.
+ */
+export function parseStudyStreamRecoveryAction(value: unknown): ParseRecoveryActionResult {
+  if (!isRecord(value)) return { ok: false, error: "請求體格式錯誤" };
+  if (!hasOnlyKeys(value, [...ACTION_KEYS, "recoveryCredential"])) {
+    return { ok: false, error: "V2 recovery action 含有未授權欄位" };
+  }
+  const recoveryCredential = value.recoveryCredential;
+  if (
+    recoveryCredential !== undefined &&
+    !isBoundedString(recoveryCredential, 32, 256)
+  ) {
+    return { ok: false, error: "recoveryCredential 無效" };
+  }
+  const actionValue = { ...value };
+  delete actionValue.recoveryCredential;
+  const parsed = parseStudyStreamAction(actionValue);
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    value: {
+      action: parsed.value,
+      recoveryCredential: recoveryCredential ?? null,
     },
   };
 }

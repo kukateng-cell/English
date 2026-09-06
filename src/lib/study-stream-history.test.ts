@@ -58,6 +58,24 @@ test("a closed probe gap returns a safe rest when no non-probe item exists", () 
   assert.equal(decision.overrideReason, "min-intervening-items");
 });
 
+test("due review cards can fill a closed probe gap before another probe", () => {
+  const shape = recentStreamShape([acknowledgedCard, acknowledgedProbe]);
+  const decision = selectNextItem({
+    mode: "unit",
+    now: Date.now(),
+    consecutiveProbes: shape.consecutiveProbes,
+    acknowledgedItemsSinceProbe: shape.acknowledgedItemsSinceProbe,
+    hasPreviousProbe: shape.hasPreviousProbe,
+    activeWork: [],
+    candidates: [
+      { id: "due-probe", wordId: "due-word", kind: "OBJECTIVE_PROBE", purpose: "DUE_REVIEW", selectionReason: "due-review" },
+      { id: "due-card", wordId: "due-word", kind: "LEARNING_CARD", selectionReason: "due-review-gap-filler" },
+    ],
+  });
+  assert.equal(decision.candidate?.id, "due-card");
+  assert.equal(decision.candidate?.kind, "LEARNING_CARD");
+});
+
 test("contacted words stay out of the new-word partition beyond the history window", () => {
   const contactedWordIds = new Set(
     Array.from({ length: 641 }, (_, index) => `contacted-${index}`),

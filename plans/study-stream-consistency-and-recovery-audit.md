@@ -1,6 +1,6 @@
 # V2 學習一致性、排程及恢復審核修正
 
-狀態：已完成（追加 scheduler history／長期 contacted partition 修正；本地驗證通過）
+狀態：已完成（staging 組合情境修正；本地驗證及雙 reviewer PASS，push 後 hosted CI／production gate 按發佈流程確認）
 
 ## 背景及目標
 
@@ -68,6 +68,13 @@
 - [x] 補上 history → scheduler 的 Probe gap 回歸，以及超過 640 encounters、最新 contact timestamp 不在 bounded window 的候選分類／排序回歸。
 - [x] 跑 unit、TypeScript、lint、build、DB／browser stream-v2 及 migration 相關驗收；兩位 reviewer 明確 PASS。
 
+### G：staging 組合情境 follow-up（110d28e 審核）
+
+- [x] SCH-01：當單元只剩到期 Objective Probe 時，提供符合兩項已確認項目間隔規則的可前進候選或明確安全降級，不返回不可解的 `probe-gap-closed`。
+- [x] SYN-01：每台裝置取得的合法 credential 都有受保護、以原 action identity 定位的恢復途徑；不依賴目前 URL／scope，且不改寫 immutable operation fingerprint。
+- [x] UI-01：首次 GET 失敗後，手動重試成功會重新讀取並受控排送 pending outbox；刷新失敗、blocked 及生命週期重播仍保留原有安全狀態。
+- [x] 補上真正 PostgreSQL／React／Playwright 組合回歸，涵蓋 due-only unit、K1 被淘汰且 session／scope 失配，以及 initial retry drain；兩位 reviewer 明確 PASS。
+
 ## 風險及緩解
 
 - 歷史查詢可能增加 scheduler 成本：以 learner-scoped bounded window／索引查詢，並以長序列效能測試確認不退化。
@@ -86,11 +93,11 @@
 
 本輪完成並由兩位獨立 reviewer 明確 PASS：
 
-- `npm test`：397 tests passed。
+- `npm test`：399 tests passed。
 - `npx tsc --noEmit`、`npm run lint`、`git diff --check`：通過。
 - `npm run build`：Next.js production build 通過。
-- `npm run test:e2e:study-stream-v2`：22/22 Chromium tests passed，包含 GET／CSRF／action timeout、refresh／storage、生命週期 generation、terminal reconciliation 及獨立 browser contexts。
-- `npm run test:db:stream-v2`：真正 PostgreSQL integration checks passed，包含 scheduler 長序列、cross-session history、超過 640 encounters 的 contacted／untouched candidate partition、7→8 credential boundary、expired K1 terminal reconciliation、pending K1 rebind 及 provenance／metrics checks。
+- `npm run test:e2e:study-stream-v2 -- --reporter=line`：24/24 Chromium tests passed，包含 initial retry drain、跨範圍舊操作 recovery、GET／CSRF／action timeout、refresh／storage、生命週期 generation、terminal reconciliation 及獨立 browser contexts。
+- `npm run test:db:stream-v2`：真正 PostgreSQL integration checks passed，包含 due-only gap filler、scheduler 長序列、cross-session history、超過 640 encounters 的 contacted／untouched candidate partition、7→8 credential boundary、expired K1 terminal reconciliation、pending K1 rebind 及 provenance／metrics checks。
 - `npm run test:migration-checksums`：通過；`npm run test:migrations`：67 migrations fresh replay 及 interrupted replay 通過。
 
 已知未執行或不在本次授權範圍：此次 push 後 GitHub hosted CI 尚待重新跑；production deploy／config gate、contract migration、完整原生 mobile／VoiceOver／TalkBack matrix、長時間容量／壓力測試及正式資料清理均未執行。新增欄位只使用正常 expand migration，沒有執行 contract migration。
@@ -106,3 +113,6 @@
 | SCA-005 | 所有受保護 JSON／串流入口 fail closed 並在讀取途中 enforce byte cap | 已採用 |
 | SCA-006 | `hasPreviousProbe` 與 `consecutiveProbes` 分開；Probe gap 由實際 learner history 決定 | 已採用 |
 | SCA-007 | contacted／untouched database partition 優先於 bounded contact-time window | 已採用 |
+| SCA-008 | due review 可作不計分的 Learning Card gap filler；Objective Probe 仍只由合法 first response 評分 | 已採用 |
+| SCA-009 | credential recovery token／proof 只作傳輸授權，綁定原 stream item；不進 operation fingerprint | 已採用 |
+| SCA-010 | 首次載入手動重試由上層串接 reload → reread outbox → bounded flush，避免 reload／flush 循環 | 已採用 |

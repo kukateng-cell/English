@@ -6,6 +6,7 @@ import {
   digestStudyStreamCredential,
   legacyActionFingerprint,
   parseStudyStreamAction,
+  parseStudyStreamRecoveryAction,
 } from "@/lib/study-stream/contracts";
 import { resolveStudyFlowAssignment } from "@/lib/study-stream/assignment";
 
@@ -63,6 +64,21 @@ test("operation identity is part of the new fingerprint while legacy receipts re
   const second = { ...first, operationId: "operation-456" };
   assert.notEqual(actionFingerprint(first), actionFingerprint(second));
   assert.equal(legacyActionFingerprint(first), legacyActionFingerprint(second));
+});
+
+test("recovery proof stays outside the immutable action contract", () => {
+  const action = validAction();
+  const recovery = { ...action, recoveryCredential: createStudyStreamCredential() };
+  const parsed = parseStudyStreamRecoveryAction(recovery);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.value.recoveryCredential, recovery.recoveryCredential);
+    assert.deepEqual(parsed.value.action, action);
+    assert.equal(actionFingerprint(parsed.value.action), actionFingerprint(action));
+  }
+  assert.equal(parseStudyStreamAction(recovery).ok, false);
+  assert.equal(parseStudyStreamRecoveryAction({ ...recovery, recoveryCredential: "short" }).ok, false);
+  assert.equal(parseStudyStreamRecoveryAction(action).ok, true);
 });
 
 test("V2 assignment is deny-by-default and internal-user scoped", () => {

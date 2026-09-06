@@ -6,7 +6,7 @@ import {
   recoverExpiredStudyStreamAction,
   StudyStreamError,
 } from "@/lib/study-stream/server";
-import { parseStudyStreamAction } from "@/lib/study-stream/contracts";
+import { parseStudyStreamRecoveryAction } from "@/lib/study-stream/contracts";
 import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
 import { observeStudyStreamRequest } from "@/lib/study-stream/observability";
 import { isSameOriginMutation } from "@/lib/csrf";
@@ -24,8 +24,8 @@ function errorResponse(error: unknown): NextResponse {
 
 /**
  * POST /api/study/actions/recover — one bounded retry for an expired V2
- * session. The body is the same typed action contract; no client score or
- * replacement item is accepted here.
+ * session. The body is the same typed action contract plus an optional
+ * item-bound recovery proof; no client score or replacement item is accepted.
  */
 export async function POST(req: Request) {
   if (!isSameOriginMutation(req)) return NextResponse.json({ code: "CSRF_ORIGIN_INVALID" }, { status: 403 });
@@ -49,9 +49,9 @@ export async function POST(req: Request) {
     } catch (error) {
       if (error instanceof Error && error.message === "PAYLOAD_TOO_LARGE") return NextResponse.json({ error: "請求內容過大" }, { status: 413 });
     }
-    const parsed = parseStudyStreamAction(body);
+    const parsed = parseStudyStreamRecoveryAction(body);
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-    context.actionKind = parsed.value.actionKind;
+    context.actionKind = parsed.value.action.actionKind;
     const rate = await checkStudyRate(auth.userId);
     if (!rate.ok) {
       context.outcome = "rate-limited";
@@ -61,7 +61,11 @@ export async function POST(req: Request) {
       );
     }
     try {
-      const result = await recoverExpiredStudyStreamAction(auth.userId, parsed.value);
+      const result = await recoverExpiredStudyStreamAction(
+        auth.userId,
+        parsed.value.action,
+        parsed.value.recoveryCredential,
+      );
       return NextResponse.json(result.response);
     } catch (error) {
       return errorResponse(error);

@@ -270,6 +270,224 @@ test("an initial stream timeout is shown as an error instead of an empty stream"
   }
 });
 
+test("retrying an initial stream failure also drains pending outbox actions", async ({ page }) => {
+  const sessionId = "initial-retry-session";
+  const streamItemId = "initial-retry-item";
+  const itemCredential = "initial-retry-credential-012345678901234567890123456789";
+  let streamCalls = 0;
+  let actionCalls = 0;
+
+  const authSession = await page.request.get("/api/auth/session");
+  const authPayload = await authSession.json() as { user?: { id?: string } };
+  const userId = authPayload.user?.id;
+  if (!userId) throw new Error("missing authenticated user id");
+  const outboxKey = `english:study-stream-v2:outbox:${userId}`;
+  const pendingAction: StudyStreamActionInput = {
+    flowVersion: "v2",
+    studySessionId: sessionId,
+    streamItemId,
+    operationId: "initial-retry-pending",
+    itemCredential,
+    actionKind: "REVEAL",
+    clientKnownRevision: 0,
+    payload: {},
+  };
+  await page.addInitScript(({ key, action }) => {
+    window.localStorage.setItem(key, JSON.stringify([{
+      action,
+      status: "pending",
+      attempts: 0,
+      lastError: null,
+      updatedAt: Date.now(),
+    }]));
+  }, { key: outboxKey, action: pendingAction });
+
+  await page.route("**/api/auth/csrf", async (route) => {
+    await route.fulfill({ json: { csrfToken: "initial-retry-csrf-token" } });
+  });
+
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    streamCalls += 1;
+    if (streamCalls === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "initial stream unavailable" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        ok: true,
+        assigned: true,
+        resumedFeedback: false,
+        session: {
+          id: sessionId,
+          mode: "global",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          revision: 0,
+          expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+        },
+        item: {
+          streamItemId,
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          selectionReason: "initial-retry-test",
+          itemCredential,
+          recoveryCredential: "initial-retry-recovery-credential-012345678901234567890123456789",
+          credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+          clientRevision: 0,
+          prompt: "initial-retry-card",
+        },
+      } satisfies PublicStreamResponse,
+    });
+  });
+  await page.route("**/api/study/actions", async (route) => {
+    if (new URL(route.request().url()).pathname !== "/api/study/actions") return route.continue();
+    actionCalls += 1;
+    const action = route.request().postDataJSON() as StudyStreamActionInput;
+    await route.fulfill({
+      json: {
+        ok: true,
+        operationId: action.operationId,
+        actionKind: action.actionKind,
+        duplicate: false,
+        itemStatus: "REVEALED",
+        clientRevision: 0,
+        requiresFeedbackAck: false,
+        nextItem: null,
+      },
+    });
+  });
+
+  await page.goto("/study");
+  const error = page.getByRole("alert");
+  await expect(error).toBeVisible();
+  await error.getByRole("button", { name: "重試" }).click();
+  await expect(page.getByText("initial-retry-card", { exact: true })).toBeVisible();
+  await expect.poll(() => actionCalls).toBe(1);
+  await expect.poll(() => streamCalls).toBeGreaterThanOrEqual(3);
+  await expect.poll(async () => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "[]"), outboxKey)).toEqual([]);
+});
+
+test("an evicted-device recovery proof finishes the original action without current-scope rebinding", async ({ page }) => {
+  const originalSessionId = "evicted-device-session-A";
+  const originalItemId = "evicted-device-item-A";
+  const originalCredential = "evicted-device-credential-K1-012345678901234567890123456789";
+  const recoveryCredential = "evicted-device-recovery-proof-012345678901234567890123456789";
+  let streamCalls = 0;
+  let normalActionCalls = 0;
+  let recoveryCalls = 0;
+  const recoveryBodies: Array<Record<string, unknown>> = [];
+
+  await page.route("**/api/auth/csrf", async (route) => {
+    await route.fulfill({ json: { csrfToken: "evicted-device-csrf-token" } });
+  });
+
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    streamCalls += 1;
+    const isOriginal = streamCalls === 1;
+    await route.fulfill({
+      json: {
+        ok: true,
+        assigned: true,
+        resumedFeedback: false,
+        session: {
+          id: isOriginal ? originalSessionId : "current-session-B",
+          mode: "unit",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          revision: 0,
+          expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+        },
+        item: isOriginal ? {
+          streamItemId: originalItemId,
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          selectionReason: "evicted-device-test",
+          itemCredential: originalCredential,
+          recoveryCredential,
+          credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+          clientRevision: 0,
+          prompt: "evicted-device-card",
+          learningCard: {
+            term: "evicted-device-card",
+            phonetic: null,
+            definition: "跨裝置恢復",
+            pos: null,
+            examples: [],
+          },
+        } : {
+          streamItemId: "current-item-B",
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          selectionReason: "current-scope-test",
+          itemCredential: "current-credential-B-012345678901234567890123456789",
+          recoveryCredential: "current-recovery-B-012345678901234567890123456789",
+          credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+          clientRevision: 0,
+          prompt: "current-scope-card",
+        },
+      } satisfies PublicStreamResponse,
+    });
+  });
+  await page.route("**/api/study/actions**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (pathname === "/api/study/actions/recover") {
+      recoveryCalls += 1;
+      recoveryBodies.push(body);
+      await route.fulfill({
+        json: {
+          ok: true,
+          operationId: body.operationId,
+          actionKind: body.actionKind,
+          duplicate: false,
+          itemStatus: "ACKNOWLEDGED",
+          clientRevision: 1,
+          requiresFeedbackAck: false,
+          nextItem: null,
+        },
+      });
+      return;
+    }
+    if (pathname === "/api/study/actions/reconcile") {
+      await route.fulfill({ json: { ok: true, terminal: false } });
+      return;
+    }
+    normalActionCalls += 1;
+    await route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "學習項目憑證無效或已過期", code: "ITEM_CREDENTIAL_INVALID" }),
+    });
+  });
+
+  await page.goto("/study?mode=unit&level=A1&category=unit-a");
+  await page.getByRole("button", { name: "和剛才想的一樣" }).click();
+  await expect.poll(() => normalActionCalls).toBe(1);
+  await expect.poll(() => recoveryCalls).toBe(1);
+  await expect(page.getByText("current-scope-card", { exact: true })).toBeVisible();
+  expect(recoveryBodies[0]?.recoveryCredential).toBe(recoveryCredential);
+  expect(recoveryBodies[0]?.operationId).toMatch(/^stream-/u);
+  expect(recoveryBodies[0]?.streamItemId).toBe(originalItemId);
+  await expect(page.getByRole("alert").filter({ hasText: "學習項目憑證" })).toHaveCount(0);
+});
+
 for (const timeoutPhase of ["csrf", "action"] as const) {
   test(`a ${timeoutPhase} timeout keeps the direct operation and sibling pending`, async ({ page }) => {
     test.setTimeout(60_000);

@@ -9,6 +9,8 @@ export const STUDY_STREAM_OUTBOX_MAX_ROWS = 20;
 
 export type StudyStreamQueuedAction = {
   action: StudyStreamActionInput;
+  /** Item-bound proof used only by the explicit recovery endpoint. */
+  recoveryCredential?: string;
   status: "pending" | "blocked";
   attempts: number;
   lastError: string | null;
@@ -46,6 +48,11 @@ function read(userId: string): StudyStreamQueuedAction[] {
       const parsed = parseStudyStreamAction(candidate.action);
       if (
         !parsed.ok ||
+        (candidate.recoveryCredential !== undefined &&
+          (typeof candidate.recoveryCredential !== "string" ||
+            candidate.recoveryCredential.length < 32 ||
+            candidate.recoveryCredential.length > 256 ||
+            candidate.recoveryCredential.trim() !== candidate.recoveryCredential)) ||
         (candidate.status !== "pending" && candidate.status !== "blocked") ||
         typeof candidate.attempts !== "number" ||
         !Number.isSafeInteger(candidate.attempts) ||
@@ -56,6 +63,9 @@ function read(userId: string): StudyStreamQueuedAction[] {
       ) throw new StudyStreamOutboxCorruptError();
       rows.push({
         action: parsed.value,
+        ...(typeof candidate.recoveryCredential === "string"
+          ? { recoveryCredential: candidate.recoveryCredential }
+          : {}),
         status: candidate.status,
         attempts: candidate.attempts,
         lastError: candidate.lastError,
@@ -83,6 +93,7 @@ export function loadStudyStreamOutbox(userId: string): StudyStreamQueuedAction[]
 export async function enqueueStudyStreamAction(
   userId: string,
   action: StudyStreamActionInput,
+  recoveryCredential?: string | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     return await withStudyOutboxLock(() => {
@@ -91,7 +102,14 @@ export async function enqueueStudyStreamAction(
         if (rows.length >= STUDY_STREAM_OUTBOX_MAX_ROWS) {
           return { ok: false as const, error: "待同步學習操作已達安全上限；請先恢復同步後再繼續學習" };
         }
-        rows.push({ action, status: "pending", attempts: 0, lastError: null, updatedAt: Date.now() });
+        rows.push({
+          action,
+          ...(recoveryCredential ? { recoveryCredential } : {}),
+          status: "pending",
+          attempts: 0,
+          lastError: null,
+          updatedAt: Date.now(),
+        });
         write(userId, rows);
       }
       return { ok: true as const };
@@ -108,11 +126,16 @@ export async function removeStudyStreamAction(userId: string, operationId: strin
 export async function updateStudyStreamAction(
   userId: string,
   operationId: string,
-  patch: Pick<StudyStreamActionInput, "itemCredential">,
+  patch: Pick<StudyStreamActionInput, "itemCredential"> & { recoveryCredential?: string },
 ): Promise<void> {
   await withStudyOutboxLock(() => {
     const rows = read(userId).map((row) => row.action.operationId === operationId
-      ? { ...row, action: { ...row.action, ...patch }, updatedAt: Date.now() }
+      ? {
+          ...row,
+          ...(patch.recoveryCredential ? { recoveryCredential: patch.recoveryCredential } : {}),
+          action: { ...row.action, itemCredential: patch.itemCredential },
+          updatedAt: Date.now(),
+        }
       : row);
     write(userId, rows);
   });
