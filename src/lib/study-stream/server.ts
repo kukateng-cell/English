@@ -153,6 +153,19 @@ interface ActionTransactionResult {
   duplicate: boolean;
 }
 
+export type StudyStreamRecoveryPreparation =
+  | {
+      ok: true;
+      terminal: false;
+      recoveryCredential: string;
+    }
+  | {
+      ok: true;
+      terminal: true;
+      code: TerminalActionConflict["code"] | "FEEDBACK_ALREADY_ACKNOWLEDGED";
+      message: string;
+    };
+
 interface CredentialGrant {
   digest: string;
   issuedAt: number;
@@ -262,10 +275,11 @@ function rotatedCredentialLineage(
 function matchesCredentialDigest(
   item: StudyStreamItem,
   suppliedCredential: string,
+  includeParentDigests = false,
 ): boolean {
   const digest = digestStudyStreamCredential(suppliedCredential);
   return digest === item.credentialDigest || parseCredentialLineage(item.credentialLineage)
-    .some((grant) => grant.digest === digest);
+    .some((grant) => grant.digest === digest || (includeParentDigests && grant.parentDigest === digest));
 }
 
 function acceptsCredential(
@@ -678,7 +692,27 @@ async function buildCandidates(
   await expireWork(tx, userId, now);
   const history = await learnerStreamHistory(tx, userId, scope);
   const active = await activeWork(tx, userId, scope, now);
-  const candidates: CandidateRecord[] = active.map((work) => candidateForWork(work, scope.mode));
+  const candidates: CandidateRecord[] = [];
+  for (const work of active) {
+    candidates.push(candidateForWork(work, scope.mode));
+    if (work.kind === "EVIDENCE_OBLIGATION") {
+      // An evidence obligation must remain an Objective Probe when it is
+      // served. If the learner-wide probe gap is closed, provide a separate
+      // non-scoring card for the same word as an intervening item. It is
+      // deliberately not linked to workId: revealing/self-rating this card
+      // must not mark the pending obligation ANSWERED or consume its target.
+      candidates.push({
+        id: `work-card:${work.id}`,
+        wordId: work.wordId,
+        senseId: work.senseId,
+        kind: "LEARNING_CARD",
+        mode: scope.mode,
+        eligibleAt: work.eligibleAt,
+        expiresAt: work.expiresAt,
+        selectionReason: "evidence-obligation-gap-filler",
+      });
+    }
+  }
   const workWordIds = new Set(active.map((work) => work.wordId));
 
   const due = await tx.review.findMany({
@@ -2376,6 +2410,115 @@ export async function reconcileStudyStreamAction(
     }
   }
   throw new Error("Study action reconciliation transaction retry exhausted");
+}
+
+/**
+ * Upgrade a pre-recovery-version outbox row into the item-bound recovery
+ * contract. The caller must provide the original typed action and credential;
+ * the server verifies the exact account/session/item tuple and the retained
+ * credential lineage before issuing the deterministic item proof. A direct
+ * terminal result is returned without issuing a proof, so completed rows can
+ * be removed safely even when their old credential has already expired.
+ *
+ * Parent digests are accepted only in this explicit migration step. They are
+ * the signed lineage link left by a retained successor (for example K2 keeps
+ * the digest of K1 as its parent) and are never accepted by the ordinary
+ * action route. If no retained lineage link remains, the row stays fail
+ * closed; silently trusting an arbitrary authenticated payload would be less
+ * safe than surfacing a blocked legacy row.
+ */
+export async function prepareStudyStreamActionRecovery(
+  userId: string,
+  input: StudyStreamActionInput,
+): Promise<StudyStreamRecoveryPreparation> {
+  for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          await lockStreamUser(tx, userId);
+          const item = await tx.studyStreamItem.findFirst({
+            where: {
+              id: input.streamItemId,
+              sessionId: input.studySessionId,
+            },
+            include: { session: true },
+          });
+          if (!item || item.session.userId !== userId || item.session.flowVersion !== STUDY_STREAM_FLOW_VERSION) {
+            throw new StudyStreamError(403, "學習項目憑證無效或不屬於目前帳戶");
+          }
+          if (item.session.retiredAt !== null) {
+            throw new StudyStreamError(403, "學習 session 已過期或已撤銷", { code: "SESSION_REVOKED" });
+          }
+
+          const receipt = await tx.operationReceipt.findUnique({
+            where: { userId_operationId: { userId, operationId: input.operationId } },
+            select: { requestFingerprint: true, flowVersion: true, actionKind: true },
+          });
+          if (receipt && (
+            receipt.flowVersion !== STUDY_STREAM_FLOW_VERSION ||
+            receipt.actionKind !== input.actionKind ||
+            (receipt.requestFingerprint !== actionFingerprint(input) &&
+              receipt.requestFingerprint !== legacyActionFingerprint(input))
+          )) {
+            throw new StudyStreamError(409, "operationId 已用於不同的學習操作");
+          }
+          if (!receipt && item.operationId === input.operationId) {
+            throw new StudyStreamError(409, "學習操作回執遺失，請重新載入");
+          }
+
+          const itemRevision = item.clientRevision ?? item.session.revision;
+          if (input.clientKnownRevision > itemRevision) {
+            throw new StudyStreamError(409, "學習項目版本已更新", { code: "STALE_STREAM_ITEM" });
+          }
+
+          const conflict = terminalActionConflict(item, input.actionKind);
+          if (conflict) {
+            return {
+              ok: true as const,
+              terminal: true as const,
+              code: conflict.code,
+              message: conflict.message,
+            };
+          }
+          if (isCompletedFeedbackReplay(item, input.actionKind)) {
+            return {
+              ok: true as const,
+              terminal: true as const,
+              code: "FEEDBACK_ALREADY_ACKNOWLEDGED" as const,
+              message: "客觀題 feedback 已由其他操作確認",
+            };
+          }
+
+          const actionMatchesItem =
+            ((input.actionKind === "REVEAL" || input.actionKind === "SELF_RATING") && item.itemKind === "LEARNING_CARD") ||
+            ((input.actionKind === "OBJECTIVE_ANSWER" || input.actionKind === "FEEDBACK_ACK") && item.itemKind === "OBJECTIVE_PROBE");
+          if (!actionMatchesItem) {
+            throw new StudyStreamError(409, "學習操作與項目類型不符", { code: "STALE_STREAM_ITEM" });
+          }
+
+          if (!matchesCredentialDigest(item, input.itemCredential, true)) {
+            throw new StudyStreamError(403, "舊版學習操作憑證無法安全升級", {
+              code: "LEGACY_ACTION_CREDENTIAL_UNVERIFIABLE",
+            });
+          }
+
+          return {
+            ok: true as const,
+            terminal: false as const,
+            recoveryCredential: createStudyStreamRecoveryCredential(item.id),
+          };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      const retryable = isRetryableTransactionConflict(error) || (
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+      );
+      if (!retryable || attempt === MAX_TRANSACTION_ATTEMPTS) throw error;
+      await waitForTransactionRetry(attempt - 1);
+    }
+  }
+  throw new Error("Study recovery preparation transaction retry exhausted");
 }
 
 /**

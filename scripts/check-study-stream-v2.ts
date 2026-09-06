@@ -19,6 +19,7 @@ async function main() {
     applyStudyStreamAction,
     getOrCreateStudyStream,
     createStudyStreamRecoveryCredential,
+    prepareStudyStreamActionRecovery,
     reconcileStudyStreamAction,
     recoverExpiredStudyStreamAction,
     renewStudyStreamCredential,
@@ -39,6 +40,7 @@ async function main() {
   let userId: string | null = null;
   let studyDayOnlyUserId: string | null = null;
   let scheduleGapUserId: string | null = null;
+  let obligationGapUserId: string | null = null;
   let longHistoryUserId: string | null = null;
   const wordIds: string[] = [];
   const cleanupWordIds: string[] = [];
@@ -791,6 +793,33 @@ async function main() {
       if (rotation === 0) pendingEvictedCredential = renewal.itemCredential;
       pendingCurrentCredential = renewal.itemCredential;
     }
+    const legacyPendingAction: StudyStreamActionInput = {
+      flowVersion: "v2",
+      studySessionId: pendingSession.id,
+      streamItemId: pendingItem.id,
+      operationId: `legacy-pending-prepare-${suffix}`,
+      itemCredential: pendingEvictedCredential,
+      actionKind: "REVEAL",
+      clientKnownRevision: 0,
+      payload: {},
+    };
+    // A pre-proof row may arrive after the source session has expired. The
+    // retained successor's parent digest (K2 -> K1) is enough for this one
+    // explicit migration step; no study item or session is changed here.
+    await prisma.studySession.update({
+      where: { id: pendingSession.id },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    const preparedLegacyRecovery = await prepareStudyStreamActionRecovery(user.id, legacyPendingAction);
+    assert.equal(preparedLegacyRecovery.ok, true);
+    assert.equal(preparedLegacyRecovery.terminal, false);
+    if (!preparedLegacyRecovery.terminal) {
+      assert.equal(preparedLegacyRecovery.recoveryCredential, createStudyStreamRecoveryCredential(pendingItem.id));
+    }
+    await prisma.studySession.update({
+      where: { id: pendingSession.id },
+      data: { expiresAt: new Date(Date.now() + 30 * 60_000) },
+    });
     const pendingRebindEncounterCount = await prisma.studyEncounter.count({ where: { userId: user.id } });
     const pendingRebindReceiptCount = await prisma.operationReceipt.count({ where: { userId: user.id } });
     const reboundPendingView = await getOrCreateStudyStream(user.id, {
@@ -814,6 +843,14 @@ async function main() {
     });
     assert.equal(unresolvedReconciliation.ok, true);
     assert.equal(unresolvedReconciliation.terminal, false);
+    const legacyCredentialGoneAction = {
+      ...legacyPendingAction,
+      operationId: `legacy-pending-unverifiable-${suffix}`,
+    };
+    await assert.rejects(
+      () => prepareStudyStreamActionRecovery(user.id, legacyCredentialGoneAction),
+      (error: unknown) => error instanceof StudyStreamError && error.status === 403 && error.details.code === "LEGACY_ACTION_CREDENTIAL_UNVERIFIABLE",
+    );
     const pendingRevealAction: StudyStreamActionInput = {
         flowVersion: "v2",
         studySessionId: pendingSession.id,
@@ -1579,6 +1616,146 @@ async function main() {
     assert.equal(gapProbe.item?.selectionReason, "due-review");
     assert.notEqual(gapFirst.item?.streamItemId, gapSecond.item?.streamItemId);
     assert.notEqual(scheduleGapSession.id, gapFirst.session.id);
+
+    // An evidence obligation without a Review must get the same safe spacing
+    // fallback as a due Review. The gap-filler card is deliberately separate
+    // from the obligation so self-rating cannot mark the objective target
+    // ANSWERED before an Objective Probe is submitted.
+    const obligationGapUser = await prisma.user.create({
+      data: {
+        accountName: `codex-obligation-gap-${suffix}`,
+        passwordHash: "not-a-login-account",
+        mustChangePassword: false,
+        studentProfile: {
+          create: {
+            legalName: "補驗間隔測試學生",
+            nickname: "補驗間隔測試生",
+            nicknameNormalized: "補驗間隔測試生",
+          },
+        },
+      },
+    });
+    obligationGapUserId = obligationGapUser.id;
+    await prisma.studentEnrollment.create({
+      data: {
+        studentId: obligationGapUser.id,
+        academicYearId: currentAcademicYear.id,
+        grade: "JUNIOR_1",
+        status: "ACTIVE",
+        isCurrent: true,
+        origin: "SEED",
+        startedAt: new Date(),
+      },
+    });
+    const obligationGapWords = await prisma.word.findMany({
+      where: withCurrentCatalogWord({ level: "A1", category: unitCategoryToStorage(testUnitCategory) }),
+      orderBy: [{ term: "asc" }, { id: "asc" }],
+      select: { id: true, senseId: true },
+    });
+    if (obligationGapWords.length < 4) throw new Error("unlocked A1 unit has fewer than four words for obligation-gap regression");
+    const obligationGapNow = new Date();
+    const obligationGapHistoryCredential = createStudyStreamCredential();
+    await prisma.studySession.create({
+      data: {
+        userId: obligationGapUser.id,
+        queueFingerprint: `obligation-gap-history-${suffix}`,
+        expiresAt: new Date(obligationGapNow.getTime() - 60_000),
+        retiredAt: new Date(obligationGapNow.getTime() - 60_000),
+        flowVersion: "v2",
+        learningPolicyVersion: "retrieval-v1",
+        mode: "unit",
+        scopeLevel: "A1",
+        scopeCategory: unitCategoryToStorage(testUnitCategory),
+        revision: 0,
+        streamItems: {
+          create: {
+            streamItemKey: `obligation-gap-history-${suffix}`,
+            wordId: obligationGapWords[0].id,
+            itemKind: "OBJECTIVE_PROBE",
+            selectionReason: "obligation-gap-history",
+            policyVersion: "retrieval-v1",
+            status: "ACKNOWLEDGED",
+            leaseExpiresAt: new Date(obligationGapNow.getTime() - 30_000),
+            credentialDigest: digestStudyStreamCredential(obligationGapHistoryCredential),
+            credentialExpiresAt: new Date(obligationGapNow.getTime() - 30_000),
+            usedAt: new Date(obligationGapNow.getTime() - 45_000),
+            feedbackAcknowledgedAt: new Date(obligationGapNow.getTime() - 30_000),
+            clientRevision: 0,
+          },
+        },
+      },
+    });
+    const obligationGapWork = await prisma.evidenceObligation.createMany({
+      data: obligationGapWords.slice(1, 4).map((word) => ({
+        userId: obligationGapUser.id,
+        wordId: word.id,
+        senseId: word.senseId,
+        kind: "EVIDENCE_OBLIGATION",
+        status: "PENDING",
+        selectionReason: "obligation-gap-regression",
+        policyVersion: "retrieval-v1",
+        eligibleAt: new Date(obligationGapNow.getTime() - 1_000),
+        expiresAt: new Date(obligationGapNow.getTime() + 24 * 60 * 60_000),
+        activeKey: `${obligationGapUser.id}:EVIDENCE_OBLIGATION:${word.id}`,
+      })),
+    });
+    assert.equal(obligationGapWork.count, 3);
+    const obligationGapOptions = {
+      mode: "unit" as const,
+      level: "A1" as const,
+      category: testUnitCategory,
+    };
+    const completeObligationGapCard = async (
+      stream: Awaited<ReturnType<typeof getOrCreateStudyStream>>,
+      label: string,
+    ) => {
+      assert.equal(stream.item?.kind, "LEARNING_CARD");
+      assert.equal(stream.item?.selectionReason, "evidence-obligation-gap-filler");
+      assert.ok(stream.item);
+      const row = await prisma.studyStreamItem.findUniqueOrThrow({
+        where: { id: stream.item.streamItemId },
+        select: { workObligationId: true },
+      });
+      assert.equal(row.workObligationId, null);
+      await applyStudyStreamAction(obligationGapUser.id, {
+        flowVersion: "v2",
+        studySessionId: stream.session.id,
+        streamItemId: stream.item.streamItemId,
+        operationId: `obligation-gap-${label}-reveal-${suffix}`,
+        itemCredential: stream.item.itemCredential,
+        actionKind: "REVEAL",
+        clientKnownRevision: stream.item.clientRevision,
+        payload: {},
+      });
+      await applyStudyStreamAction(obligationGapUser.id, {
+        flowVersion: "v2",
+        studySessionId: stream.session.id,
+        streamItemId: stream.item.streamItemId,
+        operationId: `obligation-gap-${label}-rating-${suffix}`,
+        itemCredential: stream.item.itemCredential,
+        actionKind: "SELF_RATING",
+        clientKnownRevision: stream.item.clientRevision,
+        payload: { selfRating: "selfRecalled" },
+      });
+    };
+    const obligationGapFirst = await getOrCreateStudyStream(obligationGapUser.id, obligationGapOptions);
+    await completeObligationGapCard(obligationGapFirst, "first");
+    const obligationGapSecond = await getOrCreateStudyStream(obligationGapUser.id, obligationGapOptions);
+    await completeObligationGapCard(obligationGapSecond, "second");
+    const obligationGapProbe = await getOrCreateStudyStream(obligationGapUser.id, obligationGapOptions);
+    assert.equal(obligationGapProbe.item?.kind, "OBJECTIVE_PROBE");
+    assert.equal(obligationGapProbe.item?.selectionReason, "evidence-obligation");
+    const obligationGapProbeRow = await prisma.studyStreamItem.findUniqueOrThrow({
+      where: { id: obligationGapProbe.item?.streamItemId ?? "" },
+      select: { workObligationId: true },
+    });
+    assert.ok(obligationGapProbeRow.workObligationId);
+    const obligationGapStatuses = await prisma.evidenceObligation.findMany({
+      where: { userId: obligationGapUser.id },
+      select: { status: true },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.deepEqual(obligationGapStatuses.map((row) => row.status), ["LEASED", "PENDING", "PENDING"]);
 
     // A long-running learner can have more encounters than the bounded
     // contact-time history window. The contacted/untouched partition must
@@ -2457,7 +2634,7 @@ async function main() {
     // stream items and review events (all are SetNull on delete). Collect and
     // remove every snapshot owned by this disposable learner before deleting
     // the user, otherwise each integration run would leave orphan snapshots.
-    const snapshotOwnerIds = [userId, studyDayOnlyUserId, scheduleGapUserId, longHistoryUserId].filter(
+    const snapshotOwnerIds = [userId, studyDayOnlyUserId, scheduleGapUserId, obligationGapUserId, longHistoryUserId].filter(
       (id): id is string => id !== null,
     );
     if (snapshotOwnerIds.length > 0) {
@@ -2481,6 +2658,7 @@ async function main() {
     if (userId) await prisma.user.delete({ where: { id: userId } });
     if (studyDayOnlyUserId) await prisma.user.delete({ where: { id: studyDayOnlyUserId } });
     if (scheduleGapUserId) await prisma.user.delete({ where: { id: scheduleGapUserId } });
+    if (obligationGapUserId) await prisma.user.delete({ where: { id: obligationGapUserId } });
     if (longHistoryUserId) await prisma.user.delete({ where: { id: longHistoryUserId } });
     const disposableWordIds = [...cleanupWordIds, ...catalogFixtureWordIds];
     if (disposableWordIds.length > 0) {

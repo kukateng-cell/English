@@ -488,6 +488,139 @@ test("an evicted-device recovery proof finishes the original action without curr
   await expect(page.getByRole("alert").filter({ hasText: "學習項目憑證" })).toHaveCount(0);
 });
 
+test("a pre-proof legacy outbox row is upgraded without changing its operation identity", async ({ page }) => {
+  const sessionId = "legacy-upgrade-session";
+  const streamItemId = "legacy-upgrade-item";
+  const operationId = "legacy-upgrade-operation";
+  const itemCredential = "legacy-upgrade-credential-012345678901234567890123456789";
+  const recoveryCredential = "legacy-upgrade-recovery-012345678901234567890123456789";
+  let streamCalls = 0;
+  let preparationCalls = 0;
+  let normalActionCalls = 0;
+  let recoveryCalls = 0;
+  const preparationBodies: Array<Record<string, unknown>> = [];
+  const normalBodies: Array<Record<string, unknown>> = [];
+  const recoveryBodies: Array<Record<string, unknown>> = [];
+
+  const authSession = await page.request.get("/api/auth/session");
+  const authPayload = await authSession.json() as { user?: { id?: string } };
+  const userId = authPayload.user?.id;
+  if (!userId) throw new Error("missing authenticated user id");
+  const outboxKey = `english:study-stream-v2:outbox:${userId}`;
+  const pendingAction: StudyStreamActionInput = {
+    flowVersion: "v2",
+    studySessionId: sessionId,
+    streamItemId,
+    operationId,
+    itemCredential,
+    actionKind: "REVEAL",
+    clientKnownRevision: 0,
+    payload: {},
+  };
+  await page.addInitScript(({ key, action }) => {
+    // Deliberately omit recoveryCredential: this is the pre-proof row format
+    // that must be upgraded in place rather than replaced with a new action.
+    window.localStorage.setItem(key, JSON.stringify([{
+      action,
+      status: "pending",
+      attempts: 0,
+      lastError: null,
+      updatedAt: Date.now(),
+    }]));
+  }, { key: outboxKey, action: pendingAction });
+
+  await page.route("**/api/auth/csrf", async (route) => {
+    await route.fulfill({ json: { csrfToken: "legacy-upgrade-csrf-token" } });
+  });
+  await page.route("**/api/study/stream**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("assignmentOnly")) return route.continue();
+    streamCalls += 1;
+    await route.fulfill({
+      json: {
+        ok: true,
+        assigned: true,
+        resumedFeedback: false,
+        session: {
+          id: "current-session",
+          mode: "global",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          revision: 0,
+          expiresAt: new Date(Date.now() + 1_800_000).toISOString(),
+        },
+        item: {
+          streamItemId: "current-item",
+          kind: "LEARNING_CARD",
+          flowVersion: "v2",
+          policyVersion: "retrieval-v1",
+          qualityPolicyVersion: "retrieval-v1-quality-v1",
+          itemConstructionVersion: "retrieval-v1-mcq-curated-v2",
+          selectionReason: "legacy-upgrade-test",
+          itemCredential: "current-item-credential-012345678901234567890123456789",
+          recoveryCredential: "current-item-recovery-012345678901234567890123456789",
+          credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+          clientRevision: 0,
+          prompt: "legacy-upgrade-card",
+        },
+      } satisfies PublicStreamResponse,
+    });
+  });
+  await page.route("**/api/study/actions**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (pathname === "/api/study/actions/recover/prepare") {
+      preparationCalls += 1;
+      preparationBodies.push(body);
+      await route.fulfill({ json: { ok: true, terminal: false, recoveryCredential } });
+      return;
+    }
+    if (pathname === "/api/study/actions/recover") {
+      recoveryCalls += 1;
+      recoveryBodies.push(body);
+      await route.fulfill({
+        json: {
+          ok: true,
+          operationId: body.operationId,
+          actionKind: body.actionKind,
+          duplicate: false,
+          itemStatus: "REVEALED",
+          clientRevision: 1,
+          requiresFeedbackAck: false,
+          nextItem: null,
+        },
+      });
+      return;
+    }
+    if (pathname !== "/api/study/actions") return route.continue();
+    normalActionCalls += 1;
+    normalBodies.push(body);
+    await route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "學習項目憑證無效或已過期", code: "ITEM_CREDENTIAL_INVALID" }),
+    });
+  });
+
+  await page.goto("/study");
+  await expect(page.getByText("legacy-upgrade-card", { exact: true })).toBeVisible();
+  await expect.poll(() => preparationCalls).toBe(1);
+  await expect.poll(() => normalActionCalls).toBe(1);
+  await expect.poll(() => recoveryCalls).toBe(1);
+  await expect.poll(async () => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "[]"), outboxKey)).toEqual([]);
+  expect(streamCalls).toBeGreaterThanOrEqual(2);
+  expect(preparationBodies[0]).toMatchObject({
+    operationId,
+    studySessionId: sessionId,
+    streamItemId,
+    itemCredential,
+  });
+  expect(preparationBodies[0]?.recoveryCredential).toBeUndefined();
+  expect(normalBodies[0]?.operationId).toBe(operationId);
+  expect(normalBodies[0]?.recoveryCredential).toBeUndefined();
+  expect(recoveryBodies[0]).toMatchObject({ operationId, recoveryCredential });
+});
+
 for (const timeoutPhase of ["csrf", "action"] as const) {
   test(`a ${timeoutPhase} timeout keeps the direct operation and sibling pending`, async ({ page }) => {
     test.setTimeout(60_000);
@@ -2006,6 +2139,7 @@ test("expired V2 item credential retry uses one bounded recovery request and cle
           itemConstructionVersion: "retrieval-v1-item",
           selectionReason: "recovery-test",
           itemCredential,
+          recoveryCredential: "recovery-proof-012345678901234567890123456789",
           credentialExpiresAt: new Date(Date.now() + 900_000).toISOString(),
           clientRevision: 0,
           prompt: "resilience",

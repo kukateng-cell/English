@@ -76,6 +76,46 @@ test("due review cards can fill a closed probe gap before another probe", () => 
   assert.equal(decision.candidate?.kind, "LEARNING_CARD");
 });
 
+test("evidence obligations use an independent non-scoring gap filler", () => {
+  const shape = recentStreamShape([acknowledgedCard, acknowledgedProbe]);
+  const decision = selectNextItem({
+    mode: "unit",
+    now: Date.now(),
+    consecutiveProbes: shape.consecutiveProbes,
+    acknowledgedItemsSinceProbe: shape.acknowledgedItemsSinceProbe,
+    hasPreviousProbe: shape.hasPreviousProbe,
+    activeWork: [{
+      id: "obligation-1",
+      learnerId: "learner-1",
+      wordId: "evidence-word",
+      kind: "EVIDENCE_OBLIGATION",
+      status: "PENDING",
+      admittedAt: Date.now() - 1_000,
+      eligibleAt: Date.now() - 1_000,
+      expiresAt: Date.now() + 60_000,
+    }],
+    candidates: [
+      {
+        id: "work:obligation-1",
+        wordId: "evidence-word",
+        kind: "OBJECTIVE_PROBE",
+        purpose: "EVIDENCE_OBLIGATION",
+        workId: "obligation-1",
+        selectionReason: "evidence-obligation",
+      },
+      {
+        id: "work-card:obligation-1",
+        wordId: "evidence-word",
+        kind: "LEARNING_CARD",
+        selectionReason: "evidence-obligation-gap-filler",
+      },
+    ],
+  });
+  assert.equal(decision.candidate?.id, "work-card:obligation-1");
+  assert.equal(decision.candidate?.workId, undefined);
+  assert.equal(decision.candidate?.selectionReason, "evidence-obligation-gap-filler");
+});
+
 test("contacted words stay out of the new-word partition beyond the history window", () => {
   const contactedWordIds = new Set(
     Array.from({ length: 641 }, (_, index) => `contacted-${index}`),

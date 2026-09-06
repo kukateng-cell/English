@@ -2,6 +2,7 @@ export type StudyStreamMetricRoute =
   | "bootstrap"
   | "action"
   | "action-recovery"
+  | "action-recovery-preparation"
   | "action-reconciliation"
   | "credential-renewal";
 

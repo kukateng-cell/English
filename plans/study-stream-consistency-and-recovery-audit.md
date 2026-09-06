@@ -1,6 +1,6 @@
 # V2 學習一致性、排程及恢復審核修正
 
-狀態：已完成（staging 組合情境修正；本地驗證及雙 reviewer PASS，push 後 hosted CI／production gate 按發佈流程確認）
+狀態：已完成（a304944 覆核收尾；本地驗證及雙 reviewer PASS；push 後 hosted CI／production gate 待確認）
 
 ## 背景及目標
 
@@ -75,6 +75,13 @@
 - [x] UI-01：首次 GET 失敗後，手動重試成功會重新讀取並受控排送 pending outbox；刷新失敗、blocked 及生命週期重播仍保留原有安全狀態。
 - [x] 補上真正 PostgreSQL／React／Playwright 組合回歸，涵蓋 due-only unit、K1 被淘汰且 session／scope 失配，以及 initial retry drain；兩位 reviewer 明確 PASS。
 
+### H：a304944 覆核收尾（SCH-01／SYN-01 legacy queue）
+
+- [x] SCH-01：補驗任務（`EVIDENCE_OBLIGATION`）在 Probe gap 關閉時有獨立、不計分及不消耗 obligation 的 Learning Card gap filler；到期 Review、補驗、混合及候選不足均有明確續行／安全降級。
+- [x] SYN-01：為升級前缺少 `recoveryCredential` 的 outbox row 提供版本化、受身份／原 session／item／撤銷狀態及操作結果核對保護的升級／恢復途徑；不可驗證的未完成操作 fail closed 並保留可見狀態。
+- [x] 保留已通過的新版 item-bound recovery proof、immutable operation fingerprint、UI-01 retry drain 及既有 terminal reconciliation，不以放寬未知 credential、清空 outbox 或新 `operationId` 取代修正。
+- [x] 以真正 PostgreSQL／React／Playwright 驗收補驗 gap，並覆蓋舊 row、K1 淘汰、session／scope 失配、terminal／revoked／unknown credential 及其他 row 保留；兩位 reviewer 明確 PASS。
+
 ## 風險及緩解
 
 - 歷史查詢可能增加 scheduler 成本：以 learner-scoped bounded window／索引查詢，並以長序列效能測試確認不退化。
@@ -91,16 +98,18 @@
 
 ## 實際驗證及限制
 
-本輪完成並由兩位獨立 reviewer 明確 PASS：
+前一輪（G）及 H 段均由兩位獨立 reviewer 明確 PASS；本輪已完成以下驗證：
 
-- `npm test`：399 tests passed。
+- `npm test`：400 tests passed。
 - `npx tsc --noEmit`、`npm run lint`、`git diff --check`：通過。
 - `npm run build`：Next.js production build 通過。
-- `npm run test:e2e:study-stream-v2 -- --reporter=line`：24/24 Chromium tests passed，包含 initial retry drain、跨範圍舊操作 recovery、GET／CSRF／action timeout、refresh／storage、生命週期 generation、terminal reconciliation 及獨立 browser contexts。
-- `npm run test:db:stream-v2`：真正 PostgreSQL integration checks passed，包含 due-only gap filler、scheduler 長序列、cross-session history、超過 640 encounters 的 contacted／untouched candidate partition、7→8 credential boundary、expired K1 terminal reconciliation、pending K1 rebind 及 provenance／metrics checks。
+- `npm run test:e2e:study-stream-v2 -- --reporter=line`：25/25 Chromium tests passed，包含 initial retry drain、跨範圍舊操作 recovery、pre-proof legacy outbox upgrade（保留 operation identity）、GET／CSRF／action timeout、refresh／storage、生命週期 generation、terminal reconciliation 及獨立 browser contexts。
+- `npm run test:db:stream-v2`：真正 PostgreSQL integration checks passed，包含 due-only／evidence-obligation gap filler（兩張獨立 Learning Card 後派發第三個 Objective Probe）、scheduler 長序列、cross-session history、超過 640 encounters 的 contacted／untouched candidate partition、7→8 credential boundary、expired K1 terminal reconciliation、pending K1 legacy preparation／rebind、unknown credential fail-closed 及 provenance／metrics checks。
 - `npm run test:migration-checksums`：通過；`npm run test:migrations`：67 migrations fresh replay 及 interrupted replay 通過。
 
 已知未執行或不在本次授權範圍：此次 push 後 GitHub hosted CI 尚待重新跑；production deploy／config gate、contract migration、完整原生 mobile／VoiceOver／TalkBack matrix、長時間容量／壓力測試及正式資料清理均未執行。新增欄位只使用正常 expand migration，沒有執行 contract migration。
+
+已知相容性限制：升級前 row 只有在原 item 仍保留可核對的 credential／parent lineage，或已達權威 terminal 狀態時，才會由升級 endpoint 安全處理；無法驗證的未完成 row 會保持 blocked 並顯示原因，不會被自動清空或改成新 operation。這是刻意的 fail-closed 後續支援流程，不能替代人工處理已遺失原始憑證的資料。
 
 ## 決策紀錄
 
@@ -116,3 +125,5 @@
 | SCA-008 | due review 可作不計分的 Learning Card gap filler；Objective Probe 仍只由合法 first response 評分 | 已採用 |
 | SCA-009 | credential recovery token／proof 只作傳輸授權，綁定原 stream item；不進 operation fingerprint | 已採用 |
 | SCA-010 | 首次載入手動重試由上層串接 reload → reread outbox → bounded flush，避免 reload／flush 循環 | 已採用 |
+| SCA-011 | 補驗 obligation 的 gap filler 必須是不計分、無 `workObligationId` 的獨立 Learning Card，不得把自評當成客觀驗證完成 | 已採用 |
+| SCA-012 | 舊 outbox row 先走版本化安全升級；無法驗證原操作身份時保留並 fail closed，不能清空、放行未知 credential 或換 operationId | 已採用 |

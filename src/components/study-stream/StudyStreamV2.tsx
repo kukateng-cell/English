@@ -79,6 +79,14 @@ interface StudyStreamRequestError extends Error {
   code?: string;
 }
 
+interface StudyStreamRecoveryPreparation {
+  ok: true;
+  terminal: boolean;
+  recoveryCredential?: string;
+  code?: string;
+  message?: string;
+}
+
 type FlushOneResult = "empty" | "processed" | "terminal" | "blocked" | "stopped";
 
 function isRecoverableStudyStreamError(
@@ -291,6 +299,39 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return data as StudyStreamActionReconciliation;
   }, []);
 
+  const prepareLegacyRecovery = useCallback(async (
+    action: StudyStreamActionInput,
+  ): Promise<StudyStreamRecoveryPreparation> => {
+    const response = await rosterFetch("/api/study/actions/recover/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(action),
+    }, { timeoutMs: STUDY_REQUEST_TIMEOUT_MS });
+    const data = await readResponse(response);
+    if (
+      typeof data !== "object" || data === null ||
+      (data as Record<string, unknown>).ok !== true ||
+      typeof (data as Record<string, unknown>).terminal !== "boolean"
+    ) {
+      throw new Error("學習操作升級回執無效");
+    }
+    const candidate = data as Record<string, unknown>;
+    const terminal = candidate.terminal === true;
+    if (!terminal && typeof candidate.recoveryCredential !== "string") {
+      throw new Error("學習操作升級回執缺少恢復憑證");
+    }
+    return {
+      ok: true,
+      terminal,
+      ...(typeof candidate.recoveryCredential === "string"
+        ? { recoveryCredential: candidate.recoveryCredential }
+        : {}),
+      ...(typeof candidate.code === "string" ? { code: candidate.code } : {}),
+      ...(typeof candidate.message === "string" ? { message: candidate.message } : {}),
+    };
+  }, []);
+
   const postActionWithRecovery = useCallback(async (
     action: StudyStreamActionInput,
     recoveryCredential?: string,
@@ -414,7 +455,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setSyncError(errorText(error));
       return "blocked";
     }
-    const row = availableRows[0];
+    let row = availableRows[0];
     if (!row) {
       refreshOutbox();
       return "empty";
@@ -424,7 +465,54 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       return "blocked";
     }
     try {
-      const response = await postActionWithRecovery(row.action, row.recoveryCredential);
+      let recoveryCredential = row.recoveryCredential;
+      let response: PublicStreamActionResponse;
+      if (recoveryCredential) {
+        response = await postActionWithRecovery(row.action, recoveryCredential);
+      } else {
+        // Preserve the pre-proof row's original fast path while its credential
+        // is still accepted. Only an explicit, allowlisted expiry/credential
+        // failure enters the compatibility upgrade; transient failures and
+        // terminal conflicts continue through the normal handling below.
+        try {
+          response = await postAction(row.action);
+        } catch (initialError) {
+          const initialStatus = initialError instanceof Error && "status" in initialError && typeof initialError.status === "number"
+            ? initialError.status
+            : null;
+          const initialCode = initialError instanceof Error && "code" in initialError && typeof initialError.code === "string"
+            ? initialError.code
+            : null;
+          const needsLegacyUpgrade = isRecoverableStudyStreamError(initialError) ||
+            (initialStatus === 403 && initialCode === "ITEM_CREDENTIAL_INVALID");
+          if (!needsLegacyUpgrade) throw initialError;
+
+          // Rows written before item-bound recovery proofs were introduced have
+          // no safe way to use the new recovery endpoint directly. Upgrade one
+          // row at a time, preserving its immutable action and credential; the
+          // server either returns a proof, confirms a terminal outcome, or
+          // rejects the row fail-closed.
+          const preparation = await prepareLegacyRecovery(row.action);
+          if (preparation.terminal) {
+            const discarded = await discardTerminalAction(row.action);
+            if (discarded.removed) {
+              timeoutNoticeRef.current = false;
+              return discarded.refreshed ? "terminal" : "stopped";
+            }
+            throw new Error(preparation.message ?? "舊版學習操作已完成，但本機佇列未能更新");
+          }
+          recoveryCredential = preparation.recoveryCredential;
+          await updateStudyStreamAction(userId, row.action.operationId, {
+            itemCredential: row.action.itemCredential,
+            recoveryCredential,
+          });
+          row = { ...row, recoveryCredential };
+          // The original request already proved that the old bearer credential
+          // is unusable. Send the unchanged action directly through the
+          // explicit proof route instead of issuing a second doomed POST.
+          response = await recoverAction(row.action, recoveryCredential);
+        }
+      }
       await removeStudyStreamAction(userId, row.action.operationId);
       timeoutNoticeRef.current = false;
       const refreshed = await applyActionResponse(row.action, response);
@@ -483,44 +571,46 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
             return "blocked";
           }
         }
-        try {
-          const reboundState = await fetchStream(row.action.itemCredential);
-          if (
-            reboundState.item &&
-            reboundState.item.streamItemId === row.action.streamItemId &&
-            reboundState.session.id === row.action.studySessionId
-          ) {
-            const rebound = {
-              ...row.action,
-              itemCredential: reboundState.item.itemCredential,
-            };
-            await updateStudyStreamAction(userId, row.action.operationId, {
-              itemCredential: rebound.itemCredential,
-              ...(reboundState.item.recoveryCredential
-                ? { recoveryCredential: reboundState.item.recoveryCredential }
-                : {}),
-            });
-            const response = await postAction(rebound);
-            await removeStudyStreamAction(userId, rebound.operationId);
-            timeoutNoticeRef.current = false;
-            const refreshed = await applyActionResponse(rebound, response);
-            if (refreshed) setSyncError(null);
-            refreshOutbox();
-            return refreshed ? "processed" : "stopped";
-          }
-        } catch (reboundError) {
-          if (isRequestTimeout(reboundError)) {
-            showRequestTimeout(reboundError);
-            return "stopped";
-          }
-          if (isTerminalStudyStreamConflict(reboundError, row.action)) {
-            const discarded = await discardTerminalAction(row.action);
-            if (discarded.removed) {
+        if (code !== "LEGACY_ACTION_CREDENTIAL_UNVERIFIABLE") {
+          try {
+            const reboundState = await fetchStream(row.action.itemCredential);
+            if (
+              reboundState.item &&
+              reboundState.item.streamItemId === row.action.streamItemId &&
+              reboundState.session.id === row.action.studySessionId
+            ) {
+              const rebound = {
+                ...row.action,
+                itemCredential: reboundState.item.itemCredential,
+              };
+              await updateStudyStreamAction(userId, row.action.operationId, {
+                itemCredential: rebound.itemCredential,
+                ...(reboundState.item.recoveryCredential
+                  ? { recoveryCredential: reboundState.item.recoveryCredential }
+                  : {}),
+              });
+              const response = await postAction(rebound);
+              await removeStudyStreamAction(userId, rebound.operationId);
               timeoutNoticeRef.current = false;
-              return discarded.refreshed ? "terminal" : "stopped";
+              const refreshed = await applyActionResponse(rebound, response);
+              if (refreshed) setSyncError(null);
+              refreshOutbox();
+              return refreshed ? "processed" : "stopped";
             }
+          } catch (reboundError) {
+            if (isRequestTimeout(reboundError)) {
+              showRequestTimeout(reboundError);
+              return "stopped";
+            }
+            if (isTerminalStudyStreamConflict(reboundError, row.action)) {
+              const discarded = await discardTerminalAction(row.action);
+              if (discarded.removed) {
+                timeoutNoticeRef.current = false;
+                return discarded.refreshed ? "terminal" : "stopped";
+              }
+            }
+            // The original authorization/expiry error remains the actionable state.
           }
-          // The original authorization/expiry error remains the actionable state.
         }
       }
       try {
@@ -533,7 +623,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       refreshOutbox();
       return "blocked";
     }
-  }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, reconcileAction, refreshOutbox, showRequestTimeout, userId]);
+  }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, prepareLegacyRecovery, recoverAction, reconcileAction, refreshOutbox, showRequestTimeout, userId]);
 
   const flushRunningRef = useRef(false);
   const flushPending = useCallback(async (): Promise<void> => {
