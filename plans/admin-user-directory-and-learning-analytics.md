@@ -251,6 +251,21 @@ Current stock只保證同一HTTP response內、同一DB snapshot一致。跨rout
 
 Self-rating、reveal、lease、research-only、unapproved diagnostic、non-winning、缺 provenance 及 historical bridge 不計 objective attempt／correctness。
 
+### 5.3A 教師學習累積分 projection（獨立於 canonical analytics）
+
+`reward-v1` 係教師／管理員專用 read-only projection，唔改寫或重用 current mastery、SM-2、unit unlock、
+leaderboard 或既有 analytics 的指標口徑。它按 `Asia/Shanghai` 本地日，從 broad historical read 之後以
+固定 version bundle (`v2`／`retrieval-v1`／`retrieval-v1-quality-v1`／`retrieval-v1-mcq-curated-v2`)
+分類可核對來源；唔以目前 active catalog 反推舊事件，缺 identity／provenance、unsupported version、
+non-winning／invalid outcome 會留在 mutually-exclusive coverage bucket，唔靜默當作零。
+
+- `Ud = qualifying acknowledged Learning Card + qualifying first objective response`；每個 encounter／winning target只計一次；self-rating、reveal及research／diagnostic唔計投入。
+- `Cd = 每日每個 sense 的第一個合資格 objective result 若為正確`；同一 successful probe 可同時計入投入及成效。
+- `Ed = 10 × min(Ud, 20) / 20`、`Od = 10 × min(Cd, 5) / 5`、`Td = Ed × effortWeight / 100 + Od × outcomeWeight / 100`；raw／credited count 同時輸出，milli-points轉三位小數顯示。
+- 首版只讀 CURRENT academic year、CURRENT membership cohort，日期最多366日；不支持重新查詢歷史學年，亦不把轉班前活動宣稱為當時班級表現。新增 historical-year support 要另建 year-aware membership／scope contract。
+- `POST /api/learning-analytics/rewards/query`、學生 timeline 及 export 使用 signed scope token、`asOf`、actor／credential／access／roster／year revision recheck；scope最多200班／500學生，活動最多200,000 rows，query body最多128 KiB，匯出最多32 MiB。
+- reward projection 不新增 materialized table；每次 request 由同一 repeatable-read snapshot 重算。coverage 會明確標示 `NOT_GUARANTEED`／`KNOWN_GAP`，`StudyDay` mismatch、policy exclusion及validation gap不可當作無活動。
+
 Accuracy response固定同時回`correctCount`、`eligibleAttemptCount`、`accuracyPercent`及`accuracyDisplayStatus`：
 
 - 0 attempt：`NO_DATA`，百分比null；
@@ -330,6 +345,9 @@ POST /api/admin/users/[id]/password-reset
 POST /api/learning-analytics/classes/query
 POST /api/learning-analytics/students/query
 POST /api/learning-analytics/students/[id]/timeline/query
+POST /api/learning-analytics/rewards/query
+POST /api/learning-analytics/rewards/students/[id]/timeline/query
+POST /api/learning-analytics/rewards/export
 ```
 
 `/api/learning-analytics/*` 只接受 `TEACHER | ADMIN`，server 按 session role 建立視角；成功 response 帶 `viewMode: TEACHER | ADMIN`。`/teacher/analytics`、學生名冊／進度及學生詳情一律使用以下 canonical analytics／workspace routes。`/api/teacher/class-summary/query` 是概覽頁專用的 bounded quick-KPI adapter：它保留「今日／近7日」及快速跟進欄位（呢啲欄位不在班級比較 DTO），沿用同一個 actor／access／roster／學年結果重驗，不作詳細分析或匯出來源；因此本輪刻意不把它硬套成另一種粒度的 comparison response。其餘舊 progress／detail aggregate caller 必須完成 thin adapter／轉移及 route inventory 後才移除重複 handler。

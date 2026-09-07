@@ -1,9 +1,9 @@
 # 教師自訂權重學習累積分與期間匯出
 
-> 狀態：待審批（計劃撰寫完成；兩位獨立 reviewer 複核 PASS；尚未實作）
+> 狀態：進行中（使用者已批准實作；兩位獨立 reviewer 複核計劃 PASS；production deploy／destructive migration 仍需獨立授權）
 > 建立：2026-09-07；版本：Revision 2（已整合兩路審查）
 > 功能分支：`codex/teacher-learning-reward-index`，由本機 `staging` 的 `dc69d42a646085a9fc624f454851e1323e7e9de0` 建立；未fetch／改動遠端分支。
-> 授權範圍：撰寫及審查計劃；本文件不是開始編碼或部署的授權。
+> 授權範圍：使用者已批准按本計劃實作；不包含 production deploy、真實學生 pilot 或 destructive migration。
 > 相關文件：[分析與匯出](./admin-user-directory-and-learning-analytics.md)、[教師工作區](./teacher-workspace-roster-progress-redesign.md)、[學習規範](./retrieval-first-learning-contract.md)、[現況基線](./artifacts/retrieval-first-v2-current-product-baseline.md)。
 
 ## 1. 背景、需求及成功準則
@@ -287,8 +287,8 @@ Prisma單transaction順序讀取，避免單connection並行query。先核對索
 - [x] 整理使用者需求及取消已派分／已匯出排除機制。
 - [x] 核對現有analytics、schema、objective validator及匯出安全流程。
 - [x] 兩路獨立審查，修訂並記錄處置（兩位Revision 2複核均PASS）。
-- [ ] 實作開始時更新本計劃為進行中，固定reward-v1參數及驗收算例。
-- [ ] 在retrieval contract第七節追加教師reward獨立projection說明（投入不影響mastery／學生排行榜），在analytics plan追加新報告歷史事件口徑及獨立上限連結。
+- [x] 實作開始時更新本計劃為進行中，固定reward-v1參數及驗收算例。
+- [x] 在retrieval contract第七節追加教師reward獨立projection說明（投入不影響mastery／學生排行榜），在analytics plan追加新報告歷史事件口徑及獨立上限連結。
 
 ### B：純計分與fixtures
 
@@ -408,12 +408,21 @@ Prisma單transaction順序讀取，避免單connection並行query。先核對索
 
 ## 15. 本次實際驗證
 
-本次僅撰寫計劃，未編寫產品程式、執行DB寫入／migration或部署。
+本次已按使用者批准方案完成本地 implementation；沒有執行DB寫入、migration、production deploy或真實學生pilot。
 
-- 核對本機staging基點及專用分支；兩者起點相同dc69d42，沒有切換到其他產品baseline。
-- 靜態核對analytics／匯出、schema、最新objective validator、writer及V2 cleanup保留規則。
-- 文件相對連結4個均存在；9/1–10/5 inclusive日數=35；範例總分=10.800。
-- 獨立算術檢查45,551組每日Ud/Cd/整數權重，結果均為精確整數milli-points且每日0–10；101組權重×366日累積可加性核對相等。
-- 700個128-byte IDs及兩個4,096-byte tokens的JSON算例100,116 bytes，小於128KiB；這是計劃payload預算核對，不是API端到端測試。
-- `git diff --check`通過；兩路首審、修訂及兩路PASS如§14.1。
-- 未執行產品unit、lint、build、DB、browser、migration／性能測試，因本次只有文件改動；上述算術核對不當成未實作功能已通過測試。
+- 新增 `learning-reward-policy` integer milli-point reducer、歷史 broad reader／coverage、signed scope/cursor、三個 reward routes、共用教師／管理員 panel、CSV／XLSX serializer及相關 request／export tests；既有 current analytics reader保持不改口徑。
+- `node --import tsx --test src/lib/learning-reward-policy.test.ts src/lib/learning-reward-request.test.ts src/lib/learning-reward-export.test.ts src/lib/learning-reward-analytics.test.ts`：13 tests通過（含10.8算例、每日封頂、重疊雙軸、權重、null／zero、legacy candidate guard、request context、CSV三位小數、XLSX三工作表及milli-point可加性）。
+- `npm run lint`：通過，無 warning。
+- `npm test`：412 tests中411通過；唯一失敗為既有 `src/lib/study-stream-outbox.test.ts` 缺少 `fake-indexeddb` module，與本功能無關；i18n source-copy regression通過。
+- `npx tsc --noEmit`及`npm run build`：新 reward檔案／route已編譯；整體仍被既有 `fake-indexeddb`及`src/lib/study-stream/server.ts`的`selectionOverrideReason`／generated schema mismatch阻擋，未因本功能新增錯誤。
+- `git diff --check`：通過。未執行DB fixture／relation cleanup／revocation race、已登入Playwright／native mobile-a11y、容量／性能及migration tests；這些仍是本計劃後續Gate，production／pilot保持deferred。
+- 兩個獨立、平行 read-only implementation reviewers已於本次實作後啟動；首輪發現的 legacy candidate、winner bucket、coverage 可解釋性、取消競態、程度／樣本／封頂資料及讀屏語義問題已修正；最終靜態複核結果見下。
+
+### 15.1 實作後兩路獨立複核
+
+| Reviewer | 最終靜態結果 | 未完成但不屬靜態 blocking defect 的 gate |
+|---|---|---|
+| Hume（01a07a0e-08b8-7541-a68d-d52e9caf1a00） | PASS；確認 candidate、Cd first-result、coverage、取消競態、三項 cumulative、`NOT_GUARANTEED` 及 table/a11y 結構修正 | DB candidate／first-result fixture、browser race、axe／screen-reader、性能、完整 export round-trip |
+| Locke（01a07a0e-0d0e-7a82-952d-63e5ded73649） | PASS；確認 fixed bundle、scope／revocation、cursor composite key、export level counts、錯誤映射及無 per-student event sort | DB EXPLAIN、p95／RSS、大資料量性能、DB-backed撤權／Cd fixture、API／browser／export round-trip |
+
+兩位 reviewer 均未改檔、未執行資料庫寫入或 migration。PASS 只代表目前工作樹的靜態 implementation review；不把未執行的DB、瀏覽器、容量／性能或production gate當成已通過。

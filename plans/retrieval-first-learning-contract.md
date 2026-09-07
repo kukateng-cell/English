@@ -258,6 +258,7 @@ mastery、remediation 或正常 scheduler state；feedback／retention 由 appro
 | probe completion／abandonment | issued、visible、answered、left／expired | 未顯示 item |
 | personal learning-day streak | 現行 `Asia/Shanghai` operational calendar rules | research upload 成功與否 |
 | leaderboard scored streak | 只使用合資格 objective ledger | 只有 Learning Encounter 嘅日子 |
+| 教師學習累積分 `reward-v1` | 獨立 projection：合資格 acknowledged Learning Card 加合資格 operational Objective Probe；每日按 `Ud`／`Cd` 及教師權重計分 | self-rating、reveal、research／diagnostic、legacy／缺 provenance、mastery／unit unlock／排行榜狀態 |
 
 Dashboard 文案要講清楚 denominator；例如只有兩題 probe 時，不用 100% 放大暗示長期掌握。
 現有來源不明嘅 `REVIEW` rows 保留 SM-2／歷史 continuity，但標為 `LEGACY_UNKNOWN`，唔進
@@ -265,6 +266,13 @@ V2 objective-recognition 分子／分母。每個 V2 scored row 至少保存 evi
 flow version、quality mapping version、item-construction version及 evidence target provenance。
 如 personal learning-day streak 納入 acknowledged Learning Encounter，必須同 leaderboard scored
 streak 分名、分欄、分 projection，避免右滑間接加排行榜。
+
+教師學習累積分係 read-only reward projection，唔係 mastery、SM-2、unit unlock、student leaderboard
+或學生能力判定。`reward-v1` 以 `Asia/Shanghai` 本地日計算：`Ud = Learning Card + first
+ objective response`，每日投入最多20次；`Cd`係該日每個詞義第一個合資格 objective result 若為正確，每日最多5個。
+同一個成功 probe 可以同時計入投入及成效兩條軸；raw count、credited count、coverage／validation
+status 必須分開保留。教師可自訂投入／成效權重，但不改動任何 learner state；首版只查目前學年及目前
+在籍 cohort，唔聲稱可還原歷史學年班籍。
 
 ## 八、中斷、續接及跨裝置
 
