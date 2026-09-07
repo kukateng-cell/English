@@ -10,6 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
+| [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) | 學生排行榜重設計計劃 | 待審批（Revision 2；純本地開發） | 本班每週學習分主榜、附近／完整排名、個人週目標；直接替換舊榜，已授權清空重建本地資料；含reward contract、API／snapshot及完整測試驗收，不含production工作 |
 | [teacher-reward-summary-usability.md](./teacher-reward-summary-usability.md) | 教師體驗修改計劃 | 已完成（本地驗收；native screen-reader matrix deferred；production／pilot deferred） | 首頁首屏匯出入口、獨立學生累積分頁、三個累積結果及簡潔 Excel／CSV；已核對客觀作答全零的舊 fixture 根因，保留 strict provenance 驗證 |
 | [teacher-learning-reward-index.md](./teacher-learning-reward-index.md) | 實施計劃 | 進行中（Revision 2；使用者已批准；兩位 reviewer PASS） | 教師自訂投入／成效權重、每日及期間累積分、完整明細匯出；不設派分或已匯出扣除機制；20/5量尺及目前學年範圍已按批准方案實作；四項分支審核修正及針對性回歸完成，整體環境驗證仍有既有阻礙；production／pilot／destructive migration 仍 deferred |
 | [study-stream-consistency-and-recovery-audit.md](./study-stream-consistency-and-recovery-audit.md) | V2 集中審核修正 | 已完成（本地驗證；雙 reviewer PASS；push 後 hosted CI／production gate 待確認） | SCH-01 排程及新版恢復流程維持已關閉；CI-01 obligation 狀態測試已改為按原始 ID／狀態驗證，舊待同步列在本次部署確認不存在，維持 fail-closed 相容性限制 |
