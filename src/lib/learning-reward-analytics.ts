@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { AcademicYearStatus, ClassCode, Level, Prisma as GeneratedPrisma, Role, StudentGrade } from "@/generated/prisma";
 import { Prisma, prisma } from "@/lib/prisma";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
-import { CLASS_LABELS, compareStudentNumberSortKey, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
+import { CLASS_LABELS, compareStudentNumberSortKey, parseStudentNumber, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
 import { offsetDay, todayKey } from "@/lib/streak";
 import { readLimitedBody } from "@/lib/request-body";
 import {
@@ -588,9 +588,10 @@ function enrollmentWhere(input: { userId: string; role: Role; yearId: string; gr
   return { academicYearId: input.yearId, status: "ACTIVE", ...(input.grade ? { grade: input.grade } : {}), ...membership };
 }
 
-async function readRewardMembers(db: Db, input: { userId: string; role: Role; yearId: string; grade?: StudentGrade; classIds?: string[]; studentIds?: string[]; search?: string }): Promise<RewardMember[]> {
+export async function readRewardMembers(db: Pick<Db, "user">, input: { userId: string; role: Role; yearId: string; grade?: StudentGrade; classIds?: string[]; studentIds?: string[]; search?: string }): Promise<RewardMember[]> {
   const enrollmentScope = enrollmentWhere(input);
   const search = input.search ? input.search.normalize("NFKC").trim() : undefined;
+  const studentNumber = parseStudentNumber(search);
   const accountSearch = search ? normalizeAccountName(search) : undefined;
   const legalSearch = search ? normalizeLegalName(search) : undefined;
   const rows = await db.user.findMany({
@@ -600,6 +601,7 @@ async function readRewardMembers(db: Db, input: { userId: string; role: Role; ye
       ...(input.studentIds ? { id: { in: input.studentIds } } : {}),
       ...(search ? {
         OR: [
+          ...(studentNumber === null ? [] : [{ studentProfile: { is: { enrollments: { some: { ...enrollmentScope, studentNumber } } } } }]),
           { accountName: { contains: accountSearch, mode: "insensitive" } },
           { accountNameCanonical: { contains: accountSearch, mode: "insensitive" } },
           { studentProfile: { is: { legalName: { contains: legalSearch, mode: "insensitive" } } } },

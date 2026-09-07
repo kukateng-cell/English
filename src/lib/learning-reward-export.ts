@@ -214,17 +214,14 @@ function dayRow(day: RewardDay, total: RewardStudentTotal) {
   };
 }
 
-function friendlyValue(value: unknown) {
-  if (value === "STUDENT_TOTAL") return "學生總表";
-  if (value === "STUDENT_DAY") return "每日明細";
-  if (value === "CHECKED") return "已核對";
-  if (value === "INCOMPLETE") return "資料不完整";
-  if (value === "NOT_GUARANTEED") return "未保證完整歷史";
-  if (value === "KNOWN_GAP") return "已知歷史缺口";
-  if (value === "NO_DATA") return "未有客觀作答";
-  if (value === "SMALL_SAMPLE") return "樣本較少";
-  if (value === "SUFFICIENT") return "已有作答資料";
-  return value;
+const VALUE_LABELS: Record<string, Record<string, string>> = {
+  rowType: { STUDENT_TOTAL: "學生總表", STUDENT_DAY: "每日明細" },
+  coverageValidationStatus: { CHECKED: "已核對", INCOMPLETE: "資料不完整" },
+  historyCoverage: { NOT_GUARANTEED: "未保證完整歷史", KNOWN_GAP: "已知歷史缺口" },
+  accuracyStatus: { NO_DATA: "未有客觀作答", SMALL_SAMPLE: "樣本較少", SUFFICIENT: "已有作答資料" },
+};
+function friendlyValue(column: string, value: unknown) {
+  return VALUE_LABELS[column]?.[String(value)] ?? value;
 }
 
 function metadataRows(result: RewardExportResult): Array<[string, string]> {
@@ -249,29 +246,29 @@ function metadataRows(result: RewardExportResult): Array<[string, string]> {
 }
 
 function rowValues(row: Record<string, unknown>, columns: readonly (readonly [string, string])[]) {
-  return columns.map(([key]) => friendlyValue(row[key]));
+  return columns.map(([key]) => friendlyValue(key, row[key]));
 }
 
-function assertExportSize(result: RewardExportResult, rows: Array<Record<string, unknown>>) {
-  // Include repeated CSV context, fixed headers, quoting, and XML/ZIP margin
-  // before building the final representation. The exact post-serialization
-  // check below remains authoritative.
-  const jsonBytes = Buffer.byteLength(JSON.stringify({ settings: result.settings, rows }), "utf8");
-  const repeatedContextBytes = (rows.length + result.settings.length + 1) * 1_024;
-  const estimate = jsonBytes * 3 + repeatedContextBytes;
-  if (estimate > MAX_REWARD_EXPORT_BYTES) throw new Error("EXPORT_TOO_LARGE");
+// Separate model allocation budget; this does not predict compressed file size or peak RSS.
+const MAX_XLSX_MODEL_BYTES = 256 * 1024 * 1024;
+function assertWorkbookSize(result: RewardExportResult, totals: Record<string, unknown>[], days: Record<string, unknown>[]) {
+  let modelBytes = 0;
+  const countRow = (values: unknown[]) => {
+    for (const value of values) {
+      modelBytes += 256 + (typeof value === "string" ? value.length * 2 : 0);
+      if (modelBytes > MAX_XLSX_MODEL_BYTES) throw new Error("EXPORT_TOO_LARGE");
+    }
+  };
+  for (const row of metadataRows(result)) countRow(row);
+  countRow(["選定學生數", result.totals.length, "資料完整性摘要", "歷史覆蓋摘要"]);
+  countRow(TOTAL_COLUMNS.map(([, label]) => label));
+  countRow(DAY_COLUMNS.map(([, label]) => label));
+  for (const row of totals) countRow(rowValues(row, TOTAL_COLUMNS));
+  for (const row of days) countRow(rowValues(row, DAY_COLUMNS));
 }
 
 export function serializeLearningRewardCsv(result: RewardExportResult) {
-  const totals = result.totals.map(totalRow);
   const totalById = new Map(result.totals.map((total) => [total.studentId, total]));
-  const days = result.days.map((day) => {
-    const total = totalById.get(day.studentId);
-    if (!total) throw new Error("EXPORT_FAILED");
-    return dayRow(day, total);
-  });
-  const allRows = [...totals, ...days];
-  assertExportSize(result, allRows);
   const context = {
     requestedFrom: result.requestedRange.fromDate,
     requestedTo: result.requestedRange.toDate,
@@ -283,16 +280,28 @@ export function serializeLearningRewardCsv(result: RewardExportResult) {
     outcomeWeight: result.policy.weights.outcome,
   };
   const columns = ["rowType", "settingKey", "settingValue", ...Object.keys(context), ...CSV_DATA_COLUMNS];
-  const settings = result.settings.map(([settingKey, settingValue]) => ({ rowType: "SETTINGS", settingKey, settingValue, ...context }));
-  const rows = [...settings, ...allRows.map((row) => ({ ...context, ...row }))];
-  const text = `\uFEFF${[columns, ...rows.map((row) => {
-    const values = { ...(row as Record<string, unknown>) };
-    for (const key of SCORE_VALUE_KEYS) {
-      if (typeof values[key] === "number") values[key] = values[key].toFixed(3);
-    }
-    return columns.map((column) => CSV_TYPED_VALUE_KEYS.has(column) ? values[column] : friendlyValue(values[column]));
-  })].map((row) => row.map((value) => csvCell(value)).join(",")).join("\r\n")}`;
-  if (Buffer.byteLength(text, "utf8") > MAX_REWARD_EXPORT_BYTES) throw new Error("EXPORT_TOO_LARGE");
+  const lines: string[] = [];
+  let bytes = Buffer.byteLength("\uFEFF", "utf8");
+  const append = (values: unknown[]) => {
+    const line = values.map(csvCell).join(",");
+    bytes += Buffer.byteLength(line, "utf8") + (lines.length ? 2 : 0);
+    if (bytes > MAX_REWARD_EXPORT_BYTES) throw new Error("EXPORT_TOO_LARGE");
+    lines.push(line);
+  };
+  const appendRow = (row: Record<string, unknown>) => append(columns.map((column) => {
+    const value = row[column];
+    if (SCORE_VALUE_KEYS.has(column) && typeof value === "number") return value.toFixed(3);
+    return CSV_TYPED_VALUE_KEYS.has(column) ? value : friendlyValue(column, value);
+  }));
+  append(columns);
+  for (const [settingKey, settingValue] of result.settings) appendRow({ rowType: "SETTINGS", settingKey, settingValue, ...context });
+  for (const total of result.totals) appendRow({ ...context, ...totalRow(total) });
+  for (const day of result.days) {
+    const total = totalById.get(day.studentId);
+    if (!total) throw new Error("EXPORT_FAILED");
+    appendRow({ ...context, ...dayRow(day, total) });
+  }
+  const text = "\uFEFF" + lines.join("\r\n");
   return text;
 }
 
@@ -304,14 +313,14 @@ export async function serializeLearningRewardXlsx(result: RewardExportResult) {
     if (!total) throw new Error("EXPORT_FAILED");
     return dayRow(day, total);
   });
-  assertExportSize(result, [...totals, ...days]);
+  assertWorkbookSize(result, totals, days);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "English Vocabulary Learning Analytics";
   const settingsSheet = workbook.addWorksheet("報告設定");
   settingsSheet.addRows(metadataRows(result).map((row) => row.map((value) => spreadsheetValue(value))));
   settingsSheet.addRow(["選定學生數", result.totals.length]);
-  settingsSheet.addRow(["資料完整性摘要", friendlyValue(result.coverageSummary.combined.validationStatus)]);
-  settingsSheet.addRow(["歷史覆蓋摘要", friendlyValue(result.coverageSummary.combined.historyCoverage)]);
+  settingsSheet.addRow(["資料完整性摘要", friendlyValue("coverageValidationStatus", result.coverageSummary.combined.validationStatus)]);
+  settingsSheet.addRow(["歷史覆蓋摘要", friendlyValue("historyCoverage", result.coverageSummary.combined.historyCoverage)]);
   settingsSheet.getColumn(1).width = 24;
   settingsSheet.getColumn(2).width = 64;
 

@@ -274,7 +274,7 @@ CSV固定欄序：rowType、settingKey、settingValue、requestedFrom、requeste
 
 限制：最多500個學生、200班、366日；reward query／續頁／timeline／export全用獨立128KiB串流body cap，沿用共用bounded JSON reader（無Content-Length亦在讀取途中停止）。700個最長128-byte IDs連同JSON、兩個4,096-byte tokens、日期／search仍須通過端到端payload測試；不能宣稱500人但preview無法輸入。舊報告16／96KiB規則不變。
 
-每類事件集合最多200,000+1作超限檢查，超限整份返回413，不交付截斷分數。500×366=183,000每日行，加500總表與settings，最大185,000資料行；export獨立32MiB估算／序列化後雙重限制，超限引導按班或日期拆開。timeline回單人366行，summary response不夾全校每日rows。
+每類事件集合最多200,000+1作超限檢查，超限整份返回413，不交付截斷分數。500×366=183,000每日行，加500總表與settings，最大185,000資料行；export 最終檔案限制 32 MiB，CSV 按實際編碼逐列累計；XLSX 另外採 256 MiB 工作簿模型估算預算（每 cell 256 bytes 加字串 UTF-16 大小，屬保護門檻而非實測 RSS），超限引導按班或日期拆開。timeline回單人366行，summary response不夾全校每日rows。
 
 Prisma單transaction順序讀取，避免單connection並行query。先核對索引／EXPLAIN；StudyEncounter現有主要索引是createdAt，但本報告按acknowledgedAt，若計劃顯示必要新增`(userId, acknowledgedAt)` expand index。索引是否必要由500人fixture證據決定，不能先改歷史migration；不執行reset、seed重建或contract cleanup。若32MiB／同步執行無法支援最大範圍，提供清楚拆批限制，background jobs不屬首版。
 
@@ -407,6 +407,26 @@ Prisma單transaction順序讀取，避免單connection並行query。先核對索
 其餘已確認需求維持：任選期間、逐日累積、兩軸權重、完整明細匯出；不建立已派分／結算／已匯出排除。
 
 ## 15. 本次實際驗證
+
+### 2026-09-07 分支審核修正（已完成；本地回歸，整體環境 gates 仍未通過）
+
+本次只修報告匯出、學生明細錯誤路徑及學號搜尋；不改計分、schema 或部署。沿用本計劃原有 rollout／rollback 及外部 gates。
+
+- [x] CSV 實際 byte limit、XLSX 獨立模型預算；36 人 × 180 日及真正超限回歸。
+- [x] A 明細成功後 B 失敗，不顯示 A；保留取消／generation 保護及 render identity guard。
+- [x] 合法學號搜尋重用選定學年／班級／有效 enrollment scope。
+- [x] 身份欄保留狀態碼字串原值；CSV／XLSX round-trip。
+- [x] 單元測試、lint、typecheck 及針對性 UI 回歸，記錄限制。
+
+實際驗證：
+
+- 四個 reward 測試檔：18/18 通過。36×180 報告 CSV／XLSX 可匯出，ExcelJS 重新讀回 6,480 每日列；CSV 精確 32 MiB 通過、超出 1 byte 拒絕，測試包含 BOM、UTF-8、引號及 CRLF。XLSX 模型預算超限會拒絕。
+- 身份欄九種狀態碼字串在 CSV／XLSX 重新讀回保持原值，Excel 狀態欄仍有中文標籤。
+- 學號回歸直接捕捉 reader 傳給 Prisma 的條件，確認 7／全形前導零、非法學號及選定學年／有效班籍／班級／年級的同一 relation scope；未執行真實 DB integration。
+- `PLAYWRIGHT_CHANNEL=chrome node scripts/check-learning-reward-panel.mjs`（PowerShell 以環境變數指定）：3/3 通過。esbuild 編譯實際 React panel，隔離 locale／recent-auth／transport，用 Chrome 驗證 A 成功後 B HTTP 失敗、網絡失敗及回傳錯誤學生 ID 均不顯示 A；沒有登入或資料庫寫入。沙箱的 esbuild 上層路徑讀取受限，測試在獲准 escalated 環境執行；預設 Playwright Chromium 未安裝，改用現有 Chrome。
+- `npm run lint`、`git diff --check` 通過。`npm test` 417 中 416 通過，唯一失敗為原有 outbox 測試缺少 `fake-indexeddb`。
+- `npx tsc --noEmit` 仍被既有 `fake-indexeddb` 缺件及 Prisma generated client 缺少 `selectionOverrideReason` 阻擋；本次改動無型別錯誤。未重跑 build（同一已知 typecheck 阻礙）、DB／migration、完整登入／學習流程或原生裝置測試。
+- 256 MiB 為工作簿模型預算，並非經實測的 peak RSS 保證；最大範圍／managed deployment 的效能驗收仍沿用原計劃 deferred gate。
 
 本次已按使用者批准方案完成本地 implementation；沒有執行DB寫入、migration、production deploy或真實學生pilot。
 

@@ -1,7 +1,9 @@
+import ExcelJS from "exceljs";
+import { Readable } from "node:stream";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RewardCoverage, RewardExportResult, RewardStudentTotal } from "@/lib/learning-reward-analytics";
-import { serializeLearningRewardCsv, serializeLearningRewardXlsx } from "@/lib/learning-reward-export";
+import { MAX_REWARD_EXPORT_BYTES, serializeLearningRewardCsv, serializeLearningRewardXlsx } from "@/lib/learning-reward-export";
 
 const coverage: RewardCoverage = {
   sources: {
@@ -82,4 +84,58 @@ test("reward XLSX contains settings, totals, and daily detail sheets", async () 
   const bytes = await serializeLearningRewardXlsx(result);
   assert.ok(bytes.byteLength > 1_000);
   assert.equal(new TextDecoder().decode(bytes.slice(0, 2)), "PK");
+});
+
+
+test("36 students over 180 days export without an inflated JSON preflight rejection", async () => {
+  const totals = Array.from({ length: 36 }, (_, i) => ({ ...total, studentId: "student-" + i }));
+  const report = { ...result, totals, days: totals.flatMap(student => Array.from({ length: 180 }, (_, i) => ({ ...result.days[0], studentId: student.studentId, date: new Date(Date.UTC(2026, 0, i + 1)).toISOString().slice(0, 10) }))) };
+  const csv = serializeLearningRewardCsv(report);
+  assert.equal(csv.split("\r\n").length, 6518);
+  assert.ok(Buffer.byteLength(csv) < 32 * 1024 * 1024);
+  const bytes = await serializeLearningRewardXlsx(report);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Uint8Array.from(bytes).buffer);
+  assert.equal(workbook.getWorksheet("每日明細")!.rowCount, 6481);
+});
+
+test("CSV byte limit counts BOM, UTF-8, escaped quotes and CRLF exactly", () => {
+  const report = { ...result, totals: [], days: [], settings: [["test", '中文😀"\r\n']] as Array<[string, string]> };
+  const remaining = MAX_REWARD_EXPORT_BYTES - Buffer.byteLength(serializeLearningRewardCsv(report));
+  report.settings[0][1] += "x".repeat(remaining);
+  assert.equal(Buffer.byteLength(serializeLearningRewardCsv(report)), MAX_REWARD_EXPORT_BYTES);
+  report.settings[0][1] += "x";
+  assert.throws(() => serializeLearningRewardCsv(report), /EXPORT_TOO_LARGE/);
+});
+
+test("XLSX model allocation is bounded independently of final file size", async () => {
+  const report = { ...result, days: Array.from({ length: 20000 }, () => result.days[0]) };
+  await assert.rejects(serializeLearningRewardXlsx(report), /EXPORT_TOO_LARGE/);
+});
+
+test("identity and settings values round-trip without status translation", async () => {
+  const codes = ["CHECKED", "INCOMPLETE", "NO_DATA", "STUDENT_TOTAL", "KNOWN_GAP", "NOT_GUARANTEED", "SMALL_SAMPLE", "SUFFICIENT", "STUDENT_DAY"];
+  const totals = codes.map(code => ({ ...total, studentId: code, nickname: code, legalName: code, accountName: code }));
+  const report = { ...result, totals, days: totals.map(student => ({ ...result.days[0], studentId: student.studentId })), settings: [["test", "CHECKED"]] as Array<[string, string]> };
+  const csvWorkbook = new ExcelJS.Workbook();
+  const csvSheet = await csvWorkbook.csv.read(Readable.from([serializeLearningRewardCsv(report)]));
+  const headers = csvSheet.getRow(1).values as string[];
+  for (let i = 0; i < codes.length; i++) {
+    for (const key of ["studentId", "nickname", "legalName", "accountName"]) assert.equal(csvSheet.getRow(i + 3).getCell(headers.indexOf(key)).value, codes[i]);
+  }
+  assert.equal(csvSheet.getRow(2).getCell(headers.indexOf("settingValue")).value, "CHECKED");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Uint8Array.from(await serializeLearningRewardXlsx(report)).buffer);
+  for (const name of ["學生總表", "每日明細"]) {
+    const sheet = workbook.getWorksheet(name)!;
+    const labels = sheet.getRow(1).values as string[];
+    for (let i = 0; i < codes.length; i++) {
+      for (const label of ["學生 ID", "暱稱", "姓名", "學生帳號"]) {
+        const column = labels.indexOf(label);
+        assert.ok(column > 0);
+        assert.equal(sheet.getRow(i + 2).getCell(column).value, codes[i]);
+      }
+      assert.equal(sheet.getRow(i + 2).getCell(labels.indexOf("資料核對狀態")).value, "已核對");
+    }
+  }
 });
