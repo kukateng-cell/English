@@ -10,10 +10,11 @@ import { rosterFetch } from "@/lib/roster-client";
 import { CLASS_LABELS, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
 import { formatRewardMilliPoints, REWARD_POLICY_VERSION, type RewardWeights } from "@/lib/learning-reward-policy";
 import type { RewardCoverage, RewardDay, RewardQueryResult, RewardStudentTotal, RewardTimelineResult } from "@/lib/learning-reward-analytics";
+import type { TeacherWorkspaceAcademicYearDto } from "@/lib/teacher-workspace";
 
 type Role = "TEACHER" | "ADMIN";
 type ClassOption = { id: string; grade: StudentGrade; classCode: ClassCode | string; label?: string };
-type AcademicYearInfo = { label: string; startsOn: string; endsOn: string };
+type AcademicYearInfo = TeacherWorkspaceAcademicYearDto;
 type ClassesPayload = { items: ClassOption[]; academicYear?: AcademicYearInfo; unassignedStudentCount?: number };
 
 type RewardRequestBody = {
@@ -34,6 +35,10 @@ function localDateKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
   const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
   return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function isLocalDateKey(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/u.test(value);
 }
 
 function formatAsOf(value: string) {
@@ -86,6 +91,8 @@ function requestErrorMessage(response: Response, tc: (value: string) => string) 
 
 export default function LearningRewardPanel({ role, onBack }: { role: Role; onBack: () => void }) {
   const { tc } = useLocale();
+  const tcRef = useRef(tc);
+  useEffect(() => { tcRef.current = tc; }, [tc]);
   const today = useMemo(() => localDateKey(), []);
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [academicYear, setAcademicYear] = useState<AcademicYearInfo | null>(null);
@@ -113,6 +120,8 @@ export default function LearningRewardPanel({ role, onBack }: { role: Role; onBa
   const queryGenerationRef = useRef(0);
   const timelineGenerationRef = useRef(0);
   const exportGenerationRef = useRef(0);
+  const rangeInitializedRef = useRef(false);
+  const rangeEditedRef = useRef(false);
 
   const invalidateRequests = useCallback(() => {
     queryGenerationRef.current += 1;
@@ -136,30 +145,38 @@ export default function LearningRewardPanel({ role, onBack }: { role: Role; onBa
       setLoadingClasses(true);
       try {
         const response = await fetch("/api/teacher/classes", { credentials: "same-origin", cache: "no-store" });
-        if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+        if (!response.ok) throw new Error(await responseErrorMessage(response, tcRef.current));
         const payload = await response.json() as ClassesPayload;
         if (!active) return;
         setClasses(payload.items ?? []);
         setUnassignedStudentCount(payload.unassignedStudentCount ?? 0);
         if (payload.academicYear) {
           setAcademicYear(payload.academicYear);
-          setFromDate(payload.academicYear.startsOn.slice(0, 10));
-          setToDate(payload.academicYear.endsOn.slice(0, 10) < today ? payload.academicYear.endsOn.slice(0, 10) : today);
+          if (!rangeInitializedRef.current) {
+            rangeInitializedRef.current = true;
+            const startsOn = payload.academicYear.startsOn;
+            const endsOn = payload.academicYear.endsOn;
+            if (!rangeEditedRef.current && isLocalDateKey(startsOn) && isLocalDateKey(endsOn)) {
+              setFromDate(startsOn);
+              setToDate(endsOn < today ? endsOn : today);
+            }
+          }
         }
       } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : tc("讀取班級資料失敗"));
+        if (active) setError(cause instanceof Error ? cause.message : tcRef.current("讀取班級資料失敗"));
       } finally {
         if (active) setLoadingClasses(false);
       }
     })();
     return () => { active = false; };
-  }, [tc, today]);
+  }, [today]);
 
   useEffect(() => () => {
     invalidateRequests();
   }, [invalidateRequests]);
 
   function changeRange(nextFrom: string, nextTo: string) {
+    rangeEditedRef.current = true;
     setFromDate(nextFrom); setToDate(nextTo); markFiltersChanged();
   }
 

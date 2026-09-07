@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
-import { getTeacherWorkspaceContext } from "@/lib/teacher-workspace";
+import { getTeacherWorkspaceContext, serializeTeacherWorkspaceAcademicYear } from "@/lib/teacher-workspace";
 import { rosterResponse, stableRosterCode } from "@/lib/roster-api";
 
 export async function GET() {
@@ -12,9 +12,13 @@ export async function GET() {
     const unassignedStudentCount = auth.role === ROLES.ADMIN
       ? await import("@/lib/prisma").then(({ prisma }) => prisma.user.count({ where: { ...context.studentWhere, studentProfile: { is: { enrollments: { some: { academicYearId: context.academicYear.id, status: "ACTIVE", classId: null } } } } } }))
       : 0;
+    // Academic-year boundaries are calendar dates for the teacher UI.  Do not
+    // expose Prisma Date JSON (UTC midnight) and let the browser slice it: a
+    // stored Shanghai midnight is the previous UTC day.
+    const academicYear = serializeTeacherWorkspaceAcademicYear(context.academicYear);
     return NextResponse.json({
       viewMode: context.viewMode,
-      academicYear: context.academicYear,
+      academicYear,
       items: context.classes.map((item) => ({ ...item, label: `${item.grade}:${item.classCode}` })),
       unassignedStudentCount,
       accessRevision: context.accessRevision,

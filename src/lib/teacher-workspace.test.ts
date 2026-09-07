@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeTeacherCursor, encodeTeacherCursor, normalizeTeacherClassSummaryQuery, normalizeTeacherWorkspaceQuery } from "@/lib/teacher-workspace";
+import { decodeTeacherCursor, encodeTeacherCursor, normalizeTeacherClassSummaryQuery, normalizeTeacherWorkspaceQuery, serializeTeacherWorkspaceAcademicYear } from "@/lib/teacher-workspace";
+
+test("teacher classes DTO serializes stored boundaries as Shanghai calendar dates", () => {
+  const dto = serializeTeacherWorkspaceAcademicYear({
+    id: "year-1",
+    label: "2026–2027",
+    startsOn: new Date("2026-07-31T16:00:00.000Z"),
+    endsOn: new Date("2027-07-30T16:00:00.000Z"),
+    revision: 3,
+    status: "CURRENT",
+  });
+  assert.equal(dto.startsOn, "2026-08-01");
+  assert.equal(dto.endsOn, "2027-07-31");
+  assert.equal(dto.revision, 3);
+  assert.equal(dto.status, "CURRENT");
+});
 
 test("class summary parser fails closed for null, arrays and invalid grades", () => {
   assert.deepEqual(normalizeTeacherClassSummaryQuery({}), { grade: undefined });

@@ -1,25 +1,106 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Prisma } from "@/generated/prisma";
-import { readRewardMembers, isRewardReviewCandidate } from "@/lib/learning-reward-analytics";
+import { buildStudentReward, readRewardMembers, type RewardMember, type RewardRange, type RewardReviewEvent } from "@/lib/learning-reward-analytics";
 
-const emptyObjectiveMarker = {
-  flowVersion: null,
-  evidenceKind: null,
-  objectiveEvidenceTargetId: null,
-  objectiveQuestionSnapshotId: null,
-  probePurpose: null,
-  submittedSenseId: null,
-} as const;
+const member: RewardMember = {
+  id: "student-1",
+  accountName: "student",
+  studentNumber: null,
+  legalName: "Student",
+  nickname: "",
+  grade: "JUNIOR_1",
+  classId: "class-a",
+  classCode: "A",
+  startedAt: new Date("2026-08-01T00:00:00.000Z"),
+};
 
-test("reward reader keeps explicit bridge rows in the coverage candidate universe", () => {
-  assert.equal(isRewardReviewCandidate({ eventKind: "LEGACY_BRIDGE", ...emptyObjectiveMarker }), true);
-  assert.equal(isRewardReviewCandidate({ eventKind: "HISTORICAL_BACKFILL", ...emptyObjectiveMarker }), true);
+const range: RewardRange = {
+  requestedFrom: "2026-09-07",
+  requestedTo: "2026-09-07",
+  from: "2026-09-07",
+  to: "2026-09-07",
+  rangeClamped: false,
+  timezone: "Asia/Shanghai",
+};
+
+function makeReview(overrides: { id?: string; createdAt?: Date; isHistorical?: boolean; eventKind?: "REVIEW" | "LEGACY_BRIDGE" | "HISTORICAL_BACKFILL" } = {}): RewardReviewEvent {
+  return {
+    id: overrides.id ?? "review-1",
+    operationId: "operation-1",
+    userId: member.id,
+    submittedWordId: "word-1",
+    wordId: null,
+    senseId: null,
+    submittedSenseId: null,
+    contentRevisionId: null,
+    catalogRevisionId: null,
+    wordLevel: "A1",
+    eventKind: overrides.eventKind ?? "REVIEW",
+    quality: 0,
+    isHistorical: overrides.isHistorical ?? false,
+    evidenceKind: null,
+    flowVersion: null,
+    qualityPolicyVersion: null,
+    probePurpose: null,
+    itemConstructionVersion: null,
+    objectiveEvidenceTargetId: null,
+    objectiveQuestionSnapshotId: null,
+    createdAt: overrides.createdAt ?? new Date("2026-09-07T02:00:00.000Z"),
+    objectiveEvidenceTarget: null,
+  };
+}
+
+function emptyActivity(reviewEvents: RewardReviewEvent[], studyDays: Array<{ userId: string; date: string; createdAt: Date }> = []) {
+  return { reviewEvents, encounters: [], studyDays };
+}
+
+test("ordinary null-marker REVIEW remains a candidate and prevents a false StudyDay history gap", () => {
+  const { total, days: [day] } = buildStudentReward({
+    member,
+    activity: emptyActivity([makeReview()], [{ userId: member.id, date: "2026-09-07", createdAt: new Date("2026-09-07T02:01:00.000Z") }]),
+    range,
+    weights: { effort: 50, outcome: 50 },
+  });
+  assert.equal(day.coverage.sources.reviews.candidateCount, 1);
+  assert.equal(day.coverage.sources.reviews.missingIdentityOrProvenance, 1);
+  assert.equal(day.coverage.validationGapCount, 1);
+  assert.equal(day.coverage.validationStatus, "INCOMPLETE");
+  assert.equal(day.coverage.historyCoverage, "NOT_GUARANTEED");
+  assert.equal(day.scores?.weightedMilliPoints, 0);
+  assert.equal(total.scores?.weightedMilliPoints, 0);
 });
 
-test("reward reader does not treat an ordinary non-objective review as an objective candidate", () => {
-  assert.equal(isRewardReviewCandidate({ eventKind: "REVIEW", ...emptyObjectiveMarker }), false);
-  assert.equal(isRewardReviewCandidate({ eventKind: "REVIEW", ...emptyObjectiveMarker, flowVersion: "v2" }), true);
+test("historical null-marker REVIEW is classified as policy excluded", () => {
+  const { total, days: [day] } = buildStudentReward({
+    member,
+    activity: emptyActivity([makeReview({ isHistorical: true })]),
+    range,
+    weights: { effort: 50, outcome: 50 },
+  });
+  assert.equal(day.coverage.sources.reviews.candidateCount, 1);
+  assert.equal(day.coverage.sources.reviews.policyExcluded, 1);
+  assert.equal(day.coverage.validationGapCount, 0);
+  assert.equal(day.coverage.validationStatus, "CHECKED");
+  assert.equal(day.coverage.historyCoverage, "NOT_GUARANTEED");
+  assert.equal(total.scores?.weightedMilliPoints, 0);
+});
+
+test("pre-enrollment REVIEW is outside eligibility without creating a validation gap", () => {
+  const preEnrollmentMember = { ...member, startedAt: new Date("2026-09-07T00:00:00.000Z") };
+  const preEnrollmentRange: RewardRange = { ...range, requestedFrom: "2026-09-06", from: "2026-09-06" };
+  const { total, days: [day] } = buildStudentReward({
+    member: preEnrollmentMember,
+    activity: emptyActivity([makeReview({ createdAt: new Date("2026-09-06T02:00:00.000Z") })]),
+    range: preEnrollmentRange,
+    weights: { effort: 50, outcome: 50 },
+  });
+  assert.equal(day.eligible, false);
+  assert.equal(day.coverage.sources.reviews.candidateCount, 1);
+  assert.equal(day.coverage.sources.reviews.outsideEligibility, 1);
+  assert.equal(total.coverage.validationGapCount, 0);
+  assert.equal(total.coverage.validationStatus, "CHECKED");
+  assert.equal(total.scores?.weightedMilliPoints, 0);
 });
 
 

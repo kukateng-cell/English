@@ -446,3 +446,24 @@ Prisma單transaction順序讀取，避免單connection並行query。先核對索
 | Locke（01a07a0e-0d0e-7a82-952d-63e5ded73649） | PASS；確認 fixed bundle、scope／revocation、cursor composite key、export level counts、錯誤映射及無 per-student event sort | DB EXPLAIN、p95／RSS、大資料量性能、DB-backed撤權／Cd fixture、API／browser／export round-trip |
 
 兩位 reviewer 均未改檔、未執行資料庫寫入或 migration。PASS 只代表目前工作樹的靜態 implementation review；不把未執行的DB、瀏覽器、容量／性能或production gate當成已通過。
+
+### 15.2 2026-09-07 P2 審核修正（已完成本地修正；外部 gates deferred）
+
+本輪針對本地審核發現的學年日期 DTO、panel 非同步狀態及 reward candidate coverage 修正；不改 schema、計分政策或授權邏輯，亦不執行 DB 寫入。
+
+- [x] `/api/teacher/classes` 讀取並輸出目前學年的 startsOn／endsOn，以 Asia/Shanghai `YYYY-MM-DD` 日曆日期 DTO 傳遞，panel 預設學年年初至今天。
+- [x] locale 變更及非同步 classes 載入不重設使用者已選日期；已有 query 的 scope token／結果不因相同條件重載而被清掉。
+- [x] reward reader 不在分類前跳過全空欄位的普通 `REVIEW`；所有 raw candidate 按 policy bucket 分類，明確 historical／legacy 才列 policyExcluded，空 provenance 列 validation gap。
+- [x] 更新 panel browser checker 使用完整 classes DTO，驗證學年預設、日期選擇跨 locale 保留，並保留三項 timeline 錯誤回歸。
+- [x] 新增 reducer regression：普通 null-marker `REVIEW` + StudyDay 為 candidateCount=1、validationGap=1、`INCOMPLETE`、history 非 `KNOWN_GAP` 且分數為 0；historical 全空列 policyExcluded；入籍前列 outsideEligibility 且不污染 validation。
+
+實際驗證：
+
+- `node --import tsx --test src/lib/teacher-workspace.test.ts src/lib/learning-reward-analytics.test.ts src/lib/learning-reward-policy.test.ts src/lib/learning-reward-request.test.ts src/lib/learning-reward-export.test.ts`：24/24 通過；包含 API DTO 的 Shanghai 日期轉換、普通 null-marker REVIEW／historical／入籍前 candidate bucket、0 分及 StudyDay coverage regression。
+- `npm test`：420/420 通過（包含本輪 teacher workspace、reward reducer 及既有 timeline 回歸）。
+- `npm run lint`：通過；`npx tsc --noEmit --incremental false`：通過；`git diff --check`：通過。
+- `PLAYWRIGHT_CHANNEL=chrome node scripts/check-learning-reward-panel.mjs`：3/3 通過；browser harness 使用完整 classes DTO，驗證學年開始至今日預設、手動日期跨 locale 保留，以及 A 成功後 B 的 HTTP／network／wrong-student 三項 timeline 錯誤回歸。因 browser sandbox 權限限制以既有 Chrome 及 escalated local run 執行，沒有 DB 寫入。
+- `npm run build`：由主 agent 以 escalated local run 通過；初次 sandbox bind 權限錯誤不屬程式錯誤。
+- read-only local PostgreSQL smoke：確認 `/api/teacher/classes` context 的兩個學年日期與 DB 日曆值一致；一名現有學生以學年內一日範圍查詢，query／timeline／export totals 與每日分數加總一致；沒有 DB 寫入。
+
+本輪仍未執行完整 DB fixture／撤權競態、全登入／原生 accessibility matrix、容量／性能、production deploy、真實學生 pilot 或 destructive migration；沿用原計劃 deferred gate。

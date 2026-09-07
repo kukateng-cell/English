@@ -84,7 +84,7 @@ export type RewardRange = {
   calendarWarning?: "CURRENT_YEAR_ENDED_NOT_ACTIVATED";
 };
 
-type RewardMember = {
+export type RewardMember = {
   id: string;
   accountName: string;
   studentNumber: number | null;
@@ -773,7 +773,7 @@ const reviewEventSelect = {
   },
 } as const;
 
-type RewardReviewEvent = GeneratedPrisma.ReviewEventGetPayload<{ select: typeof reviewEventSelect }>;
+export type RewardReviewEvent = GeneratedPrisma.ReviewEventGetPayload<{ select: typeof reviewEventSelect }>;
 
 const encounterSelect = {
   id: true,
@@ -804,7 +804,7 @@ const encounterSelect = {
 
 type RewardEncounter = GeneratedPrisma.StudyEncounterGetPayload<{ select: typeof encounterSelect }>;
 
-type RewardLoadedActivity = {
+export type RewardLoadedActivity = {
   reviewEvents: RewardReviewEvent[];
   encounters: RewardEncounter[];
   studyDays: Array<{ userId: string; date: string; createdAt: Date }>;
@@ -937,10 +937,6 @@ function addLevelCounts(target: RewardLevelCounts, source: RewardLevelCounts) {
   }
 }
 
-export function isRewardReviewCandidate(event: Pick<RewardReviewEvent, "eventKind" | "flowVersion" | "evidenceKind" | "objectiveEvidenceTargetId" | "objectiveQuestionSnapshotId" | "probePurpose" | "submittedSenseId">) {
-  return event.eventKind !== "REVIEW" || event.flowVersion !== null || event.evidenceKind !== null || event.objectiveEvidenceTargetId !== null || event.objectiveQuestionSnapshotId !== null || event.probePurpose !== null || event.submittedSenseId !== null;
-}
-
 function classifyRewardReviewEvent(event: RewardReviewEvent): SourceBucket {
   if (event.isHistorical || event.eventKind !== "REVIEW" || event.probePurpose === "RESEARCH_DIAGNOSTIC" || event.probePurpose === "OPERATIONAL_DIAGNOSTIC") return "policyExcluded";
   if (event.flowVersion === null || event.qualityPolicyVersion === null || event.itemConstructionVersion === null || event.objectiveEvidenceTargetId === null || event.objectiveQuestionSnapshotId === null) return "missingIdentityOrProvenance";
@@ -1014,7 +1010,7 @@ function coverageForDays(coverageByDate: Map<string, RewardCoverage>, date: stri
   return finalizeCoverage(coverageByDate.get(date) ?? emptyCoverage());
 }
 
-function buildStudentReward(input: { member: RewardMember; activity: RewardLoadedActivity; range: RewardRange; weights: RewardWeights }): { total: RewardStudentTotal; days: RewardDay[] } {
+export function buildStudentReward(input: { member: RewardMember; activity: RewardLoadedActivity; range: RewardRange; weights: RewardWeights }): { total: RewardStudentTotal; days: RewardDay[] } {
   const { member, activity, range, weights } = input;
   const eligibleFrom = maxDate(range.from, member.startedAt ? localDate(member.startedAt) : range.from);
   const dates = daysBetween(range.from, range.to);
@@ -1058,7 +1054,6 @@ function buildStudentReward(input: { member: RewardMember; activity: RewardLoade
   }
 
   for (const event of memberReviewEvents) {
-    if (!isRewardReviewCandidate(event)) continue;
     const date = localDate(event.createdAt);
     candidateDates.add(date);
     const eligible = date >= eligibleFrom;

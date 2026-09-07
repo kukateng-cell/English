@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Level, Role } from "@/generated/prisma";
+import type { AcademicYearStatus, Level, Role } from "@/generated/prisma";
 import { prisma, Prisma } from "@/lib/prisma";
 import {
   currentCatalogSenseWhere,
@@ -27,6 +27,20 @@ const MASTERY_LEVELS = ["A1", "A2", "B1", "B2"] as const satisfies readonly Leve
 
 export type TeacherWorkspaceViewMode = "TEACHER" | "ADMIN";
 
+export type TeacherWorkspaceAcademicYear = {
+  id: string;
+  label: string;
+  startsOn: Date;
+  endsOn: Date;
+  revision: number;
+  status: AcademicYearStatus;
+};
+
+export type TeacherWorkspaceAcademicYearDto = Omit<TeacherWorkspaceAcademicYear, "startsOn" | "endsOn"> & {
+  startsOn: string;
+  endsOn: string;
+};
+
 export type TeacherWorkspaceQuery = {
   grade?: StudentGrade;
   classId?: string;
@@ -38,12 +52,17 @@ export type TeacherWorkspaceQuery = {
 
 export type TeacherWorkspaceContext = {
   viewMode: TeacherWorkspaceViewMode;
-  academicYear: { id: string; label: string; revision: number };
+  academicYear: TeacherWorkspaceAcademicYear;
   accessRevision: number | null;
   rosterRevision: number;
   classes: Array<{ id: string; grade: StudentGrade; classCode: string; revision: number }>;
   studentWhere: Prisma.UserWhereInput;
 };
+
+/** Serialize academic-year boundaries as Shanghai calendar dates at the API boundary. */
+export function serializeTeacherWorkspaceAcademicYear(year: TeacherWorkspaceAcademicYear): TeacherWorkspaceAcademicYearDto {
+  return { ...year, startsOn: todayKey(year.startsOn), endsOn: todayKey(year.endsOn) };
+}
 
 /** Parse the narrow class-summary body without treating JSON null/arrays as an empty query. */
 export function normalizeTeacherClassSummaryQuery(input: unknown): { grade?: StudentGrade } {
@@ -172,7 +191,7 @@ async function readCurrentYear(tx: Prisma.TransactionClient | typeof prisma) {
   const year = await tx.academicYear.findFirst({
     where: { status: "CURRENT" },
     orderBy: [{ startsOn: "desc" }, { id: "asc" }],
-    select: { id: true, label: true, revision: true, status: true },
+    select: { id: true, label: true, startsOn: true, endsOn: true, revision: true, status: true },
   });
   if (!year) throw new Error("CURRENT_YEAR_UNAVAILABLE");
   return year;
