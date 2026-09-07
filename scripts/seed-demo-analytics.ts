@@ -27,7 +27,10 @@ const args = new Set(process.argv.slice(2));
 const preview = args.has("--preview-reset");
 const rebuild = args.has("--reset-and-rebuild");
 const confirmed = args.has("--confirm-local-demo-reset");
-const VERSION = "demo-analytics-v3-csv-sense";
+// Bump the local fixture marker when lineage semantics change. The current
+// version is intentionally distinct from the pre-purpose-aware fixture whose
+// DUE_REVIEW targets incorrectly carried an evidence obligation.
+const VERSION = "demo-analytics-v4-reward-purpose";
 
 const DEMO_LEVELS = ["A1", "A2", "B1", "B2"] as const;
 type DemoLevel = (typeof DEMO_LEVELS)[number];
@@ -127,6 +130,10 @@ function requireLocalEnvironment(): Environment {
   if (process.env.CONFIRM_DATABASE_ENVIRONMENT !== env) fail(`請同時設定 CONFIRM_DATABASE_ENVIRONMENT=${env}。`);
   return env;
 }
+// Keep the fixture's historical, 90-day window stable even when a developer
+// runs the reset after the calendar rolls into a new academic year. The
+// academic year is derived from this same anchor, so the seed cannot create a
+// CURRENT year that starts after its own activity end.
 const DEMO_ANCHOR_DATE = "2026-08-19";
 function fixtureId(prefix: string, key: string) { return `${prefix}-${hash(`${VERSION}:${key}`).slice(0, 32)}`; }
 function hash(value: string) { return crypto.createHash("sha256").update(value).digest("hex"); }
@@ -196,7 +203,7 @@ async function createUser(tx: Prisma.TransactionClient, input: { accountName: st
 }
 
 async function buildDemo() {
-  const dates = currentAcademicYearDates();
+  const dates = currentAcademicYearDates(dateAt(DEMO_ANCHOR_DATE));
   const anchor = DEMO_ANCHOR_DATE;
   const start = todayKey(dates.startsOn) > anchor ? todayKey(dates.startsOn) : todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : todayKey(dates.startsOn);
   const effectiveEnd = todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : anchor;

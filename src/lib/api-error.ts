@@ -76,6 +76,7 @@ const CODE_MESSAGES: Record<string, string> = {
   ROSTER_INPUT_INVALID: "名單格式不正確，請檢查後再試",
   EXPORT_TOO_LARGE: "資料太多，暫時不能一次匯出",
   EXPORT_INPUT_INVALID: "匯出設定不正確，請重新選擇",
+  EXPORT_FAILED: "報告暫時無法產生，請稍後再試",
   EXPORT_RATE_LIMITED: "匯出次數過多，請稍後再試",
   ANALYTICS_SCOPE_STALE: "資料剛剛有更新，請重新載入",
   REWARD_SCOPE_STALE: "名單或權限剛剛有更新，請重新計算",

@@ -15,12 +15,14 @@ type WorkspaceItem = { href: string; label: string; icon: IconName };
 const ITEMS: Record<"teacher" | "admin", WorkspaceItem[]> = {
   teacher: [
     { href: "/teacher", label: "概覽", icon: "bar-chart" },
+    { href: "/teacher/rewards", label: "學生累積分", icon: "trending-up" },
     { href: "/teacher/analytics", label: "學習分析", icon: "trending-up" },
     { href: "/teacher/roster", label: "學生", icon: "clipboard" },
     { href: "/teacher/words", label: "詞庫", icon: "book" },
   ],
   admin: [
     { href: "/admin", label: "概覽", icon: "bar-chart" },
+    { href: "/admin/rewards", label: "學生累積分", icon: "trending-up" },
     { href: "/admin/analytics", label: "學習分析", icon: "trending-up" },
     { href: "/admin/roster", label: "班級與名單", icon: "clipboard" },
     { href: "/admin/users", label: "用戶管理", icon: "users" },

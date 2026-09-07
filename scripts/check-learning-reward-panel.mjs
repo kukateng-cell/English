@@ -6,10 +6,11 @@ const bundle = await build({
   stdin: { contents: 'import React from "react"; import { createRoot } from "react-dom/client"; import Panel from "./src/components/analytics/LearningRewardPanel"; createRoot(document.getElementById("root")).render(<Panel role="TEACHER" onBack={() => {}} />);', resolveDir: process.cwd(), loader: "tsx" },
   bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
   plugins: [{ name: "panel-boundaries", setup(builder) {
-    builder.onResolve({ filter: /(?:LocaleProvider|RecentAuthDialog|roster-client)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+    builder.onResolve({ filter: /(?:LocaleProvider|RecentAuthDialog|roster-client|next\/navigation)$/ }, args => ({ path: args.path, namespace: "fixture" }));
     builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ resolveDir: process.cwd(), contents: args.path.endsWith("LocaleProvider")
       ? 'import { useEffect, useState } from "react"; let currentLocale = "zh-Hant"; const listeners = new Set(); globalThis.__setPanelLocale = next => { currentLocale = next; for (const listener of listeners) listener(); }; export const useLocale = () => { const [, setVersion] = useState(0); useEffect(() => { const listener = () => setVersion(value => value + 1); listeners.add(listener); return () => listeners.delete(listener); }, []); const tc = value => currentLocale === "zh-Hans" ? value : value; return { tc }; };'
         : args.path.endsWith("roster-client") ? 'export const rosterFetch = (...args) => fetch(...args);'
+        : args.path.endsWith("next/navigation") ? 'const params = { get: () => null, getAll: () => [] }; export const useSearchParams = () => params;'
         : 'export default function Dialog() { return null; }' }));
   } }],
 });
@@ -30,7 +31,8 @@ const classesPayload = {
 };
 const counts = { candidateCount: 0, outsideEligibility: 0, policyExcluded: 0, unsupportedVersion: 0, missingIdentityOrProvenance: 0, nonWinningOrInvalidOutcome: 0, included: 0 };
 const coverage = { sources: { encounters: counts, reviews: counts }, validationGapCount: 0, policyExcludedCount: 0, validationStatus: "CHECKED", historyCoverage: "NOT_GUARANTEED", warningCodes: [] };
-const students = ["A", "B"].map(studentId => ({ studentId, nickname: "Student " + studentId, studentNumber: null, classLabel: "Test class", eligibleDayCount: 1, activeDayCount: 0, effortActivityCount: 0, creditedEffortActivityCount: 0, firstCorrectSenseDayCount: 0, creditedFirstCorrectSenseDayCount: 0, objectiveAttemptCount: 0, objectiveCorrectCount: 0, objectiveAccuracyPercent: null, accuracyStatus: "NO_DATA", effortCapDays: 0, outcomeCapDays: 0, effortCapDayPercent: 0, outcomeCapDayPercent: 0, coverage, levelCounts: Object.fromEntries(["A1", "A2", "B1", "B2"].map(level => [level, { attempts: 0, correct: 0 }])) }));
+const scores = { effortMilliPoints: 5000, outcomeMilliPoints: 4000, effortContributionMilliPoints: 2500, outcomeContributionMilliPoints: 2000, weightedMilliPoints: 4500 };
+const students = ["A", "B"].map(studentId => ({ studentId, legalName: "正式姓名 " + studentId, nickname: "暱稱 " + studentId, accountName: "student-" + studentId.toLowerCase(), studentNumber: Number(studentId === "A" ? 1 : 2), grade: "JUNIOR_1", classId: "class-a", classLabel: "Test class", eligibleFrom: "2026-08-01", eligibleDayCount: 1, activeDayCount: 1, learningCardCount: 10, effortActivityCount: 10, creditedEffortActivityCount: 10, firstCorrectSenseDayCount: 2, creditedFirstCorrectSenseDayCount: 2, objectiveAttemptCount: 4, objectiveCorrectCount: 2, objectiveAccuracyPercent: 50, accuracyStatus: "SUFFICIENT", effortCapDays: 0, outcomeCapDays: 0, effortCapDayPercent: 0, scores, distinctSenseCount: 2, coverage, levelCounts: Object.fromEntries(["A1", "A2", "B1", "B2"].map(level => [level, { attempts: 4, correct: 2 }])) }));
 const report = { items: students, totalStudentCount: 2, nextCursor: null, asOf: "2026-09-07T00:00:00Z", scopeToken: "fixture", effectiveRange: { from: "2026-09-07", to: "2026-09-07" }, policy: { weights: { effort: 50, outcome: 50 } }, coverageSummary: { combined: coverage } };
 const browser = await chromium.launch({ ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
 try {
@@ -47,7 +49,7 @@ try {
       if (path.includes("/students/B/")) {
         if (failure === "network") return route.abort("failed");
         if (failure === "wrong-student") return route.fulfill({ json: { ...report, student: students[0], days: [] } });
-        return route.fulfill({ status: 500, json: { error: "EXPORT_FAILED" } });
+        return route.fulfill({ status: 500, json: { code: "EXPORT_FAILED" } });
       }
       return route.abort();
     });
@@ -62,14 +64,25 @@ try {
       await expect(page.getByLabel("開始日期")).toHaveValue("2026-08-15");
       await expect(page.getByLabel("結束日期")).toHaveValue("2026-09-01");
     }
-    await page.getByRole("button", { name: "計算累積分", exact: true }).click();
-    await page.getByRole("button", { name: /Student A/ }).click();
-    const region = page.getByRole("region", { name: "學生每日明細" });
-    await expect(region).toContainText("Student A");
-    await page.getByRole("button", { name: /Student B/ }).click();
-    await expect(region).toContainText("未有每日明細。");
-    await expect(region).not.toContainText("Student A");
-    await expect(page.getByRole("button", { name: /Student B/ })).toHaveAttribute("aria-expanded", "true");
+    await page.getByRole("button", { name: "更新結果", exact: true }).click();
+    const desktopResults = page.locator("div.mt-4.hidden.overflow-x-auto");
+    const studentA = desktopResults.locator("button:visible").filter({ hasText: "正式姓名 A" });
+    await studentA.click();
+    const region = desktopResults.getByRole("region", { name: "學生每日分數" });
+    await expect(region).toContainText("正式姓名 A");
+    const studentB = desktopResults.locator("button:visible").filter({ hasText: "正式姓名 B" });
+    await studentB.click();
+    if (failure === "wrong-student") {
+      await expect(region).toContainText("未有每日分數。");
+    } else if (failure === "http") {
+      await expect(region).toContainText("報告暫時無法產生");
+    } else {
+      await expect(region).toContainText("網絡連線失敗");
+    }
+    await expect(region).not.toContainText("正式姓名 A");
+    await expect(studentB).toHaveAttribute("aria-expanded", "true");
+    await page.getByLabel("結束日期").fill("2026-09-06");
+    await expect(page.getByRole("button", { name: /匯出學生累積分（Excel）/ })).toBeDisabled();
     expect(errors).toEqual([]);
     await page.close();
     console.log(`PASS: A success then B ${failure} never renders A under B`);

@@ -1,5 +1,7 @@
 # 教師自訂權重學習累積分與期間匯出
 
+> 2026-09-07 使用者後續要求：教師畫面及匯出過於複雜，需以三個累積結果及首頁明顯入口重新設計。實作見 [學生累積分教師體驗計劃](./teacher-reward-summary-usability.md)（本地已完成；native screen-reader matrix deferred）。該方案取代本文 §6–7、§8.1 的呈現／匯出格式要求；計分及資料驗證語義繼續適用。本文保留原實作歷史，不代表應恢復舊畫面。
+
 > 狀態：進行中（使用者已批准實作；兩位獨立 reviewer 複核計劃 PASS；production deploy／destructive migration 仍需獨立授權）
 > 建立：2026-09-07；版本：Revision 2（已整合兩路審查）
 > 功能分支：`codex/teacher-learning-reward-index`，由本機 `staging` 的 `dc69d42a646085a9fc624f454851e1323e7e9de0` 建立；未fetch／改動遠端分支。

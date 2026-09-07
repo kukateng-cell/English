@@ -52,4 +52,10 @@ test("timeline and export requests require a server-issued context", async () =>
     format: "CSV",
   }), { route: "EXPORT" });
   assert.equal(parsed.format, "CSV");
+  const daily = await readRewardRequest(request({
+    asOf: "2026-08-31T00:00:00.000Z",
+    scopeToken: "signed-context",
+    format: "DAILY_XLSX",
+  }), { route: "EXPORT" });
+  assert.equal(daily.format, "DAILY_XLSX");
 });

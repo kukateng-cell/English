@@ -45,20 +45,41 @@ export default function AdminDashboard() {
     })();
   }, [reloadKey, tc]);
 
+  const rewardEntry = (
+    <section className="rounded-2xl border border-[var(--primary)]/25 bg-[var(--border-soft)] p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold text-[var(--primary)]">{tc("教師／管理工作臺")}</p>
+          <h2 className="mt-1 text-xl font-black text-[var(--text)]">{tc("學生累積分")}</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">{tc("按日期和班級查看累積投入分、累積成效分及累積總分，並匯出報告。")}</p>
+        </div>
+        <Link href="/admin/rewards" className="ui-button ui-button-primary ui-button-small">
+          <Icon name="trending-up" size={17} />{tc("匯出學生累積分")}
+        </Link>
+      </div>
+    </section>
+  );
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
+      <div className="space-y-5">
+        {rewardEntry}
+        <div className="flex items-center justify-center py-20">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <ErrorBanner
-        message={error}
-        onRetry={() => setReloadKey((k) => k + 1)}
-      />
+      <div className="space-y-5">
+        {rewardEntry}
+        <ErrorBanner
+          message={error}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+      </div>
     );
   }
 
@@ -68,6 +89,7 @@ export default function AdminDashboard() {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-5"
     >
+      {rewardEntry}
       {/* 页面标题 */}
       <div>
         <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">

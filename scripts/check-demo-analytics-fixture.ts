@@ -14,7 +14,7 @@ function fail(message: string): never { throw new Error(message); }
 
 async function main() {
   const marker = await prisma.databaseMetadata.findUnique({ where: { key: "demoAnalytics" } });
-  if (marker?.value !== "demo-analytics-v3-csv-sense") fail("示範資料 READY 標記不存在。");
+  if (marker?.value !== "demo-analytics-v4-reward-purpose") fail("示範資料 READY 標記不存在，請以目前 seed 重建本地示範資料。");
   const year = await prisma.academicYear.findFirst({ where: { status: "CURRENT" }, select: { id: true } });
   if (!year) fail("找不到 CURRENT 學年。");
   const classes = await prisma.schoolClass.findMany({ where: { academicYearId: year.id, active: true }, select: { id: true, grade: true, classCode: true, _count: { select: { enrollments: { where: { status: "ACTIVE" } } } } } });

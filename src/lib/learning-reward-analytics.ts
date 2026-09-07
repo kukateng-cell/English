@@ -69,7 +69,7 @@ export type RewardRequest = {
   cursor?: string;
   asOf?: Date;
   scopeToken?: string;
-  format?: "CSV" | "XLSX";
+  format?: "CSV" | "XLSX" | "DAILY_XLSX";
 };
 
 export type RewardRoute = "QUERY" | "TIMELINE" | "EXPORT";
@@ -511,7 +511,7 @@ export async function readRewardRequest(req: Request, options: { route: RewardRo
 
   let format: RewardRequest["format"];
   if (options.route === "EXPORT") {
-    if (body.format !== "CSV" && body.format !== "XLSX") throw new Error("QUERY_INVALID");
+    if (body.format !== "CSV" && body.format !== "XLSX" && body.format !== "DAILY_XLSX") throw new Error("QUERY_INVALID");
     format = body.format;
   } else if (body.format !== undefined) {
     throw new Error("QUERY_INVALID");

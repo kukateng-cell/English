@@ -8,7 +8,7 @@ import { readRecentAuthGrantSnapshot } from "@/lib/recent-auth";
 import { checkLimit, getClientIp } from "@/lib/login-limiter";
 import { securityEventData } from "@/lib/security-events";
 import { exportLearningRewards, readRewardRequest, recheckRewardAccess } from "@/lib/learning-reward-analytics";
-import { serializeLearningRewardCsv, serializeLearningRewardXlsx } from "@/lib/learning-reward-export";
+import { serializeLearningRewardCsv, serializeLearningRewardDailyXlsx, serializeLearningRewardXlsx } from "@/lib/learning-reward-export";
 
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 
@@ -66,15 +66,16 @@ export async function POST(req: Request) {
     const result = await exportLearningRewards({ userId: auth.userId, role: auth.role, request });
     const finalAuth = await readRecentAuth();
     if (!finalAuth || finalAuth.sessionJti !== initialAuth.sessionJti || finalAuth.user.tokenVersion !== initialAuth.user.tokenVersion || finalAuth.user.credentialRevision !== initialAuth.user.credentialRevision || finalAuth.grant.reauthenticatedAt.getTime() !== initialAuth.grant.reauthenticatedAt.getTime() || finalAuth.grant.expiresAt.getTime() !== initialAuth.grant.expiresAt.getTime()) throw new Error("RECENT_AUTH_REQUIRED");
-    const rowCount = result.totals.length + result.days.length;
-    const filename = `learning-reward-${result.requestedRange.fromDate}-${result.requestedRange.toDate}-${result.policy.weights.effort}-${result.policy.weights.outcome}.${request.format!.toLowerCase()}`;
+    const rowCount = request.format === "DAILY_XLSX" ? result.days.length : result.totals.length;
+    const extension = request.format === "CSV" ? "csv" : "xlsx";
+    const filename = `${request.format === "DAILY_XLSX" ? "learning-reward-daily" : "learning-reward"}-${result.requestedRange.fromDate}-${result.requestedRange.toDate}-${result.policy.weights.effort}-${result.policy.weights.outcome}.${extension}`;
     if (request.format === "CSV") {
       const text = serializeLearningRewardCsv(result);
       await recordRewardExportAudit({ actorUserId: auth.userId, format: request.format, ip, rowCount });
       await recheckRewardAccess({ userId: auth.userId, role: auth.role, scopeToken: result.scopeToken, scopeRevision: result.scopeRevision, academicYearId: result.academicYear.id });
       return new Response(text, { headers: { ...headers, "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": contentDisposition(filename), "X-Export-Row-Count": String(rowCount) } });
     }
-    const buffer = await serializeLearningRewardXlsx(result);
+    const buffer = request.format === "DAILY_XLSX" ? await serializeLearningRewardDailyXlsx(result) : await serializeLearningRewardXlsx(result);
     await recordRewardExportAudit({ actorUserId: auth.userId, format: request.format!, ip, rowCount });
     await recheckRewardAccess({ userId: auth.userId, role: auth.role, scopeToken: result.scopeToken, scopeRevision: result.scopeRevision, academicYearId: result.academicYear.id });
     return new Response(new Uint8Array(buffer), { headers: { ...headers, "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": contentDisposition(filename), "X-Export-Row-Count": String(rowCount) } });

@@ -90,10 +90,13 @@ export default function TeacherDashboard() {
         <div>
           <p className="text-sm font-bold text-[var(--primary)]">{tc("教師工作臺")}</p>
           <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)]">{tc("班級概覽")}</h1>
-          <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">{tc("快速掌握班級近況；需要深入比較時，請前往學習分析。")}</p>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">{tc("快速掌握班級近況；需要整理學生累積分時，可直接開啟報告。")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/teacher/analytics" className="ui-button ui-button-primary ui-button-small">
+          <Link href="/teacher/rewards" className="ui-button ui-button-primary ui-button-small">
+            <Icon name="trending-up" size={17} />{tc("匯出學生累積分")}
+          </Link>
+          <Link href="/teacher/analytics" className="ui-button ui-button-secondary ui-button-small">
             <Icon name="trending-up" size={17} />{tc("查看學習分析")}
           </Link>
           <Link href="/teacher/roster" className="ui-button ui-button-secondary ui-button-small">
