@@ -1,6 +1,6 @@
 # 學生每週排行榜與個人目標重設計
 
-狀態：已完成（本地核心實作及驗證；原生視覺／大型DB效能列後續）
+狀態：已完成（本地核心實作及驗證；大型DB效能／原生screen-reader列後續）
 
 建立日期：2026-09-08
 
@@ -278,7 +278,7 @@ Desktop用寬內容區，主欄約2/3給榜單、側欄給我的位置及目標�
 ### Phase E — 整合驗收及交付
 
 - [x] 跑§9本地可執行的對應矩陣，建立有日期的evidence artifact記錄指令／結果／限制。
-- [ ] 對照實際畫面逐項產品walkthrough；CUA檢查因本機鎖定未能進行，不能把snapshot assertion當成視覺驗收。
+- [x] 對照實際畫面逐項產品walkthrough；解鎖macOS後以CUA檢查本班／全年級並列／完整榜、計分說明、七日目標、淺色／深色及繁／簡體；另以responsive E2E確認窄版及desktop尺寸。
 - [x] 更新計劃checklist、README索引及舊榜successor說明；保留歷史驗證。
 - [x] 完成乾淨DB重建與重複seed smoke；新榜可用，舊榜專用reader及callers已清理。
 - [x] 記錄未執行的native device／真實學生驗證，不把它們或任何production工作當成本地完成的阻擋項。
@@ -360,7 +360,7 @@ Fixtures以可清空的本地development/test DB重建，固定clock、有效can
 - [x] 本週正式榜、附近位置、完整榜、個人目標、自己累積成果全部可用。
 - [x] 日期、cohort、coverage、rank、gap、precision及共享reward reader邊界通過。
 - [x] API權限／PII／rate-limit／snapshot及分頁行為通過；跨週只以server week authority處理。
-- [ ] 本地DB、單元、lint、typecheck、build、專用E2E、資料庫效能及原生視覺驗收全部通過；本輪前六項及純排名scale已通過，資料庫大規模及原生視覺仍列限制。
+- [ ] 本地DB、單元、lint、typecheck、build、專用E2E、資料庫效能及原生screen-reader驗收全部通過；本輪前六項、純排名scale及CUA視覺已通過，資料庫大規模及原生screen-reader仍列限制。
 - [x] 本地完整重建及重複seed smoke完成；舊榜相容層已移除，所有已知限制及未執行native驗證明列。
 - [x] 不以「已寫程式」代替驗證；evidence artifact與索引已更新。
 
@@ -374,4 +374,4 @@ Revision 2（2026-09-08）：使用者明確指定local-only、全部本地舊�
 
 Implementation verification（2026-09-08）：以`::1:5432/english_dev`、`public`及catalog digest `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`作為sanitized local target，先完成dry-run，再執行`DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development CONFIRM_LOCAL_RESET_TARGET=english_dev/public CONFIRM_LOCAL_CATALOG_DIGEST=6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a npm run db:rebuild:catalog -- --execute`。重建重播67個migration、catalog 5,641 rows、18 classes／150 students／4 teachers，並建立90日可重播demo activity；weekly checker確認class 8人、school 149人、grade 26人及7日progress。`npm test`（424 tests）、`npm run lint`、`npx tsc --noEmit`、`npm run build`、`npm run test:weekly-leaderboard:scale`、`npm run test:db:weekly-leaderboard`、`npm run test:db:stream-v2`及`npm run test:e2e:weekly-leaderboard`均通過；專用E2E為Chromium desktop、Chromium mobile及WebKit共8 tests。GET前後資料計數一致、teacher role被拒絕、cursor篡改／跨使用者／stale情境被拒絕，public DTO未含legal name／email／student number／內部ID。純排名scale smoke覆蓋40／400／2,000 rows；未宣稱2,000人真實資料庫p95達標。
 
-限制及後續：CUA原生畫面walkthrough因本機macOS當時鎖定而未能完成；未執行實體手機、VoiceOver／TalkBack、真實學生動機pilot、production deployment／observation或production cleanup。這些不阻擋本地核心實作，但仍保留為後續驗收項目。驗證詳情另見`plans/artifacts/student-weekly-leaderboard-local-verification-2026-09-08.md`。
+限制及後續：解鎖macOS後已完成CUA原生畫面walkthrough，未執行實體手機、VoiceOver／TalkBack、真實學生動機pilot、production deployment／observation或production cleanup。2,000人真實資料庫p95／payload亦未宣稱達標；這些不阻擋本地核心實作，但仍保留為後續驗收項目。驗證詳情另見`plans/artifacts/student-weekly-leaderboard-local-verification-2026-09-08.md`。

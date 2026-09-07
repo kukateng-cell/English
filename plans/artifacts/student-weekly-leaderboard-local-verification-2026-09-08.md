@@ -49,5 +49,5 @@
 ## 未完成／限制
 
 - 只完成40／400／2,000 rows純排名scale smoke；沒有建立2,000人×7日真實資料庫fixture，因此未宣稱資料庫p95／payload預算達標。
-- CUA原生視覺walkthrough因本機macOS當時鎖定而未能執行；未完成實體手機、VoiceOver／TalkBack及真實學生pilot。
+- macOS解鎖後已完成CUA視覺walkthrough：本班榜、全年級三人並列、完整榜、計分說明、七日目標、淺色／深色、繁／簡體及底部可達性均已實際檢查；未完成實體手機、VoiceOver／TalkBack及真實學生pilot。
 - 沒有執行production deployment、observation、灰度或production cleanup；本計劃範圍只包括local implementation。
