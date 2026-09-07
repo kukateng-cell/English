@@ -130,11 +130,10 @@ function requireLocalEnvironment(): Environment {
   if (process.env.CONFIRM_DATABASE_ENVIRONMENT !== env) fail(`請同時設定 CONFIRM_DATABASE_ENVIRONMENT=${env}。`);
   return env;
 }
-// Keep the fixture's historical, 90-day window stable even when a developer
-// runs the reset after the calendar rolls into a new academic year. The
-// academic year is derived from this same anchor, so the seed cannot create a
-// CURRENT year that starts after its own activity end.
-const DEMO_ANCHOR_DATE = "2026-08-19";
+// Anchor the local fixture to today's Shanghai calendar date. The leaderboard
+// is intentionally a current-week experience, so a fixed historical anchor
+// would make the board unavailable after the academic year rolls over.
+const DEMO_ANCHOR_DATE = todayKey();
 function fixtureId(prefix: string, key: string) { return `${prefix}-${hash(`${VERSION}:${key}`).slice(0, 32)}`; }
 function hash(value: string) { return crypto.createHash("sha256").update(value).digest("hex"); }
 function dateAt(key: string, hour = 12) { return new Date(`${key}T${String(hour).padStart(2, "0")}:00:00+08:00`); }
@@ -170,7 +169,28 @@ function trackForStudent(classIndex: number, studentIndex: number): DemoTrack {
   return DEMO_TRACK_ORDER[Math.max(0, Math.min(DEMO_TRACK_ORDER.length - 1, baseIndex + variation))]!;
 }
 
-function demoQuality(track: DemoTrack, day: number, studentIndex: number): Quality {
+function startOfDemoWeek(key: string): string {
+  const [year, month, day] = key.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return offsetDay(key, -(weekday === 0 ? 6 : weekday - 1));
+}
+
+function demoParticipation(track: DemoTrack, config: DemoTrackConfig, day: number, effectiveDays: number, date: string, studentIndex: number): boolean {
+  const weekStart = startOfDemoWeek(DEMO_ANCHOR_DATE);
+  if (date < weekStart) return config.participates(day, effectiveDays);
+  const elapsed = dateDistance(weekStart, date);
+  const currentElapsed = dateDistance(weekStart, DEMO_ANCHOR_DATE);
+  // Give the current-week fixture a visible range of progress. This keeps
+  // the local board useful for UI review while the older history still uses
+  // each track's long-term cadence.
+  const targetDays = Math.max(0, currentElapsed + 1 - studentIndex * 2);
+  if (track === "FOLLOW_UP") return studentIndex === 0 && elapsed === 0;
+  if (track === "NEW") return elapsed < Math.min(4, targetDays);
+  return elapsed < targetDays;
+}
+
+function demoQuality(track: DemoTrack, day: number, studentIndex: number, effectiveDays: number): Quality {
+  if (studentIndex === 1 && day >= effectiveDays - 2) return 2;
   if (track === "FOLLOW_UP") return 2;
   if (track === "INTERMITTENT") return (day + studentIndex) % 3 === 0 ? 2 : 4;
   if (track === "DEVELOPING") return (day + studentIndex) % 17 === 0 ? 2 : 4;
@@ -208,7 +228,10 @@ async function buildDemo() {
   const start = todayKey(dates.startsOn) > anchor ? todayKey(dates.startsOn) : todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : todayKey(dates.startsOn);
   const effectiveEnd = todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : anchor;
   if (start > effectiveEnd) fail("目前學年沒有可建立示範資料的有效日期。");
-  const effectiveStart = dateAt(offsetDay(effectiveEnd, -89)) > dates.startsOn ? offsetDay(effectiveEnd, -89) : start;
+  // Keep a full 90-day signal window even when the local calendar has just
+  // rolled into a new academic year. The fixture is for analytics coverage;
+  // the weekly board itself still uses the current academic year and week.
+  const effectiveStart = offsetDay(effectiveEnd, -89);
   const effectiveDays = dateDistance(effectiveStart, effectiveEnd) + 1;
   if (effectiveDays < 1) fail("示範資料日期範圍無效。");
   // The rich analytics fixture deliberately reuses the normal local test
@@ -331,9 +354,9 @@ async function buildDemo() {
       };
       for (let day = 0; day < effectiveDays; day += 1) {
         const date = offsetDay(effectiveStart, day);
-        const participate = trackConfig.participates(day, effectiveDays);
+        const participate = demoParticipation(track, trackConfig, day, effectiveDays, date, studentIndex);
         if (!participate) continue;
-        const quality = demoQuality(track, day, studentIndex);
+        const quality = demoQuality(track, day, studentIndex, effectiveDays);
         const objectiveProbe = day % trackConfig.objectiveInterval === 0 || day >= Math.max(0, effectiveDays - trackConfig.streakTailDays);
         await tx.studyDay.upsert({ where: { userId_date: { userId: student.id, date } }, create: { userId: student.id, date, createdAt: dateAt(date, 18) }, update: {} });
         const word = nextStagedWord();

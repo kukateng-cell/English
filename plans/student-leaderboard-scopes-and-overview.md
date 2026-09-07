@@ -1,6 +1,6 @@
 # 學生排行榜範圍及概覽
 
-狀態：進行中
+狀態：已由 [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) 取代（2026-09-08）。本文件保留作舊版範圍／概覽實作記錄；新學生頁、API及本地fixture以 successor 計劃為準。
 
 ## 1. 背景及問題定義
 

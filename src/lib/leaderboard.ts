@@ -1,108 +1,107 @@
 /**
- * 學生排行榜：三個現有指標（客觀認讀連續天數／掌握詞數／累計打卡），
- * 按 current-year ACTIVE enrollment 即時計算本班、全年級及全校範圍。
+ * 學生每週排行榜。
  *
- * 資料量小（學生數十人），直接讀取 canonical StudyDay / Review /
- * ReviewEvent 後在 memory 聚合；不建立快照表，保持指標實時且不改學習語義。
+ * 榜單係一個 read-only projection：活動仍由 V2 learning writers 寫入，
+ * 本模組只按固定 student-weekly-v1 政策建立本週快照。公開 response 只
+ * 返回暱稱、分數及不透明 entry key，唔返回帳號、姓名、學號或內部 ID。
  */
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { ClassCode, StudentGrade } from "@/generated/prisma";
-import { prisma } from "@/lib/prisma";
+import { Prisma, prisma } from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
 import { todayKey, offsetDay } from "@/lib/streak";
-import { isMasteredByInterval } from "@/lib/mastered";
-import type { RewardIconName } from "@/lib/reward-icons";
+import { withCurrentCatalogWord } from "@/lib/catalog/runtime";
 import {
-  eligibleOperationalObjectiveEventWhere,
-  isEligibleOperationalObjectiveEvent,
-  withCurrentCatalogWord,
-} from "@/lib/catalog/runtime";
-
-export type LeaderboardType = "streak" | "words" | "studyDays";
-export type LeaderboardIcon = Extract<RewardIconName, "flame" | "word-stack" | "calendar-check">;
+  buildStudentReward,
+  loadRewardActivityForMembers,
+  type RewardLoadedActivity,
+  type RewardMember,
+  type RewardRange,
+} from "@/lib/learning-reward-analytics";
+import {
+  buildWeeklyDateRange,
+  daysBetweenKeys,
+  gapToNextWeeklyRank,
+  nearbyWeeklyEntries,
+  rankWeeklyEntries,
+  scorePartsForDisplay,
+  startOfLeaderboardWeek,
+  STUDENT_WEEKLY_CURSOR_TTL_MS,
+  STUDENT_WEEKLY_LEADERBOARD_POLICY_VERSION,
+  STUDENT_WEEKLY_LEADERBOARD_WEIGHTS,
+  STUDENT_WEEKLY_PAGE_SIZE,
+  type WeeklyDateRange,
+  type WeeklyRankedEntry,
+  type WeeklyRankingCandidate,
+  type WeeklyRankingState,
+  weeklyGoalTargetDays,
+} from "@/lib/student-weekly-leaderboard-policy";
 
 export const LEADERBOARD_SCOPES = ["class", "grade", "school"] as const;
 export type LeaderboardScope = (typeof LEADERBOARD_SCOPES)[number];
+export type LeaderboardView = "summary" | "all";
+
+/** Retained as a small utility for existing streak consumers and unit tests. */
+export type LeaderboardType = "streak" | "words" | "studyDays";
+
+export function isLeaderboardScope(value: string): value is LeaderboardScope {
+  return (LEADERBOARD_SCOPES as readonly string[]).includes(value);
+}
+
+/**
+ * 純函數：由今天／昨天開始計算目前連續日數。保留俾現有純邏輯測試；
+ * weekly leaderboard 本身按每週活動日計分，唔用此指標排序。
+ */
+export function countLeaderboardStreak(dates: Set<string>, now = new Date()): number {
+  const today = todayKey(now);
+  const yesterday = offsetDay(today, -1);
+  let cursor: string | null = null;
+  if (dates.has(today)) cursor = today;
+  else if (dates.has(yesterday)) cursor = yesterday;
+  else return 0;
+  let count = 0;
+  while (cursor && dates.has(cursor)) {
+    count += 1;
+    cursor = offsetDay(cursor, -1);
+  }
+  return count;
+}
+
+/** 標準競賽排名：相同分值並列名次（1,1,3,...），同分以穩定 ID 排列。 */
+export function rankLeaderboardEntries(
+  values: { userId: string; name: string; value: number }[],
+  me: string,
+) {
+  const sorted = [...values].sort((a, b) => b.value - a.value || a.userId.localeCompare(b.userId));
+  const entries: Array<{ rank: number; userId: string; name: string; value: number; isMe: boolean }> = [];
+  let previousValue: number | null = null;
+  let previousRank = 0;
+  for (let index = 0; index < sorted.length; index += 1) {
+    const value = sorted[index];
+    const rank = value.value === previousValue ? previousRank : index + 1;
+    previousValue = value.value;
+    previousRank = rank;
+    entries.push({ rank, userId: value.userId, name: value.name, value: value.value, isMe: value.userId === me });
+  }
+  return entries;
+}
+
+/** Existing helper retained for callers that still need a compact old-style list. */
+export function trimLeaderboardEntries<T extends { isMe: boolean }>(entries: T[], topN = 20): T[] {
+  if (entries.length <= topN) return entries;
+  const top = entries.slice(0, topN);
+  if (top.some((entry) => entry.isMe)) return top;
+  const me = entries.find((entry) => entry.isMe);
+  return me ? [...top, me] : top;
+}
+
+export function chooseDefaultLeaderboardScope(context: { classId: string | null; grade: StudentGrade | null }): LeaderboardScope {
+  if (context.classId) return "class";
+  if (context.grade) return "grade";
+  return "school";
+}
 
 export type LeaderboardUnavailableReason = "NO_CURRENT_ENROLLMENT" | "NO_CLASS";
-
-export interface LeaderboardEntry {
-  rank: number;
-  userId: string;
-  name: string;
-  value: number;
-  isMe: boolean;
-}
-
-export interface LeaderboardList {
-  type: LeaderboardType;
-  /** 簡體標題（前端經 tc() 轉換）。 */
-  label: string;
-  icon: LeaderboardIcon;
-  entries: LeaderboardEntry[];
-}
-
-export interface LeaderboardMetricSummary {
-  rank: number | null;
-  value: number | null;
-  outOf: number;
-}
-
-export type LeaderboardMetricValues = Record<LeaderboardType, number>;
-
-export interface LeaderboardScopeOverview {
-  scope: LeaderboardScope;
-  available: boolean;
-  participantCount: number;
-  /** 只為 class／grade scope 提供學生所屬 context；school scope 為 null。 */
-  grade: StudentGrade | null;
-  classCode: ClassCode | null;
-  metrics: Record<LeaderboardType, LeaderboardMetricSummary>;
-  unavailableReason?: LeaderboardUnavailableReason;
-}
-
-export interface LeaderboardContext {
-  academicYearLabel: string | null;
-  grade: StudentGrade | null;
-  classCode: ClassCode | null;
-}
-
-export interface LeaderboardData {
-  /** 目前詳細榜單所使用的範圍。 */
-  scope: LeaderboardScope;
-  lists: LeaderboardList[];
-  /** 目前登入者 id；route response 會轉成公開的 "me" marker。 */
-  me: string;
-  context: LeaderboardContext;
-  overview: Record<LeaderboardScope, LeaderboardScopeOverview>;
-}
-
-const TOP_N = 20;
-
-const LEADERBOARD_DEFINITIONS: ReadonlyArray<{
-  type: LeaderboardType;
-  label: string;
-  icon: LeaderboardIcon;
-}> = [
-  { type: "streak", label: "客觀認讀連續天數", icon: "flame" },
-  { type: "words", label: "掌握詞數", icon: "word-stack" },
-  { type: "studyDays", label: "累計打卡", icon: "calendar-check" },
-];
-
-interface LeaderboardMember {
-  id: string;
-  name: string;
-  grade: StudentGrade;
-  classId: string | null;
-  classCode: ClassCode | null;
-  academicYearLabel: string;
-}
-
-interface CurrentEnrollmentContext {
-  academicYearLabel: string | null;
-  grade: StudentGrade | null;
-  classId: string | null;
-  classCode: ClassCode | null;
-}
 
 export class LeaderboardScopeUnavailableError extends Error {
   readonly scope: LeaderboardScope;
@@ -116,189 +115,276 @@ export class LeaderboardScopeUnavailableError extends Error {
   }
 }
 
-export function isLeaderboardScope(value: string): value is LeaderboardScope {
-  return (LEADERBOARD_SCOPES as readonly string[]).includes(value);
-}
-
-/** 純函數：從打卡日期集合計算連續天數（Duolingo 式，今天／昨天起點）。 */
-export function countLeaderboardStreak(dates: Set<string>): number {
-  const today = todayKey();
-  const yesterday = offsetDay(today, -1);
-  let cursor: string | null = null;
-  if (dates.has(today)) cursor = today;
-  else if (dates.has(yesterday)) cursor = yesterday;
-  else return 0;
-  let count = 0;
-  while (dates.has(cursor)) {
-    count++;
-    cursor = offsetDay(cursor, -1);
+export class WeeklyLeaderboardForbiddenError extends Error {
+  constructor(message = "LEADERBOARD_STUDENT_ONLY") {
+    super(message);
+    this.name = "WeeklyLeaderboardForbiddenError";
   }
-  return count;
 }
 
-/** 標準競賽排名：相同分值並列名次（1,1,3,...），同分 row 用 userId 穩定排序。 */
-export function rankLeaderboardEntries(
-  values: { userId: string; name: string; value: number }[],
-  me: string,
-): LeaderboardEntry[] {
-  const sorted = [...values].sort((a, b) => b.value - a.value || a.userId.localeCompare(b.userId));
-  const entries: LeaderboardEntry[] = [];
-  let prevValue: number | null = null;
-  let prevRank = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    const v = sorted[i];
-    const rank = v.value === prevValue ? prevRank : i + 1;
-    prevValue = v.value;
-    prevRank = rank;
-    entries.push({ rank, userId: v.userId, name: v.name, value: v.value, isMe: v.userId === me });
+export class WeeklyLeaderboardUnavailableError extends Error {
+  constructor(message = "LEADERBOARD_WEEK_UNAVAILABLE") {
+    super(message);
+    this.name = "WeeklyLeaderboardUnavailableError";
   }
-  return entries;
 }
 
-/** 截斷到 TOP_N，並確保當前用戶一定在列表內（不在則追加）。 */
-export function trimLeaderboardEntries(entries: LeaderboardEntry[]): LeaderboardEntry[] {
-  if (entries.length <= TOP_N) return entries;
-  const top = entries.slice(0, TOP_N);
-  if (top.some((e) => e.isMe)) return top;
-  const meEntry = entries.find((e) => e.isMe);
-  return meEntry ? [...top, meEntry] : top;
+export class WeeklyLeaderboardCursorError extends Error {
+  readonly stale: boolean;
+
+  constructor(message: "LEADERBOARD_CURSOR_INVALID" | "LEADERBOARD_SNAPSHOT_STALE", stale: boolean) {
+    super(message);
+    this.name = "WeeklyLeaderboardCursorError";
+    this.stale = stale;
+  }
 }
 
-export function chooseDefaultLeaderboardScope(context: Pick<CurrentEnrollmentContext, "classId" | "grade">): LeaderboardScope {
-  if (context.classId) return "class";
-  if (context.grade) return "grade";
-  return "school";
+export type WeeklyLeaderboardEntry = {
+  entryKey: string;
+  nickname: string;
+  rank: number | null;
+  isTied: boolean;
+  scoreMilliPoints: number;
+  isMe: boolean;
+  rankingState: WeeklyRankingState;
+};
+
+export type WeeklyDailyProgress = {
+  date: string;
+  active: boolean;
+  effortActivityCount: number;
+  firstCorrectSenseCount: number;
+  scoreMilliPoints: number;
+};
+
+export type WeeklyLeaderboardData = {
+  policyVersion: typeof STUDENT_WEEKLY_LEADERBOARD_POLICY_VERSION;
+  scope: LeaderboardScope;
+  view: LeaderboardView;
+  scopeContext: {
+    grade: StudentGrade;
+    classCode: ClassCode | null;
+    academicYearLabel: string;
+  };
+  week: WeeklyDateRange & { daysRemaining: number };
+  asOf: string;
+  snapshotToken: string;
+  participantCount: number;
+  rankedCount: number;
+  unrankedCount: number;
+  pendingReviewCount: number;
+  notice: "NONE" | "PARTIAL_COVERAGE";
+  personal: {
+    rank: number | null;
+    scoreMilliPoints: number;
+    score: number;
+    gapToNextMilliPoints: number | null;
+    gapToNext: number | null;
+    learningDays: number;
+    goal: {
+      targetDays: number;
+      completedDays: number;
+      reached: boolean;
+      eligibleDays: number;
+    };
+    scoreBreakdown: {
+      effort: number | null;
+      outcome: number | null;
+      total: number | null;
+    };
+    dailyProgress: WeeklyDailyProgress[];
+    rankingState: WeeklyRankingState;
+    coverage: "CHECKED" | "INCOMPLETE";
+  };
+  cumulative: {
+    studyDays: number;
+    masteredWords: number;
+  };
+  topEntries: WeeklyLeaderboardEntry[];
+  nearbyEntries: WeeklyLeaderboardEntry[];
+  page: {
+    entries: WeeklyLeaderboardEntry[];
+    nextCursor: string | null;
+    myPageCursor: string | null;
+  };
+};
+
+type WeeklyMember = RewardMember & {
+  classCode: ClassCode | null;
+  academicYearLabel: string;
+};
+
+type WeeklyContext = {
+  grade: StudentGrade;
+  classId: string | null;
+  classCode: ClassCode | null;
+  academicYearLabel: string;
+};
+
+type WeeklyCandidateWithReport = {
+  member: WeeklyMember;
+  candidate: WeeklyRankingCandidate;
+  report: ReturnType<typeof buildStudentReward>;
+};
+
+type WeeklyCursorPayload = {
+  v: 1;
+  subject: string;
+  scope: LeaderboardScope;
+  view: "all";
+  asOf: string;
+  expiresAt: string;
+  digest: string;
+  offset: number;
+};
+
+const WEEKLY_CURSOR_VERSION = 1 as const;
+const MAX_CURSOR_BYTES = 4096;
+const SHANGHAI_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function localDate(value: Date): string {
+  const parts = SHANGHAI_FORMATTER.formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function matchesScope(
-  member: Pick<LeaderboardMember, "grade" | "classId">,
-  scope: LeaderboardScope,
-  context: Pick<CurrentEnrollmentContext, "classId" | "grade">,
-): boolean {
+function tokenSecret() {
+  const secret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") throw new Error("NEXTAUTH_SECRET_REQUIRED");
+  return "development-only-student-weekly-leaderboard-secret";
+}
+
+function signToken(body: string) {
+  return createHmac("sha256", tokenSecret()).update("student-weekly-leaderboard-v1:").update(body).digest("base64url");
+}
+
+function encodeCursor(payload: WeeklyCursorPayload): string {
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${body}.${signToken(body)}`;
+}
+
+function decodeCursor(value: string, now = new Date()): WeeklyCursorPayload {
+  if (!value || Buffer.byteLength(value, "utf8") > MAX_CURSOR_BYTES) {
+    throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  }
+  const [body, signature] = value.split(".");
+  if (!body || !signature) throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  const left = Buffer.from(signature);
+  const right = Buffer.from(signToken(body));
+  if (left.length !== right.length || !timingSafeEqual(left, right)) {
+    throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  } catch {
+    throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  }
+  if (!payload || typeof payload !== "object") throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  const candidate = payload as Partial<WeeklyCursorPayload>;
+  const expiresAt = typeof candidate.expiresAt === "string" ? new Date(candidate.expiresAt) : new Date(0);
+  const asOf = typeof candidate.asOf === "string" ? new Date(candidate.asOf) : new Date(0);
+  if (candidate.v !== WEEKLY_CURSOR_VERSION || typeof candidate.subject !== "string" || !isLeaderboardScope(candidate.scope ?? "") || candidate.view !== "all" || typeof candidate.digest !== "string" || !Number.isInteger(candidate.offset) || (candidate.offset ?? -1) < 0 || Number.isNaN(expiresAt.getTime()) || expiresAt <= now || Number.isNaN(asOf.getTime()) || asOf > now) {
+    throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  }
+  return candidate as WeeklyCursorPayload;
+}
+
+function digestValue(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function entryKey(scope: LeaderboardScope, studentId: string) {
+  return createHmac("sha256", tokenSecret()).update("student-weekly-entry-v1:").update(scope).update(":").update(studentId).digest("base64url").slice(0, 22);
+}
+
+function subjectBinding(userId: string) {
+  return createHmac("sha256", tokenSecret()).update("student-weekly-subject-v1:").update(userId).digest("base64url");
+}
+
+function buildRewardRange(range: WeeklyDateRange): RewardRange {
+  return {
+    requestedFrom: range.start,
+    requestedTo: range.scoreTo,
+    from: range.effectiveFrom,
+    to: range.scoreTo,
+    rangeClamped: range.start !== range.effectiveFrom || range.scoreTo !== range.effectiveTo,
+    timezone: "Asia/Shanghai",
+  };
+}
+
+function scopeMatches(member: WeeklyMember, scope: LeaderboardScope, context: WeeklyContext) {
   if (scope === "school") return true;
-  if (scope === "grade") return context.grade !== null && member.grade === context.grade;
+  if (scope === "grade") return member.grade === context.grade;
   return context.classId !== null && member.classId === context.classId;
 }
 
-function zeroMetricSummaries(outOf = 0): Record<LeaderboardType, LeaderboardMetricSummary> {
+function toPublicEntry(scope: LeaderboardScope, me: string, entry: WeeklyRankedEntry): WeeklyLeaderboardEntry {
   return {
-    streak: { rank: null, value: null, outOf },
-    words: { rank: null, value: null, outOf },
-    studyDays: { rank: null, value: null, outOf },
+    entryKey: entryKey(scope, entry.studentId),
+    nickname: entry.nickname,
+    rank: entry.rank,
+    isTied: entry.isTied,
+    scoreMilliPoints: entry.scoreMilliPoints,
+    isMe: entry.studentId === me,
+    rankingState: entry.rankingState,
   };
 }
 
-function emptyOverview(
-  scope: LeaderboardScope,
-  context: CurrentEnrollmentContext,
-  reason: LeaderboardUnavailableReason,
-): LeaderboardScopeOverview {
-  return {
-    scope,
-    available: false,
-    participantCount: 0,
-    grade: scope === "class" || scope === "grade" ? context.grade : null,
-    classCode: scope === "class" ? context.classCode : null,
-    metrics: zeroMetricSummaries(),
-    unavailableReason: reason,
-  };
-}
-
-function buildOverview(
-  scope: LeaderboardScope,
-  members: LeaderboardMember[],
-  valuesByUser: Map<string, LeaderboardMetricValues>,
-  userId: string,
-  context: CurrentEnrollmentContext,
-): LeaderboardScopeOverview {
-  const rankedByType = new Map<LeaderboardType, LeaderboardEntry[]>();
-  for (const definition of LEADERBOARD_DEFINITIONS) {
-    const ranked = rankLeaderboardEntries(
-      members.map((member) => ({
-        userId: member.id,
-        name: member.name,
-        value: valuesByUser.get(member.id)?.[definition.type] ?? 0,
-      })),
-      userId,
-    );
-    rankedByType.set(definition.type, ranked);
-  }
-
-  const metrics = zeroMetricSummaries(members.length);
-  for (const definition of LEADERBOARD_DEFINITIONS) {
-    const me = rankedByType.get(definition.type)?.find((entry) => entry.isMe);
-    metrics[definition.type] = {
-      rank: me?.rank ?? null,
-      value: me?.value ?? null,
-      outOf: members.length,
-    };
-  }
-
-  return {
-    scope,
-    available: true,
-    participantCount: members.length,
-    grade: scope === "class" || scope === "grade" ? context.grade : null,
-    classCode: scope === "class" ? context.classCode : null,
-    metrics,
-  };
-}
-
-function buildLists(
-  members: LeaderboardMember[],
-  valuesByUser: Map<string, LeaderboardMetricValues>,
-  userId: string,
-): LeaderboardList[] {
-  return LEADERBOARD_DEFINITIONS.map((definition) => {
-    const ranked = rankLeaderboardEntries(
-      members.map((member) => ({
-        userId: member.id,
-        name: member.name,
-        value: valuesByUser.get(member.id)?.[definition.type] ?? 0,
-      })),
-      userId,
-    );
-    return {
-      ...definition,
-      entries: trimLeaderboardEntries(ranked),
-    };
+function makeCursor(input: { userId: string; scope: LeaderboardScope; asOf: Date; digest: string; offset: number }) {
+  const expiresAt = new Date(input.asOf.getTime() + STUDENT_WEEKLY_CURSOR_TTL_MS);
+  return encodeCursor({
+    v: WEEKLY_CURSOR_VERSION,
+    subject: subjectBinding(input.userId),
+    scope: input.scope,
+    view: "all",
+    asOf: input.asOf.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    digest: input.digest,
+    offset: input.offset,
   });
 }
 
-export async function getLeaderboard(
-  userId: string,
-  requestedScope?: LeaderboardScope,
-): Promise<LeaderboardData> {
-  const users = await prisma.user.findMany({
-    where: {
-      role: ROLES.STUDENT,
-      status: "ACTIVE",
-      studentProfile: {
-        is: {
-          enrollments: {
-            some: {
-              status: "ACTIVE",
-              academicYear: { status: "CURRENT" },
-            },
-          },
+function memberWhere() {
+  return {
+    role: ROLES.STUDENT,
+    status: "ACTIVE" as const,
+    studentProfile: {
+      is: {
+        enrollments: {
+          some: { status: "ACTIVE" as const, isCurrent: true, academicYear: { status: "CURRENT" as const } },
         },
       },
     },
+  };
+}
+
+async function readWeeklyMembers(db: Pick<typeof prisma, "user">) {
+  const rows = await db.user.findMany({
+    where: memberWhere(),
+    orderBy: [{ accountNameCanonical: "asc" }, { accountName: "asc" }, { id: "asc" }],
     select: {
       id: true,
+      accountName: true,
       studentProfile: {
         select: {
+          legalName: true,
           nickname: true,
           enrollments: {
-            where: {
-              status: "ACTIVE",
-              academicYear: { status: "CURRENT" },
-            },
-            orderBy: [{ academicYear: { startsOn: "desc" } }, { id: "asc" }],
+            where: { status: "ACTIVE", isCurrent: true, academicYear: { status: "CURRENT" } },
             take: 1,
+            orderBy: { id: "asc" },
             select: {
               grade: true,
               classId: true,
+              studentNumber: true,
+              startedAt: true,
               schoolClass: { select: { classCode: true } },
               academicYear: { select: { label: true } },
             },
@@ -307,173 +393,212 @@ export async function getLeaderboard(
       },
     },
   });
-
-  const members: LeaderboardMember[] = users.map((user) => {
-    const profile = user.studentProfile;
+  return rows.flatMap((row): WeeklyMember[] => {
+    const profile = row.studentProfile;
     const enrollment = profile?.enrollments[0];
-    if (!profile || !enrollment) {
-      throw new Error("ACTIVE_STUDENT_PROFILE_MISSING");
-    }
-    return {
-      id: user.id,
-      name: profile.nickname,
+    if (!profile || !enrollment) return [];
+    return [{
+      id: row.id,
+      accountName: row.accountName,
+      studentNumber: enrollment.studentNumber ?? null,
+      legalName: profile.legalName,
+      nickname: profile.nickname,
       grade: enrollment.grade,
       classId: enrollment.classId,
       classCode: enrollment.schoolClass?.classCode ?? null,
       academicYearLabel: enrollment.academicYear.label,
+      startedAt: enrollment.startedAt,
+    }];
+  });
+}
+
+async function readCurrentYear(db: Pick<typeof prisma, "academicYear">) {
+  const year = await db.academicYear.findFirst({
+    where: { status: "CURRENT" },
+    orderBy: [{ startsOn: "desc" }, { id: "asc" }],
+    select: { id: true, label: true, startsOn: true, endsOn: true },
+  });
+  if (!year) throw new WeeklyLeaderboardUnavailableError("LEADERBOARD_CURRENT_YEAR_UNAVAILABLE");
+  return year;
+}
+
+function groupActivity(activity: RewardLoadedActivity) {
+  const grouped = new Map<string, RewardLoadedActivity>();
+  const get = (userId: string): RewardLoadedActivity => {
+    const existing = grouped.get(userId);
+    if (existing) return existing;
+    const created: RewardLoadedActivity = { reviewEvents: [], encounters: [], studyDays: [] };
+    grouped.set(userId, created);
+    return created;
+  };
+  for (const event of activity.reviewEvents) get(event.userId).reviewEvents.push(event);
+  for (const encounter of activity.encounters) get(encounter.userId).encounters.push(encounter);
+  for (const day of activity.studyDays) get(day.userId).studyDays.push(day);
+  return grouped;
+}
+
+function rankingStateForReport(report: ReturnType<typeof buildStudentReward>): WeeklyRankingState {
+  if (report.total.coverage.validationGapCount > 0 || report.total.coverage.historyCoverage === "KNOWN_GAP") return "PENDING_REVIEW";
+  return report.total.scores?.weightedMilliPoints && report.total.scores.weightedMilliPoints > 0 ? "RANKED" : "UNRANKED";
+}
+
+function serializeDailyProgress(report: ReturnType<typeof buildStudentReward>, range: WeeklyDateRange): WeeklyDailyProgress[] {
+  const byDate = new Map(report.days.map((day) => [day.date, day]));
+  return daysBetweenKeys(range.effectiveFrom, range.effectiveTo).map((date) => {
+    const day = byDate.get(date);
+    return {
+      date,
+      active: Boolean(day?.eligible && day.effortActivityCount !== null && day.effortActivityCount > 0),
+      effortActivityCount: day?.eligible ? day.effortActivityCount ?? 0 : 0,
+      firstCorrectSenseCount: day?.eligible ? day.firstCorrectSenseCount ?? 0 : 0,
+      scoreMilliPoints: day?.eligible ? day.scores?.weightedMilliPoints ?? 0 : 0,
     };
   });
+}
 
-  const currentMember = members.find((member) => member.id === userId);
-  const context: CurrentEnrollmentContext = currentMember
-    ? {
-        academicYearLabel: currentMember.academicYearLabel,
-        grade: currentMember.grade,
-        classId: currentMember.classId,
-        classCode: currentMember.classCode,
-      }
-    : {
-        academicYearLabel: null,
-        grade: null,
-        classId: null,
-        classCode: null,
-      };
+function getScore(report: ReturnType<typeof buildStudentReward>) {
+  return report.total.scores?.weightedMilliPoints ?? 0;
+}
 
-  const defaultScope = chooseDefaultLeaderboardScope(context);
-  const scope = requestedScope ?? defaultScope;
-  const classAvailable = context.classId !== null;
-  const gradeAvailable = context.grade !== null;
-  if (scope === "class" && !classAvailable) {
-    throw new LeaderboardScopeUnavailableError(
-      scope,
-      context.grade ? "NO_CLASS" : "NO_CURRENT_ENROLLMENT",
-    );
-  }
-  if (scope === "grade" && !gradeAvailable) {
-    throw new LeaderboardScopeUnavailableError(scope, "NO_CURRENT_ENROLLMENT");
-  }
+async function buildWeeklySnapshot(input: { userId: string; scope?: LeaderboardScope; view: LeaderboardView; cursor?: string }) {
+  const cursorPayload = input.cursor ? decodeCursor(input.cursor) : null;
+  if (cursorPayload && input.view !== "all") throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  if (cursorPayload && cursorPayload.subject !== subjectBinding(input.userId)) throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  if (cursorPayload && input.scope && cursorPayload.scope !== input.scope) throw new WeeklyLeaderboardCursorError("LEADERBOARD_CURSOR_INVALID", false);
+  const asOf = cursorPayload ? new Date(cursorPayload.asOf) : new Date();
 
-  const participantIds = members.map((member) => member.id);
-  const [studyDays, reviews, objectiveEvents] = await Promise.all([
-    prisma.studyDay.findMany({
-      where: { userId: { in: participantIds } },
-      select: { userId: true, date: true },
-    }),
-    prisma.review.findMany({
-      where: { userId: { in: participantIds }, word: withCurrentCatalogWord() },
-      select: { userId: true, interval: true },
-    }),
-    prisma.reviewEvent.findMany({
-      where: { AND: [eligibleOperationalObjectiveEventWhere(), { userId: { in: participantIds } }] },
-      select: {
-        id: true,
-        operationId: true,
-        userId: true,
-        createdAt: true,
-        submittedWordId: true,
-        wordId: true,
-        senseId: true,
-        contentRevisionId: true,
-        catalogRevisionId: true,
-        isHistorical: true,
-        quality: true,
-        evidenceKind: true,
-        flowVersion: true,
-        qualityPolicyVersion: true,
-        itemConstructionVersion: true,
-        probePurpose: true,
-        objectiveEvidenceTargetId: true,
-        objectiveQuestionSnapshotId: true,
-        objectiveEvidenceTarget: {
-          select: {
-            id: true,
-            userId: true,
-            wordId: true,
-            senseId: true,
-            policyVersion: true,
-            itemConstructionVersion: true,
-            status: true,
-            purpose: true,
-            winningOperationId: true,
-            winningReviewEventId: true,
-            obligation: { select: { status: true } },
-            questionSnapshot: {
-              select: {
-                id: true,
-                targetId: true,
-                wordId: true,
-                senseId: true,
-                contentRevisionId: true,
-                catalogRevisionId: true,
-                contentVersion: true,
-                itemConstructionVersion: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-  ]);
-
-  const datesByUser = new Map<string, Set<string>>();
-  for (const studyDay of studyDays) {
-    const dates = datesByUser.get(studyDay.userId) ?? new Set<string>();
-    dates.add(studyDay.date);
-    datesByUser.set(studyDay.userId, dates);
-  }
-
-  const wordsByUser = new Map<string, number>();
-  for (const review of reviews) {
-    if (isMasteredByInterval(review.interval)) {
-      wordsByUser.set(review.userId, (wordsByUser.get(review.userId) ?? 0) + 1);
-    }
-  }
-
-  // Personal learning-day streaks remain in StudyDay for the dashboard. The
-  // leaderboard's scored streak is a separate projection and only counts
-  // provenance-complete V2 objective ledger events.
-  const objectiveDatesByUser = new Map<string, Set<string>>();
-  for (const event of objectiveEvents) {
-    if (!isEligibleOperationalObjectiveEvent({ ...event, eventKind: "REVIEW" })) continue;
-    const dates = objectiveDatesByUser.get(event.userId) ?? new Set<string>();
-    dates.add(todayKey(event.createdAt));
-    objectiveDatesByUser.set(event.userId, dates);
-  }
-
-  const valuesByUser = new Map<string, LeaderboardMetricValues>();
-  for (const member of members) {
-    valuesByUser.set(member.id, {
-      streak: countLeaderboardStreak(objectiveDatesByUser.get(member.id) ?? new Set()),
-      words: wordsByUser.get(member.id) ?? 0,
-      studyDays: datesByUser.get(member.id)?.size ?? 0,
+  const result = await prisma.$transaction(async (tx) => {
+    const [year, members] = await Promise.all([readCurrentYear(tx), readWeeklyMembers(tx)]);
+    const current = members.find((member) => member.id === input.userId);
+    if (!current) throw new WeeklyLeaderboardForbiddenError("LEADERBOARD_NO_CURRENT_ENROLLMENT");
+    const context: WeeklyContext = {
+      grade: current.grade,
+      classId: current.classId,
+      classCode: current.classCode,
+      academicYearLabel: current.academicYearLabel,
+    };
+    const requestedScope = input.scope ?? (cursorPayload?.scope ?? chooseDefaultLeaderboardScope(context));
+    if (requestedScope === "class" && context.classId === null) throw new LeaderboardScopeUnavailableError(requestedScope, "NO_CLASS");
+    if (requestedScope === "grade" && context.grade === null) throw new LeaderboardScopeUnavailableError(requestedScope, "NO_CURRENT_ENROLLMENT");
+    const today = todayKey(asOf);
+    const yearFrom = localDate(year.startsOn);
+    const yearTo = localDate(year.endsOn);
+    const week = buildWeeklyDateRange({ today, yearFrom, yearTo });
+    if (!week) throw new WeeklyLeaderboardUnavailableError();
+    const scoreRange = buildRewardRange(week);
+    const scopeMembers = members.filter((member) => scopeMatches(member, requestedScope, context));
+    if (!scopeMembers.length) throw new WeeklyLeaderboardUnavailableError("LEADERBOARD_SCOPE_EMPTY");
+    const activity = await loadRewardActivityForMembers(tx, {
+      memberIds: scopeMembers.map((member) => member.id),
+      from: scoreRange.from,
+      to: scoreRange.to,
+      asOf,
     });
-  }
+    const activityByUser = groupActivity(activity);
+    const reports = scopeMembers.map((member): WeeklyCandidateWithReport => {
+      const report = buildStudentReward({
+        member,
+        activity: activityByUser.get(member.id) ?? { reviewEvents: [], encounters: [], studyDays: [] },
+        range: scoreRange,
+        weights: STUDENT_WEEKLY_LEADERBOARD_WEIGHTS,
+      });
+      return {
+        member,
+        report,
+        candidate: {
+          studentId: member.id,
+          nickname: member.nickname,
+          scoreMilliPoints: getScore(report),
+          rankingState: rankingStateForReport(report),
+        },
+      };
+    });
+    const ranked = rankWeeklyEntries(reports.map((item) => item.candidate));
+    const byStudentId = new Map(reports.map((item) => [item.member.id, item]));
+    const meRanked = ranked.find((entry) => entry.studentId === input.userId);
+    if (!meRanked) throw new WeeklyLeaderboardForbiddenError("LEADERBOARD_STUDENT_NOT_IN_SCOPE");
+    const meReport = byStudentId.get(input.userId)?.report;
+    if (!meReport) throw new WeeklyLeaderboardForbiddenError("LEADERBOARD_STUDENT_REPORT_MISSING");
+    const rosterRevision = (await tx.rosterMutationState.findUnique({ where: { id: 1 }, select: { revision: true } }))?.revision ?? 0;
+    const digest = digestValue({
+      asOf: asOf.toISOString(),
+      scope: requestedScope,
+      week,
+      roster: ranked.map((entry) => [entry.studentId, entry.scoreMilliPoints, entry.rankingState, entry.rank]),
+      rosterRevision,
+    });
+    if (cursorPayload && cursorPayload.digest !== digest) throw new WeeklyLeaderboardCursorError("LEADERBOARD_SNAPSHOT_STALE", true);
+    const allEntries = ranked.map((entry) => toPublicEntry(requestedScope, input.userId, entry));
+    const rankedEntries = ranked.filter((entry) => entry.rank !== null);
+    const meIndex = ranked.findIndex((entry) => entry.studentId === input.userId);
+    const offset = cursorPayload?.offset ?? 0;
+    const pageEntries = input.view === "all" ? ranked.slice(offset, offset + STUDENT_WEEKLY_PAGE_SIZE) : [];
+    const eligibleDays = daysBetweenDateKeys(
+      meReport.total.eligibleFrom > week.effectiveFrom ? meReport.total.eligibleFrom : week.effectiveFrom,
+      week.effectiveTo,
+    ).length;
+    const score = meReport.total.scores?.weightedMilliPoints ?? 0;
+    const learningDays = meReport.total.activeDayCount;
+    const goalFrom = meReport.total.eligibleFrom > week.effectiveFrom ? meReport.total.eligibleFrom : week.effectiveFrom;
+    const targetDays = goalFrom <= week.effectiveTo ? weeklyGoalTargetDays(goalFrom, week.effectiveTo) : 0;
+    const gap = gapToNextWeeklyRank(ranked, input.userId);
+    const [studyDayCount, masteredReviews] = await Promise.all([
+      tx.studyDay.count({ where: { userId: input.userId } }),
+      tx.review.findMany({ where: { userId: input.userId, word: withCurrentCatalogWord() }, select: { interval: true } }),
+    ]);
+    const page = {
+      entries: pageEntries.map((entry) => toPublicEntry(requestedScope, input.userId, entry)),
+      nextCursor: offset + STUDENT_WEEKLY_PAGE_SIZE < ranked.length ? makeCursor({ userId: input.userId, scope: requestedScope, asOf, digest, offset: offset + STUDENT_WEEKLY_PAGE_SIZE }) : null,
+      myPageCursor: meIndex >= 0 ? makeCursor({ userId: input.userId, scope: requestedScope, asOf, digest, offset: Math.max(0, meIndex - 2) }) : null,
+    };
+    return {
+      policyVersion: STUDENT_WEEKLY_LEADERBOARD_POLICY_VERSION,
+      scope: requestedScope,
+      view: input.view,
+      scopeContext: { grade: context.grade, classCode: context.classCode, academicYearLabel: context.academicYearLabel },
+      week: { ...week, daysRemaining: daysBetweenDateKeys(today, week.effectiveTo).length },
+      asOf: asOf.toISOString(),
+      snapshotToken: makeCursor({ userId: input.userId, scope: requestedScope, asOf, digest, offset: 0 }),
+      participantCount: ranked.length,
+      rankedCount: rankedEntries.length,
+      unrankedCount: ranked.filter((entry) => entry.rankingState === "UNRANKED").length,
+      pendingReviewCount: ranked.filter((entry) => entry.rankingState === "PENDING_REVIEW").length,
+      notice: ranked.some((entry) => entry.rankingState === "PENDING_REVIEW") ? "PARTIAL_COVERAGE" : "NONE",
+      personal: {
+        rank: meRanked.rank,
+        scoreMilliPoints: score,
+        score: score / 1000,
+        gapToNextMilliPoints: gap,
+        gapToNext: gap === null ? null : gap / 1000,
+        learningDays,
+        goal: { targetDays, completedDays: Math.min(learningDays, targetDays), reached: learningDays >= targetDays, eligibleDays },
+        scoreBreakdown: scorePartsForDisplay(meReport.total.scores),
+        dailyProgress: serializeDailyProgress(meReport, week),
+        rankingState: meRanked.rankingState,
+        coverage: meReport.total.coverage.validationGapCount > 0 || meReport.total.coverage.historyCoverage === "KNOWN_GAP" ? "INCOMPLETE" : "CHECKED",
+      },
+      cumulative: { studyDays: studyDayCount, masteredWords: masteredReviews.filter((review) => review.interval >= 22).length },
+      topEntries: allEntries.filter((entry) => entry.rank !== null && entry.rank <= 3),
+      nearbyEntries: nearbyWeeklyEntries(ranked, input.userId).map((entry) => toPublicEntry(requestedScope, input.userId, entry)),
+      page,
+    } satisfies WeeklyLeaderboardData;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 60_000 });
+  return result;
+}
 
-  const membersForScope = (candidate: LeaderboardScope) =>
-    members.filter((member) => matchesScope(member, candidate, context));
-  const classMembers = classAvailable ? membersForScope("class") : [];
-  const gradeMembers = gradeAvailable ? membersForScope("grade") : [];
-  const schoolMembers = membersForScope("school");
+function daysBetweenDateKeys(from: string, to: string) {
+  const days: string[] = [];
+  for (let cursor = from; cursor <= to; cursor = offsetDay(cursor, 1)) days.push(cursor);
+  return days;
+}
 
-  const overview: Record<LeaderboardScope, LeaderboardScopeOverview> = {
-    class: classAvailable
-      ? buildOverview("class", classMembers, valuesByUser, userId, context)
-      : emptyOverview("class", context, context.grade ? "NO_CLASS" : "NO_CURRENT_ENROLLMENT"),
-    grade: gradeAvailable
-      ? buildOverview("grade", gradeMembers, valuesByUser, userId, context)
-      : emptyOverview("grade", context, "NO_CURRENT_ENROLLMENT"),
-    school: buildOverview("school", schoolMembers, valuesByUser, userId, context),
-  };
+export async function getWeeklyLeaderboard(input: { userId: string; scope?: LeaderboardScope; view?: LeaderboardView; cursor?: string }): Promise<WeeklyLeaderboardData> {
+  return buildWeeklySnapshot({ ...input, view: input.view ?? "summary" });
+}
 
-  return {
-    scope,
-    lists: buildLists(membersForScope(scope), valuesByUser, userId),
-    me: userId,
-    context: {
-      academicYearLabel: context.academicYearLabel,
-      grade: context.grade,
-      classCode: context.classCode,
-    },
-    overview,
-  };
+/** Small pure helper used by tests and UI previews. */
+export function weeklyDateWindowFor(now = new Date()) {
+  const today = todayKey(now);
+  const start = startOfLeaderboardWeek(today);
+  return { start, endExclusive: offsetDay(start, 7) };
 }

@@ -10,7 +10,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
-| [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) | 學生排行榜重設計計劃 | 待審批（Revision 2；純本地開發） | 本班每週學習分主榜、附近／完整排名、個人週目標；直接替換舊榜，已授權清空重建本地資料；含reward contract、API／snapshot及完整測試驗收，不含production工作 |
+| [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) | 學生排行榜重設計計劃 | 已完成（本地核心實作；原生視覺／大型DB效能列後續） | 本班每週學習分主榜、附近／完整排名、個人週目標；直接替換舊榜，已清空重建本地資料；含reward contract、API／snapshot及自動化驗收，不含production工作 |
 | [teacher-reward-summary-usability.md](./teacher-reward-summary-usability.md) | 教師體驗修改計劃 | 已完成（本地驗收；native screen-reader matrix deferred；production／pilot deferred） | 首頁首屏匯出入口、獨立學生累積分頁、三個累積結果及簡潔 Excel／CSV；已核對客觀作答全零的舊 fixture 根因，保留 strict provenance 驗證 |
 | [teacher-learning-reward-index.md](./teacher-learning-reward-index.md) | 實施計劃 | 進行中（Revision 2；使用者已批准；兩位 reviewer PASS） | 教師自訂投入／成效權重、每日及期間累積分、完整明細匯出；不設派分或已匯出扣除機制；20/5量尺及目前學年範圍已按批准方案實作；四項分支審核修正及針對性回歸完成，整體環境驗證仍有既有阻礙；production／pilot／destructive migration 仍 deferred |
 | [study-stream-consistency-and-recovery-audit.md](./study-stream-consistency-and-recovery-audit.md) | V2 集中審核修正 | 已完成（本地驗證；雙 reviewer PASS；push 後 hosted CI／production gate 待確認） | SCH-01 排程及新版恢復流程維持已關閉；CI-01 obligation 狀態測試已改為按原始 ID／狀態驗證，舊待同步列在本次部署確認不存在，維持 fail-closed 相容性限制 |
@@ -34,7 +34,7 @@
 | [csv-word-catalog-local-database-cutover.md](./csv-word-catalog-local-database-cutover.md) | 資料切換／實施計劃 | 進行中（Revision 3；正式 baseline reconciliation） | 以 A1–B2 sense-level CSV 取代 Markdown canonical seed，加入逐表 word→sense transition、V1 read-only compatibility、digest-bound 正式初始 ACTIVE／DRAFT 狀態、ACTIVE-only runtime、安全 public question contract及真實解鎖 demo；local reset 已完成，production rollout仍未授權 |
 | [teacher-workspace-roster-progress-redesign.md](./teacher-workspace-roster-progress-redesign.md) | 重設計計劃 | 已完成（Revision 5 local implementation／verification；external gates deferred） | `/teacher`只保留快速KPI及班級跟進摘要；`/teacher/analytics`集中詳細班級／學生分析；學生工作區用「學生名冊／學生進度」分頁，保留 `/teacher/progress` 相容入口；`npm run lint`、`npx tsc --noEmit`、`npm run build`通過；production deploy、full-scale及native device matrix仍 deferred |
 | [admin-user-directory-and-learning-analytics.md](./admin-user-directory-and-learning-analytics.md) | 實施計劃 | 進行中（student number／analytics export review） | 學號 migration、匯入／排序、教師／管理員顯示及 analytics CSV／XLSX 已實作；兩個獨立 reviewer 正進行全範圍收尾，production deploy、contract migration、VoiceOver／TalkBack及完整原生裝置QA deferred |
-| [student-leaderboard-scopes-and-overview.md](./student-leaderboard-scopes-and-overview.md) | 實施計劃 | 進行中 | 學生排行榜加入本班／全年級／全校範圍、入頁即見的個人排名概覽、responsive layout 及 staged demo fixture；local implementation，production deploy deferred |
+| [student-leaderboard-scopes-and-overview.md](./student-leaderboard-scopes-and-overview.md) | 實施計劃 | 已由 successor 取代 | 舊版本班／全年級／全校範圍及個人概覽記錄；現行學生榜請參閱 student-weekly-leaderboard-redesign.md |
 | [student-ui-fidelity-corrections.md](./student-ui-fidelity-corrections.md) | 修正計劃 | 已完成 | 修正 mobile 導覽、繁簡／品牌、學生頁 spacing 及認字卡 Prototype fidelity |
 | [study-header-floating-navigation.md](./study-header-floating-navigation.md) | 修正計劃 | 已完成 | 對齊認字頁 header，並把 mobile bottom navigation 改為 floating surface |
 | [student-desktop-layout-corrections.md](./student-desktop-layout-corrections.md) | 修正計劃 | 已完成 | 修正 desktop 認字卡置中、sticky 側欄帳戶控制、單元闖關寬版、首頁快捷卡高度及統計入口可見性；lint、typecheck、build 及 targeted browser geometry／study reveal tests 通過 |

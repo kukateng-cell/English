@@ -802,7 +802,7 @@ const encounterSelect = {
   },
 } as const;
 
-type RewardEncounter = GeneratedPrisma.StudyEncounterGetPayload<{ select: typeof encounterSelect }>;
+export type RewardEncounter = GeneratedPrisma.StudyEncounterGetPayload<{ select: typeof encounterSelect }>;
 
 export type RewardLoadedActivity = {
   reviewEvents: RewardReviewEvent[];
@@ -810,18 +810,36 @@ export type RewardLoadedActivity = {
   studyDays: Array<{ userId: string; date: string; createdAt: Date }>;
 };
 
-async function loadRewardActivity(db: Db, snapshot: RewardSnapshot): Promise<RewardLoadedActivity> {
-  if (!snapshot.members.length) return { reviewEvents: [], encounters: [], studyDays: [] };
-  const memberIds = snapshot.members.map((member) => member.id);
-  const from = atShanghaiStart(snapshot.range.from);
-  const to = atShanghaiEnd(snapshot.range.to);
-  const reviewEvents = await db.reviewEvent.findMany({ where: { userId: { in: memberIds }, createdAt: { gte: from, lt: to, lte: snapshot.asOf } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: MAX_REWARD_ACTIVITY_ROWS + 1, select: reviewEventSelect });
+/**
+ * Shared, bounded activity reader used by teacher reward reports and the
+ * student weekly leaderboard.  Authorization and cohort construction remain
+ * owned by each caller; this function only loads the already-authorized IDs
+ * and the explicit server-side date window.
+ */
+export async function loadRewardActivityForMembers(
+  db: Db,
+  input: { memberIds: readonly string[]; from: string; to: string; asOf: Date },
+): Promise<RewardLoadedActivity> {
+  if (!input.memberIds.length) return { reviewEvents: [], encounters: [], studyDays: [] };
+  const memberIds = [...input.memberIds];
+  const from = atShanghaiStart(input.from);
+  const to = atShanghaiEnd(input.to);
+  const reviewEvents = await db.reviewEvent.findMany({ where: { userId: { in: memberIds }, createdAt: { gte: from, lt: to, lte: input.asOf } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: MAX_REWARD_ACTIVITY_ROWS + 1, select: reviewEventSelect });
   if (reviewEvents.length > MAX_REWARD_ACTIVITY_ROWS) throw new Error("REWARD_SCOPE_TOO_LARGE");
-  const encounters = await db.studyEncounter.findMany({ where: { userId: { in: memberIds }, acknowledgedAt: { gte: from, lt: to, lte: snapshot.asOf } }, orderBy: [{ acknowledgedAt: "asc" }, { id: "asc" }], take: MAX_REWARD_ACTIVITY_ROWS + 1, select: encounterSelect });
+  const encounters = await db.studyEncounter.findMany({ where: { userId: { in: memberIds }, acknowledgedAt: { gte: from, lt: to, lte: input.asOf } }, orderBy: [{ acknowledgedAt: "asc" }, { id: "asc" }], take: MAX_REWARD_ACTIVITY_ROWS + 1, select: encounterSelect });
   if (encounters.length > MAX_REWARD_ACTIVITY_ROWS) throw new Error("REWARD_SCOPE_TOO_LARGE");
-  const studyDays = await db.studyDay.findMany({ where: { userId: { in: memberIds }, date: { gte: snapshot.range.from, lte: snapshot.range.to }, createdAt: { lte: snapshot.asOf } }, orderBy: [{ date: "asc" }, { id: "asc" }], take: MAX_REWARD_ACTIVITY_ROWS + 1, select: { userId: true, date: true, createdAt: true } });
+  const studyDays = await db.studyDay.findMany({ where: { userId: { in: memberIds }, date: { gte: input.from, lte: input.to }, createdAt: { lte: input.asOf } }, orderBy: [{ date: "asc" }, { id: "asc" }], take: MAX_REWARD_ACTIVITY_ROWS + 1, select: { userId: true, date: true, createdAt: true } });
   if (studyDays.length > MAX_REWARD_ACTIVITY_ROWS) throw new Error("REWARD_SCOPE_TOO_LARGE");
   return { reviewEvents, encounters, studyDays };
+}
+
+async function loadRewardActivity(db: Db, snapshot: RewardSnapshot): Promise<RewardLoadedActivity> {
+  return loadRewardActivityForMembers(db, {
+    memberIds: snapshot.members.map((member) => member.id),
+    from: snapshot.range.from,
+    to: snapshot.range.to,
+    asOf: snapshot.asOf,
+  });
 }
 
 type GroupedRewardActivity = {

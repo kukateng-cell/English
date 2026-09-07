@@ -171,6 +171,36 @@ export default defineConfig({
       },
     },
     {
+      name: "weekly-leaderboard-chromium",
+      testMatch: /weekly-leaderboard\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
+      name: "weekly-leaderboard-mobile",
+      testMatch: /weekly-leaderboard\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
+      name: "weekly-leaderboard-webkit",
+      testMatch: /weekly-leaderboard\.spec\.ts/,
+      dependencies: ["auth-setup-webkit"],
+      use: {
+        ...devices["Desktop Safari"],
+        viewport: { width: 1440, height: 900 },
+        storageState: "test-results/.auth/student-webkit.json",
+      },
+    },
+    {
       name: "study-card-fidelity-chromium",
       testMatch: /study-card-fidelity\.spec\.ts/,
       dependencies: ["auth-setup-chromium"],

@@ -85,7 +85,9 @@ Objective Probe：
 ### Self-rating 嘅資料語義
 
 - 「一樣／不一樣」只係學生對剛才心內答案嘅 self-rating／operational encounter。
-- Self-rating 唔直接寫 scored `ReviewEvent`，唔直接更新 SM-2、mastery、排行榜或單元解鎖。
+- Self-rating 唔直接寫 scored `ReviewEvent`，唔直接更新 SM-2、mastery、既有客觀排行榜或單元解鎖；
+  dated successor `student-weekly-v1` 可以把已確認 Learning Card 納入獨立投入 projection，
+  self-rating 值本身不影響分數，亦不寫入 learner state。
 - 唔可以將呢兩個操作改名或解讀成「我會／還不會」並直接當客觀成績。
 
 ## 五、Objective Probe 最終互動及計分

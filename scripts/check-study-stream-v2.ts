@@ -32,7 +32,7 @@ async function main() {
   const { getStudentDashboard, getStudentLearningMetrics } = await import("../src/lib/student-metrics");
   const { fetchUnitProgress } = await import("../src/lib/unit-progress-server");
   const { cleanupExpiredStudySessions, STUDY_SESSION_RETENTION_MS } = await import("../src/lib/study-session-server");
-  const { getLeaderboard } = await import("../src/lib/leaderboard");
+  const { getWeeklyLeaderboard } = await import("../src/lib/leaderboard");
   const { todayKey } = await import("../src/lib/streak");
   const { authOptions, validateAuthTokenVersion } = await import("../src/lib/auth");
   const suffix = randomUUID();
@@ -1427,8 +1427,8 @@ async function main() {
     assert.equal(unitSummaryAfter.unitSummary?.objectiveRecognitionCount, 1);
     assert.ok((unitSummaryAfter.unitSummary?.encounteredWordCount ?? 0) > 0);
 
-    // A personal learning day is not a scored leaderboard streak. This
-    // fixture has a StudyDay but no provenance-complete objective event.
+    // A personal learning day is not a scored weekly leaderboard activity.
+    // This fixture has a StudyDay but no provenance-complete reward event.
     const studyDayOnlyUser = await prisma.user.create({
       data: {
         accountName: `codex-study-day-only-${suffix}`,
@@ -1931,13 +1931,11 @@ async function main() {
     assert.equal(secondLongHistoryRow.wordId, longHistoryTarget.id);
     assert.equal(secondLongHistoryRow.selectionReason, "unverified-contact");
 
-    const leaderboard = await getLeaderboard(user.id);
-    const scoredStreak = leaderboard.lists.find((list) => list.type === "streak");
-    assert.equal(scoredStreak?.label, "客觀認讀連續天數");
-    assert.equal(scoredStreak?.entries.find((entry) => entry.userId === user.id)?.value, 1);
-    const studyDayOnlyLeaderboard = await getLeaderboard(studyDayOnlyUser.id);
-    const studyDayOnlyStreak = studyDayOnlyLeaderboard.lists.find((list) => list.type === "streak");
-    assert.equal(studyDayOnlyStreak?.entries.find((entry) => entry.userId === studyDayOnlyUser.id)?.value, 0);
+    const leaderboard = await getWeeklyLeaderboard({ userId: user.id, scope: "school", view: "summary" });
+    assert.ok(leaderboard.personal.scoreMilliPoints > 0);
+    const studyDayOnlyLeaderboard = await getWeeklyLeaderboard({ userId: studyDayOnlyUser.id, scope: "school", view: "summary" });
+    assert.equal(studyDayOnlyLeaderboard.personal.scoreMilliPoints, 0);
+    assert.equal(studyDayOnlyLeaderboard.personal.rankingState, "PENDING_REVIEW");
 
     // The dual-flow window must support one learner using both the legacy
     // review route and the V2 stream without sharing item identity. The global

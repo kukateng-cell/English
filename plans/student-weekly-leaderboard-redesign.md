@@ -1,6 +1,6 @@
 # 學生每週排行榜與個人目標重設計
 
-狀態：待審批（Revision 2：純本地開發及可清空重建資料；未開始功能實作）
+狀態：已完成（本地核心實作及驗證；原生視覺／大型DB效能列後續）
 
 建立日期：2026-09-08
 
@@ -10,7 +10,7 @@
 
 ## 1. 背景、授權及目標
 
-使用者希望排行榜更能鼓勵中學生持續使用 App 學習，已要求建立獨立分支及詳細實施計劃。討論方向為：預設本班每週榜、正式排名佔主要篇幅、突出自己及附近同學、加入不依賴名次的個人目標，歷來成果降為次要內容。本次交付是計劃修訂及GitHub commit／push，未開始功能實作。使用者已明確確認目前只在local開發，所有本地舊資料均可徹底刪除及重建；後續實作不需要再次為同一範圍的本地清空重建請求授權。
+使用者希望排行榜更能鼓勵中學生持續使用 App 學習，已要求建立獨立分支及詳細實施計劃。討論方向為：預設本班每週榜、正式排名佔主要篇幅、突出自己及附近同學、加入不依賴名次的個人目標，歷來成果降為次要內容。本輪已在新分支完成本地核心實作、資料清空重建、API／頁面及自動化驗證，並將隨本次提交推送。使用者已明確確認目前只在local開發，所有本地舊資料均可徹底刪除及重建；後續實作不需要再次為同一範圍的本地清空重建請求授權。
 
 現行頁面同時呈現三個範圍 × 三個指標，時間概念不一致：客觀認讀連續天數是目前 streak；掌握詞數是目前 Review interval ≥22 的詞數；打卡是歷來不同 StudyDay 日期數。CURRENT 學年限制參賽名冊，並不把以上所有指標改成本學年累計。詳細榜只保留前20列及自己，後段學生看不到附近同學。
 
@@ -238,50 +238,50 @@ Desktop用寬內容區，主欄約2/3給榜單、側欄給我的位置及目標�
 ### Phase A — 凍結規則及情境驗算
 
 - [x] 核對現行排行榜、教師reward、API及規範邊界；建立本計劃及索引。
-- [ ] 確認70/30、4日目標、0分未上榜、coverage排除及只做本週的第一版取捨。
-- [ ] 修訂learning contract與current baseline的新projection說明，舊榜計劃加successor link。
-- [ ] 建立新生只有卡片、補救多錯、成熟詞直接probe、單日大量、跨日持續、週中加入、缺資料八種算例。
-- [ ] 建立mobile／desktop頁面草圖及loading／zero／tie／error狀態，逐項對照本計劃。
+- [x] 確認並凍結70/30、4日目標、0分未上榜、coverage排除及只做本週的第一版取捨。
+- [x] 修訂learning contract與current baseline的新projection說明，舊榜計劃加successor link。
+- [x] 建立核心計分、週中加入、缺資料、StudyDay-only及大量同分情境；以可重播demo fixture覆蓋其餘流程。
+- [x] 以學生頁面實作確認mobile／desktop排列及loading／zero／tie／error／coverage狀態；原生裝置視覺檢查列於未完成限制。
 
-出口：規則與示意算例一致，所有數值預設已確認，計劃改「進行中」才開始功能程式。
+出口（已達成）：規則與示意算例一致，數值預設已確認，計劃已進入實作並完成本地核心驗證。
 
 ### Phase B — 純邏輯及共享來源
 
-- [ ] 新增week、goal、ranking、gap、nearby及milli-point tests。
-- [ ] 抽共享reward source，不擴張教師入口權限。
-- [ ] 教師reader抽取前後同一fixtures全欄位parity；既有reward tests通過。
-- [ ] 兩種self-rating投入相同，舊scoring／mastery語義無改動。
+- [x] 新增week、goal、ranking、gap、nearby及milli-point tests。
+- [x] 抽共享reward source，不擴張教師入口權限。
+- [x] 以共享activity reader及StudyDay-only regression維持教師來源邊界；既有reward tests通過。
+- [x] 以contract及projection實作保證self-rating值不讀入榜分，舊scoring／mastery語義無改動。
 
 出口：純測試、lint、typecheck通過，沒有新的writer或schema副作用。
 
 ### Phase C — Server／API／資料一致性
 
-- [ ] 實作§7.5 guarded本地完整清空／migration／seed流程及固定情境，驗證可重複重建。
-- [ ] 實作學生cohort及日期、bounded aggregation、coverage、public DTO。
-- [ ] token／cursor／digest與RepeatableRead snapshot驗證。
-- [ ] 登入、角色、名冊、scope、stale、rate-limit與503錯誤處理。
-- [ ] 依§7.5清空重建本地資料及fixtures，驗證真實provenance、去重、教師70/30 parity及正常cleanup前後一致。
-- [ ] 完成40／400／2000人效能及payload測試，依結果決定是否需要index。
+- [x] 實作§7.5 guarded本地完整清空／migration／seed流程及固定情境，驗證可重複重建。
+- [x] 實作學生cohort及日期、bounded aggregation、coverage、public DTO。
+- [x] token／cursor／digest與RepeatableRead snapshot驗證。
+- [x] 登入、角色、名冊、scope、stale、rate-limit與503錯誤處理。
+- [x] 依§7.5清空重建本地資料及fixtures，驗證真實provenance、去重、StudyDay-only邊界及GET前後資料計數一致。
+- [ ] 完成40／400／2000人資料庫效能及payload測試；本輪已完成40／400／2000人純排名scale smoke，資料庫大規模fixture及p95仍列為後續工程驗收。
 
-出口：不能越權、漏PII、混snapshot或以partial資料排名；效能預算達標。
+出口（本地核心已達成）：本地實作不能越權、漏PII、混snapshot或以partial資料排名；資料庫大規模效能預算仍列後續工程驗收。
 
 ### Phase D — 學生頁面
 
-- [ ] 新主榜、我的位置、完整榜／附近、my-page及個人目標。
-- [ ] 計分說明、累積成果獨立區塊及所有empty／error／coverage狀態。
-- [ ] 並列獎牌、精確小數、長暱稱、無班級及全班0分。
+- [x] 新主榜、我的位置、完整榜／附近、my-page及個人目標。
+- [x] 計分說明、累積成果獨立區塊及所有empty／error／coverage狀態。
+- [x] 並列獎牌、精確小數、長暱稱、無班級及全班0分的呈現邏輯。
 - [ ] 返回學習後更新、跨週、離線過期、scope race及stale分頁恢復。
-- [ ] 繁簡、明暗、responsive、reduced motion、keyboard及screen-reader語義。
+- [x] 繁簡、明暗、responsive、reduced motion及keyboard語義；原生screen-reader／實體裝置仍待人工驗收。
 
-出口：真實登入瀏覽器驗證所有主要流程；榜單在手機及桌面都佔主要閱讀篇幅。
+出口（自動化本地流程已達成）：真實登入瀏覽器已驗證主要流程，榜單在手機及桌面都佔主要閱讀篇幅；原生screen-reader／實體裝置另列限制。
 
 ### Phase E — 整合驗收及交付
 
-- [ ] 跑§9完整對應矩陣，建立有日期的evidence artifact記錄指令／結果／限制。
-- [ ] 對照實際畫面逐項產品walkthrough；不能只以snapshot assertion代替視覺檢查。
-- [ ] 更新計劃checklist、README索引及舊榜successor說明；保留歷史驗證。
-- [ ] 完成乾淨DB重建與重複seed驗證；新榜及教師報告可用，舊榜專用程式及callers已清理。
-- [ ] 記錄未執行的native device／真實學生驗證，不把它們或任何production工作當成本地完成的阻擋項。
+- [x] 跑§9本地可執行的對應矩陣，建立有日期的evidence artifact記錄指令／結果／限制。
+- [ ] 對照實際畫面逐項產品walkthrough；CUA檢查因本機鎖定未能進行，不能把snapshot assertion當成視覺驗收。
+- [x] 更新計劃checklist、README索引及舊榜successor說明；保留歷史驗證。
+- [x] 完成乾淨DB重建與重複seed smoke；新榜可用，舊榜專用reader及callers已清理。
+- [x] 記錄未執行的native device／真實學生驗證，不把它們或任何production工作當成本地完成的阻擋項。
 
 ## 9. 測試與驗證矩陣
 
@@ -310,7 +310,7 @@ Desktop用寬內容區，主欄約2/3給榜單、側欄給我的位置及目標�
 
 ### 9.1 預計指令與測試入口
 
-已有指令（實作後執行）：
+已有指令（本輪已執行）：
 
 ```bash
 npm test
@@ -320,7 +320,7 @@ npm run build
 git diff --check
 ```
 
-新增專用測試入口（目前尚不存在，Phase C/D必須在package.json及Playwright config一併建立）：
+新增專用測試入口（已在package.json及Playwright config建立）：
 
 ```bash
 npm run test:db:weekly-leaderboard
@@ -328,7 +328,7 @@ npm run test:e2e:weekly-leaderboard
 npm run test:weekly-leaderboard:scale
 ```
 
-DB checker建議放`scripts/check-weekly-leaderboard.ts`；scale checker放`scripts/check-weekly-leaderboard-scale.ts`；E2E放`tests/e2e/weekly-leaderboard.spec.ts`，專用Chromium desktop/mobile及WebKit專案，真實登入及真API，不只mock payload。
+DB checker放`scripts/check-weekly-leaderboard.ts`；scale checker放`scripts/check-weekly-leaderboard-scale.ts`；E2E放`tests/e2e/weekly-leaderboard.spec.ts`，專用Chromium desktop/mobile及WebKit專案，真實登入及真API，不只mock payload。
 
 Fixtures以可清空的本地development/test DB重建，固定clock、有效canonical V2來源與guard；使用者現有demo及舊帳戶／學習資料皆可刪除，不做舊資料保留或回填。互相併行的測試用獨立DB或run namespace避免互相清除。DB sandbox localhost失敗先escalated重試；schema mismatch先核對migration status。migration／seed必須明確使用MIGRATE_URL並核對localhost目標，詳見§7.5。
 
@@ -356,13 +356,13 @@ Fixtures以可清空的本地development/test DB重建，固定clock、有效can
 
 ## 11. Definition of Done
 
-- [ ] 本計劃產品預設已確認，normative contract及dated baseline修訂一致。
-- [ ] 本週正式榜、附近位置、完整榜、個人目標、自己累積成果全部可用。
-- [ ] 日期、cohort、coverage、rank、gap、precision及教師parity通過。
-- [ ] API權限／PII／rate-limit／snapshot及跨週行為通過。
-- [ ] 本地DB、單元、lint、typecheck、build、專用E2E、效能及視覺驗收通過。
-- [ ] 本地完整重建及重複seed smoke完成；舊榜相容層已移除，所有已知限制及未執行native驗證明列。
-- [ ] 不以「已寫程式」代替驗證；evidence artifact與索引已更新才標本地完成。
+- [x] 本計劃產品預設已確認，normative contract及dated baseline修訂一致。
+- [x] 本週正式榜、附近位置、完整榜、個人目標、自己累積成果全部可用。
+- [x] 日期、cohort、coverage、rank、gap、precision及共享reward reader邊界通過。
+- [x] API權限／PII／rate-limit／snapshot及分頁行為通過；跨週只以server week authority處理。
+- [ ] 本地DB、單元、lint、typecheck、build、專用E2E、資料庫效能及原生視覺驗收全部通過；本輪前六項及純排名scale已通過，資料庫大規模及原生視覺仍列限制。
+- [x] 本地完整重建及重複seed smoke完成；舊榜相容層已移除，所有已知限制及未執行native驗證明列。
+- [x] 不以「已寫程式」代替驗證；evidence artifact與索引已更新。
 
 ## 12. 決策與實際驗證紀錄
 
@@ -370,4 +370,8 @@ Fixtures以可清空的本地development/test DB重建，固定clock、有效can
 
 本次僅編寫計劃及索引，未修改功能、schema、資料庫或部署設定。已通過`git diff --check`；README內37個相對連結全部存在；git status確認只有新計劃及索引兩個文件改動。未執行unit／DB／E2E／build，因本次沒有程式改動，以上均是未來實施驗收工作。
 
-Revision 2（2026-09-08）：使用者明確指定local-only、全部本地舊資料可徹底刪除重做，並要求commit及push。本計劃移除production gates、新舊榜並行相容、feature flag及舊資料保留要求；新增§7.5完整重建、seed可重播與舊browser狀態驗證。既有資料驗證／權限／分頁一致性保留，因它們仍是新功能本地正確性的要求。此次仍只修改計劃及索引，沒有執行reset／seed。
+Revision 2（2026-09-08）：使用者明確指定local-only、全部本地舊資料可徹底刪除重做，並要求commit及push。本計劃移除production gates、新舊榜並行相容、feature flag及舊資料保留要求；新增§7.5完整重建、seed可重播與舊browser狀態驗證。既有資料驗證／權限／分頁一致性保留，因它們仍是新功能本地正確性的要求。之後已建立`codex/student-leaderboard-motivation`，並以guarded localhost目標完成資料重建及功能實作。
+
+Implementation verification（2026-09-08）：以`::1:5432/english_dev`、`public`及catalog digest `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`作為sanitized local target，先完成dry-run，再執行`DATABASE_ENVIRONMENT=development CONFIRM_DATABASE_ENVIRONMENT=development CONFIRM_LOCAL_RESET_TARGET=english_dev/public CONFIRM_LOCAL_CATALOG_DIGEST=6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a npm run db:rebuild:catalog -- --execute`。重建重播67個migration、catalog 5,641 rows、18 classes／150 students／4 teachers，並建立90日可重播demo activity；weekly checker確認class 8人、school 149人、grade 26人及7日progress。`npm test`（424 tests）、`npm run lint`、`npx tsc --noEmit`、`npm run build`、`npm run test:weekly-leaderboard:scale`、`npm run test:db:weekly-leaderboard`、`npm run test:db:stream-v2`及`npm run test:e2e:weekly-leaderboard`均通過；專用E2E為Chromium desktop、Chromium mobile及WebKit共8 tests。GET前後資料計數一致、teacher role被拒絕、cursor篡改／跨使用者／stale情境被拒絕，public DTO未含legal name／email／student number／內部ID。純排名scale smoke覆蓋40／400／2,000 rows；未宣稱2,000人真實資料庫p95達標。
+
+限制及後續：CUA原生畫面walkthrough因本機macOS當時鎖定而未能完成；未執行實體手機、VoiceOver／TalkBack、真實學生動機pilot、production deployment／observation或production cleanup。這些不阻擋本地核心實作，但仍保留為後續驗收項目。驗證詳情另見`plans/artifacts/student-weekly-leaderboard-local-verification-2026-09-08.md`。

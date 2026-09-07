@@ -259,6 +259,7 @@ mastery、remediation 或正常 scheduler state；feedback／retention 由 appro
 | personal learning-day streak | 現行 `Asia/Shanghai` operational calendar rules | research upload 成功與否 |
 | leaderboard scored streak | 只使用合資格 objective ledger | 只有 Learning Encounter 嘅日子 |
 | 教師學習累積分 `reward-v1` | 獨立 projection：合資格 acknowledged Learning Card 加合資格 operational Objective Probe；每日按 `Ud`／`Cd` 及教師權重計分 | self-rating、reveal、research／diagnostic、legacy／缺 provenance、mastery／unit unlock／排行榜狀態 |
+| 學生每週排行榜 `student-weekly-v1` | 以同一 `reward-v1` activity reader 產生本週 read-only projection；合資格已確認 Learning Card／first Objective Probe 計投入，當日每詞義第一個客觀答對計成果，固定投入70%／成果30% | self-rating 值、reveal／swipe、research／diagnostic、legacy／缺 provenance、mastery／unit unlock、速度及登入時長；不寫入 learner state |
 
 Dashboard 文案要講清楚 denominator；例如只有兩題 probe 時，不用 100% 放大暗示長期掌握。
 現有來源不明嘅 `REVIEW` rows 保留 SM-2／歷史 continuity，但標為 `LEGACY_UNKNOWN`，唔進
@@ -273,6 +274,14 @@ streak 分名、分欄、分 projection，避免右滑間接加排行榜。
 同一個成功 probe 可以同時計入投入及成效兩條軸；raw count、credited count、coverage／validation
 status 必須分開保留。教師可自訂投入／成效權重，但不改動任何 learner state；首版只查目前學年及目前
 在籍 cohort，唔聲稱可還原歷史學年班籍。
+
+`student-weekly-v1` 係學生公開榜嘅獨立 read-only projection，固定採用上述 `reward-v1` 活動分類、
+每日上限及 `Asia/Shanghai` 日期，但權重固定為投入70%／成果30%，每週一重新開始。已確認完成嘅
+Learning Card 可以產生投入分；`selfForgot` 同 `selfRecalled` 對同一合資格活動得到相同投入分。
+只有 Objective Probe first response 先可以產生成果分及 scored ReviewEvent；排行榜讀取唔會寫入
+Review、SM-2、mastery、unit unlock 或任何新的學習事件。週榜分數只描述該週符合政策嘅活動，唔係
+英語能力、正確率或長期掌握度。學生版以當前有效名冊、當週 bounded activity、coverage 狀態及
+短期 signed snapshot 排名；待核對紀錄不給正式名次。
 
 ## 八、中斷、續接及跨裝置
 
