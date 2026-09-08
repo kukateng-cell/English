@@ -158,7 +158,7 @@ hash／簽章資料、CSV／manifest、測試中的簡體輸入／預期輸出�
 - [x] 更新 README／AGENTS／DEPLOY，建立四份短指南；正文不再重複多輪歷史。
 - [ ] 索引按現行／未完成／暫緩／歷史分區，逐項核對過時狀態。
 - [x] 根目錄、現行指南及設定說明繁體化；V1 明確標為待退役直至實作完成。
-- [ ] 先加入離線本地 Markdown 路徑／anchor 檢查，再開始搬檔；不以 `|| true` 吞掉內部連結錯誤。
+- [x] 先加入離線本地 Markdown 路徑／anchor 檢查，再開始搬檔；不以 `|| true` 吞掉內部連結錯誤。
 - [ ] 完成第 8.1 節第一次 clean-clone 演練並修正文檔卡點；未完成獨立接手演練，不把 P1 標為完成。
 
 ### P2：歷史文件與視覺證據歸位
@@ -339,7 +339,8 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 `ee17953d6349470b3e2a21de07c11b1b2db083ce524b5e888206ed0b309ef3eb`；整頓提交不包含它。
 開始 P1 文件入口實作後，新增 `docs/current-product.md`、`docs/architecture.md`、
 `docs/development.md`、`docs/testing.md`，更新 README／AGENTS／DEPLOY／`.env.example`，
-加入 `scripts/check-markdown-links.mjs` 並接入 Markdown workflow；P1 尚未完成 clean-clone 演練及索引分區。
+加入 `scripts/check-markdown-links.mjs` 並接入 Markdown workflow；快速閱讀分區已加入，
+完整索引的逐項狀態覆核及 clean-clone 演練仍未完成。
 本次檔案／計劃驗證：`npm test` 429 passed、`npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（58 files）、
 `git diff --check` passed。未執行 production build、DB／migration、完整 browser、native device 或 performance suites。

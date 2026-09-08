@@ -6,7 +6,37 @@
 
 本文及本目錄其他文件內的程式路徑，除非另有說明，均相對 repository root。
 
-## 計劃書索引
+## 快速閱讀分區
+
+新人先按以下次序閱讀，毋須由最早的 implementation plan 開始逐份翻查：
+
+### 現行產品與開發規範
+
+- [現行產品概覽](../docs/current-product.md)：目前學生、教師、管理員功能及已知限制。
+- [系統架構導覽](../docs/architecture.md)：頁面、API、服務、交易及資料邊界。
+- [本地開發指南](../docs/development.md)：環境、資料庫、seed、demo 及常用指令。
+- [測試指南](../docs/testing.md)：改動範圍與必要驗證的對照表。
+- [Retrieval-first V2 Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)：V2 現況證據及未完成 external gates。
+- [Retrieval-first Learning Contract](./retrieval-first-learning-contract.md)：學生流程及學習證據的規範性語義。
+
+### 目前進行中
+
+- [項目整理、重構與學生交接](./project-consolidation-and-student-handoff.md)：本分支的主線工作；目前處於 P1 文件入口階段。
+- [教師學習／獎勵索引](./teacher-learning-reward-index.md)：本地功能已實作，整體環境驗證及 external gates 仍待處理。
+- [詞庫問題指引及選擇版面修正](./catalog-issue-guidance-and-selection-layout-corrections.md)：匯出格式修訂已完成，完整 viewport matrix 仍待執行。
+- [CSV 詞庫本地資料庫切換](./csv-word-catalog-local-database-cutover.md)：local baseline reconciliation 進行中，production rollout 未獲授權。
+- [管理員目錄及學習分析](./admin-user-directory-and-learning-analytics.md)：student number／analytics export review 進行中，production 及原生裝置驗證另列 deferred。
+
+### 暫緩或需要額外授權
+
+- [研究學習框架](./research-learning-framework.md)：research feature 維持關閉，未獲 consent／privacy／telemetry 批准前不啟動。
+- 各計劃內標示的 production deploy、destructive migration、真實學生 pilot、完整原生 screen-reader／device matrix，均須按該計劃重新確認，不能因 local PASS 自動視為完成。
+
+### 已完成與歷史記錄
+
+下方完整索引保留每份計劃的決策、驗收證據及未執行項目。標示「已完成」只代表該文件所述的本地範圍；標示「已取代」的文件仍保留作歷史參考，現行行為以新人指南、程式、測試及 schema 為準。
+
+## 完整計劃書索引（保留歷史記錄）
 
 維護審視：[2026-09-08 項目整理、重構與學生交接報告](./artifacts/project-maintainability-audit-2026-09-08.md)。
 這是全庫結構盤點及分階段建議，分析已完成；尚未實施重構，不取代現行產品規範或既有計劃。

@@ -9,7 +9,7 @@ English 是面向中文學校中學生的英語詞彙認讀平台。現行產品
 - 唯一現行開發主線：`codex/project-consolidation-and-student-handoff`
 - 項目整頓現正進行 P1 文件入口；歷史盤點及修訂記錄見[整頓計劃](plans/project-consolidation-and-student-handoff.md)
 - Global `/study` 是 continuous stream，沒有固定完成題數
-- 產品方向只保留 V2；V1 退役仍待 P4 實施及驗收，並不代表保留 rollback
+- 產品方向不保留 rollback；V1 退役仍待 P4 實施及驗收
 - Production deploy、真實學生 pilot、research telemetry／consent、完整原生裝置驗收及 destructive cleanup 尚未執行
 
 ## 學生流程

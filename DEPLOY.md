@@ -89,7 +89,7 @@ V1 退役前的舊 assignment 設定只屬過渡檢查，不代表產品方向�
 6. migration、deployment、post-deploy smoke 及 observation 結果保留 SHA、時間、操作者和未完成事項。
 
 完整 quality matrix 目前由 `card-motion.yml` 的 `Required quality gate` 匯總；主線 protection、default branch、
-required checks 的遠端狀態另按整頓計劃 P8.6 核對，未核實前不把設定寫成完成。
+required checks 的遠端狀態另按整頓計劃第 8.6 節核對，未核實前不把設定寫成完成。
 
 ## Production 環境變數
 
