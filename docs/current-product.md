@@ -43,8 +43,9 @@ Unit mode 可以限制詞集，仍使用同一張卡片、題目、續接及 ser
 
 ## 目前仍要知道的事
 
-這條分支的目標是只保留 V2。`/study` 及 V2 stream routes 已固定使用 V2；V1 writer、舊 client state
-及歷史資料欄位仍按 P4 cutover matrix 逐項處理，目前不能把整個退役當成已完成。
+這條分支的目標是只保留 V2。`/study` 及 V2 stream routes 已固定使用 V2；V1 writer、舊 queue／checkpoint
+engine 已退役，歷史資料欄位及舊 client namespace 仍按 P4 cutover matrix 保留可讀／一次性清理邊界，
+目前不能把整個退役當成已完成。
 `retrieval-v1` 是現行 V2 的 policy identifier，不是 V1 UI 的名稱，不能因字串包含 `v1` 而刪除。
 
 正式詞庫目前由 `data/catalog/` 下四份 CSV、identity manifest 及 initial-activation manifest 提供；

@@ -285,8 +285,8 @@ P3 開始前固定實際搬移前 SHA，用可重現的合成 fixture 建立已�
 | V1 assignment | `src/lib/study-stream/assignment.ts`、`/api/study/stream?assignmentOnly=1` | V2 成為唯一 assignment；移除 `off`／`all`／internal allowlist 執行分支及相關 telemetry outcome。 |
 | V1 writer | `src/app/api/study/route.ts` 的 GET／POST | 先改為 authenticated、無 DB write 的明確 410 rejection，完成舊 client cutover 測試後刪除 writer 實作；不可把 body 轉成 V2 action。 |
 | V1 credential endpoints | `/api/study/credentials`、`/api/study/session/rotate`、`src/lib/study-session.ts`、`src/lib/study-session-server.ts` | V2 使用 stream credential／renew／recovery；確認無現行 caller 後移除 V1 endpoint 與 session issuance，保留歷史 rows reader／cleanup 所需最小邊界。 |
-| V1 browser checkpoint | `src/lib/checkpoint.ts`、`study:checkpoint:*` | 不再讀取或寫入；V2 只使用 `english:study-stream-v2:checkpoint:*`。停權／登出清理只保留 account-scoped V2 清理。 |
-| V1 review queue | `src/lib/review-queue.ts` 及 `study:review-*` keys | 不轉換未送出資料、不重評分；先以明確退役訊息及限定清理規則處理，確認無 caller 後刪除 V1 queue。 |
+| V1 browser checkpoint | `study:checkpoint:*` legacy namespace；`checkpoint.ts` 已無產品 caller | V1 decoder／writer 及專用測試已刪除；shared auth cleanup 只作 account-scoped one-way scrub，V2 只使用 `english:study-stream-v2:checkpoint:*`。 |
+| V1 review queue | `study:review-*` legacy namespaces；`review-queue.ts` 已無產品 caller | V1 queue engine／endpoint adapter 及專用測試已刪除；未送出資料不轉換、不重評分，shared auth cleanup 只作 discard scrub。 |
 | 維護清理 | `src/app/api/maintenance/study-sessions/route.ts` 呼叫 `cleanupExpiredStudySessions` | 盤點 cleanup 是否只清 V1；改為 V2 可安全保留的 maintenance 或移除，不能因刪 V1 writer 而誤刪 V2 session／outbox。 |
 | V2 執行核心 | `src/components/study-stream/StudyStreamV2.tsx`、`src/lib/study-stream/{contracts,server,outbox}.ts`、`/api/study/stream`、`/api/study/actions*`、`/api/study/sessions/renew` | 必須保留；保留 typed action、server scoring、credential lineage、receipt／CAS、reconcile、recover、outbox／checkpoint。 |
 | 歷史資料 | `StudySession`／`Review`／`ReviewEvent` 中既有 `flowVersion=v1` rows 及支援 indexes | 只保留可讀及報表完整性；不以歷史 row 當新 writer contract，不做本批 schema／資料刪除。 |
@@ -315,8 +315,8 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 | 實際來源 | 目前依賴 | 預定處置 |
 |---|---|---|
 | `src/lib/study-stream-contracts.test.ts` | assignment default／`off`／local `all` assertions | 保留 parser、fingerprint、recovery proof；改測 V2 唯一 flow，移除 assignment switch assertions。 |
-| `src/lib/checkpoint.test.ts` | V1 checkpoint schema、`study:checkpoint:*` storage | 退役連同 `checkpoint.ts`；V2 checkpoint 行為由 `src/lib/study-stream-outbox.test.ts` 覆蓋。 |
-| `src/lib/review-queue.test.ts` | V1 pending／lease／mutation queue 及 legacy key | 逐項分類為 V2 outbox 等價保障或明確退役；未轉換資料不得產生 V2 action。 |
+| `src/lib/checkpoint.test.ts` | V1 checkpoint schema、`study:checkpoint:*` storage | 已刪除，因 V1 decoder／writer 無 caller；V2 checkpoint 行為由 `src/lib/study-stream-outbox.test.ts` 覆蓋，legacy key 只由 auth cleanup discard。 |
+| `src/lib/review-queue.test.ts` | V1 pending／lease／mutation queue 及 legacy key | 已刪除，因 V1 queue 無 caller；V2 outbox 等價保障由 `src/lib/study-stream-outbox.test.ts` 覆蓋，未轉換資料不得產生 V2 action。 |
 | `src/lib/study-session.test.ts` | V1 queue id／resume session validation | 退役 V1 validation；V2 session／credential expiry 由 stream server tests 覆蓋。 |
 | `src/lib/study-client-state.test.ts` | 停權／登出同時清理 V1 及 V2 namespaces | 改為只驗 account-scoped V2 清理及跨帳戶保留；若保留 legacy scrub，必須標明只為安全清理而非執行依賴。 |
 | `tests/e2e/study-stream-v2.spec.ts` | V2 bootstrap、action、reconcile、recover、local-all assignment | 保留核心安全及恢復案例；移除 `STUDY_V2_ASSIGNMENT_MODE=all` 前置，新增 V2-only bootstrap。 |
@@ -406,7 +406,8 @@ reset helper，將 rotation／keyring 安全斷言移到現行共用 password-re
 兩套報表的計分政策、版本常數及查詢範圍保持分開。
 另外先修正一個 V1 依賴邊界：學生 dashboard 的未完成提示改讀 V2
 `english:study-stream-v2:checkpoint:`，不再以舊 `study:checkpoint:` 判斷現行學習狀態；
-舊 checkpoint／queue 清理仍暫時保留，待 P4 逐項完成退役驗收。
+舊 checkpoint／queue engine 及測試已刪除；`study-client-state.ts` 只保留 legacy namespace 的
+account-scoped one-way scrub，待 P4 完成 browser cutover 驗證後再更新現況狀態。
 亦按 C7 將共用 CSRF／timeout client 實作移到 `src/lib/http-client.ts`，所有現行產品 imports
 改用中性入口；`roster-client.ts` 暫留 deprecated re-export，request 行為及 `rosterFetch` 名稱不變。
 本批開始 P4 cutover：`/study` 改為 server role gate 直接使用 `StudyStreamV2`，V2 stream／action／recovery／
