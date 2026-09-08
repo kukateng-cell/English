@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
 import { getClientIp } from "@/lib/login-limiter";
 import { checkStudyQueueRate } from "@/lib/study-limiter";
-import { isStudyStreamV2Assigned } from "@/lib/study-stream/assignment";
 import {
   getOrCreateStudyStream,
   StudyStreamError,
@@ -18,17 +17,12 @@ function errorResponse(error: unknown): NextResponse {
   return NextResponse.json({ error: "學習流暫時不可用，請稍後重試" }, { status: 503 });
 }
 
-/** GET /api/study/stream — V2 bootstrap/resume; V1 remains the default. */
+/** GET /api/study/stream — the authenticated V2 bootstrap/resume endpoint. */
 export async function GET(req: Request) {
-  const context: { flowVersion?: "v1" | "v2"; outcome?: "assignment-off" | "rate-limited" } = {};
+  const context: { flowVersion?: "v2"; outcome?: "rate-limited" } = {};
   return observeStudyStreamRequest("bootstrap", async () => {
     const auth = await requireUser();
     if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
-    if (!isStudyStreamV2Assigned(auth.userId)) {
-      context.flowVersion = "v1";
-      context.outcome = "assignment-off";
-      return NextResponse.json({ ok: true, assigned: false, flowVersion: "v1" });
-    }
     context.flowVersion = "v2";
     if (new URL(req.url).searchParams.get("assignmentOnly") === "1") {
       return NextResponse.json({ ok: true, assigned: true, flowVersion: "v2" });

@@ -1,4 +1,3 @@
-const MAX_COMPATIBILITY_WINDOW_MS = 30 * 60_000;
 const SAFE_ERROR_TYPE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 const RESET_KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 
@@ -39,27 +38,10 @@ export function describeBackendFailure(error: unknown): string {
   return typeof error;
 }
 
-export function legacyOperationIdCompatibilityEndsAt(
-  value: string | undefined,
-  now = Date.now(),
-): number | null {
-  if (!value) return null;
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return null;
-  if (timestamp <= now || timestamp > now + MAX_COMPATIBILITY_WINDOW_MS) {
-    return null;
-  }
-  return timestamp;
-}
-
 export function productionConfigurationErrors(
   env: Environment,
-  now = Date.now(),
 ): string[] {
   const errors: string[] = [];
-  if (isProductionRuntime(env) && env.STUDY_V2_ASSIGNMENT_MODE === "all") {
-    errors.push("STUDY_V2_ASSIGNMENT_MODE=all is only permitted in local development");
-  }
   const bulkCatalogEnabled = env.CATALOG_BULK_SUBMISSION_ENABLED === "1" || env.CATALOG_BULK_SUBMISSION_ENABLED === "true";
   const catalogHistoryEnabled = env.CATALOG_HISTORY_ENABLED === "1" || env.CATALOG_HISTORY_ENABLED === "true";
   if (bulkCatalogEnabled && !catalogHistoryEnabled) {
@@ -79,25 +61,11 @@ export function productionConfigurationErrors(
   if (!auditKeyId || !/^[A-Za-z0-9._-]{1,64}$/u.test(auditKeyId)) {
     errors.push("SECURITY_AUDIT_HMAC_KEY_ID must be a safe non-empty key id");
   }
-  if (env.REQUIRE_STUDY_OPERATION_ID === "0") {
-    errors.push("REQUIRE_STUDY_OPERATION_ID=0 is no longer permitted");
-  }
   if (env.E2E_STUDY_QUEUE_LOAD_LIMIT) {
     errors.push("E2E_STUDY_QUEUE_LOAD_LIMIT is only permitted in local browser tests");
   }
   if (env.ENABLE_TEST_ROUTES === "1") {
     errors.push("ENABLE_TEST_ROUTES=1 is only permitted in local browser tests");
-  }
-  if (
-    env.STUDY_OPERATION_ID_COMPAT_UNTIL &&
-    legacyOperationIdCompatibilityEndsAt(
-      env.STUDY_OPERATION_ID_COMPAT_UNTIL,
-      now,
-    ) === null
-  ) {
-    errors.push(
-      "STUDY_OPERATION_ID_COMPAT_UNTIL must be a future ISO timestamp no more than 30 minutes away",
-    );
   }
   return errors;
 }

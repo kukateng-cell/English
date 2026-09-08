@@ -9,7 +9,6 @@ export type StudyStreamMetricRoute =
 export type StudyStreamMetricOutcome =
   | "success"
   | "duplicate-replay"
-  | "assignment-off"
   | "client-rejected"
   | "auth-rejected"
   | "not-found"
@@ -19,7 +18,7 @@ export type StudyStreamMetricOutcome =
   | "server-error";
 
 export interface StudyStreamMetricContext {
-  flowVersion?: "v1" | "v2";
+  flowVersion?: "v2";
   actionKind?: string;
   outcome?: StudyStreamMetricOutcome;
 }

@@ -72,8 +72,7 @@ npm run dev
 先按 [本地開發](docs/development.md) 設定 `MIGRATE_URL`、資料庫環境 marker、密鑰及測試帳戶；
 不要把 `.env.local` 或任何憑證提交。開啟 <http://localhost:3000/login>。
 
-完整本地 V2 驗證可在 `.env.local` 設定 `STUDY_V2_ASSIGNMENT_MODE="all"`；production 會拒絕此值。
-`demo:init --confirm-reset` 會清除指定本地帳戶、學年、名冊及學習資料，只有在確認使用 demo reset DB 時才執行。
+`/study` 現在直接使用 V2；不需要設定 assignment 開關。`demo:init --confirm-reset` 會清除指定本地帳戶、學年、名冊及學習資料，只有在確認使用 demo reset DB 時才執行。
 
 ## 常用驗證
 

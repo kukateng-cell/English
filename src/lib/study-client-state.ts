@@ -1,19 +1,42 @@
-import { clearCheckpointsForUser } from "@/lib/checkpoint";
-import { clearReviewQueueForUser } from "@/lib/review-queue";
 import {
   clearStudyStreamCheckpoints,
   clearStudyStreamOutbox,
 } from "@/lib/study-stream/outbox";
 
+const RETIRED_ACCOUNT_PREFIXES = [
+  "study:checkpoint:",
+  "study:review-queue:",
+  "study:review-item:",
+  "study:review-mutation:",
+  "study:review-server-revision:",
+  "study:review-active-lease:",
+];
+
+const RETIRED_GLOBAL_KEYS = new Set(["study:review-queue"]);
+
+function removeRetiredAccountState(userId: string): void {
+  if (typeof window === "undefined") return;
+  const account = encodeURIComponent(userId);
+  const prefixes = RETIRED_ACCOUNT_PREFIXES.map((prefix) => `${prefix}${account}`);
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key && prefixes.some((prefix) => key.startsWith(prefix))) keys.push(key);
+    }
+    for (const key of keys) window.localStorage.removeItem(key);
+  } catch {
+    // Retired data is never rehydrated; storage failure must not block auth cleanup.
+  }
+}
+
 /**
- * Clear both learning implementations' browser-local state for one account.
- * This is deliberately account-scoped and contains no server mutation: the
- * server remains authoritative for suspension/revocation, while the browser
- * cannot retain work that could be replayed after a later restore.
+ * Clear V2 browser-local state for one account. Retired V1 namespaces are
+ * scrubbed as a one-way security cleanup; they are never parsed, migrated or
+ * submitted to a server endpoint.
  */
 export function clearStudyClientState(userId: string): void {
-  clearCheckpointsForUser(userId);
-  clearReviewQueueForUser(userId);
+  removeRetiredAccountState(userId);
   void clearStudyStreamOutbox(userId);
   clearStudyStreamCheckpoints(userId);
 }
@@ -21,26 +44,21 @@ export function clearStudyClientState(userId: string): void {
 /**
  * Clear browser-local learning state at the unauthenticated boundary. A
  * server redirect can bypass the study page before it still has the revoked
- * account id, so only the known V1/V2 namespaces are scanned here.
+ * account id, so known V2 and retired namespaces are scanned here. Retired
+ * keys are discarded only; no legacy queue is resumed.
  */
 export function clearAllStudyClientState(): void {
   if (typeof window === "undefined") return;
   const prefixes = [
-    "study:checkpoint:",
-    "study:review-queue:",
-    "study:review-item:",
-    "study:review-mutation:",
-    "study:review-server-revision:",
-    "study:review-active-lease:",
+    ...RETIRED_ACCOUNT_PREFIXES,
     "english:study-stream-v2:outbox:",
     "english:study-stream-v2:checkpoint:",
   ];
-  const exactKeys = new Set(["study:review-queue"]);
   try {
     const keys: string[] = [];
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
-      if (key && (exactKeys.has(key) || prefixes.some((prefix) => key.startsWith(prefix)))) {
+      if (key && (RETIRED_GLOBAL_KEYS.has(key) || prefixes.some((prefix) => key.startsWith(prefix)))) {
         keys.push(key);
       }
     }

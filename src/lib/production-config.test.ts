@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   describeBackendFailure,
   isProductionRuntime,
-  legacyOperationIdCompatibilityEndsAt,
   passwordResetPreconditionConfigurationErrors,
   productionConfigurationErrors,
   requiresDistributedRateLimitBackend,
@@ -31,45 +30,12 @@ test("production runtime detection fails closed for either deployment signal", (
 });
 
 test("production configuration requires distributed limits and cron auth", () => {
-  assert.deepEqual(productionConfigurationErrors({}, 0), [
+  assert.deepEqual(productionConfigurationErrors({}), [
     "distributed Upstash login/study rate limiting is required",
     "CRON_SECRET must contain at least 16 characters",
     "SECURITY_AUDIT_HMAC_SECRET must contain at least 32 characters",
     "SECURITY_AUDIT_HMAC_KEY_ID must be a safe non-empty key id",
   ]);
-});
-
-test("legacy operation compatibility has a hard 30 minute deadline", () => {
-  const now = Date.parse("2026-08-09T00:00:00Z");
-  assert.equal(
-    legacyOperationIdCompatibilityEndsAt("2026-08-09T00:20:00Z", now),
-    Date.parse("2026-08-09T00:20:00Z"),
-  );
-  assert.equal(
-    legacyOperationIdCompatibilityEndsAt("2026-08-09T00:31:00Z", now),
-    null,
-  );
-  assert.equal(
-    legacyOperationIdCompatibilityEndsAt("2026-08-08T23:59:00Z", now),
-    null,
-  );
-});
-
-test("strict production configuration rejects the old shared switch", () => {
-  assert.deepEqual(
-    productionConfigurationErrors(
-      {
-        UPSTASH_REDIS_REST_URL: "https://redis.example",
-        UPSTASH_REDIS_REST_TOKEN: "token",
-        CRON_SECRET: "1234567890abcdef",
-        SECURITY_AUDIT_HASH_SECRET: "1234567890abcdef1234567890abcdef",
-        SECURITY_AUDIT_HMAC_KEY_ID: "v1",
-        REQUIRE_STUDY_OPERATION_ID: "0",
-      },
-      0,
-    ),
-    ["REQUIRE_STUDY_OPERATION_ID=0 is no longer permitted"],
-  );
 });
 
 test("production configuration rejects the browser-test queue limit override", () => {
@@ -94,19 +60,6 @@ test("production configuration rejects browser-only test routes", () => {
     ENABLE_TEST_ROUTES: "1",
   });
   assert.ok(errors.some((error) => error.includes("ENABLE_TEST_ROUTES")));
-});
-
-test("production configuration rejects local all-user V2 assignment", () => {
-  const errors = productionConfigurationErrors({
-    UPSTASH_REDIS_REST_URL: "https://example.invalid",
-    UPSTASH_REDIS_REST_TOKEN: "test-token",
-    CRON_SECRET: "local-check-secret",
-    SECURITY_AUDIT_HASH_SECRET: "local-check-security-audit-secret",
-    SECURITY_AUDIT_HMAC_KEY_ID: "v1",
-    NODE_ENV: "production",
-    STUDY_V2_ASSIGNMENT_MODE: "all",
-  });
-  assert.ok(errors.some((error) => error.includes("STUDY_V2_ASSIGNMENT_MODE=all")));
 });
 
 test("production configuration refuses bulk catalog mutation without history", () => {

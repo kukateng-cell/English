@@ -1,12 +1,13 @@
 import type { Locale } from "@/lib/i18n/config";
 import { convertText } from "@/lib/i18n/convert";
 
-export type AuthServiceReturnTo = "/" | "/admin" | "/teacher";
+export type AuthServiceReturnTo = "/" | "/admin" | "/teacher" | "/study";
 
 const AUTH_SERVICE_RETURN_TARGETS = new Set<AuthServiceReturnTo>([
   "/",
   "/admin",
   "/teacher",
+  "/study",
 ]);
 
 export function normalizeAuthServiceReturnTo(value: string | null): AuthServiceReturnTo {

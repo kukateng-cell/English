@@ -59,7 +59,7 @@ correctness、quality、receipt、Review revision 及 evidence provenance。self
 
 ## V1 退役邊界
 
-整頓目標只保留 V2。現有 assignment 分流、舊 client、舊 queue／checkpoint 及 compatibility inventory
+整頓目標只保留 V2。`/study` 及 V2 routes 已固定使用 V2；舊 writer、舊 queue／checkpoint 及 compatibility inventory
 仍在程式內，P4 會逐項分類。退役前不可刪除名字含 `v1` 的所有內容：`retrieval-v1`、歷史 event／receipt、
 V2 的 legacy-data reader 及必要的 identity／provenance 欄位可能仍然有效。
 

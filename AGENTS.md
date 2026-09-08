@@ -33,8 +33,7 @@ workflow 為準。
   mastery、排行榜或單元解鎖。
 - Objective Probe 由 server snapshot／scoring；`retrieval-v1` correct=4、wrong=2，quality 5
   暫不使用。答題後用選項狀態及半透明 continuation affordance，保留 keyboard／a11y action。
-- 本地可明確用 `STUDY_V2_ASSIGNMENT_MODE=all` 驗證所有帳戶；production 拒絕 `all`。
-  現有程式仍有 assignment 分流，P4 會移除 V1 執行流程及切換設定；唔好新增或恢復 rollback。
+- `/study` 直接使用 V2；P4 正在移除 V1 writer、舊 browser state 及切換設定；唔好新增或恢復 rollback。
 - Local V2 product baseline 已完成；整頓仍在進行。Production deploy／observation、真實學生 pilot、完整原生
   mobile／screen-reader matrix、research telemetry／consent 同 Stage E destructive cleanup
   全部 deferred；未有新授權唔可以自行執行或勾選。

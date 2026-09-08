@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
 import { checkStudyRate } from "@/lib/study-limiter";
-import { isStudyStreamV2Assigned } from "@/lib/study-stream/assignment";
 import {
   applyStudyStreamAction,
   StudyStreamError,
@@ -28,16 +27,12 @@ export async function POST(req: Request) {
   const context: {
     flowVersion?: "v2";
     actionKind?: string;
-    outcome?: "duplicate-replay" | "assignment-off" | "rate-limited";
+    outcome?: "duplicate-replay" | "rate-limited";
   } = {};
   return observeStudyStreamRequest("action", async () => {
     const auth = await requireUser();
     if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
     context.flowVersion = "v2";
-    if (!isStudyStreamV2Assigned(auth.userId)) {
-      context.outcome = "assignment-off";
-      return NextResponse.json({ error: "目前帳戶未分配 Retrieval-first Learning Stream" }, { status: 404 });
-    }
     let body: unknown = null;
     try {
       const raw = new TextDecoder().decode(await readLimitedBody(req, BODY_LIMIT));

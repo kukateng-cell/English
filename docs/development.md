@@ -29,14 +29,8 @@ npm run seed
 npm run dev
 ```
 
-開啟 <http://localhost:3000/login>。完整本地 V2 可在 `.env.local` 使用：
-
-```env
-STUDY_V2_ASSIGNMENT_MODE="all"
-```
-
-`all` 只供本地／browser-test runtime；production 會拒絕。V1 退役完成前，程式仍保留舊 assignment
-選項供過渡驗證，但不把它當成產品開發方向；日常新流程以 V2 為準。
+開啟 <http://localhost:3000/login>。`/study` 直接使用 V2，不需要 assignment 開關；舊 V1
+writer 只會在完成 cutover barrier 後移除，期間不得以舊 endpoint 重開學習流程。
 
 ## 資料庫及 seed 安全
 

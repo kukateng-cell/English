@@ -8,7 +8,6 @@ import {
   parseStudyStreamAction,
   parseStudyStreamRecoveryAction,
 } from "@/lib/study-stream/contracts";
-import { resolveStudyFlowAssignment } from "@/lib/study-stream/assignment";
 
 function validAction() {
   return {
@@ -26,7 +25,10 @@ function validAction() {
 test("V2 parser accepts only the typed intent payload", () => {
   const parsed = parseStudyStreamAction(validAction());
   assert.equal(parsed.ok, true);
-  if (parsed.ok) assert.deepEqual(parsed.value.payload, { selfRating: "selfRecalled" });
+  if (parsed.ok) {
+    assert.equal(parsed.value.flowVersion, "v2");
+    assert.deepEqual(parsed.value.payload, { selfRating: "selfRecalled" });
+  }
 });
 
 test("V2 parser rejects word, score and answer-key injection", () => {
@@ -79,51 +81,4 @@ test("recovery proof stays outside the immutable action contract", () => {
   assert.equal(parseStudyStreamAction(recovery).ok, false);
   assert.equal(parseStudyStreamRecoveryAction({ ...recovery, recoveryCredential: "short" }).ok, false);
   assert.equal(parseStudyStreamRecoveryAction(action).ok, true);
-});
-
-test("V2 assignment is deny-by-default and internal-user scoped", () => {
-  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined), {
-    flowVersion: "v1",
-    reason: "legacy-default",
-  });
-  assert.deepEqual(resolveStudyFlowAssignment("student-a", "student-b,student-a"), {
-    flowVersion: "v2",
-    reason: "internal-allowlist",
-  });
-});
-
-test("local all-user assignment enables V2 without changing production defaults", () => {
-  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
-    NODE_ENV: "development",
-  }), {
-    flowVersion: "v2",
-    reason: "local-all",
-  });
-  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
-    NODE_ENV: "production",
-  }), {
-    flowVersion: "v1",
-    reason: "legacy-default",
-  });
-  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
-    NODE_ENV: "production",
-    ENABLE_TEST_ROUTES: "1",
-  }), {
-    flowVersion: "v2",
-    reason: "local-all",
-  });
-  assert.deepEqual(resolveStudyFlowAssignment("student-a", undefined, "all", {
-    NODE_ENV: "production",
-    ENABLE_TEST_ROUTES: "1",
-    VERCEL_ENV: "preview",
-  }), {
-    flowVersion: "v1",
-    reason: "legacy-default",
-  });
-  assert.deepEqual(resolveStudyFlowAssignment("student-a", "student-a", "off", {
-    NODE_ENV: "development",
-  }), {
-    flowVersion: "v1",
-    reason: "legacy-default",
-  });
 });

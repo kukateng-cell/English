@@ -6,7 +6,7 @@ dotenv.config({ path: ".env.local" });
 
 async function main() {
   const { prisma } = await import("../src/lib/prisma");
-  const { applyReviewEvent } = await import("../src/app/api/study/route");
+  const { applyReviewEvent } = await import("./legacy-review-fixture");
   const {
     issueStudySession,
     recoverStudySessionCredential,

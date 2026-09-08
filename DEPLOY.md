@@ -10,7 +10,7 @@
 - 整頓分支的 V2 本地產品基線已完成；V1 退役仍在整頓計劃 P4，未完成前不能把它寫成已移除。
 - Production deploy、正式 observation、真實學生 pilot、研究資料收集、原生裝置／完整 screen-reader 驗收及 destructive cleanup 尚未執行。
 - Production workflow 必須先驗證、再 migration，最後部署同一個 checkout；migration 失敗不應觸發部署。
-- `STUDY_V2_ASSIGNMENT_MODE=all` 只供 local／browser-test runtime；production 必須拒絕 `all`。
+- `/study` 新入口固定使用 V2；V1 writer cutover／歷史資料 cleanup 仍按整頓計劃 P4 執行。
 - `npm run db:contract` 是破壞性 contract cleanup，不能由一般部署自動執行；staging 授權不等於 production 授權。
 
 不曾核對遠端 Vercel、GitHub ruleset 或 default branch 的設定時，不可由本文件推斷它們已完成。
@@ -74,9 +74,8 @@ migration 必須能由空資料庫重播。改 schema 後重新執行 `npx prism
 
 ### 4. 本地 V2 smoke
 
-在本地 `.env.local` 設定 `STUDY_V2_ASSIGNMENT_MODE="all"`，啟動後開啟 <http://localhost:3000/login>，
-以測試帳戶確認 Learning Card、Objective Probe、安全離開及續接。`all` 不可進入 Vercel preview／production；
-V1 退役前的舊 assignment 設定只屬過渡檢查，不代表產品方向。
+啟動後開啟 <http://localhost:3000/login>，以測試帳戶確認 `/study` 的 Learning Card、Objective Probe、
+安全離開及續接。入口固定使用 V2；舊 writer 的 cutover 行為按整頓計劃 P4 驗證。
 
 ## GitHub Actions 發佈流程
 
@@ -100,7 +99,7 @@ Vercel runtime 需要 `DATABASE_URL`、`NEXTAUTH_SECRET`、`NEXTAUTH_URL`、audi
 Upstash REST credentials、`CRON_SECRET` 及 `DATABASE_POOL_MAX` 等。以 `.env.example` 作變數清單；
 每次 rotation 保留 current／previous key pair 直到相應 TTL 結束。
 
-下列值不可進 production runtime：`MIGRATE_URL`、`STUDY_V2_ASSIGNMENT_MODE=all`、`ENABLE_TEST_ROUTES=1`、
+下列值不可進 production runtime：`MIGRATE_URL`、`ENABLE_TEST_ROUTES=1`、
 `SEED_TEST_STUDENT=1` 及本地測試帳戶，以及未獲批准的 research／diagnostic 開關。
 
 Production limiter 必須使用共享 Upstash；缺少或故障時 fail closed，不能靜默改用 memory fallback。

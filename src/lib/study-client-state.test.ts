@@ -12,7 +12,7 @@ class MemoryStorage {
   clear(): void { this.values.clear(); }
 }
 
-test("suspension cleanup removes both V1 and V2 account-local state", () => {
+test("account cleanup discards retired state and preserves V2 account isolation", () => {
   const storage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
     configurable: true,

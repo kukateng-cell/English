@@ -12,7 +12,6 @@ const result = spawnSync(command, args, {
   env: {
     ...process.env,
     ENABLE_TEST_ROUTES: "1",
-    STUDY_V2_ASSIGNMENT_MODE: process.env.STUDY_V2_ASSIGNMENT_MODE ?? "all",
     // npm start runs the optimized app with NODE_ENV=production.  Keep this
     // local smoke reproducible without ever committing or printing a secret;
     // a real configured value wins when one is supplied by CI/local setup.
