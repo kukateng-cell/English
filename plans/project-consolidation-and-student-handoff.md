@@ -159,6 +159,7 @@ hash／簽章資料、CSV／manifest、測試中的簡體輸入／預期輸出�
 - [ ] 索引按現行／未完成／暫緩／歷史分區，逐項核對過時狀態。
 - [x] 根目錄、現行指南及設定說明繁體化；V1 明確標為待退役直至實作完成。
 - [x] 先加入離線本地 Markdown 路徑／anchor 檢查，再開始搬檔；不以 `|| true` 吞掉內部連結錯誤。
+- [x] 加入 plan index coverage 檢查，阻止新增的根層計劃漏出 `plans/README.md`。
 - [ ] 完成第 8.1 節第一次 clean-clone 演練並修正文檔卡點；未完成獨立接手演練，不把 P1 標為完成。
 
 ### P2：歷史文件與視覺證據歸位
@@ -342,7 +343,8 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 開始 P1 文件入口實作後，新增 `docs/current-product.md`、`docs/architecture.md`、
 `docs/development.md`、`docs/testing.md`，更新 README／AGENTS／DEPLOY／`.env.example`，
 加入 `scripts/check-markdown-links.mjs` 並接入 Markdown workflow；快速閱讀分區已加入，
-完整索引的逐項狀態覆核及 clean-clone 演練仍未完成。
+加入 `scripts/check-plan-index.mjs` 及 blocking workflow check；完整索引的逐項狀態覆核及
+clean-clone 演練仍未完成。
 P3 詞庫來源已按明確 mapping 搬到 `data/catalog/`，新增用途 README；資料 row 的 `outputs/...`
 穩定識別名及 digest 計算保持不變。六份檔案與實施前 Git blob hash 全部相等，source-layer
 baseline test 通過；existing／fresh DB 回歸仍待隔離資料庫驗證。

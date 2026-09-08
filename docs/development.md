@@ -65,6 +65,8 @@ npm test
 npm run lint
 npx tsc --noEmit
 npm run build
+npm run check:markdown-links
+npm run check:plan-index
 ```
 
 改 schema 後先重新生成 Prisma Client；改 migration 前閱讀 `DEPLOY.md` 及相關計劃。

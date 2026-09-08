@@ -348,7 +348,7 @@ Prisma單transaction順序讀取，避免單connection並行query。先核對索
 |---|---|
 | 把成果量當能力 | 明確欄名、原始分母、程度分布、樣本提示及不作排名 |
 | 量尺20/5偏向某群 | 模擬fixture比較、固定version、公布門檻；pilot前不宣稱已校準 |
-| 舊統計与reward不同 | 獨立reader與口徑說明、兩報告欄名清楚、parity保護舊consumer |
+| 舊統計與 reward 不同 | 獨立 reader 與口徑說明、兩報告欄名清楚、parity 保護舊 consumer |
 | 關聯刪除／legacy不足 | coverage及排除數，同一行提示部分結果；不補造證據 |
 | 重複匯出 | 合法且不扣分；科組自行選擇範圍，安全審計無計分作用 |
 | 大型報告阻塞 | bounded讀取、預檢、性能gate及明確拆批提示 |

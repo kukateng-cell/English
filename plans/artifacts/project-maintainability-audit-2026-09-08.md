@@ -91,7 +91,7 @@ AGENTS 保留工作規則、禁止破壞的不變條件及按任務選讀的連�
 
 ### D3：索引存在，但狀態與歷史負擔過高
 
-`plans/README.md` 已有索引及狀態定義，这是良好基礎。問題是列表把現行 contract、
+`plans/README.md` 已有索引及狀態定義，這是良好基礎。問題是列表把現行 contract、
 已完成視覺修正、待驗收功能、external gates 和多輪 reviewer 日誌並列。
 例如 teacher reward、admin analytics 仍標進行中／review 狀態，而相關後續功能已有完成記錄。
 不能單靠此現象把它們勾為完成，應逐項核對餘下驗收，將「本地實作」與「外部發佈」分欄。
@@ -225,7 +225,7 @@ AST 比對發現 `readRewardActor`／`readAnalyticsActor` 函數體相同，
 net: -712 lines, -0 deps possible.
 
 上式僅加總六個零產品引用候選，尚未實施／驗證刪除；未計可能需要保留的相容內容或測試搬移，
-亦未把重複 helper 的小幅收益計入。本次没有足夠證據建議移除任何依賴。
+亦未把重複 helper 的小幅收益計入。本次沒有足夠證據建議移除任何依賴。
 
 ## 建議的文件結構與閱讀順序
 

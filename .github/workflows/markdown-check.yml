@@ -45,6 +45,9 @@ jobs:
       - name: Check repository-local Markdown links
         run: npm run check:markdown-links
 
+      - name: Check plan index coverage
+        run: npm run check:plan-index
+
       - name: Install markdown-link-check
         run: npm install -g markdown-link-check
 
