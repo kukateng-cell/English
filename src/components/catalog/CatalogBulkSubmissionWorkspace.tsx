@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { responseErrorMessage } from "@/lib/api-error";
 import { parseCatalogExportKeys } from "@/lib/catalog/workspace-selection";
 import RecentAuthDialog from "@/components/auth/RecentAuthDialog";

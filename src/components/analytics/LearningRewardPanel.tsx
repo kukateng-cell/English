@@ -7,7 +7,7 @@ import ErrorBanner from "@/components/ErrorBanner";
 import RecentAuthDialog from "@/components/auth/RecentAuthDialog";
 import { useLocale } from "@/components/LocaleProvider";
 import { networkErrorMessage, responseErrorDetails, responseErrorMessage } from "@/lib/api-error";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { CLASS_LABELS, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
 import { formatRewardMilliPoints, REWARD_POLICY_VERSION, type RewardWeights } from "@/lib/learning-reward-policy";
 import type { RewardCoverage, RewardDay, RewardQueryResult, RewardStudentTotal, RewardTimelineResult } from "@/lib/learning-reward-analytics";

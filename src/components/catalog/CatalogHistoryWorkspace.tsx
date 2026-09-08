@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import { responseErrorMessage } from "@/lib/api-error";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { CATALOG_CATEGORIES } from "@/lib/catalog/taxonomy";
 import {
   catalogBatchStatusLabel,

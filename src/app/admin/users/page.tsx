@@ -11,7 +11,7 @@ import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { ROLES, isRole, type Role } from "@/lib/roles";
 import { signOut } from "next-auth/react";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 
 interface UserItem {
   id: string;

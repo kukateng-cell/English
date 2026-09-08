@@ -13,7 +13,7 @@ import TeacherFilters, { type TeacherClassOption } from "@/components/teacher/Te
 import TeacherProgressTable from "@/components/teacher/TeacherProgressTable";
 import { useLocale } from "@/components/LocaleProvider";
 import { responseErrorDetails, responseErrorMessage } from "@/lib/api-error";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { CLASS_LABELS, GRADE_LABELS } from "@/lib/roster-domain";
 import type { ClassCode, StudentGrade } from "@/generated/prisma";
 

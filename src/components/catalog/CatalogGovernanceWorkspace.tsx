@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useLocale } from "@/components/LocaleProvider";
 import ErrorBanner from "@/components/ErrorBanner";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { catalogValidationResponseErrorMessage } from "@/lib/catalog/client-validation";
 import {

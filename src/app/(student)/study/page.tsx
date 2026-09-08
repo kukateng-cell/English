@@ -64,7 +64,7 @@ import {
   type ReviewSubmissionCredentials,
 } from "@/lib/review-queue";
 import { canResumeStudySession } from "@/lib/study-session";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { clearStudyClientState } from "@/lib/study-client-state";
 import StudyStreamV2 from "@/components/study-stream/StudyStreamV2";
 

@@ -8,7 +8,7 @@
  * 处理，因此「已提交但响应丢失」可安全重试。localStorage key 与条目 ownerId
  * 都按用户隔离，公用装置切换账号也不会把 A 的答案写入 B。
  */
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 
 export interface PendingReview {
   ownerId: string;

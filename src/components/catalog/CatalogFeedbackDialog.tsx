@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import {
   clientOperationFingerprint,

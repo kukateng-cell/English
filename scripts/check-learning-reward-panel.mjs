@@ -1,15 +1,17 @@
 import { build } from "esbuild";
 import { chromium, expect } from "@playwright/test";
+import path from "node:path";
 
 // Exercise the real React panel with deterministic transport fixtures; no DB or login required.
 const bundle = await build({
   stdin: { contents: 'import React from "react"; import { createRoot } from "react-dom/client"; import Panel from "./src/components/analytics/LearningRewardPanel"; createRoot(document.getElementById("root")).render(<Panel role="TEACHER" onBack={() => {}} />);', resolveDir: process.cwd(), loader: "tsx" },
   bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
   plugins: [{ name: "panel-boundaries", setup(builder) {
-    builder.onResolve({ filter: /(?:LocaleProvider|RecentAuthDialog|roster-client|next\/navigation)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+    builder.onResolve({ filter: /(?:LocaleProvider|RecentAuthDialog|http-client|next\/navigation)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+    builder.onResolve({ filter: /^@\// }, args => ({ path: path.resolve(process.cwd(), "src", args.path.slice(2)) }));
     builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ resolveDir: process.cwd(), contents: args.path.endsWith("LocaleProvider")
       ? 'import { useEffect, useState } from "react"; let currentLocale = "zh-Hant"; const listeners = new Set(); globalThis.__setPanelLocale = next => { currentLocale = next; for (const listener of listeners) listener(); }; export const useLocale = () => { const [, setVersion] = useState(0); useEffect(() => { const listener = () => setVersion(value => value + 1); listeners.add(listener); return () => listeners.delete(listener); }, []); const tc = value => currentLocale === "zh-Hans" ? value : value; return { tc }; };'
-        : args.path.endsWith("roster-client") ? 'export const rosterFetch = (...args) => fetch(...args);'
+        : args.path.endsWith("http-client") ? 'export const rosterFetch = (...args) => fetch(...args);'
         : args.path.endsWith("next/navigation") ? 'const params = { get: () => null, getAll: () => [] }; export const useSearchParams = () => params;'
         : 'export default function Dialog() { return null; }' }));
   } }],

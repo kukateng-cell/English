@@ -13,7 +13,7 @@ import {
   fetchWithTimeout,
   readResponseJsonWithTimeout,
   rosterFetch,
-} from "@/lib/roster-client";
+} from "@/lib/http-client";
 import { clearStudyClientState } from "@/lib/study-client-state";
 import type {
   PublicStreamActionResponse,

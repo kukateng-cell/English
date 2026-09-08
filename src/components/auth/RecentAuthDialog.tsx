@@ -4,7 +4,7 @@ import { useCallback, useState, type FormEvent } from "react";
 import Modal from "@/components/admin/Modal";
 import { useLocale } from "@/components/LocaleProvider";
 import { responseErrorMessage } from "@/lib/api-error";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import Icon from "@/components/ui/Icon";
 
 interface RecentAuthDialogProps {

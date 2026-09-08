@@ -4,7 +4,7 @@ import {
   fetchWithTimeout,
   readResponseJsonWithTimeout,
   RosterRequestTimeoutError,
-} from "@/lib/roster-client";
+} from "@/lib/http-client";
 
 test("response-body timeout cancels a hanging response stream", async () => {
   let cancelled = false;

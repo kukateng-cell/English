@@ -9,7 +9,7 @@ import ErrorBanner from "@/components/ErrorBanner";
 import RecentAuthDialog from "@/components/auth/RecentAuthDialog";
 import MetricDefinitionsHelp from "@/components/analytics/MetricDefinitionsHelp";
 import Icon from "@/components/ui/Icon";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { responseErrorDetails, responseErrorMessage } from "@/lib/api-error";
 import { CLASS_LABELS, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
 import { MAX_ANALYTICS_CLASS_SELECTION } from "@/lib/learning-analytics-contract";

@@ -7,7 +7,7 @@ import MetricDefinitionsHelp from "@/components/analytics/MetricDefinitionsHelp"
 import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
 import { responseErrorMessage } from "@/lib/api-error";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { CLASS_LABELS, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
 import type { ClassCode, Level, StudentGrade } from "@/generated/prisma";
 

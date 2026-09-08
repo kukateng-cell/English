@@ -9,7 +9,7 @@ import Modal from "@/components/admin/Modal";
 import CopyButton from "@/components/ui/CopyButton";
 import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import { responseErrorDetails, responseErrorMessage } from "@/lib/api-error";
 import { CLASS_LABELS, GRADE_LABELS } from "@/lib/roster-domain";
 import type { ClassCode, StudentGrade } from "@/generated/prisma";

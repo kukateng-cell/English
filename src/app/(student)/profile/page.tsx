@@ -9,7 +9,7 @@ import {
 } from "@/lib/roster-domain";
 import type { ClassCode, StudentGrade } from "@/generated/prisma";
 import { useRouter } from "next/navigation";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 
 type Profile = {
   accountName: string;

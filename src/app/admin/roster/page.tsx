@@ -8,7 +8,7 @@ import { useLocale } from "@/components/LocaleProvider";
 import ErrorBanner from "@/components/ErrorBanner";
 import AdminTeacherAccessEditor from "@/components/admin/AdminTeacherAccessEditor";
 import { CLASS_CODES, CLASS_LABELS, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 import type { AcademicYearStatus, ClassCode, StudentGrade } from "@/generated/prisma";
 
 type Year = { id: string; label: string; startsOn: string; endsOn: string; status: AcademicYearStatus; revision: number };

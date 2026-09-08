@@ -9,7 +9,7 @@ import AuthShell from "@/components/auth/AuthShell";
 import Button from "@/components/ui/Button";
 import StatusBanner from "@/components/ui/StatusBanner";
 import Icon from "@/components/ui/Icon";
-import { rosterFetch } from "@/lib/roster-client";
+import { rosterFetch } from "@/lib/http-client";
 
 export default function ResetPasswordPage() {
   const { tc } = useLocale();

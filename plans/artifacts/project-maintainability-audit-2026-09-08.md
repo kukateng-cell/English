@@ -209,9 +209,11 @@ AST 比對發現 `readRewardActor`／`readAnalyticsActor` 函數體相同，
 
 ### C7：命名和領域分組應逐步整理
 
-`roster-client.ts` 的 CSRF／timeout helpers 已用於 catalog 與 V2 study，名称範圍落後於用途。
+`roster-client.ts` 的 CSRF／timeout helpers 已用於 catalog 與 V2 study，名稱範圍落後於用途。
 `src/lib` 同時有平鋪的 roster／analytics／reward／reset 模組及已有良好分組的 catalog／study-stream。
-建議先給共用 HTTP helpers 中性命名，再按實際領域逐批移動；初期保持 import re-export 相容亦可。
+2026-09-08 已完成第一步：實作移到中性的 `src/lib/http-client.ts`，產品 imports 改用新入口，
+`roster-client.ts` 只保留 deprecated re-export 以維持相容；這批保留 `rosterFetch` 公開符號，
+避免把純命名整理同 request 行為改動混在一起。後續如有需要再按領域拆分，毋須一次建立大量 wrappers。
 不要另建大量只有一個實作的 interfaces、repositories 或 factories。
 
 `review-queue.ts`（1,792 行）、`submission-server.ts`（1,692 行）、`WordCard.tsx`（1,640 行）

@@ -365,10 +365,15 @@ reset helper，將 rotation／keyring 安全斷言移到現行共用 password-re
 另外先修正一個 V1 依賴邊界：學生 dashboard 的未完成提示改讀 V2
 `english:study-stream-v2:checkpoint:`，不再以舊 `study:checkpoint:` 判斷現行學習狀態；
 舊 checkpoint／queue 清理仍暫時保留，待 P4 逐項完成退役驗收。
+亦按 C7 將共用 CSRF／timeout client 實作移到 `src/lib/http-client.ts`，所有現行產品 imports
+改用中性入口；`roster-client.ts` 暫留 deprecated re-export，request 行為及 `rosterFetch` 名稱不變。
 本次檔案／計劃驗證：source／文件批次的 `npm test` 429 passed；本批零引用清理後 `npm test` 428 passed；
 `npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（64 files）、
 `git diff --check` passed。未執行 production build、DB／migration、完整 browser、native device 或 performance suites。
+本批 C7 嘗試執行 `node scripts/check-learning-reward-panel.mjs` 時，受本機 Node／esbuild
+stdin bundle 的 `Cannot read directory "../../..": Access is denied` 阻擋；沒有把該 browser harness
+當成通過，完整 browser 驗收仍待可用環境。
 自動 clean-clone 已建立並通過 clone 及 Markdown 檢查；`npm ci` 兩次均受本機 Windows npm cache／npm
 自身 `EPERM`／`Exit handler never called` 阻擋，未把依賴未安裝造成的測試錯誤當成產品失敗；P1 clean-clone
 仍待在可用 Node／npm 環境完成。
