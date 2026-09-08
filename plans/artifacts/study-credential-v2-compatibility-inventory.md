@@ -4,6 +4,12 @@
 > 日期：2026-08-12
 > Branch：`codex/retrieval-first-learning-stream-v2`
 > Migration baseline：`cc7fd19`
+>
+> **歷史快照註記（2026-09-08）：** 本文件記錄 2026-08-12 expand／compatibility review；V1 default、
+> feature-off rollback、舊 writer 及雙 flow inventory 只描述當時的安全驗收範圍。使用者其後決定只保留
+> V2，現行 branch 不得按本文件重啟 V1 或建立 rollback switch。現行操作及退役界線請看
+> [`docs/current-product.md`](../../docs/current-product.md)、[`docs/architecture.md`](../../docs/architecture.md)
+> 及 [`project-consolidation-and-student-handoff.md`](../project-consolidation-and-student-handoff.md)。
 
 ## 1. Scope and safety boundary
 

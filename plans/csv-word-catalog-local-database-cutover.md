@@ -117,15 +117,17 @@ reset 必須沿用現有 local topology allowlist、development environment mark
 資料欄位及歷史 reader 是否仍需保留，改由[項目整頓計劃 P4](./project-consolidation-and-student-handoff.md)
 逐項核對，未完成核對前不作破壞性刪除。
 
-現行產品 contract 仍要求 `STUDY_V2_ASSIGNMENT_MODE=off` 可以 rollback 到 V1，而 V1 `StudySessionItem`、legacy Review 及部分 reader 仍要求
-`Word`。因此「新 CSV 成為唯一 canonical source」不等於 reset 後令 physical `Word` 為空：
+當時的產品 contract 曾要求 `STUDY_V2_ASSIGNMENT_MODE=off` rollback 到 V1，而 V1 `StudySessionItem`、
+legacy Review 及部分 reader 仍要求 `Word`。以下內容只用來保存當時的 compatibility reasoning；現行
+V2-only branch 不再提供該 switch，也不以本節作新 writer contract：
 
 - 由 current-eligible sense 產生非 canonical、read-only `Word` compatibility projection；
 - 每個 normalized term 只能透過 checked-in `LegacyWordSenseMap` 明確選擇一個 primary sense，不准重現 lowest-level-wins；未被選中的 sibling senses 必須列入報告；
 - V1 只讀 compatibility projection；V2、單元、排行榜、統計及教師分析只讀 sense catalog；
 - projection mastery 不可複製到 sibling sense，亦不可反過來成為 V2 current metric source；
 - session 建立時固定 `catalogReadMode = LEGACY_WORD | SENSE_V1`，同一 session 不可混合兩種 identity；
-- 除非另行批准正式退役 V1，fresh reset 後必須通過 `STUDY_V2_ASSIGNMENT_MODE=off` smoke test。
+- 當時的驗收要求 fresh reset 後通過 `STUDY_V2_ASSIGNMENT_MODE=off` smoke test；該要求已由本分支
+  只保留 V2 的決定取代，現行 fresh／existing DB 驗收改按整頓計劃 P3／P4 執行。
 
 ### 3.6 學習資料 identity transition
 

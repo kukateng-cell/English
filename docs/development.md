@@ -30,7 +30,8 @@ npm run dev
 ```
 
 開啟 <http://localhost:3000/login>。`/study` 直接使用 V2，不需要 assignment 開關；舊 V1
-writer 只會在完成 cutover barrier 後移除，期間不得以舊 endpoint 重開學習流程。
+writer 已由 authenticated 410 retirement barrier 取代，P4 完成前保留拒絕回應供舊 client 明確失效，
+不得以舊 endpoint 重開學習流程。
 
 ## 資料庫及 seed 安全
 

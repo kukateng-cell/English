@@ -1,6 +1,6 @@
 # 項目文件、目錄與學生交接整頓計劃
 
-> 狀態：進行中（P1 文件入口）。
+> 狀態：進行中（P1 文件入口／P3 source layer／P4 cutover）。
 > 日期：2026-09-08。
 > 現行及後續唯一開發主線：`codex/project-consolidation-and-student-handoff`（按本次使用者提供的審核前提）。
 > 歷史盤點起點：`codex/student-leaderboard-motivation`／`b109fa7` 及當時工作樹。
@@ -453,3 +453,19 @@ stdin bundle 的 `Cannot read directory "../../..": Access is denied` 阻擋；�
 未讀遠端 ruleset，原排行榜修改保留。
 本次文件驗證：三份修改文件的本地 Markdown 目標檢查通過、六個新增驗收章節及七項跟進記錄已核對、
 `git diff --check` 通過；純計劃修訂未重跑 unit／build／DB／browser suites。
+
+### Revision 3：2026-09-08 實施跟進
+
+按審核報告開始執行 P4 cutover 的低風險部分：`/study` 已固定直接使用 V2，舊 study／credential
+writer 及 session issuance route 只保留 authenticated 410 retirement barrier；V1 browser specs 已移到
+`tests/archive/e2e-v1/`，active Playwright projects 改由 V2 stream／shell 覆蓋。歷史 session fixture
+改放 `scripts/legacy-study-session-fixture.ts`，runtime 只保留 `study-session-retention.ts` 的安全歷史清理。
+同時移除無現行 caller 的 `StudentNavigationContext`，student shell 導覽改為直接 links；V2
+outbox／checkpoint／reconciliation、credential lineage、receipt、CAS 及 server scoring 保持不變。
+
+本輪驗證：`npm test` 383 passed、`npm run lint`、`npx tsc --noEmit --incremental false`、
+`npm run check:markdown-links`（65 files）、`npm run check:plan-index`、`git diff --check` 及
+Playwright `--list` 均通過；active V2 stream／shell discovery 共 54 個測試（shell 7 個）。未執行
+實際 browser、production build、DB／migration、native device、performance 或獨立 clean-clone
+接手演練；P3 existing-DB regression、P4 cutover matrix browser／DB／舊 client barrier 及 P1 真人
+演練仍未完成，故不勾選相應 checklist，也不把 P4 寫成已完成。

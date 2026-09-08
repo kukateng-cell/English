@@ -3,6 +3,12 @@
 > 狀態：internal／test only；未批准 production rollout
 > 日期：2026-08-12
 > 目的：為 V2 internal validation 提供可重跑的觀察、pause、rollback 及 support procedure
+>
+> **歷史快照註記（2026-09-08）：** 本文件記錄 2026-08-12 的 V1／V2 coexistence internal soak，
+> 當中的 V1 default、assignment allowlist、pause／rollback 及舊 endpoint 只屬當時驗收證據，
+> 不是現行操作指引。現行 branch 只保留 V2；請以 [`docs/current-product.md`](../../docs/current-product.md)、
+> [`docs/architecture.md`](../../docs/architecture.md) 及主線整頓計劃 P4 為準。不要用本文件重啟 V1
+> 或建立 assignment switch。
 
 ## 1. Scope
 

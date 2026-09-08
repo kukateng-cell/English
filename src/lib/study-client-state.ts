@@ -31,9 +31,8 @@ function removeRetiredAccountState(userId: string): void {
 }
 
 /**
- * Clear V2 browser-local state for one account. Retired V1 namespaces are
- * scrubbed as a one-way security cleanup; they are never parsed, migrated or
- * submitted to a server endpoint.
+ * 清除單一帳戶的 V2 browser-local state。退役 V1 namespace 只作一次性安全清理；
+ * 永遠不會解析、遷移或提交到 server endpoint。
  */
 export function clearStudyClientState(userId: string): void {
   removeRetiredAccountState(userId);
@@ -42,10 +41,9 @@ export function clearStudyClientState(userId: string): void {
 }
 
 /**
- * Clear browser-local learning state at the unauthenticated boundary. A
- * server redirect can bypass the study page before it still has the revoked
- * account id, so known V2 and retired namespaces are scanned here. Retired
- * keys are discarded only; no legacy queue is resumed.
+ * 在 unauthenticated boundary 清除 browser-local learning state。server redirect 可能在 study
+ * page 取得 revoked account id 前已經發生，因此這裡掃描已知 V2 及退役 namespace。退役 key
+ * 只會丟棄，不會恢復 legacy queue。
  */
 export function clearAllStudyClientState(): void {
   if (typeof window === "undefined") return;

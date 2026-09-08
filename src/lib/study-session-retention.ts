@@ -1,11 +1,10 @@
 import { prisma, Prisma } from "@/lib/prisma";
 
 /**
- * Retention boundary for historical V1 StudySession rows.
+ * 歷史 V1 StudySession row 的保留邊界。
  *
- * V2 sessions own durable stream encounters, so this cleanup deliberately
- * selects only expired V1 rows with no V2 stream items. It is a maintenance
- * reader/cleanup boundary, not a session issuance API.
+ * V2 session 由 durable stream encounter 負責保存，因此清理只選取已過期、而且沒有
+ * V2 stream item 的 V1 row。這是 maintenance reader／cleanup 邊界，不是 session issuance API。
  */
 export const STUDY_SESSION_RETENTION_MS = 14 * 24 * 60 * 60_000;
 
