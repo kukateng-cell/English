@@ -1,6 +1,6 @@
 # 項目文件、目錄與學生交接整頓計劃
 
-> 狀態：Revision 2，審核跟進完成；整頓實施待開始。
+> 狀態：進行中（P1 文件入口）。
 > 日期：2026-09-08。
 > 現行及後續唯一開發主線：`codex/project-consolidation-and-student-handoff`（按本次使用者提供的審核前提）。
 > 歷史盤點起點：`codex/student-leaderboard-motivation`／`b109fa7` 及當時工作樹。
@@ -151,13 +151,13 @@ hash／簽章資料、CSV／manifest、測試中的簡體輸入／預期輸出�
 - [x] 核對根目錄文件，以及詞庫路徑參與 digest 的事實。
 - [x] 建立本計劃及索引，記錄只保留 V2 和繁體文件方向。
 - [x] 分清歷史盤點與現行開發主線，記錄本次審核完整 SHA；不加入舊 main 整合工作。
-- [ ] 實施前固定當時 commit／工作樹、完整檔案搬移表、資料 hash 及現有測試結果。
+- [x] 固定實施前 commit、工作樹差異 hash、資料目錄 inventory 及基本測試結果（見第 10 節）。
 
 ### P1：建立可信的閱讀入口
 
-- [ ] 更新 README／AGENTS／DEPLOY，建立四份短指南；正文不再重複多輪歷史。
+- [x] 更新 README／AGENTS／DEPLOY，建立四份短指南；正文不再重複多輪歷史。
 - [ ] 索引按現行／未完成／暫緩／歷史分區，逐項核對過時狀態。
-- [ ] 根目錄、現行指南及設定說明繁體化；V1 明確標為待退役直至實作完成。
+- [x] 根目錄、現行指南及設定說明繁體化；V1 明確標為待退役直至實作完成。
 - [ ] 先加入離線本地 Markdown 路徑／anchor 檢查，再開始搬檔；不以 `|| true` 吞掉內部連結錯誤。
 - [ ] 完成第 8.1 節第一次 clean-clone 演練並修正文檔卡點；未完成獨立接手演練，不把 P1 標為完成。
 
@@ -331,11 +331,18 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 - P1 首次及結案的獨立 clean-clone 演練完成，不依賴作者路徑、快取、未提交檔、手工資料、隱藏 env 或 shell history。
 - 所有勾選有當次可查證結果；未執行驗收及 external gates 另列。
 
-## 10. 本次規劃交付紀錄
+## 10. 實施紀錄
 
-已完成只讀目錄、caller、文件和詞庫身份邏輯核對，新增本計劃與索引。
-本次未搬資料／截圖、未翻譯現有全庫、未刪 V1、未改設定或資料庫；不冒稱實施完成。
-上輪審視已有 429 項 unit、lint、typecheck 通過，但只作其當時基線，不取代各實施階段驗證。
+已完成只讀目錄、caller、文件和詞庫身份邏輯核對，新增本計劃與索引；審核跟進已納入 Revision 2。
+整頓開始前固定 commit `cfcf7170acccb3d9e26ad1298d1db07fa1e7d5b5`，
+工作樹有一項未提交 `src/app/(student)/leaderboard/page.tsx`，其 binary diff SHA-256 為
+`ee17953d6349470b3e2a21de07c11b1b2db083ce524b5e888206ed0b309ef3eb`；整頓提交不包含它。
+開始 P1 文件入口實作後，新增 `docs/current-product.md`、`docs/architecture.md`、
+`docs/development.md`、`docs/testing.md`，更新 README／AGENTS／DEPLOY／`.env.example`，
+加入 `scripts/check-markdown-links.mjs` 並接入 Markdown workflow；P1 尚未完成 clean-clone 演練及索引分區。
+本次檔案／計劃驗證：`npm test` 429 passed、`npm run lint` passed、
+`npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（58 files）、
+`git diff --check` passed。未執行 production build、DB／migration、完整 browser、native device 或 performance suites。
 
 ### Revision 2：2026-09-08 審核跟進
 

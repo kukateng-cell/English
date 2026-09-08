@@ -1,142 +1,89 @@
 # 見字會 SeeWord
 
-面向中文學校中學生嘅英語詞彙認讀平台。現行版本採用 Retrieval-first Learning Stream V2：
-學生先嘗試回想英文詞義，再揭示答案；主觀 self-rating 同客觀認讀證據分開，只有
-Objective Probe 第一次合法答案先由 server 判分並推進 SM-2。
+English 是面向中文學校中學生的英語詞彙認讀平台。現行產品採用 Retrieval-first Learning Stream V2：
+學生先嘗試回想詞義，再揭示答案；主觀 self-rating 與客觀認讀證據分開，只有 Objective Probe
+第一次合法答案由 server 判分並推進 SM-2。
 
-## 目前狀態
+## 現行狀態
 
-- 工作分支：`codex/retrieval-first-learning-stream-v2`
-- 本地產品基線：已完成（程式基線 `e43ed66`）
-- Global `/study`：continuous stream，無固定完成題數
-- V1：保留作 feature-off rollback
-- Production deploy、真實學生 pilot、research telemetry／consent、Stage E destructive cleanup：未執行
-- 未合併／推送到 `main` 就唔代表 main 或 production 已有 V2
-
-完整現況先讀：
-
-- [V2 Current Product Baseline](plans/artifacts/retrieval-first-v2-current-product-baseline.md)
-- [計劃索引](plans/README.md)
-- [產品總體計劃](plans/project-plan.md)
-- [Retrieval-first Contract](plans/retrieval-first-learning-contract.md)
-- [部署與遷移說明](DEPLOY.md)
+- 唯一現行開發主線：`codex/project-consolidation-and-student-handoff`
+- 項目整頓現正進行 P1 文件入口；歷史盤點及修訂記錄見[整頓計劃](plans/project-consolidation-and-student-handoff.md)
+- Global `/study` 是 continuous stream，沒有固定完成題數
+- 產品方向只保留 V2；V1 退役仍待 P4 實施及驗收，並不代表保留 rollback
+- Production deploy、真實學生 pilot、research telemetry／consent、完整原生裝置驗收及 destructive cleanup 尚未執行
 
 ## 學生流程
 
 ```text
 Learning Card
-→ 先想一想中文意思
-→ 約 1 秒後漸進顯示長按提示
-→ 原地長按非發音區域 3 秒
-→ 翻卡揭示英文、音標位、發音及中文意思
-→ 報告「和剛才想的一樣／不一樣」
-→ self-rating 只記錄學習過程，不直接改變掌握度
+→ 先嘗試回想中文意思
+→ 約一秒後顯示長按提示
+→ 非發音區域 stationary long-press 3 秒揭示
+→ 報告和剛才所想是否一致
+→ server 確認 operational action
 
 Objective Probe
-→ 第一次選擇由 server 判分
-→ correct=SM-2 quality 4；wrong=quality 2
-→ 選項顏色顯示結果，點卡面／keyboard acknowledgement 繼續
+→ 第一次合法選擇由 server 判分
+→ correct=quality 4；wrong=quality 2
+→ 選項狀態顯示結果，確認 feedback 後繼續
 ```
 
-測試唔係固定每三個詞一次。Server scheduler 會按到期詞、成熟詞、remediation、
-verification debt、delay、mode scope 及候選狀態決定下一個 item；成熟到期詞可以直接出
-Objective Probe。
+## 開始閱讀
 
-## 已有能力
+新接手者按以下次序閱讀：
 
-- A1／A2／B1／B2 詞表、主題單元及順序解鎖
-- Retrieval-first Learning Card、Objective Probe、SM-2 及 versioned learning policy
-- Continuous global stream、bounded unit mode、安全離開／續接
-- Offline outbox、checkpoint、cross-tab／cross-device reconciliation、expired credential recovery
-- 學生／教師／管理員角色、首次改密、tokenVersion session 撤銷及最後管理員保護
-- 首頁／詞表／統計、7 日柱狀圖、30 日熱力圖、打卡、成就及排行榜
+1. [現行產品](docs/current-product.md)
+2. [本地開發](docs/development.md)
+3. [架構導覽](docs/architecture.md)
+4. [測試指南](docs/testing.md)
+5. [Retrieval-first Contract](plans/retrieval-first-learning-contract.md)
+6. [計劃索引](plans/README.md)
+
+根目錄指引各有單一責任：`AGENTS.md` 說明如何安全修改項目，`DEPLOY.md` 是正式發佈與 migration
+runbook。文件與程式／測試／schema 不一致時，以可執行證據為準，並在同一批修正文件。
+
+## 主要能力
+
+- A1／A2／B1／B2 sense-level 詞庫、主題、解鎖及學習進度
+- Retrieval-first Learning Card、Objective Probe、versioned learning policy 及 SM-2
+- Study session、opaque credential、operationId、receipt、CAS、Serializable transaction、
+  offline outbox、checkpoint 及 bounded recovery
+- 學生／教師／管理員角色、首次改密、session 撤銷、名冊權限及最後管理員保護
+- 學生首頁／詞表／統計／打卡／成就／排行榜，教師工作區及管理員工具
+- 詞庫治理、sense revision、審核歷史、CSV／XLSX 匯入匯出及正式 catalog baseline
 - 繁體／簡體、明／暗 theme、mobile／tablet／desktop responsive layout
-- PostgreSQL、Prisma migrations、Upstash production limiter 及 GitHub Actions／Vercel release gate
 
 ## 技術棧
 
-Next.js 16、React 19、TypeScript、Tailwind CSS 4、Framer Motion、Auth.js、Prisma 7、
-PostgreSQL、Upstash Redis、Node test 及 Playwright。
+Next.js 16 App Router、React 19、TypeScript、Tailwind CSS 4、Framer Motion、Auth.js、Prisma 7、
+PostgreSQL、Upstash Redis、Node test、Playwright、GitHub Actions 及 Vercel。
 
-## 本地啟動
+## 本地快速啟動
 
-### 1. 安裝及啟動 PostgreSQL
-
-```bash
+```powershell
 npm ci
 docker compose up -d
-cp .env.example .env.local
-```
-
-本地 Docker 預設可以令 `DATABASE_URL` 同 `MIGRATE_URL` 都指向：
-
-```text
-postgresql://english:english_dev_password@localhost:5432/english
-```
-
-請喺 `.env.local` 設定獨立隨機 `NEXTAUTH_SECRET`、
-`SECURITY_AUDIT_HASH_SECRET`、`INITIAL_ADMIN_PASSWORD` 及測試帳戶密碼。唔可以提交
-`.env.local`、真實密碼、tokens 或連線憑證。
-
-### 2. 建立 schema 及本地資料
-
-```bash
+Copy-Item .env.example .env.local
 npm run db:deploy
 npm run seed
-```
-
-Migration／seed 只使用 `MIGRATE_URL`。第一次 seed 前核對
-`DATABASE_ENVIRONMENT=development` 同 `CONFIRM_DATABASE_ENVIRONMENT=development`；
-唔好用 `prisma db push` 代替 migrations。
-
-### 3. 開啟完整本地 V2
-
-喺 `.env.local` 設定：
-
-```env
-STUDY_V2_ASSIGNMENT_MODE="all"
-```
-
-`all` 只容許 local development／明確 browser-test runtime，Vercel preview／production
-會 fail closed。`off` 強制 V1 rollback；`internal` 只對 allowlist 使用 V2。
-
-```bash
 npm run dev
 ```
 
-開啟 <http://localhost:3000/login>。如使用本地專用測試學生，先按 `.env.example` 設定
-`SEED_TEST_STUDENT=1`、`TEST_STUDENT_USERNAME` 及 `TEST_STUDENT_PASSWORD` 再執行 seed。
+先按 [本地開發](docs/development.md) 設定 `MIGRATE_URL`、資料庫環境 marker、密鑰及測試帳戶；
+不要把 `.env.local` 或任何憑證提交。開啟 <http://localhost:3000/login>。
+
+完整本地 V2 驗證可在 `.env.local` 設定 `STUDY_V2_ASSIGNMENT_MODE="all"`；production 會拒絕此值。
+`demo:init --confirm-reset` 會清除指定本地帳戶、學年、名冊及學習資料，只有在確認使用 demo reset DB 時才執行。
 
 ## 常用驗證
 
-```bash
+```powershell
 npm test
 npm run lint
 npx tsc --noEmit
 npm run build
 ```
 
-按改動範圍再選擇：
-
-```bash
-npm run test:db:stream-v2
-npm run check:study-credential-v2
-npm run test:e2e:study-stream-v2
-npm run test:e2e:card-motion
-npm run test:migrations
-npm run test:migrations:contract
-npm run test:migration-checksums
-npm run check:production-config
-```
-
-局部文案／presentation 修正只需要比例相稱嘅 lint、typecheck、rendered visual review／build。
-Gesture、study action、checkpoint、credential、scoring 或 migration 改動先需要相應高成本回歸。
-
-## 安全及外部閘門
-
-- Production 必須有共享 Upstash limiter；缺少或故障時 fail closed。
-- 已套用 migration 不得修改；contract migrations 與一般 expand migrations 分開。
-- `npm run db:contract` 係 destructive／irreversible cleanup gate，唔會由一般 deploy 自動執行。
-- Staging contract migration 嘅個別授權唔等於 production cleanup 授權。
-- 未獲明確批准唔執行 production deploy、真實學生 pilot、research collection、倫理／家長／
-  學生同意流程，亦唔合併、切換或推送 `main`。
+按改動範圍選擇 DB／catalog／V2／browser 測試，詳見[測試指南](docs/testing.md)。
+Production migration 只按 `DEPLOY.md` 及 `.github/workflows/deploy-production.yml` 執行，
+不得以 `prisma db push` 取代 migrations。

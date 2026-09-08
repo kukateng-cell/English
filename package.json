@@ -42,6 +42,7 @@
     "test:migrations:contract": "node scripts/check-contract-migration-regression.mjs",
     "test:migration-checksums": "node scripts/check-migration-checksums.mjs",
     "check:production-config": "node --import tsx scripts/check-production-config.ts",
+    "check:markdown-links": "node scripts/check-markdown-links.mjs",
     "lint": "eslint",
     "seed": "npx tsx prisma/seed.ts",
     "seed:catalog": "node --import tsx scripts/seed-catalog.ts",

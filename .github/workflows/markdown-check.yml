@@ -42,8 +42,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Check repository-local Markdown links
+        run: npm run check:markdown-links
+
       - name: Install markdown-link-check
         run: npm install -g markdown-link-check
 
-      - name: Check links
-        run: find . -name "*.md" -not -path "./node_modules/*" -print0 | xargs -0 -n1 markdown-link-check --quiet || true
+      - name: Check external Markdown links
+        continue-on-error: true
+        run: find . -name "*.md" -not -path "./node_modules/*" -not -path "./.next/*" -print0 | xargs -0 -n1 markdown-link-check --quiet

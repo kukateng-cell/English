@@ -2,7 +2,7 @@
 
 ## 項目概覽
 
-這是一個面向中學生的英語詞彙認讀平台。現行核心係 Retrieval-first Learning Stream V2：
+這是一個面向中學生的英語詞彙認讀平台。現行產品核心係 Retrieval-first Learning Stream V2：
 學生先嘗試回想詞義，以 3 秒 stationary long-press 揭示 Learning Card 答案，再報告同剛才
 所想是否一致；只有 Objective Probe 第一次合法答案先由 server 判分並按 versioned policy
 推進 SM-2。Global stream 無固定完成題數，每個已確認 action 後都可以安全離開。
@@ -10,15 +10,18 @@
 技術棧為 Next.js 16 App Router、React 19、TypeScript、Tailwind CSS 4、
 Auth.js、Prisma 7、PostgreSQL，以及 Framer Motion。部署目標是 Vercel。
 
+新人先讀 [`docs/current-product.md`](docs/current-product.md)、[`docs/development.md`](docs/development.md)、
+[`docs/architecture.md`](docs/architecture.md) 及 [`docs/testing.md`](docs/testing.md)。
 `plans/project-plan.md` 記錄產品計劃和研究背景，`plans/` 亦集中保存各項功能及
 重構實施計劃，但計劃書不是現況的唯一真相。實作行為以程式、測試及
 `prisma/schema.prisma` 為準；生產部署流程以 `DEPLOY.md` 和 GitHub Actions
 workflow 為準。
 
-## 目前產品基線（2026-08-15）
+## 目前文件基線（2026-09-08）
 
-- 工作分支係 `codex/retrieval-first-learning-stream-v2`；local product code baseline 係
-  `e43ed66`。未合併／推送到 `main` 就唔可以假定 main 或 production 已有 V2。
+- `codex/project-consolidation-and-student-handoff` 係現行及後續唯一開發主線；
+  文件整頓開始前嘅盤點起點係 `codex/student-leaderboard-motivation`／`b109fa7`，
+  審核跟進提交係 `cfcf717`。唔需要同舊 `main` 做功能整合。
 - 開始任何學生流程、UI、排程、統計、可靠性或設計工作前，先完整閱讀
   `plans/artifacts/retrieval-first-v2-current-product-baseline.md`；規範性語義再以
   `plans/retrieval-first-learning-contract.md` 為準。
@@ -31,10 +34,13 @@ workflow 為準。
 - Objective Probe 由 server snapshot／scoring；`retrieval-v1` correct=4、wrong=2，quality 5
   暫不使用。答題後用選項狀態及半透明 continuation affordance，保留 keyboard／a11y action。
 - 本地可明確用 `STUDY_V2_ASSIGNMENT_MODE=all` 驗證所有帳戶；production 拒絕 `all`。
-  `off` 保留 V1 rollback，`internal` 只供 allowlist。
-- Local product baseline 已完成。Production deploy／observation、真實學生 pilot、完整原生
+  現有程式仍有 assignment 分流，P4 會移除 V1 執行流程及切換設定；唔好新增或恢復 rollback。
+- Local V2 product baseline 已完成；整頓仍在進行。Production deploy／observation、真實學生 pilot、完整原生
   mobile／screen-reader matrix、research telemetry／consent 同 Stage E destructive cleanup
   全部 deferred；未有新授權唔可以自行執行或勾選。
+
+開發工作以現行 V2 為目標；退役前仍要按 P4 cutover／test migration matrix 處理舊請求、
+舊 browser state 及歷史資料，唔可以用搜尋 `v1` 後全部刪除代替盤點。
 
 ## 目錄導覽
 
@@ -47,7 +53,7 @@ workflow 為準。
 - `prisma/schema.prisma`：目前的 PostgreSQL 資料模型。
 - `prisma/migrations/`：一般 expand migrations。
 - `prisma/contract-migrations/`：需要明確確認、獨立執行的 contract migrations。
-- `prisma/seed.ts`：解析 `word list.md`，建立詞庫及可選測試／預設帳戶。
+- `prisma/seed.ts`：使用 `outputs/` 下四份正式 CSV，建立詞庫及可選測試／預設帳戶。
 - `tests/e2e/`：Playwright 字卡和完整學習流程回歸測試。
 - `scripts/`：資料庫、遷移、production config 及 ledger 驗證工具。
 
@@ -59,7 +65,7 @@ workflow 為準。
   `plans/artifacts/retrieval-first-v2-current-product-baseline.md`、`plans/project-plan.md` 及與任務
   直接相關的實施計劃。新計劃、改名、完成或取代計劃時，要同步更新 `plans/README.md` 索引。
 - 計劃書要列明背景、目標、非目標、依賴、分階段 checklist、風險、測試矩陣、
-  發佈／rollback 及 Definition of Done；檔名使用小寫 kebab-case。
+  發佈／退役處理及 Definition of Done；檔名使用小寫 kebab-case。
 - 獲准開始實作後把計劃狀態改為「進行中」。只有對應工作完成且已通過相應驗證，
   才可把 checklist 由 `[ ]` 改為 `[x]`；不要以「已寫代碼」當成「已驗證」。
 - 實作途中如改變 scope、API／資料 contract、migration 策略或驗收方式，先更新
@@ -140,6 +146,16 @@ npm run test:e2e:card-motion
   和完整登入學習流程。
 - UI 現時支援簡繁轉換和明暗主題。新增文案及樣式時，兩種 locale 和 theme 都要可用。
 
+## 現行整頓工作規則
+
+- 先更新並遵守 [`plans/project-consolidation-and-student-handoff.md`](plans/project-consolidation-and-student-handoff.md)，
+  每階段完成相應驗證後才勾選 checklist。
+- 保留現行 V2 的 scoring、credential、receipt、CAS、outbox、checkpoint 及 recovery；
+  V1 退役只移除 V1 執行流程，不刪除仍被 V2 或歷史 reader 使用的資料欄位。
+- `outputs/` 是正式 catalog source；`output/` 是歷史視覺證據。日常測試輸出使用 ignored 的 `test-results/`。
+- 文件、程式註解及操作說明使用繁體中文；env 名稱、API path、enum、JSON key、migration 及測試必要輸入不翻譯。
+- 文件搬移先更新相對連結並執行本地 link／Markdown 檢查；不以 `|| true` 掩蓋內部連結失敗。
+
 ## 測試期望
 
 - 純邏輯改動：新增或更新相鄰的 `src/lib/*.test.ts`，至少執行 `npm test`。
@@ -157,6 +173,7 @@ npm run test:e2e:card-motion
 ## 生成檔及改動範圍
 
 - 不要手動編輯 `src/generated/`、`.next/`、`next-env.d.ts`、`*.tsbuildinfo` 或測試輸出。
+- `output/playwright/` 內已提交的圖片屬歷史驗收證據，搬移或刪除前先按整頓計劃核對引用與 hash。
 - 保留工作樹內與當前任務無關的使用者改動。
 - 避免為小型修正順帶重寫整個 `plans/project-plan.md`、`README.md` 或 migration
   歷史；只更新與任務直接相關的計劃 checklist 及決策。
