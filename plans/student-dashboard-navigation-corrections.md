@@ -56,6 +56,6 @@
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=off npx playwright test tests/e2e/student-spacing.spec.ts --project=student-spacing-desktop --grep "desktop student surfaces"`：2 passed（含 auth setup；四張入口卡、標題不換行、排行榜／成就連結、詞表切換掣尺寸及 overflow assertion）。
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=off npx playwright test tests/e2e/student-spacing.spec.ts --project=student-spacing-desktop --grep "dashboard spacing references"`：2 passed（含 auth setup；mobile／tablet／desktop screenshots）。
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=off npx playwright test tests/e2e/student-spacing.spec.ts --project=student-spacing-desktop --grep "student page stacks"`：2 passed（含 auth setup；`/`、`/words`、`/stats` 於 320–1440px responsive stack／overflow regression）。
-- rendered evidence：`output/playwright/phase3/home-spacing-desktop-1440x900.png` 已檢查，四張入口卡同一 desktop row 且標題保持單行。
+- rendered evidence：`plans/archive/evidence/playwright/phase3/home-spacing-desktop-1440x900.png` 已檢查，四張入口卡同一 desktop row 且標題保持單行。
 
 未執行 native VoiceOver／TalkBack、完整跨裝置回歸及 study gesture suite，因本次只涉及學生端 desktop／responsive presentation，沒有改動學習行為、API 或資料。

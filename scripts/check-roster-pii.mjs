@@ -44,7 +44,7 @@ async function main() {
         (SELECT count(*)::int FROM "User" WHERE "passwordHash" NOT LIKE '$2%') AS non_bcrypt_hash_rows
     `;
 
-    const artifactRoots = [path.resolve("output/playwright"), path.resolve("test-results")];
+    const artifactRoots = [path.resolve("plans/archive/evidence/playwright"), path.resolve("test-results")];
     const artifactFiles = (await Promise.all(artifactRoots.map((root) => listTextFiles(root)))).flat();
     const artifactFindings = [];
     for (const filePath of artifactFiles) {

@@ -174,7 +174,7 @@ npm run test:e2e:card-motion
 ## 生成檔及改動範圍
 
 - 不要手動編輯 `src/generated/`、`.next/`、`next-env.d.ts`、`*.tsbuildinfo` 或測試輸出。
-- `output/playwright/` 內已提交的圖片屬歷史驗收證據，搬移或刪除前先按整頓計劃核對引用與 hash。
+- `plans/archive/evidence/playwright/` 內已提交的圖片屬歷史驗收證據，搬移或刪除前先按整頓計劃核對引用與 hash。
 - 保留工作樹內與當前任務無關的使用者改動。
 - 避免為小型修正順帶重寫整個 `plans/project-plan.md`、`README.md` 或 migration
   歷史；只更新與任務直接相關的計劃 checklist 及決策。

@@ -72,7 +72,7 @@ test("captures the locale and theme foundation fixture", async ({ browser }) => 
     await expect(page.locator(".auth-locale-control")).toBeVisible();
     await expect.poll(() => page.locator("html").evaluate((node) => node.classList.contains("dark"))).toBe(theme === "dark");
     await page.screenshot({
-      path: `output/playwright/phase1/login-${locale}-${theme}-390x844.png`,
+      path: `test-results/screenshots/phase1/login-${locale}-${theme}-390x844.png`,
       fullPage: true,
     });
     await context.close();

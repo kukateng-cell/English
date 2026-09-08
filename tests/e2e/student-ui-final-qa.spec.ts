@@ -198,11 +198,11 @@ test("final reference captures cover home and learn at mobile, tablet, and deskt
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: /今天继续学习|今天繼續學習/ })).toBeVisible();
     await expect(page.locator(".next-session-card")).toBeVisible();
-    await page.screenshot({ path: `output/playwright/phase6/home-${capture.name}.png`, fullPage: true });
+    await page.screenshot({ path: `test-results/screenshots/phase6/home-${capture.name}.png`, fullPage: true });
 
     await openStudy(page);
     await page.waitForTimeout(2_800);
-    await page.screenshot({ path: `output/playwright/phase6/learn-${capture.name}.png`, fullPage: true });
+    await page.screenshot({ path: `test-results/screenshots/phase6/learn-${capture.name}.png`, fullPage: true });
   }
 });
 

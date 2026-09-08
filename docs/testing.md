@@ -52,6 +52,6 @@ demo reset。seed／demo writer 有實際副作用，重跑、failure resume 及
 ## 測試輸出及證據
 
 日常 Playwright failure output 寫入 `test-results/`，不應污染 tracked 歷史證據。
-`output/playwright/` 內現有圖片是有日期的視覺驗收資料；要修改或搬移前先更新引用及保留 hash。
+`plans/archive/evidence/playwright/` 內現有圖片是有日期的視覺驗收資料；要修改或搬移前先更新引用及保留 hash。
 `data/catalog/` 內正式 catalog CSV／manifest 是測試與 seed 來源，不能當測試暫存刪除。
 row 內的 `outputs/...` `sourceFile` 是穩定識別名，唔代表目前實體路徑。

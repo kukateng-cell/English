@@ -10,11 +10,11 @@
 - 每張 card 直接顯示 raw `sense_...`、`revision 1` 及完整 source path；三個操作分散在 card 右側，主操作另起一行。
 - reviewer 初次載入由 workspace 自身發出 2 個資料 request：`GET /api/catalog` 及 `GET /api/catalog/requests?status=PENDING...`；普通老師只有前者。外層 feature-access request 沿用既有頁面 contract。
 - 改動前截圖：
-  - [1440×900 頂部](../../output/playwright/catalog-workspace-usability-baseline/before-1440x900.png)
-  - [1440×900 列表](../../output/playwright/catalog-workspace-usability-baseline/before-1440x900-list.png)
-  - [1024×900](../../output/playwright/catalog-workspace-usability-baseline/before-1024x900.png)
-  - [768×900](../../output/playwright/catalog-workspace-usability-baseline/before-768x900.png)
-  - [320×800](../../output/playwright/catalog-workspace-usability-baseline/before-320x800.png)
+  - [1440×900 頂部](../archive/evidence/playwright/catalog-workspace-usability-baseline/before-1440x900.png)
+  - [1440×900 列表](../archive/evidence/playwright/catalog-workspace-usability-baseline/before-1440x900-list.png)
+  - [1024×900](../archive/evidence/playwright/catalog-workspace-usability-baseline/before-1024x900.png)
+  - [768×900](../archive/evidence/playwright/catalog-workspace-usability-baseline/before-768x900.png)
+  - [320×800](../archive/evidence/playwright/catalog-workspace-usability-baseline/before-320x800.png)
 
 ## 2. 真實資料盤點
 
@@ -33,12 +33,12 @@
 - 320 px drawer為full-width sheet；具備由用途、來源詞及說明組成嘅dialog accessible name／description，Esc關閉、focus返回原「查看歷史」按鈕。更多操作及filter sheet亦可用keyboard開關、Esc關閉並還原focus。
 - 從完整詞庫進入全域歷史再返回，原filter、sort、loaded rows、selection、scroll anchor及原行按鈕focus均保留；來源行仍存在時不顯示錯誤提示。
 - 改動後截圖：
-  - [1440×900 頂部](../../output/playwright/catalog-workspace-usability-baseline/after-1440x900-top.png)
-  - [1440×900 列表](../../output/playwright/catalog-workspace-usability-baseline/after-1440x900-list.png)
-  - [1024×900](../../output/playwright/catalog-workspace-usability-baseline/after-1024x900.png)
-  - [768×900](../../output/playwright/catalog-workspace-usability-baseline/after-768x900.png)
-  - [320×800](../../output/playwright/catalog-workspace-usability-baseline/after-320x800.png)
-  - [320×800 逐詞歷史 drawer](../../output/playwright/catalog-workspace-usability-baseline/after-320x800-history-drawer.png)
+  - [1440×900 頂部](../archive/evidence/playwright/catalog-workspace-usability-baseline/after-1440x900-top.png)
+  - [1440×900 列表](../archive/evidence/playwright/catalog-workspace-usability-baseline/after-1440x900-list.png)
+  - [1024×900](../archive/evidence/playwright/catalog-workspace-usability-baseline/after-1024x900.png)
+  - [768×900](../archive/evidence/playwright/catalog-workspace-usability-baseline/after-768x900.png)
+  - [320×800](../archive/evidence/playwright/catalog-workspace-usability-baseline/after-320x800.png)
+  - [320×800 逐詞歷史 drawer](../archive/evidence/playwright/catalog-workspace-usability-baseline/after-320x800-history-drawer.png)
 
 ## 4. 查詢及效能證據
 

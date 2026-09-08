@@ -54,7 +54,7 @@ test("study keeps a real active navigation in every shell mode", async ({ page }
     /assess|done|error|locked|loading/,
   );
   await page.screenshot({
-    path: `output/playwright/phase2/study-nav-${mobile ? "mobile-390x844" : "desktop-1440x900"}.png`,
+    path: `test-results/screenshots/phase2/study-nav-${mobile ? "mobile-390x844" : "desktop-1440x900"}.png`,
   });
 
   await navigationLink(page, "/words", mobile).click();

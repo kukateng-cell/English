@@ -94,7 +94,7 @@ test("dashboard spacing references are captured at mobile, tablet, and desktop s
     await expect(page.getByRole("heading", { name: /今天继续学习|今天繼續學習/ })).toBeVisible();
     await expect(page.locator(".next-session-card")).toBeVisible();
     await page.screenshot({
-      path: `output/playwright/phase3/home-spacing-${capture.name}.png`,
+      path: `test-results/screenshots/phase3/home-spacing-${capture.name}.png`,
       fullPage: true,
     });
   }

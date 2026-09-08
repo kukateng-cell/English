@@ -56,7 +56,7 @@
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=off npx playwright test tests/e2e/student-spacing.spec.ts --project=student-spacing-desktop --grep "student page stacks|dashboard spacing"`：3 passed。
 - 新增 desktop geometry smoke（rail sticky、首頁快捷卡高度、stats links、units 2／3 欄）：2 passed（含 auth setup）。
 - `ENABLE_TEST_ROUTES=1 STUDY_V2_ASSIGNMENT_MODE=all npx playwright test tests/e2e/study-stream-v2.spec.ts --project=study-stream-v2-chromium --grep "V2 gives a retrieval opportunity"`：2 passed（含 auth setup；揭示答案區置中 assertion passed）。
-- visual evidence：`output/playwright/phase3/home-spacing-desktop-1440x900.png` 及既有 desktop study card screenshot 已檢查；desktop rail 帳戶控制可見，首頁快捷卡與進度卡同 row 拉齊。
+- visual evidence：`plans/archive/evidence/playwright/phase3/home-spacing-desktop-1440x900.png` 及既有 desktop study card screenshot 已檢查；desktop rail 帳戶控制可見，首頁快捷卡與進度卡同 row 拉齊。
 
 ## 6. 限制及 rollback
 

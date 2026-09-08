@@ -927,7 +927,7 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 - [x] Forced Colors 模式可辨識互動、focus 及狀態。
 - [x] WCAG text-spacing override 後內容不裁切或重疊。
 - [x] Automated axe 無 critical／serious issue。
-- [x] 完成 keyboard-only 及至少一次 VoiceOver smoke test；證據記於 `output/playwright/phase6/visual-qa.md`，不捕捉語音音訊。
+- [x] 完成 keyboard-only 及至少一次 VoiceOver smoke test；證據記於 `plans/archive/evidence/playwright/phase6/visual-qa.md`，不捕捉語音音訊。
 
 #### 效能及相容性
 
@@ -946,7 +946,7 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 
 - [x] 為 login、home、learn、words、stats 保存 prototype reference、實作 before／after 或 visual diff。
 - [x] 在 390×844、820×1180、1440×900 逐頁比較 layout geometry、type scale、color、radius、shadow、navigation 及 component states。
-- [x] 所有刻意偏離 prototype 的地方記錄原因、影響及 reviewer approval；詳見 `output/playwright/phase6/visual-qa.md`。
+- [x] 所有刻意偏離 prototype 的地方記錄原因、影響及 reviewer approval；詳見 `plans/archive/evidence/playwright/phase6/visual-qa.md`。
 - [x] 教師／管理員沒有 prototype reference 的頁面，以已批准 token、density、responsive 及 accessibility contract 驗收，不虛構像素對照。
 
 #### 最終驗證
@@ -1149,7 +1149,7 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 | 2026-08-11 | 雙重審核 | 兩個獨立 Subagent 分別完成 UX／accessibility 與技術／security 審核；主線對照 route、API、schema、checkpoint、i18n 及 prototype contract | 共識問題已轉為必要 checklist／Phase 0 決策門檻；未修改產品代碼 |
 | 2026-08-11 | Phase 0 決策確認 | 使用者確認採用全部建議；凍結 route／role matrix、StudentNav 原子啟用、只讀詞表解鎖可見性、動態下一輪 aggregate、study 導覽及 same-origin Coach 圖片政策 | 已完成指定 prototype／current baseline screenshot；`npm test` 89/89、lint、typecheck、Prisma status、`npm run test:db` 通過；production build 受遠端 Google font 阻塞，列為 Phase 1 修正項 |
 | 2026-08-12 | Phase 1–5 實施 | 完成 semantic tokens／primitives、AuthShell／StudentShell／WorkspaceShell、真實 Dashboard／Words／Stats API、study 展示層、角色導覽及 read-only／same-origin contract；每個階段以 checkpoint commit 收斂 | `npm test` 93/93、lint、typecheck、production build、student／workspace E2E、card-motion E2E、DB ledger 通過；無 schema／migration 改動 |
-| 2026-08-12 | Phase 6 QA | 完成 responsive matrix、reference screenshot comparison、light／dark／簡繁、axe、keyboard、reduced-motion、Forced Colors、text-spacing、soft keyboard／dvh 及 macOS VoiceOver smoke；記錄所有刻意偏差及本地 production-config shape check | `output/playwright/phase6/visual-qa.md` 保存證據；Chromium 73 pass／4 skip、WebKit 17+16 pass、student IA 9 pass、workspace 2 pass；真實 production deployment／post-deploy smoke 依明確 no-deploy 規則未執行並列為批准例外 |
+| 2026-08-12 | Phase 6 QA | 完成 responsive matrix、reference screenshot comparison、light／dark／簡繁、axe、keyboard、reduced-motion、Forced Colors、text-spacing、soft keyboard／dvh 及 macOS VoiceOver smoke；記錄所有刻意偏差及本地 production-config shape check | `plans/archive/evidence/playwright/phase6/visual-qa.md` 保存證據；Chromium 73 pass／4 skip、WebKit 17+16 pass、student IA 9 pass、workspace 2 pass；真實 production deployment／post-deploy smoke 依明確 no-deploy 規則未執行並列為批准例外 |
 
 ### 實際驗證與未執行項目
 
@@ -1161,4 +1161,4 @@ Baseline 遷移不需要 Prisma schema 變更。以下需求如獲確認，才�
 - `npm run test:e2e:student-ia`：9 passed；`npm run test:e2e:workspace`：2 passed。
 - `npm run check:production-config` 在未提供 production secrets 的本地環境按預期 fail（distributed Upstash、`CRON_SECRET`、`SECURITY_AUDIT_HASH_SECRET`）；以不落盤的 ephemeral shape-only env 重試通過。未連接外部 production service，也未保存任何 secret。
 - 已檢查 `.github/workflows/deploy-production.yml`。本次沒有 schema／migration 改動，因此 migration checksum、fresh replay、contract regression 不適用；沒有執行 `prisma db push`、`npm run db:contract`、push、PR 或 deployment。
-- Visual／accessibility 詳細證據、viewport matrix、axe 結果、VoiceOver smoke、prototype deviations 及 screenshot paths 保存在 `output/playwright/phase6/visual-qa.md`；real production post-deploy smoke 依使用者明確 no-deploy 規則未執行，為已記錄批准例外。
+- Visual／accessibility 詳細證據、viewport matrix、axe 結果、VoiceOver smoke、prototype deviations 及 screenshot paths 保存在 `plans/archive/evidence/playwright/phase6/visual-qa.md`；real production post-deploy smoke 依使用者明確 no-deploy 規則未執行，為已記錄批准例外。
