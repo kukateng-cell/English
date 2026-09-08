@@ -16,7 +16,8 @@
 
 ## 1. 背景及問題定義
 
-目前 runtime 詞庫由 PostgreSQL `Word` 提供，但 `prisma/seed.ts` 仍以 `word list.md` 為來源。新建立的
+目前 runtime 詞庫由 PostgreSQL `Word` 提供；早期 seed 曾以 `docs/archive/word-list.md`（原檔名 `word list.md`）為來源，
+現已改用 `data/catalog/` 下的正式 CSV。新建立的
 A1、A2、B1、B2 CSV 則以「一行一個詞義」表示資料，能夠保存同一英文在不同程度的不同意思、兩個出題方向及各自的人工干擾項。
 
 現有 `Word.term @unique` 只容許每個英文拼法有一行，舊 seed 遇到重複 term 會採用最低程度的一行。因此，直接把新 CSV 塞進舊

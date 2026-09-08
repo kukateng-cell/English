@@ -34,7 +34,7 @@
 |---|---|---|
 | `output/` | 103 個檔案，全部 tracked；101 個圖片及 2 份 Markdown，主要為 Playwright 歷史視覺證據 | 保留有來源的證據，移入歷史證據區；未來測試輸出另放 ignored 目錄 |
 | `outputs/` | 6 個 tracked 檔案：A1–B2 四份 CSV、identity JSON、initial-activation JSON | 全部屬目前 seed／驗證來源，保留，受控搬到 `data/catalog/` |
-| `word list.md` | 歷史詞表，已不是目前 seed 來源 | 移到 `docs/archive/word-list.md`，標明歷史來源，不放在新人入口 |
+| `word list.md` | 歷史詞表，已不是目前 seed 來源 | 已移到 `docs/archive/word-list.md`，標明歷史來源，不放在新人入口 |
 | `plans/` | 現行規範、計劃、審核日誌、證據混合 | 索引先分區，再逐批移走已完成／已取代計劃 |
 | `.github/` | CI 和發佈 workflows | 保留，隨指令／路徑變更更新 |
 | `.next/`、`src/generated/`、`node_modules/`、`*.tsbuildinfo` | 工具生成／安裝內容 | 繼續忽略，不手工重構；不為美觀刪除正在使用的快取 |
@@ -164,7 +164,7 @@ hash／簽章資料、CSV／manifest、測試中的簡體輸入／預期輸出�
 ### P2：歷史文件與視覺證據歸位
 
 - [ ] 依搬移表逐批歸檔已完成／已取代計劃，保留決策與驗收證據；更新相對連結。
-- [ ] 將歷史詞表歸檔並標明非正式來源；檢查 Markdown 程式碼中的路徑提示。
+- [x] 將歷史詞表歸檔並標明非正式來源；檢查 Markdown 程式碼中的路徑提示。
 - [ ] 搬移保留截圖；新測試輸出改用 ignored 路徑，更新 PII scanner 和生成者。
 - [ ] 歷史中文說明繁體化；核對日期、數字、勾選狀態及引文不被改意。
 
@@ -346,6 +346,8 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 P3 詞庫來源已按明確 mapping 搬到 `data/catalog/`，新增用途 README；資料 row 的 `outputs/...`
 穩定識別名及 digest 計算保持不變。六份檔案與實施前 Git blob hash 全部相等，source-layer
 baseline test 通過；existing／fresh DB 回歸仍待隔離資料庫驗證。
+P2 已把歷史 `word list.md` 原 bytes 搬到 `docs/archive/word-list.md`，Git blob hash
+`cb02172639517f91b79f1c960a3bb6a0b22ec6c0` 保持不變；根目錄已不再放置該歷史詞表。
 本次檔案／計劃驗證：`npm test` 429 passed、`npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（58 files）、
 `git diff --check` passed。未執行 production build、DB／migration、完整 browser、native device 或 performance suites。

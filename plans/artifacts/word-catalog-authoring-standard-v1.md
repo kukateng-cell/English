@@ -625,7 +625,7 @@ Level 同 category 不放入 exact-sense fingerprint，因為兩個人將同一�
 
 ## 15. 現有 Markdown 轉換原則
 
-下一階段將目前 `word list.md` 轉成 v1 草稿時：
+下一階段整理歷史 `docs/archive/word-list.md`（原檔名 `word list.md`）轉成 v1 草稿時：
 
 - 保留原始 term、definition、level、category 及來源行號作 migration report；
 - 不再採用「同一 term 永遠只保留最低級別」；同一 term 嘅多次出現全部進入 headword conflict bundle；

@@ -110,8 +110,8 @@ canonical identity validation；停權／恢復一律委派名冊 lifecycle serv
 - **助記圖片**（視覺聯想）
 - **近義詞 / 反義詞**
 
-> 當前數據邊界：組件和數據庫字段已支持上述內容，但 `prisma/seed.ts` 只從
-> `word list.md` 自動導入 term、definition、level 與 category；音標、例句、圖片、
+> 當前數據邊界：組件和數據庫字段已支持上述內容；`prisma/seed.ts` 從
+> `data/catalog/` 正式 CSV 導入 term、definition、level 與 category；音標、例句、圖片、
 > 近義詞和反義詞需要經管理端或後續內容管線補充。因此“答案面已實現”不等於
 > “全部 5000+ 詞均已有完整多模態素材”。
 
@@ -282,7 +282,7 @@ ADMIN）、`ReviewEventKind` 與 `SecurityEventType`。
 
 | 素材 | 當前來源 | 當前狀態 |
 |---|---|---|
-| 單詞、中文釋義、級別、主題 | 倉庫內 `word list.md` | Seed 已自動解析；同詞重複時保留最低級別 |
+| 單詞、中文釋義、級別、主題 | `data/catalog/` 下 A1–B2 正式 CSV（早期快照見 `docs/archive/word-list.md`） | Seed 已自動解析；sense-level identity 由 manifest 鎖定 |
 | 音標、詞性 | 管理端 / 後續內容管線 | Schema 與 UI 支持，seed 未自動填充 |
 | 例句 | 管理端 / 後續內容管線 | Schema 與 UI 支持，當前沒有 Free Dictionary runtime 調用 |
 | 近義詞 / 反義詞 | 管理端 / 後續內容管線 | 新詞 seed 時寫入空數組 |
@@ -385,7 +385,7 @@ npm run seed
 
 | 階段 | 狀態 | 已有產出 | 下一驗收點 |
 |---|---|---|---|
-| **P0 基礎詞表** | ✅ 已完成 | `word list.md`、A1–B2 分類及冪等 seed | 把內容完整度另列為 P7，不再假定 ECDICT 管線已存在 |
+| **P0 基礎詞表** | ✅ 已完成 | `data/catalog/` A1–B2 分類、identity manifest 及冪等 seed（早期快照見 `docs/archive/word-list.md`） | 把內容完整度另列為 P7，不再假定 ECDICT 管線已存在 |
 | **P1 數據層** | ✅ 已完成 | PostgreSQL、Prisma schema、48 個 normal migrations 及新庫 replay 檢查 | 所有後續 schema 變更繼續走 expand / contract 流程 |
 | **P2 認證與角色** | ✅ 已完成 | Auth.js、學生／教師／管理員、首次改密、撤銷與限流 | 完成 production secrets 和真實部署驗收 |
 | **P3 學習核心** | ✅ 本地基線完成 | Retrieval-first continuous stream、3 秒 long-press Learning Card、Objective Probe、versioned SM-2 evidence policy、單元模式 | 實體 iPhone Safari／Android Chrome 與完整 screen-reader acceptance 屬 external gate |

@@ -30,7 +30,7 @@
 
 - 不改 Learning Card、Objective Probe、SM-2、排程、統計或審核語義。
 - 不改 Prisma schema、migration、approved catalog revision 或正式 baseline digest。
-- 不以 OpenCC 批量改寫 `word list.md`；該檔已不是目前 canonical 詞庫來源。
+- 不以 OpenCC 批量改寫 `docs/archive/word-list.md`；該檔已不是目前 canonical 詞庫來源。
 - 不重寫歷史計劃全文；只修正會誤導目前實作的 i18n contract，並保留歷史決策脈絡。
 - 不執行 production deploy、production migration、seed 或 destructive cleanup。
 

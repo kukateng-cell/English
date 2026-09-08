@@ -16,4 +16,5 @@ manifest，並要按 [詞庫切換計劃](../../plans/csv-word-catalog-local-dat
 需要重建本地詞庫時，先確認 `MIGRATE_URL`、database environment marker 及目標 topology，
 再閱讀 [本地開發指南](../../docs/development.md) 和 `scripts/rebuild-local-catalog.mjs`。
 
-`word list.md` 是歷史詞表，不是目前 canonical seed 來源；`output/` 則保存歷史視覺驗收證據。
+`docs/archive/word-list.md`（原檔名 `word list.md`）是歷史詞表，不是目前 canonical seed 來源；
+`output/` 則保存歷史視覺驗收證據。

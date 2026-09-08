@@ -16,7 +16,8 @@
 
 ## 1. 背景及問題定義
 
-平台現時用 `word list.md` 作初始內容來源，但 runtime 實際讀 PostgreSQL `Word`。現行模型將 `term` 設為唯一，只有一個
+平台早期用 `docs/archive/word-list.md`（原檔名 `word list.md`）作初始內容來源；目前 seed 已改用 `data/catalog/` 下的正式 CSV，
+而 runtime 實際讀 PostgreSQL `Word`。現行模型將 `term` 設為唯一，只有一個
 `definition`、`level` 同 `category`；seed 遇到同一英文出現在多個程度時會保留最低 level。Objective Probe 再由其他 `Word`
 動態抽三個干擾項。管理員可以直接新增／修改／hard delete，老師沒有提交或審核詞庫嘅正式流程。
 

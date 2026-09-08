@@ -56,7 +56,7 @@
 | `package-lock.json` | 1 | 12,502 | 依賴鎖定檔，非人工業務邏輯 |
 
 另有 `data/catalog/catalog-identity/word-catalog-v1.identity.json` **56,418 行**（資料 row 內的穩定 `sourceFile` 仍以 `outputs/...` 表示），
-屬詞庫 identity 資料；`word list.md` **6,881 行**，屬歷史詞表。
+屬詞庫 identity 資料；`docs/archive/word-list.md` **6,881 行**（原檔名 `word list.md`），屬歷史詞表。
 不能把這兩項誤算成幾萬行產品邏輯。Identity／activation manifest 有正式 baseline 用途，
 不能因放在 outputs 就當作可丟棄輸出。
 
@@ -79,7 +79,7 @@ AGENTS 保留工作規則、禁止破壞的不變條件及按任務選讀的連�
 ### D2：同一文件內已有可核對的現況落差
 
 - AGENTS 的 `prisma/seed.ts` 說明和 `plans/project-plan.md` 第 114、285 行附近仍說由
-  `word list.md` 匯入；實際 `prisma/seed.ts` 呼叫 `seedCatalog`，
+  歷史 `word list.md` 匯入；實際 `prisma/seed.ts` 呼叫 `seedCatalog`，
   `src/lib/catalog/seed.ts` 第 31 行起列出四份 A1–B2 CSV。
 - `project-plan.md` 不同段落出現 48、49、24 個 migrations 等歷史數字，現在一般 migrations 為 67；
   舊附錄甚至用「當前」描述 16 models。歷史數字應標日期，現況數字只保留一處或改為可產生的盤點。
