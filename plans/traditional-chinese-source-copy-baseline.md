@@ -43,7 +43,7 @@
   訊息仍須是繁體，避免未經轉換的 HTML／JSON 邊界漏出簡體。
 - `buildAuthServiceUnavailableResponse()` 開始時手寫繁體／簡體兩份 HTML 文案；現已改為繁體
   原文配合共用轉換函數。
-- 正式 `outputs/*-word-catalog-reference-v1/*.csv` 已是繁體香港中文 canonical；簡體只應在
+- 正式 `data/catalog/*-word-catalog-reference-v1/*.csv` 已是繁體香港中文 canonical；簡體只應在
   顯示層衍生。
 
 ## 五、實施階段

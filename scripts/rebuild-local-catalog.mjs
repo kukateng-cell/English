@@ -22,15 +22,15 @@ function quoteIdentifier(value) { return `"${value.replaceAll('"', '""')}"`; }
 function sha256(value) { return createHash("sha256").update(value, "utf8").digest("hex"); }
 async function actualCatalogDigest() {
   const files = [
-    "outputs/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv",
-    "outputs/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv",
-    "outputs/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv",
-    "outputs/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv",
+    { sourceFile: "outputs/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv", physicalPath: "data/catalog/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv" },
+    { sourceFile: "outputs/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv", physicalPath: "data/catalog/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv" },
+    { sourceFile: "outputs/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv", physicalPath: "data/catalog/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv" },
+    { sourceFile: "outputs/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv", physicalPath: "data/catalog/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv" },
   ];
   const parts = [];
-  for (const relativePath of files) {
-    const text = await readFile(path.join(root, relativePath), "utf8");
-    parts.push(`${relativePath}\0${sha256(text)}`);
+  for (const file of files) {
+    const text = await readFile(path.join(root, file.physicalPath), "utf8");
+    parts.push(`${file.sourceFile}\0${sha256(text)}`);
   }
   return sha256(parts.join("\n"));
 }
@@ -76,7 +76,7 @@ if (
 ) fail("拒絕 catalog rebuild：target 不符合 local topology allowlist。");
 if (targetConfirmation !== `${topology.database}/${topology.schema}`) fail("拒絕 catalog rebuild：CONFIRM_LOCAL_RESET_TARGET 必須精確匹配 database/schema。");
 
-const manifest = JSON.parse(await readFile(path.join(root, "outputs/catalog-identity/word-catalog-v1.identity.json"), "utf8"));
+const manifest = JSON.parse(await readFile(path.join(root, "data/catalog/catalog-identity/word-catalog-v1.identity.json"), "utf8"));
 const catalogDigest = manifest.sourceDigest;
 const fileDigest = await actualCatalogDigest();
 if (fileDigest !== catalogDigest) fail("拒絕 catalog rebuild：CSV 實際 digest 與 checked-in identity manifest 不一致。");

@@ -2,7 +2,7 @@
  * Seed 腳本：匯入 versioned CSV 詞庫及本地帳戶 fixture
  * 執行：npx tsx prisma/seed.ts
  *
- * canonical vocabulary source: outputs/*-word-catalog-reference-v1/*.csv
+ * canonical vocabulary source: data/catalog/*-word-catalog-reference-v1/*.csv
  */
 import dotenv from "dotenv";
 import { assertSeedAccountRole } from "../src/lib/seed-account-guard";

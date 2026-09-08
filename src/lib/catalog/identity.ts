@@ -3,7 +3,7 @@ import type { CatalogSourceRow } from "./csv";
 import { normalizeCatalogText } from "./csv";
 
 export const CATALOG_IDENTITY_MANIFEST_VERSION = "catalog-identity-manifest-v1" as const;
-export const CATALOG_IDENTITY_MANIFEST_PATH = "outputs/catalog-identity/word-catalog-v1.identity.json" as const;
+export const CATALOG_IDENTITY_MANIFEST_PATH = "data/catalog/catalog-identity/word-catalog-v1.identity.json" as const;
 
 export interface CatalogIdentityAssignment {
   sourceFile: string;

@@ -55,7 +55,7 @@
 | `prisma` 文字來源 | 72 | 6,624 | schema、seed、SQL 等 |
 | `package-lock.json` | 1 | 12,502 | 依賴鎖定檔，非人工業務邏輯 |
 
-另有 `outputs/catalog-identity/word-catalog-v1.identity.json` **56,418 行**，
+另有 `data/catalog/catalog-identity/word-catalog-v1.identity.json` **56,418 行**（資料 row 內的穩定 `sourceFile` 仍以 `outputs/...` 表示），
 屬詞庫 identity 資料；`word list.md` **6,881 行**，屬歷史詞表。
 不能把這兩項誤算成幾萬行產品邏輯。Identity／activation manifest 有正式 baseline 用途，
 不能因放在 outputs 就當作可丟棄輸出。

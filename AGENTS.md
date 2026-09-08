@@ -53,7 +53,7 @@ workflow 為準。
 - `prisma/schema.prisma`：目前的 PostgreSQL 資料模型。
 - `prisma/migrations/`：一般 expand migrations。
 - `prisma/contract-migrations/`：需要明確確認、獨立執行的 contract migrations。
-- `prisma/seed.ts`：使用 `outputs/` 下四份正式 CSV，建立詞庫及可選測試／預設帳戶。
+- `prisma/seed.ts`：使用 `data/catalog/` 下四份正式 CSV，建立詞庫及可選測試／預設帳戶。
 - `tests/e2e/`：Playwright 字卡和完整學習流程回歸測試。
 - `scripts/`：資料庫、遷移、production config 及 ledger 驗證工具。
 
@@ -152,7 +152,8 @@ npm run test:e2e:card-motion
   每階段完成相應驗證後才勾選 checklist。
 - 保留現行 V2 的 scoring、credential、receipt、CAS、outbox、checkpoint 及 recovery；
   V1 退役只移除 V1 執行流程，不刪除仍被 V2 或歷史 reader 使用的資料欄位。
-- `outputs/` 是正式 catalog source；`output/` 是歷史視覺證據。日常測試輸出使用 ignored 的 `test-results/`。
+- `data/catalog/` 是正式 catalog source；資料 row 內的 `outputs/...` 仍是刻意保留的穩定 `sourceFile` 識別名。
+  `output/` 是歷史視覺證據；日常測試輸出使用 ignored 的 `test-results/`。
 - 文件、程式註解及操作說明使用繁體中文；env 名稱、API path、enum、JSON key、migration 及測試必要輸入不翻譯。
 - 文件搬移先更新相對連結並執行本地 link／Markdown 檢查；不以 `|| true` 掩蓋內部連結失敗。
 

@@ -1,17 +1,22 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { readCatalogSourceFiles } from "./seed";
+import { CATALOG_SOURCE_FILES, CATALOG_SOURCE_FILE_PATHS, readCatalogSourceFiles } from "./seed";
 import { normalizeCatalogRow, validateCatalogRow } from "./csv";
 import { validateInitialBaselineRow } from "./initial-baseline-validation";
 import { catalogSenseKeySetDigest, readCatalogInitialActivationManifest } from "./initial-activation";
-import type { CatalogIdentityManifest } from "./identity";
+import { CATALOG_IDENTITY_MANIFEST_PATH, type CatalogIdentityManifest } from "./identity";
 
 test("frozen approval reproduces the original set while daily validation can relax", async () => {
-  const identity = JSON.parse(await readFile("outputs/catalog-identity/word-catalog-v1.identity.json", "utf8")) as CatalogIdentityManifest;
+  const identity = JSON.parse(await readFile(CATALOG_IDENTITY_MANIFEST_PATH, "utf8")) as CatalogIdentityManifest;
   const manifest = await readCatalogInitialActivationManifest(process.cwd(), identity.sourceDigest);
+  const sourceFiles = await readCatalogSourceFiles();
+  assert.deepEqual(
+    sourceFiles.map(file => [file.relativePath, file.physicalPath]),
+    CATALOG_SOURCE_FILES.map(sourceFile => [sourceFile, CATALOG_SOURCE_FILE_PATHS[sourceFile]]),
+  );
   const assignments = new Map(identity.assignments.map(row => [`${row.sourceFile}:${row.sourceRow}`, row]));
-  const rows = (await readCatalogSourceFiles()).flatMap(file => file.rows).map(row => {
+  const rows = sourceFiles.flatMap(file => file.rows).map(row => {
     const assigned = assignments.get(`${row.sourceFile}:${row.sourceRow}`)!;
     return normalizeCatalogRow({ ...row, catalog_key: assigned.catalogKey, sense_key: assigned.senseKey }, 0);
   });

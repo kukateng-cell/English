@@ -62,9 +62,12 @@ npm run db:deploy
 npm run seed
 ```
 
-`npm run seed` 會讀取 `outputs/` 下 A1、A2、B1、B2 四份正式 CSV 及 identity／activation manifest；
+`npm run seed` 會讀取 `data/catalog/` 下 A1、A2、B1、B2 四份正式 CSV 及 identity／activation manifest；
 `word list.md` 是歷史詞表，不是目前 canonical seed 來源。Seed 會建立大量資料及帳戶，必須按環境 marker 操作，
 並安全保存一次性臨時密碼輸出。
+
+CSV row 內仍會寫入原有 `outputs/...` `sourceFile` 穩定識別名；該名稱參與 source digest／identity，
+唔可以因為實體檔案已搬到 `data/catalog/` 而批量改寫。
 
 不要用 `npx prisma db push`。已套用 migration 不可手工修改；`npm run db:deploy` 會檢查 checksum，
 migration 必須能由空資料庫重播。改 schema 後重新執行 `npx prisma generate`。
@@ -131,7 +134,7 @@ Vercel runtime 使用 transaction pooler；migration／seed 需要能執行 DDL 
 
 ### 重新匯入詞庫要做甚麼？
 
-目前 seed 來源是 `outputs/` 下受控 CSV 和 manifest。先閱讀詞庫治理及 catalog cutover 計劃，確認 source digest、
+目前 seed 來源是 `data/catalog/` 下受控 CSV 和 manifest。先閱讀詞庫治理及 catalog cutover 計劃，確認 source digest、
 identity、revision 及目標資料庫，再用隔離環境驗證；不要直接修改 `word list.md` 當作正式來源。
 
 ### 本地資料庫空白或 schema 不一致怎麼辦？

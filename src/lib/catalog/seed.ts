@@ -35,8 +35,30 @@ export const CATALOG_SOURCE_FILES = [
   "outputs/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv",
 ] as const;
 
+/**
+ * Stable source identifiers are stored in catalog rows and identity manifests.
+ * Keep them unchanged when the checked-in files move; only this physical path
+ * map should change during an intentional source-directory migration.
+ */
+export const CATALOG_SOURCE_FILE_PATHS: Record<
+  (typeof CATALOG_SOURCE_FILES)[number],
+  string
+> = {
+  "outputs/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv":
+    "data/catalog/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv",
+  "outputs/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv":
+    "data/catalog/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv",
+  "outputs/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv":
+    "data/catalog/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv",
+  "outputs/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv":
+    "data/catalog/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv",
+};
+
 export interface CatalogSourceFile {
+  /** Stable source identifier used in rows, manifests and sourceDigest. */
   relativePath: string;
+  /** Current checked-in path used only to read the source bytes. */
+  physicalPath: string;
   text: string;
   digest: string;
   rows: CatalogSourceRow[];
@@ -99,9 +121,11 @@ async function readIdentityManifest(rootDir: string, sourceDigest: string): Prom
 export async function readCatalogSourceFiles(rootDir?: string): Promise<CatalogSourceFile[]> {
   const root = sourceRoot(rootDir);
   return Promise.all(CATALOG_SOURCE_FILES.map(async (relativePath) => {
-    const text = await readFile(path.join(root, relativePath), "utf8");
+    const physicalPath = CATALOG_SOURCE_FILE_PATHS[relativePath];
+    const text = await readFile(path.join(root, physicalPath), "utf8");
     return {
       relativePath,
+      physicalPath,
       text,
       digest: digest(text),
       rows: parseCatalogCsv(text, relativePath),

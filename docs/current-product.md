@@ -47,8 +47,9 @@ Unit mode 可以限制詞集，仍使用同一張卡片、題目、續接及 ser
 P4 會先完成 cutover matrix 及 test migration matrix，再移除 V1 執行流程；目前不能把退役當成已完成。
 `retrieval-v1` 是現行 V2 的 policy identifier，不是 V1 UI 的名稱，不能因字串包含 `v1` 而刪除。
 
-正式詞庫目前由 `outputs/` 下四份 CSV、identity manifest 及 initial-activation manifest 提供；
-`word list.md` 是歷史詞表。P3 計劃受控搬移資料目錄，搬移前後必須證明 bytes、source digest、identity、
+正式詞庫目前由 `data/catalog/` 下四份 CSV、identity manifest 及 initial-activation manifest 提供；
+`word list.md` 是歷史詞表。CSV row 內保留 `outputs/...` 作穩定 `sourceFile` 識別名。P3 搬移已按受控 mapping
+完成；之後仍須證明 bytes、source digest、identity、
 啟用集合及已有資料庫讀取結果一致。
 
 Production deploy、真實學生 pilot、研究資料收集、原生裝置／完整 screen-reader matrix 及 destructive contract cleanup

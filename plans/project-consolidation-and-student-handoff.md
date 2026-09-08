@@ -170,8 +170,10 @@ hash／簽章資料、CSV／manifest、測試中的簡體輸入／預期輸出�
 
 ### P3：正式詞庫目錄整理
 
-- [ ] 以最小明確 mapping 分開檔案位置與穩定來源名稱，更新所有讀取工具。
-- [ ] 搬六份資料到 `data/catalog/`，保留檔名及內容 bytes，加入用途 README。
+- [x] 以最小明確 mapping 分開檔案位置與穩定來源名稱，更新所有讀取工具。
+- [x] 搬六份資料到 `data/catalog/`，保留檔名及內容 bytes，加入用途 README。
+- [x] 以六份檔案的 Git blob hash 及 frozen baseline unit test 證明 source bytes、sourceDigest、
+  identity assignment 及 ACTIVE／DRAFT selection digest 的 source-layer 結果沒有改變。
 - [ ] 證明前後 sourceDigest、identity fingerprints、sense keys、ACTIVE／DRAFT 集合一致。
 - [ ] 在全新隔離測試庫驗證 seed／重跑與正式 reader；不寫入現有 demo 庫。
 - [ ] 執行第 8.2 節已有合成歷史資料庫回歸：不用 reseed 就能直接讀取，身份／歷史／狀態／報表一致。
@@ -341,9 +343,15 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 `docs/development.md`、`docs/testing.md`，更新 README／AGENTS／DEPLOY／`.env.example`，
 加入 `scripts/check-markdown-links.mjs` 並接入 Markdown workflow；快速閱讀分區已加入，
 完整索引的逐項狀態覆核及 clean-clone 演練仍未完成。
+P3 詞庫來源已按明確 mapping 搬到 `data/catalog/`，新增用途 README；資料 row 的 `outputs/...`
+穩定識別名及 digest 計算保持不變。六份檔案與實施前 Git blob hash 全部相等，source-layer
+baseline test 通過；existing／fresh DB 回歸仍待隔離資料庫驗證。
 本次檔案／計劃驗證：`npm test` 429 passed、`npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（58 files）、
 `git diff --check` passed。未執行 production build、DB／migration、完整 browser、native device 或 performance suites。
+自動 clean-clone 已建立並通過 clone 及 Markdown 檢查；`npm ci` 兩次均受本機 Windows npm cache／npm
+自身 `EPERM`／`Exit handler never called` 阻擋，未把依賴未安裝造成的測試錯誤當成產品失敗；P1 clean-clone
+仍待在可用 Node／npm 環境完成。
 
 ### Revision 2：2026-09-08 審核跟進
 

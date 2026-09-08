@@ -9,7 +9,7 @@ import {
 export const CATALOG_INITIAL_VALIDATOR_VERSION = "catalog-validator-v1" as const;
 
 export const CATALOG_INITIAL_ACTIVATION_MANIFEST_PATH =
-  "outputs/catalog-identity/word-catalog-v1.initial-activation.json";
+  "data/catalog/catalog-identity/word-catalog-v1.initial-activation.json";
 export const CATALOG_INITIAL_ACTIVATION_MANIFEST_VERSION =
   "catalog-initial-activation-v1" as const;
 export const CATALOG_INITIAL_ACTIVATION_SELECTION_RULE =

@@ -44,7 +44,7 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
-| [project-consolidation-and-student-handoff.md](./project-consolidation-and-student-handoff.md) | 全項目整頓與交接計劃 | 進行中（P1 文件入口） | 現行開發主線、P1 獨立交接、P3 existing-DB 回歸、P4 cutover／測試移植矩陣、環境分離及主線治理已補入；四份新人指南及根目錄入口已開始實作 |
+| [project-consolidation-and-student-handoff.md](./project-consolidation-and-student-handoff.md) | 全項目整頓與交接計劃 | 進行中（P1／P3 source layer） | 現行開發主線、P1 獨立交接、P3 existing-DB 回歸、P4 cutover／測試移植矩陣、環境分離及主線治理已補入；四份新人指南及 `data/catalog/` source mapping 已實作，DB 回歸仍待驗證 |
 | [realistic-demo-school.md](./realistic-demo-school.md) | 虛構學校及增量模擬 | 已完成（本地驗證） | 18班566人、自然名冊、seeded 活動、每日補漏、重跑/中斷續跑及正式報表reader驗證；只供本地 |
 | [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) | 學生排行榜重設計計劃 | 已完成（本地核心實作；大型DB效能／原生screen-reader列後續） | 本班每週學習分主榜、附近／完整排名、個人週目標；直接替換舊榜，已清空重建本地資料；含reward contract、API／snapshot、自動化及CUA視覺驗收，不含production工作 |
 | [teacher-reward-summary-usability.md](./teacher-reward-summary-usability.md) | 教師體驗修改計劃 | 已完成（本地驗收；native screen-reader matrix deferred；production／pilot deferred） | 首頁首屏匯出入口、獨立學生累積分頁、三個累積結果及簡潔 Excel／CSV；已核對客觀作答全零的舊 fixture 根因，保留 strict provenance 驗證 |

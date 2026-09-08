@@ -12,13 +12,13 @@
 >
 > 對應實施計劃：[word-catalog-governance-and-lifecycle.md](../word-catalog-governance-and-lifecycle.md)
 >
-> A1 參考 CSV：[a1-word-catalog-reference-v1.csv](../../outputs/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv)
+> A1 參考 CSV：[a1-word-catalog-reference-v1.csv](../../data/catalog/a1-word-catalog-reference-v1/a1-word-catalog-reference-v1.csv)
 >
-> A2 參考 CSV：[a2-word-catalog-reference-v1.csv](../../outputs/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv)
+> A2 參考 CSV：[a2-word-catalog-reference-v1.csv](../../data/catalog/a2-word-catalog-reference-v1/a2-word-catalog-reference-v1.csv)
 
-> B1 參考 CSV：[b1-word-catalog-reference-v1.csv](../../outputs/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv)
+> B1 參考 CSV：[b1-word-catalog-reference-v1.csv](../../data/catalog/b1-word-catalog-reference-v1/b1-word-catalog-reference-v1.csv)
 
-> B2 參考 CSV：[b2-word-catalog-reference-v1.csv](../../outputs/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv)
+> B2 參考 CSV：[b2-word-catalog-reference-v1.csv](../../data/catalog/b2-word-catalog-reference-v1/b2-word-catalog-reference-v1.csv)
 
 ## 1. 文件目的
 
