@@ -35,6 +35,9 @@
 ### 已完成與歷史記錄
 
 下方完整索引保留每份計劃的決策、驗收證據及未執行項目。標示「已完成」只代表該文件所述的本地範圍；標示「已取代」的文件仍保留作歷史參考，現行行為以新人指南、程式、測試及 schema 為準。
+歷史文件若仍提及 `V1 rollback`、舊 assignment 或舊 client，該文字只描述當時的驗收範圍，
+已由本分支「只保留 V2」決定取代；現行工作以 [`docs/current-product.md`](../docs/current-product.md)、
+[`docs/architecture.md`](../docs/architecture.md) 及主線整頓計劃為準。
 
 ## 完整計劃書索引（保留歷史記錄）
 
@@ -56,7 +59,7 @@
 | [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
 | [retrieval-first-learning-program.md](./retrieval-first-learning-program.md) | 主計劃／Program Plan | 進行中（本地基線完成） | Retrieval-first V2 local product 已完成並凍結；只餘未獲授權 external rollout／research gates |
 | [retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md) | RFC／產品及學習規範 | 已批准並生效 | 卡片語義、3 秒 long-press reveal、客觀證據、bounded verification debt、metrics 及 policy version |
-| [learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md) | 核心學習流程實施計劃 | 已完成（本地產品） | Continuous stream、UI state machine、API、outbox、checkpoint 及 V1 rollback；external rollout deferred |
+| [learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md) | 核心學習流程實施計劃 | 已完成（本地產品；歷史 V1 分流記錄已取代） | Continuous stream、UI state machine、API、outbox、checkpoint；原有 V1 分流／rollback 只保留作歷史證據，現行退役工作見整頓計劃 P4 |
 | [study-credential-v2-migration.md](./study-credential-v2-migration.md) | 安全／資料遷移計劃 | 已完成（product scope） | Stream-item credential、v1/v2 coexistence、rotation 及 expand migrations；Stage E destructive cleanup deferred |
 | [research-learning-framework.md](./research-learning-framework.md) | 研究治理／telemetry 計劃 | 待審批（暫緩） | Research feature off；consent、privacy、diagnostic、telemetry 及 experiment 未獲外部批准 |
 | [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 已完成 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |

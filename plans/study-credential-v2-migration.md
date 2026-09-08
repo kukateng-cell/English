@@ -1,5 +1,9 @@
 # Study Credential v2 安全及資料遷移計劃
 
+> **歷史範圍註記（2026-09-08）：** 本文件記錄當時 expand／dual-flow release scope。內文提到的
+> V1 code rollback、舊 binary 或 `off` assignment 只可作歷史 migration 證據；現行 branch 不會
+> 以 V1 rollback 作產品策略。欄位及歷史資料處理仍須按[項目整頓計劃 P4](./project-consolidation-and-student-handoff.md)核對。
+
 > 類型：認證／資料模型／expand-contract Migration Plan
 > 狀態：已完成（product-release expand／dual-flow scope；Stage E destructive cleanup deferred）
 > 父文件：[retrieval-first-learning-program.md](./retrieval-first-learning-program.md)

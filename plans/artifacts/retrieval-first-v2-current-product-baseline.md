@@ -5,6 +5,11 @@
 > 工作分支：`codex/retrieval-first-learning-stream-v2`
 > 程式基線 commit：`e43ed66`
 > 狀態：本地產品基線已完成；external rollout／research／destructive cleanup deferred
+>
+> **現行使用註記（2026-09-08）：** 這是 2026-08-15 的歷史快照，不是目前 branch 的操作指示。
+> 使用者已決定只保留 V2、移除 V1 後備流程；本文件內 `off`／V1 rollback／assignment coexistence
+> 只可作歷史證據。現行閱讀入口是 [`docs/current-product.md`](../../docs/current-product.md) 及
+> [`project-consolidation-and-student-handoff.md`](../project-consolidation-and-student-handoff.md)。
 > 規範來源：[retrieval-first-learning-contract.md](../retrieval-first-learning-contract.md)
 > 歷史及驗證來源：[retrieval-first-learning-program.md](../retrieval-first-learning-program.md)
 
@@ -30,8 +35,9 @@ EMM Style 02 係設計起點；其後使用者批准嘅 I-011–I-035 override �
   自由回憶、文法、聽力或口語能力。
 - Global `/study` 係 continuous stream，無固定完成題數；每個已確認 action 後都可以安全離開。
 - Unit mode 可以有有限詞集及 summary，但使用同一 Learning Card／Objective Probe contract。
-- 本地開發可用 `STUDY_V2_ASSIGNMENT_MODE=all` 令所有已登入帳戶使用 V2；production／
-  Vercel runtime 會拒絕 `all`。`off` 保留 V1 rollback，`internal` 只限 allowlist。
+- 快照當時本地開發可用 `STUDY_V2_ASSIGNMENT_MODE=all` 令所有已登入帳戶使用 V2；production／
+  Vercel runtime 會拒絕 `all`。當時的 `off`／`internal` 分流屬歷史實作；現行整頓不再把它們當作
+  V1 rollback 入口，退役前的分類及測試要求見主線計劃 P4。
 - 呢個分支未合併或推送到 `main` 就唔代表 `main` 已經有 V2，亦唔代表 production 已發布。
 
 ## 三、學生最基本學習流程
@@ -138,8 +144,8 @@ Objective Probe：
 - client 唔可以自行指定可信 word、item kind、quality、correctness、score 或第二次答案。
 - checkpoint、offline outbox、cross-tab／cross-device reconciliation、session rotation、expired
   credential／lease bounded recovery 必須保留；未知 credential 或 revoked session fail closed。
-- V1／V2 由 `flowVersion` pinning 分流；唔接受 mixed payload。V1 bridge／rollback 保留至另行
-  批准 destructive contract cleanup。
+- 快照當時由 `flowVersion` pinning 分流並拒絕 mixed payload；V1 bridge／rollback 文字屬歷史證據。
+  現行目標係完成 cutover 後只保留 V2 writer，歷史資料解讀及必要欄位仍按主線計劃逐項核對。
 - production limiter 必須使用共享 Upstash；缺少 backend 時 fail closed，唔可靜默改用 memory。
 - 已套用 migration 唔可修改；一般變更走 expand migration，唔用 `prisma db push`。
 

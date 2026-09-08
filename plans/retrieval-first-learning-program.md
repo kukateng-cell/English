@@ -1,5 +1,9 @@
 # Retrieval-first Learning Program 主計劃
 
+> **歷史範圍註記（2026-09-08）：** 本文件保留 V2 產品形成過程及當時驗收證據；其中 V1 rollback、
+> `off` assignment 或舊 client 兼容文字不是現行操作要求。使用者已決定只保留 V2，現行退役次序及
+> 可執行要求以 [`docs/current-product.md`](../docs/current-product.md) 及[項目整頓計劃 P4](./project-consolidation-and-student-handoff.md) 為準。
+
 > 類型：主計劃／Program Plan
 > 狀態：進行中（local product baseline 已完成並凍結；只餘未獲授權 external gates）
 > 父文件：[project-plan.md](./project-plan.md)

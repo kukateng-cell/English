@@ -110,7 +110,12 @@ reset 必須沿用現有 local topology allowlist、development environment mark
 6. seed 重跑不得覆寫其後老師批准內容、不得重新啟用 RETIRED、不得以缺行自動停用；日後修改仍必須經 DRAFT proposal及四眼審批；
 7. 舊 `CatalogEligibility` table 暫留作 schema compatibility，但不再參與 runtime、seed 或治理 API；刪除要另行批准 contract migration。
 
-### 3.5 V1 rollback compatibility
+### 3.5 歷史 V1 compatibility（已由主線取代）
+
+本節保留當時切換驗收所需的 compatibility 證據。使用者其後已決定不保留 V1 rollback；
+現行 branch 不得把本節的 `off` smoke test、V1 projection 或 rollback wording 當成新的產品要求。
+資料欄位及歷史 reader 是否仍需保留，改由[項目整頓計劃 P4](./project-consolidation-and-student-handoff.md)
+逐項核對，未完成核對前不作破壞性刪除。
 
 現行產品 contract 仍要求 `STUDY_V2_ASSIGNMENT_MODE=off` 可以 rollback 到 V1，而 V1 `StudySessionItem`、legacy Review 及部分 reader 仍要求
 `Word`。因此「新 CSV 成為唯一 canonical source」不等於 reset 後令 physical `Word` 為空：

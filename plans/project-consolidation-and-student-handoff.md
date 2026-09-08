@@ -345,6 +345,8 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 加入 `scripts/check-markdown-links.mjs` 並接入 Markdown workflow；快速閱讀分區已加入，
 加入 `scripts/check-plan-index.mjs` 及 blocking workflow check；完整索引的逐項狀態覆核及
 clean-clone 演練仍未完成。
+另外已在 plans 索引及 V2 baseline／implementation／catalog／credential 主文件加上歷史範圍註記，
+明確把舊 V1 rollback／assignment 文字降為歷史證據，避免學生把它當成現行操作要求；原有歷史驗收段落保留。
 P3 詞庫來源已按明確 mapping 搬到 `data/catalog/`，新增用途 README；資料 row 的 `outputs/...`
 穩定識別名及 digest 計算保持不變。六份檔案與實施前 Git blob hash 全部相等，source-layer
 baseline test 通過；existing／fresh DB 回歸仍待隔離資料庫驗證。

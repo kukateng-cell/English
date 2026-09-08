@@ -6,6 +6,10 @@
 > 規範：[retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md)
 > 安全依賴：[study-credential-v2-migration.md](./study-credential-v2-migration.md)
 > 目前產品快照：[retrieval-first-v2-current-product-baseline.md](./artifacts/retrieval-first-v2-current-product-baseline.md)
+>
+> **歷史範圍註記（2026-09-08）：** 本計劃已完成當時的 V2 local product scope；其中 v1／v2
+> coexistence、`off` assignment 及 rollback 文字只描述歷史驗收。現行 branch 只保留 V2，V1
+> 執行流程退役及測試移植由[項目整頓計劃 P4](./project-consolidation-and-student-handoff.md)管理。
 
 ## 一、背景
 
