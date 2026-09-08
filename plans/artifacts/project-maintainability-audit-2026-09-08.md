@@ -173,16 +173,16 @@ WordCard、session、receipt、credential、operationId 與恢復能力照常保
 
 | 候選 | 行數 | 觀察與刪除前條件 |
 |---|---:|---|
-| `src/components/admin/WordFormModal.tsx` | 253 | 未發現 caller；核對目前 catalog 入口和歷史工具引用 |
-| `src/lib/teacher-reset-precondition.ts` | 187 | 只見舊專用測試引用；正式 teacher/admin routes 用 `password-reset-precondition` |
-| `src/components/StudyStats.tsx` | 135 | 未發現 caller；核對首頁現行 dashboard |
-| `src/lib/teacher-reset-limiter.ts` | 60 | 未發現 caller；正式 routes 用 `password-reset-limiter` |
-| `src/components/NavTabs.tsx` | 51 | 未發現 caller；核對三種角色導覽 |
-| `src/components/LanguageToggle.tsx` | 26 | 未發現 caller；語系能力本身仍要保留 |
+| `src/components/admin/WordFormModal.tsx` | 253 | 2026-09-08 已確認無 caller 並刪除；現行 catalog 入口不依賴此檔案 |
+| `src/lib/teacher-reset-precondition.ts` | 187 | 2026-09-08 已確認只有舊專用測試引用並刪除；正式 routes 使用 `password-reset-precondition` |
+| `src/components/StudyStats.tsx` | 135 | 2026-09-08 已確認無 caller 並刪除；首頁使用現行 dashboard projection |
+| `src/lib/teacher-reset-limiter.ts` | 60 | 2026-09-08 已確認無 caller 並刪除；正式 routes 使用 `password-reset-limiter` |
+| `src/components/NavTabs.tsx` | 51 | 2026-09-08 已確認無 caller 並刪除；三種角色導覽使用各自 workspace navigation |
+| `src/components/LanguageToggle.tsx` | 26 | 2026-09-08 已確認無 caller 並刪除；語系能力由 `LocaleProvider`／現行 controls 保留 |
 
-這批約 **712 行**，是具體清理候選，不是已刪除成果。
-舊 reset 的測試要先核對現行 audience、rotation、TTL、撤銷等測試是否涵蓋原保護，
-再決定淘汰或移植斷言，不能只為令測試變綠而刪測試。
+這批約 **712 行** 已完成低風險清理。舊 reset 的 rotation、TTL、audience、撤銷及 keyring
+斷言已移植／補入現行 `password-reset-precondition.test.ts`；本批刪除不改正式 route contract。
+這項成果不代表 V1 學習流程已退役，亦不代表其餘大型模組已證明可以刪除。
 
 ### C5：報表有可共用部分，也有必須分開的政策
 
@@ -222,7 +222,7 @@ AST 比對發現 `readRewardActor`／`readAnalyticsActor` 函數體相同，
 - shrink: 兩套 analytics 的相同日期驗證及 actor reader；用小型共用函數替代重複函數體。
 - shrink: catalog 工作區與 study entrypoint；按職責分拆，預期主要降低理解成本，並不承諾減總行數。
 
-net: -712 lines, -0 deps possible.
+net: -712 lines, -0 deps delivered in the first zero-caller cleanup batch.
 
 上式僅加總六個零產品引用候選，尚未實施／驗證刪除；未計可能需要保留的相容內容或測試搬移，
 亦未把重複 helper 的小幅收益計入。本次沒有足夠證據建議移除任何依賴。

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import test from "node:test";
 import {
   assertPasswordResetPrecondition,
@@ -18,8 +19,46 @@ const original = {
 };
 
 function setup() {
-  process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT = Buffer.alloc(32, 7).toString("base64url");
-  process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID = "current-v2";
+  configure(Buffer.alloc(32, 7).toString("base64url"), "current-v2");
+}
+
+function configure(current: string, currentId: string, previous?: string, previousId?: string) {
+  process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT = current;
+  process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID = currentId;
+  if (previous === undefined) delete process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS;
+  else process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS = previous;
+  if (previousId === undefined) delete process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID;
+  else process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID = previousId;
+}
+
+function key() {
+  return randomBytes(32).toString("base64url");
+}
+
+function teacherInput(now = 10_000) {
+  return {
+    audience: PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET,
+    actorId: "teacher-1",
+    actorRole: "TEACHER" as const,
+    targetId: "student-1",
+    targetRole: "STUDENT" as const,
+    sessionJti: "session-1",
+    actorTokenVersion: 1,
+    actorCredentialRevision: 2,
+    targetTokenVersion: 3,
+    targetCredentialRevision: 4,
+    targetRevision: 5,
+    targetAccessRevision: 6,
+    actorAccessRevision: 7,
+    grantReauthenticatedAt: now - 1_000,
+    grantExpiresAt: now + 10 * 60_000,
+    now,
+  };
+}
+
+function clearCommonKeyring() {
+  delete process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT;
+  delete process.env.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID;
   delete process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS;
   delete process.env.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID;
 }
@@ -126,6 +165,31 @@ test("local legacy keyring keeps teacher reset usable when v2 key is not configu
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+  }
+});
+
+test("key rotation keeps a previous v2 token readable until expiry", () => {
+  const oldKey = key();
+  configure(oldKey, "old-v2");
+  const token = issuePasswordResetPrecondition(teacherInput());
+  configure(key(), "new-v2", oldKey, "old-v2");
+  assert.equal(readPasswordResetPrecondition(token, PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, 10_001).targetRevision, 5);
+  assert.throws(
+    () => readPasswordResetPrecondition(token, PASSWORD_RESET_AUDIENCES.TEACHER_STUDENT_RESET, 10_000 + 5 * 60_000 + 1),
+    (error: unknown) => error instanceof PasswordResetPreconditionError && error.code === "RESET_PRECONDITION_INVALID",
+  );
+});
+
+test("duplicate v2 key ids fail closed", () => {
+  setup();
+  try {
+    configure(key(), "same-v2", key(), "same-v2");
+    assert.throws(
+      () => issuePasswordResetPrecondition(teacherInput()),
+      (error: unknown) => error instanceof PasswordResetPreconditionError && error.code === "RESET_PRECONDITION_UNAVAILABLE",
+    );
+  } finally {
+    clearCommonKeyring();
   }
 });
 

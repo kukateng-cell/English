@@ -356,7 +356,11 @@ P2 亦已把 101 張 screenshot 及 `phase6/visual-qa.md` 搬到
 `plans/archive/evidence/playwright/`；102 份非 README 證據逐一對比實施前 Git blob hash 全部相等。
 五個 Playwright 生成者改寫到 ignored `test-results/screenshots/`，PII scanner 已更新，兩個空舊目錄
 在確認無檔案及無讀寫引用後移除。
-本次檔案／計劃驗證：`npm test` 429 passed、`npm run lint` passed、
+另按審核報告 C4 完成第一批零產品引用清理：刪除四個未使用 UI component 及兩個舊 teacher-only
+reset helper，將 rotation／keyring 安全斷言移到現行共用 password-reset 測試；此批不涉及 V1 學習流程，
+亦不把其他大型模組視為可直接刪除。
+本次檔案／計劃驗證：source／文件批次的 `npm test` 429 passed；本批零引用清理後 `npm test` 428 passed；
+`npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（64 files）、
 `git diff --check` passed。未執行 production build、DB／migration、完整 browser、native device 或 performance suites。
 自動 clean-clone 已建立並通過 clone 及 Markdown 檢查；`npm ci` 兩次均受本機 Windows npm cache／npm
