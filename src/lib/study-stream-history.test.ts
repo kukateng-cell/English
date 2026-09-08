@@ -5,7 +5,7 @@ import {
   compareNewWordCandidates,
   newWordSelectionReason,
   recentStreamShape,
-} from "@/lib/study-stream/server";
+} from "@/lib/study-stream/history";
 
 const acknowledgedProbe = { itemKind: "OBJECTIVE_PROBE", usedAt: new Date(), feedbackAcknowledgedAt: new Date() };
 const acknowledgedCard = { itemKind: "LEARNING_CARD", usedAt: new Date(), feedbackAcknowledgedAt: new Date() };

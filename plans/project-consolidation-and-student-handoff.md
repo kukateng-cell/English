@@ -465,7 +465,9 @@ outbox／checkpoint／reconciliation、credential lineage、receipt、CAS 及 se
 按 P5 的低風險次序，從 `CatalogGovernanceWorkspace.tsx` 抽出不涉及 React state、HTTP 或
 transaction 的 workspace text／list helpers 到 `src/lib/catalog/workspace-client-helpers.ts`，
 並以相鄰 unit test 固定 Unicode normalization、list round-trip 及 retry conflict label 行為；
-沒有改動 catalog payload contract 或 server validation。
+沒有改動 catalog payload contract 或 server validation。再從 `study-stream/server.ts` 抽出
+new-word partition 排序及 recent history gap 計算到 `src/lib/study-stream/history.ts`，保留
+原 module exports 及 scheduler 輸入語義，讓 transaction／credential／scoring 邊界繼續集中於 server。
 
 本輪驗證：`npm test` 386 passed、`npm run lint`、`npx tsc --noEmit --incremental false`、
 `npm run check:markdown-links`（65 files）、`npm run check:plan-index`、`git diff --check` 及
