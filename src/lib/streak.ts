@@ -43,6 +43,21 @@ export function offsetDay(key: string, days: number): string {
   return formatUtcDate(new Date(Date.UTC(y, m - 1, d + days)));
 }
 
+/** 驗證 YYYY-MM-DD date key，避免 JavaScript 日期自動進位。 */
+export function isValidDateKey(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+/** 計算兩個 date key 的整數日距離；輸入由呼叫方先按 isValidDateKey 驗證。 */
+export function dateDistance(from: string, to: string): number {
+  const [fromYear, fromMonth, fromDay] = from.split("-").map(Number);
+  const [toYear, toMonth, toDay] = to.split("-").map(Number);
+  return Math.round((Date.UTC(toYear, toMonth - 1, toDay) - Date.UTC(fromYear, fromMonth - 1, fromDay)) / 86_400_000);
+}
+
 /** 为用户打今天的卡（幂等：同一天只记一条）。 */
 export async function checkInStudyDay(
   userId: string,

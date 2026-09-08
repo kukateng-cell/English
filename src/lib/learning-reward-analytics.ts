@@ -3,7 +3,8 @@ import type { AcademicYearStatus, ClassCode, Level, Prisma as GeneratedPrisma, R
 import { Prisma, prisma } from "@/lib/prisma";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { CLASS_LABELS, compareStudentNumberSortKey, parseStudentNumber, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
-import { offsetDay, todayKey } from "@/lib/streak";
+import { dateDistance, isValidDateKey, offsetDay, todayKey } from "@/lib/streak";
+import { readReportingActor, type ReportingActor } from "@/lib/analytics-actor";
 import { readLimitedBody } from "@/lib/request-body";
 import {
   addRewardScores,
@@ -110,14 +111,6 @@ type RewardClass = {
   grade: StudentGrade;
   classCode: ClassCode;
   revision: number;
-};
-
-type RewardActor = {
-  role: Role;
-  status: "ACTIVE" | "SUSPENDED";
-  tokenVersion: number;
-  credentialRevision: number;
-  accessRevision: number | null;
 };
 
 type SourceBucket =
@@ -254,19 +247,6 @@ function jsonObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
-function validDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
-}
-
-function dateDistance(from: string, to: string) {
-  const [fy, fm, fd] = from.split("-").map(Number);
-  const [ty, tm, td] = to.split("-").map(Number);
-  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
-}
-
 function daysBetween(from: string, to: string) {
   const days: string[] = [];
   for (let cursor = from; cursor <= to; cursor = offsetDay(cursor, 1)) days.push(cursor);
@@ -399,7 +379,7 @@ function readScopeToken(value: string, now = new Date()) {
 function createScopeToken(input: {
   actorId: string;
   role: Role;
-  actor: RewardActor;
+  actor: ReportingActor;
   rosterRevision: number;
   year: RewardYear;
   fingerprint: string;
@@ -440,8 +420,8 @@ function parseDateRange(body: Record<string, unknown>) {
   if (body.range !== undefined && (body.fromDate !== undefined || body.toDate !== undefined)) throw new Error("QUERY_INVALID");
   const rawRange = body.range === undefined ? { fromDate: body.fromDate, toDate: body.toDate } : jsonObject(body.range);
   if (!rawRange || Object.keys(rawRange).some((key) => key !== "fromDate" && key !== "toDate")) throw new Error("QUERY_INVALID");
-  if (rawRange.fromDate !== undefined && !validDate(rawRange.fromDate)) throw new Error("QUERY_INVALID");
-  if (rawRange.toDate !== undefined && !validDate(rawRange.toDate)) throw new Error("QUERY_INVALID");
+  if (rawRange.fromDate !== undefined && !isValidDateKey(rawRange.fromDate)) throw new Error("QUERY_INVALID");
+  if (rawRange.toDate !== undefined && !isValidDateKey(rawRange.toDate)) throw new Error("QUERY_INVALID");
   return {
     fromDate: rawRange.fromDate as string | undefined,
     toDate: rawRange.toDate as string | undefined,
@@ -549,13 +529,6 @@ async function readRosterRevision(db: Db) {
   return state.revision;
 }
 
-async function readRewardActor(db: Db, input: { userId: string; role: Role }): Promise<RewardActor> {
-  const user = await db.user.findUnique({ where: { id: input.userId }, select: { role: true, status: true, tokenVersion: true, credentialRevision: true, teacherProfile: { select: { accessRevision: true } } } });
-  if (!user || user.role !== input.role) throw new Error("ROLE_FORBIDDEN");
-  if (user.status !== "ACTIVE") throw new Error("AUTH_REQUIRED");
-  return { role: user.role, status: user.status, tokenVersion: user.tokenVersion, credentialRevision: user.credentialRevision, accessRevision: user.teacherProfile?.accessRevision ?? null };
-}
-
 async function readRewardClasses(db: Db, input: { userId: string; role: Role; yearId: string; grade?: StudentGrade; classIds?: string[] }): Promise<RewardClass[]> {
   const rows = await db.schoolClass.findMany({
     where: {
@@ -650,7 +623,7 @@ async function resolveRewardRange(db: Db, request: RewardRequest) {
   if (today < yearFrom) throw new Error("CURRENT_YEAR_UNAVAILABLE");
   const requestedFrom = request.fromDate ?? yearFrom;
   const requestedTo = request.toDate ?? today;
-  if (!validDate(requestedFrom) || !validDate(requestedTo) || requestedFrom > requestedTo || requestedTo > today || dateDistance(requestedFrom, requestedTo) + 1 > MAX_REWARD_DAYS) throw new Error("QUERY_INVALID");
+  if (!isValidDateKey(requestedFrom) || !isValidDateKey(requestedTo) || requestedFrom > requestedTo || requestedTo > today || dateDistance(requestedFrom, requestedTo) + 1 > MAX_REWARD_DAYS) throw new Error("QUERY_INVALID");
   const from = maxDate(requestedFrom, yearFrom);
   const to = minDate(minDate(requestedTo, yearTo), today);
   if (from > to) throw new Error("RANGE_OUTSIDE_CURRENT_YEAR");
@@ -667,13 +640,13 @@ type RewardSnapshot = {
   classes: RewardClass[];
   members: RewardMember[];
   asOf: Date;
-  actor: RewardActor;
+  actor: ReportingActor;
   fingerprint: string;
   memberDigest: string;
   scopeToken: string;
 };
 
-async function verifyScopeToken(input: { request: RewardRequest; actor: RewardActor; actorId: string; year: RewardYear; range: RewardRange; scopeRevision: number; members: RewardMember[]; asOf: Date }) {
+async function verifyScopeToken(input: { request: RewardRequest; actor: ReportingActor; actorId: string; year: RewardYear; range: RewardRange; scopeRevision: number; members: RewardMember[]; asOf: Date }) {
   const fingerprint = requestFingerprint(input.request, input.range);
   const digest = memberDigest(input.members);
   if (input.request.scopeToken) {
@@ -690,7 +663,7 @@ async function verifyScopeToken(input: { request: RewardRequest; actor: RewardAc
 
 async function withRewardSnapshot<T>(input: { userId: string; role: Role; request: RewardRequest }, callback: (db: Prisma.TransactionClient, snapshot: RewardSnapshot) => Promise<T>) {
   const result = await prisma.$transaction(async (tx) => {
-    const actor = await readRewardActor(tx, input);
+    const actor = await readReportingActor(tx, input);
     const { year, range } = await resolveRewardRange(tx, input.request);
     const scopeRevision = await readRosterRevision(tx);
     const classes = await readRewardClasses(tx, { userId: input.userId, role: input.role, yearId: year.id, grade: input.request.grade, classIds: input.request.classIds });
@@ -727,7 +700,7 @@ async function recheckRewardSnapshot(input: { userId: string; role: Role; snapsh
 export async function recheckRewardAccess(input: { userId: string; role: Role; scopeToken: string; scopeRevision: number; academicYearId: string }) {
   const token = readScopeToken(input.scopeToken);
   if (!token || token.actorId !== input.userId || token.role !== input.role || token.rosterRevision !== input.scopeRevision || token.yearId !== input.academicYearId) throw new Error("REWARD_SCOPE_STALE");
-  const actor = await readRewardActor(prisma, { userId: input.userId, role: input.role });
+  const actor = await readReportingActor(prisma, { userId: input.userId, role: input.role });
   const [rosterRevision, year] = await Promise.all([readRosterRevision(prisma), readCurrentYear(prisma)]);
   if (rosterRevision !== token.rosterRevision || year.id !== token.yearId || year.revision !== token.yearRevision || actor.tokenVersion !== token.tokenVersion || actor.credentialRevision !== token.credentialRevision || actor.accessRevision !== token.accessRevision) throw new Error("REWARD_SCOPE_STALE");
 }

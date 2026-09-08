@@ -188,12 +188,14 @@ WordCard、session、receipt、credential、operationId 與恢復能力照常保
 
 `learning-reward-analytics.ts` **1,324 行**、`learning-analytics.ts` **915 行**。
 AST 比對發現 `readRewardActor`／`readAnalyticsActor` 函數體相同，
-`validDate` 和 `dateDistance` 亦相同。可先抽小型日期驗證和 actor reader，保留參數型別及原錯誤語義。
-例如兩份相同 `validDate` 可改成同一 import，不需要建立通用 report engine。
+`validDate` 和 `dateDistance` 亦相同。2026-09-08 已完成低風險 plumbing 抽取：
+日期 key 驗證及距離計算集中到 `src/lib/streak.ts`，兩套報表共用
+`src/lib/analytics-actor.ts` 的 authorization snapshot reader，保留原有參數型別及錯誤語義。
+不需要建立通用 report engine。
 
 不建議把報表分數、來源分類、歷史版本常數一律合併：reward 檔案第 36 行起明確註明
 歷史 projection 故意固定支援的 policy literals，防止新學習政策改寫舊報表。
-共用 plumbing 與保留 versioned policy 應分開判斷。
+共用 plumbing 與保留 versioned policy 應分開判斷；本次只抽 helper，沒有合併報表政策。
 
 ### C6：state-machine 測試與實際 UI 存在理解落差
 
@@ -219,13 +221,14 @@ AST 比對發現 `readRewardActor`／`readAnalyticsActor` 函數體相同，
 
 - delete: 舊 `WordFormModal`／`StudyStats`／`NavTabs`／`LanguageToggle`；確認無 caller 後不需替代。
 - delete: 舊 teacher-only reset helpers；正式 routes 已有共用 password-reset 服務，先核對測試保障。
-- shrink: 兩套 analytics 的相同日期驗證及 actor reader；用小型共用函數替代重複函數體。
+- done/shrink: 兩套 analytics 的相同日期驗證及 actor reader 已抽成小型共用 helper；報表政策仍各自保留。
 - shrink: catalog 工作區與 study entrypoint；按職責分拆，預期主要降低理解成本，並不承諾減總行數。
 
-net: -712 lines, -0 deps delivered in the first zero-caller cleanup batch.
+net: -712 lines, -0 deps delivered in the first zero-caller cleanup batch；C5 helper extraction
+再減少重複 plumbing，但沒有引入依賴或改動報表政策。
 
-上式僅加總六個零產品引用候選，尚未實施／驗證刪除；未計可能需要保留的相容內容或測試搬移，
-亦未把重複 helper 的小幅收益計入。本次沒有足夠證據建議移除任何依賴。
+上式僅加總六個零產品引用候選；未計可能需要保留的相容內容或測試搬移，
+亦未把 C5 helper extraction 的小幅收益計入。本次沒有足夠證據建議移除任何依賴。
 
 ## 建議的文件結構與閱讀順序
 

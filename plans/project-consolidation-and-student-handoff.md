@@ -196,7 +196,7 @@ hash／簽章資料、CSV／manifest、測試中的簡體輸入／預期輸出�
 前置條件：P4 退役矩陣及測試移植已驗收，V2 回歸無未解釋失敗。
 
 - [ ] 按 catalog → 共用純 helpers → V2 server 次序，每批只拆一種責任，保留 transaction ownership。
-- [ ] 合併確定重複的報表日期及 actor reader，保持不同歷史計分政策分離。
+- [x] 合併確定重複的報表日期及 actor reader，保持不同歷史計分政策分離（低風險 plumbing 已先行完成；P5 其餘工作仍待 P4）。
 - [ ] 更新架構圖及測試入口，移動測試時核對明確 globs，不產生漏跑。
 - [ ] 新接手者按文件完成啟動、局部改動、測試與說明；記錄真實卡點再修文件。
 - [ ] 記錄每階段實際驗證、未完成／未執行項目、已知限制及外部 gates；完成後才結案。
@@ -359,6 +359,9 @@ P2 亦已把 101 張 screenshot 及 `phase6/visual-qa.md` 搬到
 另按審核報告 C4 完成第一批零產品引用清理：刪除四個未使用 UI component 及兩個舊 teacher-only
 reset helper，將 rotation／keyring 安全斷言移到現行共用 password-reset 測試；此批不涉及 V1 學習流程，
 亦不把其他大型模組視為可直接刪除。
+再按 C5 完成一批低風險 analytics plumbing：`streak.ts` 統一 date key 驗證／日距離計算，
+新增 `analytics-actor.ts` 統一 teacher analytics／reward report 的 authorization snapshot reader；
+兩套報表的計分政策、版本常數及查詢範圍保持分開。
 本次檔案／計劃驗證：source／文件批次的 `npm test` 429 passed；本批零引用清理後 `npm test` 428 passed；
 `npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（64 files）、
@@ -383,6 +386,7 @@ reset helper，將 rotation／keyring 安全斷言移到現行共用 password-re
 | 限制 P5 範圍及四項 DoD | 保留不重寫策略，新增上述 DoD；P5 以 P4 已驗收為前置 | 每批測試與最終獨立交接 |
 
 本次僅修改計劃、索引及舊審視的後續指向。已核對本地 cleanup、seed、測試指令及 CI gate；
-未執行 P1–P5、未讀遠端 ruleset、未改資料庫或產品程式，原排行榜修改保留。
+本批已開始 P5 的低風險 helper extraction，未執行 P4 cutover、資料庫或產品流程改動，
+未讀遠端 ruleset，原排行榜修改保留。
 本次文件驗證：三份修改文件的本地 Markdown 目標檢查通過、六個新增驗收章節及七項跟進記錄已核對、
 `git diff --check` 通過；純計劃修訂未重跑 unit／build／DB／browser suites。

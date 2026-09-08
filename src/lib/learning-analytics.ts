@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Prisma, StudentGrade, ClassCode, Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { currentCatalogReviewEventWhere, currentCatalogSenseWhere, isEligibleOperationalObjectiveEvent, withCurrentCatalogWord } from "@/lib/catalog/runtime";
-import { todayKey, offsetDay } from "@/lib/streak";
+import { dateDistance, isValidDateKey, todayKey, offsetDay } from "@/lib/streak";
+import { readReportingActor, type ReportingActor } from "@/lib/analytics-actor";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
 import { normalizeAccountName, normalizeLegalName } from "@/lib/identity";
 import { CLASS_LABELS, compareStudentNumberSortKey, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
@@ -167,13 +168,6 @@ function decodeCursor(value: string): CursorPayload | null {
   try { const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Partial<CursorPayload>; if (parsed.v !== CURSOR_VERSION || typeof parsed.id !== "string" || typeof parsed.accountName !== "string" || (parsed.studentNumber !== null && !Number.isInteger(parsed.studentNumber)) || (parsed.sort !== "ACCOUNT_ASC" && parsed.sort !== "STUDENT_NUMBER_ASC") || typeof parsed.fingerprint !== "string" || !Number.isInteger(parsed.scopeRevision) || typeof parsed.asOf !== "string" || typeof parsed.effectiveFrom !== "string" || typeof parsed.effectiveTo !== "string") return null; return parsed as CursorPayload; } catch { return null; }
 }
 
-function validDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
-}
-function dateDistance(from: string, to: string) { const [fy, fm, fd] = from.split("-").map(Number); const [ty, tm, td] = to.split("-").map(Number); return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000); }
 function atShanghaiStart(key: string) { return new Date(`${key}T00:00:00+08:00`); }
 function atShanghaiEnd(key: string) { return new Date(`${offsetDay(key, 1)}T00:00:00+08:00`); }
 function localDate(value: Date) {
@@ -247,7 +241,7 @@ export async function readAnalyticsQuery(req: Request, options: { route?: Analyt
   const defaultFrom = offsetDay(today, -29);
   const from = fromDate === undefined ? defaultFrom : fromDate;
   const to = toDate === undefined ? today : toDate;
-  if (!validDate(from) || !validDate(to) || from > to || to > today || dateDistance(from, to) + 1 > MAX_DAYS) throw new Error("QUERY_INVALID");
+  if (!isValidDateKey(from) || !isValidDateKey(to) || from > to || to > today || dateDistance(from, to) + 1 > MAX_DAYS) throw new Error("QUERY_INVALID");
   const parseId = (value: unknown) => { if (typeof value !== "string" || !value || Buffer.byteLength(value, "utf8") > 128) throw new Error("QUERY_INVALID"); return value; };
   const classIds = body.classIds === undefined ? undefined : Array.isArray(body.classIds) ? body.classIds.map(parseId) : (() => { throw new Error("QUERY_INVALID"); })();
   if (classIds && (classIds.length < 1 || classIds.length > MAX_ANALYTICS_CLASS_SELECTION || new Set(classIds).size !== classIds.length)) throw new Error("QUERY_INVALID");
@@ -629,15 +623,8 @@ type AnalyticsSnapshot = {
   scopeRevision: number;
   classes: Awaited<ReturnType<typeof readAuthorizedClasses>>;
   asOf: Date;
-  actor: { role: Role; status: "ACTIVE" | "SUSPENDED"; tokenVersion: number; credentialRevision: number; accessRevision: number | null };
+  actor: ReportingActor;
 };
-
-async function readAnalyticsActor(db: Db, input: { userId: string; role: Role }) {
-  const user = await db.user.findUnique({ where: { id: input.userId }, select: { role: true, status: true, tokenVersion: true, credentialRevision: true, teacherProfile: { select: { accessRevision: true } } } });
-  if (!user || user.role !== input.role) throw new Error("ROLE_FORBIDDEN");
-  if (user.status !== "ACTIVE") throw new Error("AUTH_REQUIRED");
-  return { role: user.role, status: user.status, tokenVersion: user.tokenVersion, credentialRevision: user.credentialRevision, accessRevision: user.teacherProfile?.accessRevision ?? null };
-}
 
 async function recheckAnalyticsSnapshot(input: { userId: string; role: Role; snapshot: AnalyticsSnapshot }) {
   const [actor, scopeRevision, year] = await Promise.all([
@@ -654,7 +641,7 @@ async function recheckAnalyticsSnapshot(input: { userId: string; role: Role; sna
 
 async function withAnalyticsSnapshot<T>(input: { userId: string; role: Role; query: AnalyticsQuery }, callback: (db: Prisma.TransactionClient, snapshot: AnalyticsSnapshot) => Promise<T>) {
   const result = await prisma.$transaction(async (tx) => {
-    const actor = await readAnalyticsActor(tx, input);
+    const actor = await readReportingActor(tx, input);
     const { year, range } = await readEffectiveRange(tx, input.query);
     const scopeRevision = await readScopeRevision(tx);
     const requestedClassIds = input.query.classIds ?? (input.query.classFilter?.kind === "CLASS" ? [input.query.classFilter.classId] : undefined);
@@ -800,7 +787,7 @@ export async function readLearningAnalyticsExportRequest(req: Request): Promise<
   const today = todayKey();
   const fromDate = range.fromDate === undefined ? offsetDay(today, -29) : range.fromDate;
   const toDate = range.toDate === undefined ? today : range.toDate;
-  if (!validDate(fromDate) || !validDate(toDate) || fromDate > toDate || toDate > today || dateDistance(fromDate, toDate) + 1 > MAX_DAYS) throw new Error("QUERY_INVALID");
+  if (!isValidDateKey(fromDate) || !isValidDateKey(toDate) || fromDate > toDate || toDate > today || dateDistance(fromDate, toDate) + 1 > MAX_DAYS) throw new Error("QUERY_INVALID");
   const parseIds = (value: unknown, max: number) => {
     if (value === undefined) return undefined;
     if (!Array.isArray(value) || value.length < 1 || value.length > max) throw new Error("QUERY_INVALID");
