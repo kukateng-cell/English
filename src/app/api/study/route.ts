@@ -1,20 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSameOriginMutation } from "@/lib/csrf";
 import { requireUser } from "@/lib/session";
-
-const RETIRED_RESPONSE = {
-  code: "STUDY_FLOW_RETIRED",
-  error: "學習流程已更新，請重新載入頁面",
-} as const;
-
-function retiredResponse(): NextResponse {
-  return NextResponse.json(RETIRED_RESPONSE, {
-    status: 410,
-    headers: {
-      "Cache-Control": "no-store",
-    },
-  });
-}
+import { studyFlowRetiredResponse } from "@/lib/study-flow-retirement";
 
 /**
  * The former V1 study writer is kept as a short-lived compatibility barrier.
@@ -24,7 +11,7 @@ function retiredResponse(): NextResponse {
 export async function GET() {
   const auth = await requireUser();
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
-  return retiredResponse();
+  return studyFlowRetiredResponse();
 }
 
 export async function POST(req: Request) {
@@ -33,5 +20,5 @@ export async function POST(req: Request) {
   }
   const auth = await requireUser();
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
-  return retiredResponse();
+  return studyFlowRetiredResponse();
 }
