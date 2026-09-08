@@ -462,8 +462,12 @@ writer 及 session issuance route 只保留 authenticated 410 retirement barrier
 改放 `scripts/legacy-study-session-fixture.ts`，runtime 只保留 `study-session-retention.ts` 的安全歷史清理。
 同時移除無現行 caller 的 `StudentNavigationContext`，student shell 導覽改為直接 links；V2
 outbox／checkpoint／reconciliation、credential lineage、receipt、CAS 及 server scoring 保持不變。
+按 P5 的低風險次序，從 `CatalogGovernanceWorkspace.tsx` 抽出不涉及 React state、HTTP 或
+transaction 的 workspace text／list helpers 到 `src/lib/catalog/workspace-client-helpers.ts`，
+並以相鄰 unit test 固定 Unicode normalization、list round-trip 及 retry conflict label 行為；
+沒有改動 catalog payload contract 或 server validation。
 
-本輪驗證：`npm test` 383 passed、`npm run lint`、`npx tsc --noEmit --incremental false`、
+本輪驗證：`npm test` 386 passed、`npm run lint`、`npx tsc --noEmit --incremental false`、
 `npm run check:markdown-links`（65 files）、`npm run check:plan-index`、`git diff --check` 及
 Playwright `--list` 均通過；active V2 stream／shell discovery 共 54 個測試（shell 7 個）。未執行
 實際 browser、production build、DB／migration、native device、performance 或獨立 clean-clone

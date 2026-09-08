@@ -40,6 +40,12 @@ import {
   type CatalogRetryMergeConflict,
 } from "@/lib/catalog/retry-merge";
 import {
+  listText,
+  normalizeCatalogClientText,
+  parseList,
+  retryConflictValueText,
+} from "@/lib/catalog/workspace-client-helpers";
+import {
   clientOperationFingerprint,
   pendingClientOperation,
   type PendingClientOperation,
@@ -302,37 +308,6 @@ const EMPTY_PAYLOAD: CatalogPayload = {
   changeNote: null,
   retirementReason: null,
 };
-
-function normalizeCatalogClientText(value: string) {
-  return value
-    .normalize("NFKC")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .toLocaleLowerCase("en-US");
-}
-
-function parseList(value: string) {
-  return value
-    .split("|")
-    .map((item) => item.normalize("NFKC").trim())
-    .filter(Boolean);
-}
-
-function listText(value: readonly string[] | null | undefined) {
-  return (value ?? []).join(" | ");
-}
-
-function retryConflictValueText(
-  value: unknown,
-  tc: (value: string) => string,
-): string {
-  if (value === null || value === undefined || value === "")
-    return tc("（空白）");
-  if (Array.isArray(value))
-    return value.length ? value.join(" | ") : tc("（空白）");
-  if (typeof value === "boolean") return value ? tc("啟用") : tc("停用");
-  return String(value);
-}
 
 function visiblePendingRequestId(
   value: Detail["pendingRequest"],
