@@ -7,8 +7,9 @@ import ts from "typescript";
 
 const ROOTS = ["src/app", "src/components", "src/lib", "src/proxy.ts"];
 
-// 這些簡體字串只用來接收舊 CSV／身份輸入或收斂舊 i18n 錯字，永不直接顯示。
+// 舊輸入相容字串，以及不能按普通詞彙轉換的明確姓名專字。
 const INPUT_COMPATIBILITY_EXCEPTIONS: Record<string, ReadonlySet<string>> = {
+  "src/lib/demo-school.ts": new Set(["余"]), // 繁體姓氏本字，不是「餘」。
   "src/app/api/admin/roster/import/preview/route.ts": new Set([
     "账号", "学生证", "学生证号码", "真实姓名", "昵称", "年级", "班别", "班级",
     "联络电邮", "班级权限", "可重设密码",

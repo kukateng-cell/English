@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "demo:init": "node --import tsx scripts/demo-school.ts init",
+    "demo:update": "node --import tsx scripts/demo-school.ts update",
+    "demo:check": "node --import tsx scripts/demo-school.ts check",
+    "dev:demo": "node scripts/dev-demo.mjs",
     "dev": "next dev",
     "build": "next build",
     "audit:production": "npm audit --omit=dev --audit-level=high",
