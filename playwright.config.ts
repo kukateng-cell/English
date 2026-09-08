@@ -56,8 +56,8 @@ export default defineConfig({
       use: { ...devices["iPhone 13"] },
     },
     {
-      name: "study-integration-chromium",
-      testMatch: /study-workflow\.spec\.ts/,
+      name: "study-stream-v2-chromium",
+      testMatch: /study-stream-v2\.spec\.ts/,
       dependencies: ["auth-setup-chromium"],
       use: {
         ...devices["Desktop Chrome"],
@@ -65,8 +65,8 @@ export default defineConfig({
       },
     },
     {
-      name: "study-integration-webkit",
-      testMatch: /study-workflow\.spec\.ts/,
+      name: "study-stream-v2-webkit",
+      testMatch: /study-stream-v2\.spec\.ts/,
       dependencies: ["auth-setup-webkit"],
       fullyParallel: true,
       use: {
@@ -75,11 +75,22 @@ export default defineConfig({
       },
     },
     {
-      name: "study-stream-v2-chromium",
-      testMatch: /study-stream-v2\.spec\.ts/,
+      name: "study-v2-shell-chromium",
+      testMatch: /study-v2-shell\.spec\.ts/,
       dependencies: ["auth-setup-chromium"],
       use: {
         ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        storageState: "test-results/.auth/student-chromium.json",
+      },
+    },
+    {
+      name: "study-v2-shell-mobile",
+      testMatch: /study-v2-shell\.spec\.ts/,
+      dependencies: ["auth-setup-chromium"],
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
         storageState: "test-results/.auth/student-chromium.json",
       },
     },
@@ -127,26 +138,6 @@ export default defineConfig({
       dependencies: ["auth-setup-chromium"],
       use: {
         ...devices["Desktop Chrome"],
-        storageState: "test-results/.auth/student-chromium.json",
-      },
-    },
-    {
-      name: "study-navigation-chromium",
-      testMatch: /study-navigation\.spec\.ts/,
-      dependencies: ["auth-setup-chromium"],
-      use: {
-        ...devices["Desktop Chrome"],
-        viewport: { width: 1440, height: 900 },
-        storageState: "test-results/.auth/student-chromium.json",
-      },
-    },
-    {
-      name: "study-navigation-mobile",
-      testMatch: /study-navigation\.spec\.ts/,
-      dependencies: ["auth-setup-chromium"],
-      use: {
-        ...devices["Pixel 7"],
-        viewport: { width: 390, height: 844 },
         storageState: "test-results/.auth/student-chromium.json",
       },
     },
@@ -201,26 +192,6 @@ export default defineConfig({
       },
     },
     {
-      name: "study-card-fidelity-chromium",
-      testMatch: /study-card-fidelity\.spec\.ts/,
-      dependencies: ["auth-setup-chromium"],
-      use: {
-        ...devices["Desktop Chrome"],
-        viewport: { width: 1440, height: 900 },
-        storageState: "test-results/.auth/student-chromium.json",
-      },
-    },
-    {
-      name: "study-card-fidelity-mobile",
-      testMatch: /study-card-fidelity\.spec\.ts/,
-      dependencies: ["auth-setup-chromium"],
-      use: {
-        ...devices["Pixel 7"],
-        viewport: { width: 390, height: 844 },
-        storageState: "test-results/.auth/student-chromium.json",
-      },
-    },
-    {
       name: "word-card-fidelity-fixtures-320",
       testMatch: /word-card-fidelity-fixtures\.spec\.ts/,
       use: {
@@ -234,36 +205,6 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 390, height: 844 },
-      },
-    },
-    {
-      name: "study-action-fidelity-desktop",
-      testMatch: /study-action-fidelity\.spec\.ts/,
-      dependencies: ["auth-setup-chromium"],
-      use: {
-        ...devices["Desktop Chrome"],
-        viewport: { width: 1440, height: 900 },
-        storageState: "test-results/.auth/student-chromium.json",
-      },
-    },
-    {
-      name: "study-action-fidelity-mobile",
-      testMatch: /study-action-fidelity\.spec\.ts/,
-      dependencies: ["auth-setup-chromium"],
-      use: {
-        ...devices["Pixel 7"],
-        viewport: { width: 390, height: 844 },
-        storageState: "test-results/.auth/student-chromium.json",
-      },
-    },
-    {
-      name: "student-final-qa",
-      testMatch: /student-ui-final-qa\.spec\.ts/,
-      dependencies: ["auth-setup-chromium"],
-      use: {
-        ...devices["Desktop Chrome"],
-        viewport: { width: 1440, height: 900 },
-        storageState: "test-results/.auth/student-chromium.json",
       },
     },
   ],

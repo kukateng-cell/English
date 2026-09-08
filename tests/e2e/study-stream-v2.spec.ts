@@ -9,7 +9,6 @@ for (const actionKind of ["REVEAL", "OBJECTIVE_ANSWER"] as const) {
     const objective = actionKind === "OBJECTIVE_ANSWER";
     await page.route("**/api/study/stream**", async route => {
       const url = new URL(route.request().url());
-      if (url.searchParams.has("assignmentOnly")) return route.continue();
       const unit = url.searchParams.get("category") === "actions" ? "B" : "A";
       const response: PublicStreamResponse = {
         ok: true, assigned: true, resumedFeedback: false,
@@ -90,8 +89,6 @@ test("an expired session resumes read-only Objective Probe feedback before sched
   let feedbackAcknowledged = false;
 
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     const pendingFeedback = answered && !feedbackAcknowledged;
     const response: PublicStreamResponse = pendingFeedback ? {
       ok: true,
@@ -233,8 +230,6 @@ test("an initial stream timeout is shown as an error instead of an empty stream"
   const gate = new Promise<void>((resolve) => { release = resolve; });
   let streamRequestSeen = false;
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     streamRequestSeen = true;
     try {
       await gate;
@@ -307,8 +302,6 @@ test("retrying an initial stream failure also drains pending outbox actions", as
   });
 
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     streamCalls += 1;
     if (streamCalls === 1) {
       await route.fulfill({
@@ -391,8 +384,6 @@ test("an evicted-device recovery proof finishes the original action without curr
   });
 
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     streamCalls += 1;
     const isOriginal = streamCalls === 1;
     await route.fulfill({
@@ -533,8 +524,6 @@ test("a pre-proof legacy outbox row is upgraded without changing its operation i
     await route.fulfill({ json: { csrfToken: "legacy-upgrade-csrf-token" } });
   });
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     streamCalls += 1;
     await route.fulfill({
       json: {
@@ -639,8 +628,6 @@ for (const timeoutPhase of ["csrf", "action"] as const) {
     let csrfShouldHang = false;
 
     await page.route("**/api/study/stream**", async (route) => {
-      const url = new URL(route.request().url());
-      if (url.searchParams.has("assignmentOnly")) return route.continue();
       await route.fulfill({
         json: {
           ok: true,
@@ -805,7 +792,6 @@ test("an older bootstrap generation cannot roll back the current item revision",
   let releaseUnmounted!: () => void;
   const unmountedGate = new Promise<void>(resolve => { releaseUnmounted = resolve; });
   await page.route("**/api/study/stream**", async route => {
-    if (new URL(route.request().url()).searchParams.has("assignmentOnly")) return route.continue();
     const call = ++calls;
     if (call === 2) await oldGate;
     if (call === 4) await unmountedGate;
@@ -859,8 +845,6 @@ test("a committed action with a failed refresh locks the old item until GET retr
   const retryRefreshGate = new Promise<void>(resolve => { releaseRetryRefresh = resolve; });
   let actionCount = 0;
   await page.route("**/api/study/stream**", async route => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     if (!initialServed) {
       initialServed = true;
       const response: PublicStreamResponse = {
@@ -960,8 +944,6 @@ test("a terminal objective conflict removes only its outbox row and refreshes th
   let releaseSiblingResponse!: () => void;
   const siblingResponseGate = new Promise<void>(resolve => { releaseSiblingResponse = resolve; });
   await page.route("**/api/study/stream**", async route => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     if (!initialServed) {
       initialServed = true;
       const response: PublicStreamResponse = {
@@ -1071,8 +1053,6 @@ test("one outbox trigger drains every pending action and resumes after a tempora
   });
 
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     streamCalls += 1;
     const response: PublicStreamResponse = {
       ok: true,
@@ -1176,8 +1156,6 @@ for (const actionKind of ["REVEAL", "SELF_RATING"] as const) {
     const itemCredential = `terminal-${actionKind.toLowerCase()}-credential-012345678901234567890123456789`;
     const siblingOperationId = `terminal-${actionKind.toLowerCase()}-sibling-operation`;
     await page.route("**/api/study/stream**", async (route) => {
-      const url = new URL(route.request().url());
-      if (url.searchParams.has("assignmentOnly")) return route.continue();
       const response: PublicStreamResponse = {
         ok: true,
         assigned: true,
@@ -1311,8 +1289,6 @@ test("terminal direct submit preserves pending rows when authoritative refresh f
   const siblingOperationId = "terminal-refresh-failure-sibling-operation";
 
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     if (actionSubmitted) {
       await route.fulfill({
         status: 503,
@@ -1401,12 +1377,6 @@ test("terminal direct submit preserves pending rows when authoritative refresh f
   await expect.poll(async () => page.evaluate((outboxKey) => JSON.parse(localStorage.getItem(outboxKey) ?? "[]").map((row: { action: StudyStreamActionInput; status: string }) => `${row.action.operationId}:${row.status}`), key)).toEqual([
     `${siblingOperationId}:pending`,
   ]);
-});
-
-test("local all-user assignment serves the V2 stream", async ({ page }) => {
-  const response = await page.request.get("/api/study/stream?assignmentOnly=1");
-  expect(response.ok()).toBe(true);
-  expect(await response.json()).toMatchObject({ ok: true, assigned: true, flowVersion: "v2" });
 });
 
 test("V2 gives a retrieval opportunity before Learning Card self-rating", async ({ page }) => {
@@ -1709,8 +1679,6 @@ test("an evicted credential on an already completed item converges through termi
   });
 
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has("assignmentOnly")) return route.continue();
     streamCalls += 1;
     const next = serveNextItem;
     const response: PublicStreamResponse = {
@@ -1904,11 +1872,6 @@ test("two independent browser contexts reconcile an evicted completed action wit
 
   const installRoutes = async (page: typeof pageA, device: "A" | "B") => {
     await page.route("**/api/study/stream**", async (route) => {
-      const url = new URL(route.request().url());
-      if (url.searchParams.has("assignmentOnly")) {
-        await route.fulfill({ json: { ok: true, assigned: true, flowVersion: "v2" } });
-        return;
-      }
       const read = device === "B" ? bStreamReads++ : 0;
       const credential = device === "B"
         ? `two-device-credential-k${Math.min(read, 8)}-012345678901234567890123456789`
@@ -2111,11 +2074,6 @@ test("expired V2 item credential retry uses one bounded recovery request and cle
   let allowRecovery = false;
 
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.get("assignmentOnly") === "1") {
-      await route.continue();
-      return;
-    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2262,26 +2220,25 @@ test("expired V2 item credential retry uses one bounded recovery request and cle
   expect(outboxRows).toEqual([]);
 });
 
-test("V2 assignment loading copy follows the selected Chinese locale", async ({ page, context }) => {
-  let releaseAssignment!: () => void;
-  let assignmentGate: Promise<void> | null = null;
+test("V2 loading copy follows the selected Chinese locale", async ({ page, context }) => {
+  let releaseStream!: () => void;
+  let streamGate: Promise<void> | null = null;
   await page.route("**/api/study/stream**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.get("assignmentOnly") === "1" && assignmentGate) await assignmentGate;
+    if (streamGate) await streamGate;
     await route.continue();
   });
 
   for (const locale of ["zh-Hant", "zh-Hans"] as const) {
-    assignmentGate = new Promise<void>((resolve) => {
-      releaseAssignment = resolve;
+    streamGate = new Promise<void>((resolve) => {
+      releaseStream = resolve;
     });
     await context.addCookies([
       { name: "locale", value: locale, url: "http://127.0.0.1:3100/" },
     ]);
     await page.goto("/study");
     await expect(page.getByText(locale === "zh-Hant" ? "載入學習流程..." : "加载学习流程...", { exact: true })).toBeVisible();
-    releaseAssignment();
-    assignmentGate = null;
+    releaseStream();
+    streamGate = null;
     await expect(page.getByText(locale === "zh-Hant" ? "載入學習流程..." : "加载学习流程...", { exact: true })).toHaveCount(0);
     await expect(page.locator('[data-testid="word-card-drag-layer"], [role="radiogroup"]')).toBeVisible();
   }

@@ -282,7 +282,7 @@ P3 開始前固定實際搬移前 SHA，用可重現的合成 fixture 建立已�
 | 類別 | 目前實際入口 | 處置及界線 |
 |---|---|---|
 | V1 UI 分流 | `src/app/(student)/study/page.tsx` 的 `StudyFlowRouter`／`LegacyStudyPage` | `/study` 直接 render `StudyStreamV2`；移除 assignment fetch 及整個 V1 component，保留認證、登入導向、scope query。 |
-| V1 assignment | `src/lib/study-stream/assignment.ts`、`/api/study/stream?assignmentOnly=1` | V2 成為唯一 assignment；移除 `off`／`all`／internal allowlist 執行分支及相關 telemetry outcome。 |
+| V1 assignment | `src/lib/study-stream/assignment.ts`、舊 `assignmentOnly` query | V2 成為唯一 assignment；移除 `off`／`all`／internal allowlist 執行分支及相關 telemetry outcome，舊 query 不再提供旁路 response。 |
 | V1 writer | `src/app/api/study/route.ts` 的 GET／POST | 先改為 authenticated、無 DB write 的明確 410 rejection，完成舊 client cutover 測試後刪除 writer 實作；不可把 body 轉成 V2 action。 |
 | V1 credential endpoints | `/api/study/credentials`、`/api/study/session/rotate`；歷史 fixture 已移到 `scripts/legacy-study-session-fixture.ts`／`legacy-study-session-contract.ts` | V2 使用 stream credential／renew／recovery；runtime 已移除 V1 endpoint 與 session issuance，只保留 `src/lib/study-session-retention.ts` 作歷史 rows cleanup；fixture 僅供 DB checker。 |
 | V1 browser checkpoint | `study:checkpoint:*` legacy namespace；`checkpoint.ts` 已無產品 caller | V1 decoder／writer 及專用測試已刪除；shared auth cleanup 只作 account-scoped one-way scrub，V2 只使用 `english:study-stream-v2:checkpoint:*`。 |
@@ -319,11 +319,11 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 | `src/lib/review-queue.test.ts` | V1 pending／lease／mutation queue 及 legacy key | 已刪除，因 V1 queue 無 caller；V2 outbox 等價保障由 `src/lib/study-stream-outbox.test.ts` 覆蓋，未轉換資料不得產生 V2 action。 |
 | `src/lib/study-session.test.ts` | V1 queue id／resume session validation | 已刪除；V1 validation 只留在 script-only historical fixture 的 DB checker，V2 session／credential expiry 由 stream server tests 覆蓋。 |
 | `src/lib/study-client-state.test.ts` | 停權／登出同時清理 V1 及 V2 namespaces | 改為只驗 account-scoped V2 清理及跨帳戶保留；若保留 legacy scrub，必須標明只為安全清理而非執行依賴。 |
-| `tests/e2e/study-stream-v2.spec.ts` | V2 bootstrap、action、reconcile、recover、local-all assignment | 保留核心安全及恢復案例；移除 `STUDY_V2_ASSIGNMENT_MODE=all` 前置，新增 V2-only bootstrap。 |
-| `tests/e2e/study-navigation.spec.ts` | GET `/api/study`、V1 phases／checkpoint keys | 導覽及離開頁面改以 `/api/study/stream`、V2 checkpoint；V1 quiz／done 專用 assertion 退役。 |
-| `tests/e2e/student-ui-final-qa.spec.ts`、`study-action-fidelity.spec.ts`、`study-card-fidelity.spec.ts` | GET `/api/study`、舊 card selectors／actions | 保留 a11y、keyboard、theme、responsive、motion；改用 V2 selectors，舊 prototype layout／文案退役。 |
+| `tests/e2e/study-stream-v2.spec.ts` | V2 bootstrap、action、reconcile、recover | 保留核心安全及恢復案例；移除 local-all／assignmentOnly 前置，維持 V2-only bootstrap。 |
+| `tests/archive/e2e-v1/study-navigation.spec.ts` | GET `/api/study`、V1 phases／checkpoint keys | 已移出 active testDir 作歷史證據；目前導覽及離開 coverage 由 `tests/e2e/study-v2-shell.spec.ts` 承接。 |
+| `tests/archive/e2e-v1/{student-ui-final-qa,study-action-fidelity,study-card-fidelity}.spec.ts` | GET `/api/study`、舊 card selectors／actions | 已移出 active testDir 作歷史證據；仍適用的 a11y、keyboard、theme、responsive 斷言由 V2 shell／stream specs 承接。 |
 | `tests/e2e/student-shell.spec.ts` | 首頁不應發出 V1 study request | 保留首頁無 study side effect；若需要 study bootstrap，改驗 V2 route。 |
-| `tests/e2e/study-workflow.spec.ts` | V1 queue、credentials、rotate、checkpoint、`/api/study` stubs | 拆出仍適用的認證／離線／帳戶隔離案例到 V2 spec；V1 writer／storage／phase assertions 逐項退役。 |
+| `tests/archive/e2e-v1/study-workflow.spec.ts` | V1 queue、credentials、rotate、checkpoint、`/api/study` stubs | 已移出 active testDir 作歷史證據；V2 outbox／recovery／帳戶隔離案例由 `study-stream-v2.spec.ts` 承接，V1 writer／storage／phase assertions 退役。 |
 | `tests/e2e/admin-roster.spec.ts` | 停權清理 V1 keys、恢復後 V2 stream | 保留停權邊界及 V2 resume；V1 key fixture 只在明確 legacy scrub contract 保留時留下。 |
 | `scripts/check-review-idempotency.ts`、`scripts/check-study-stream-v2.ts` | 歷史 V1／雙 flow synthetic rows | 保留歷史資料可讀及 V2 provenance assertions；不把 synthetic V1 writer 當現行產品路徑。 |
 
@@ -415,7 +415,9 @@ credential routes 移除 assignment gate；舊 `/api/study` writer 改為 authen
 assignment module 及舊 operation compatibility env／guard 已移除。V1 browser state 只保留 account-scoped
 one-way scrub，未解析、遷移或提交；兩個 DB checker 的歷史 fixture writer 移到 `scripts/legacy-review-fixture.ts`，
 避免 route 重新暴露 V1 writer。舊 `/api/study/credentials` 及 `/api/study/session/rotate` 亦已改為共用
-410 retirement contract；`study-flow-retirement.test.ts` 保護 status、cache 及 payload。V1 session issuance fixture
+410 retirement contract；`study-flow-retirement.test.ts` 保護 status、cache 及 payload。舊 assignmentOnly response
+已移除；active V2 browser spec 新增 shell／navigation coverage，舊 V1 specs 已移到
+`tests/archive/e2e-v1/`，不再由 Playwright project 執行。V1 session issuance fixture
 已移到 `scripts/legacy-study-session-fixture.ts`，runtime 只保留 V1 historical rows cleanup；P4 cutover matrix 的
 browser／DB／舊 client barrier 驗證仍未完成，故不把退役標記完成。
 本次檔案／計劃驗證：source／文件批次的 `npm test` 429 passed；本批零引用清理後 `npm test` 428 passed；

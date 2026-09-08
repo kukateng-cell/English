@@ -486,9 +486,6 @@ test("admin roster completes the year rollover workflow on a disposable fixture"
     const activeStudentCsrf = (await activeStudentCsrfResponse.json() as { csrfToken?: string }).csrfToken;
     expect(activeStudentCsrf).toBeTruthy();
     studentHeaders = { Origin: "http://127.0.0.1:3100", "x-csrf-token": activeStudentCsrf!, "Content-Type": "application/json" };
-    const v2AssignmentResponse = await studentPage.request.get("/api/study/stream?assignmentOnly=1");
-    expect(v2AssignmentResponse.ok()).toBeTruthy();
-    expect(await v2AssignmentResponse.json()).toMatchObject({ ok: true, assigned: true, flowVersion: "v2" });
     const activeV2StreamResponse = await studentPage.request.get("/api/study/stream");
     expect(activeV2StreamResponse.ok(), await activeV2StreamResponse.text()).toBeTruthy();
     const profileResponse = await studentPage.request.get("/api/student/profile");

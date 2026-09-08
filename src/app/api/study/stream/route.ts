@@ -24,9 +24,6 @@ export async function GET(req: Request) {
     const auth = await requireUser();
     if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
     context.flowVersion = "v2";
-    if (new URL(req.url).searchParams.get("assignmentOnly") === "1") {
-      return NextResponse.json({ ok: true, assigned: true, flowVersion: "v2" });
-    }
     const rate = await checkStudyQueueRate(auth.userId, getClientIp(req.headers));
     if (!rate.ok) {
       context.outcome = "rate-limited";

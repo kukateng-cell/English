@@ -33,6 +33,11 @@ npx tsc --noEmit
 npm run build
 ```
 
+目前 active 的 study browser spec 只有 `study-stream-v2.spec.ts` 及
+`study-v2-shell.spec.ts`；可用 `npm run test:e2e:study-v2-shell` 執行 shell／導覽的 Chromium
+及 mobile projects。整頓前依賴 V1 writer、quiz phase 或舊 localStorage namespace 的 spec 已移到
+`tests/archive/e2e-v1/`，不會由 Playwright project 執行。
+
 ## Browser 與資料庫原則
 
 Browser test 需要 PostgreSQL、測試帳戶環境變數、production build 及 Playwright browsers；高成本 command
