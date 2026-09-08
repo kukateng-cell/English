@@ -274,6 +274,27 @@ P3 開始前固定實際搬移前 SHA，用可重現的合成 fixture 建立已�
 切換期間已送出但未確認的 V1 操作不得自動宣稱成功，也不得當作 V2 objective 重新評分。
 舊 client 的支援能力及 cutover barrier 實作在 P4 前鎖定；不能以「反正會 reload」代替測試。
 
+### 8.3.1 實際入口與刪碼前界線（2026-09-08）
+
+以下盤點以目前工作樹的 callers、route handlers、localStorage key 及測試檔案為準。
+表內的「保留」是指 V2 需要的責任；「退役」只在對應 cutover 測試通過後執行。
+
+| 類別 | 目前實際入口 | 處置及界線 |
+|---|---|---|
+| V1 UI 分流 | `src/app/(student)/study/page.tsx` 的 `StudyFlowRouter`／`LegacyStudyPage` | `/study` 直接 render `StudyStreamV2`；移除 assignment fetch 及整個 V1 component，保留認證、登入導向、scope query。 |
+| V1 assignment | `src/lib/study-stream/assignment.ts`、`/api/study/stream?assignmentOnly=1` | V2 成為唯一 assignment；移除 `off`／`all`／internal allowlist 執行分支及相關 telemetry outcome。 |
+| V1 writer | `src/app/api/study/route.ts` 的 GET／POST | 先改為 authenticated、無 DB write 的明確 410 rejection，完成舊 client cutover 測試後刪除 writer 實作；不可把 body 轉成 V2 action。 |
+| V1 credential endpoints | `/api/study/credentials`、`/api/study/session/rotate`、`src/lib/study-session.ts`、`src/lib/study-session-server.ts` | V2 使用 stream credential／renew／recovery；確認無現行 caller 後移除 V1 endpoint 與 session issuance，保留歷史 rows reader／cleanup 所需最小邊界。 |
+| V1 browser checkpoint | `src/lib/checkpoint.ts`、`study:checkpoint:*` | 不再讀取或寫入；V2 只使用 `english:study-stream-v2:checkpoint:*`。停權／登出清理只保留 account-scoped V2 清理。 |
+| V1 review queue | `src/lib/review-queue.ts` 及 `study:review-*` keys | 不轉換未送出資料、不重評分；先以明確退役訊息及限定清理規則處理，確認無 caller 後刪除 V1 queue。 |
+| 維護清理 | `src/app/api/maintenance/study-sessions/route.ts` 呼叫 `cleanupExpiredStudySessions` | 盤點 cleanup 是否只清 V1；改為 V2 可安全保留的 maintenance 或移除，不能因刪 V1 writer 而誤刪 V2 session／outbox。 |
+| V2 執行核心 | `src/components/study-stream/StudyStreamV2.tsx`、`src/lib/study-stream/{contracts,server,outbox}.ts`、`/api/study/stream`、`/api/study/actions*`、`/api/study/sessions/renew` | 必須保留；保留 typed action、server scoring、credential lineage、receipt／CAS、reconcile、recover、outbox／checkpoint。 |
+| 歷史資料 | `StudySession`／`Review`／`ReviewEvent` 中既有 `flowVersion=v1` rows 及支援 indexes | 只保留可讀及報表完整性；不以歷史 row 當新 writer contract，不做本批 schema／資料刪除。 |
+
+刪除前的 caller 證明必須同時涵蓋 `src/`、`tests/`、`scripts/`、workflow 及文件；只用
+`rg` 找不到一個 import 不足以證明舊 localStorage key、HTTP route 或測試 fixture 已退役。
+任何仍需要 V1 歷史資料的 reader 都要在刪碼 commit 的說明中列出，並以 fixture 測試保護。
+
 ### 8.4 P4 測試移植矩陣
 
 以下為已找到的來源分組；實施前展開至每個 test title／assertion，填寫處置、目標檔案、
@@ -287,6 +308,27 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 | `test:browser:outbox` 及相關 queue／checkpoint tests | 先區分 storage 實作；V2 排空、故障保留、多分頁與帳戶隔離有直接測試 | V1 引擎退休案例可刪；不得把僅測 V1 的通過結果當成 V2 覆蓋 |
 | `test:e2e:study-stream-v2`／`test:db:stream-v2` | 原有首答、receipt、CAS、過期／撤銷、feedback 恢復全保留，補 cutover 邊界 | 移除分流設定依賴，不減少核心安全斷言 |
 | credential compatibility inventory／production verification | V2 identity index、receipt／provenance gap，及保留歷史資料的完整性 | 舊 writer 必須繼續可用的要求退役，不按檔名整支刪除 |
+
+刪碼前先用以下檔案級清單對照每個 test title／fixture；同一 spec 內的舊 V1 assertion
+要逐項標記，不能因整個 npm script 改名而隱藏：
+
+| 實際來源 | 目前依賴 | 預定處置 |
+|---|---|---|
+| `src/lib/study-stream-contracts.test.ts` | assignment default／`off`／local `all` assertions | 保留 parser、fingerprint、recovery proof；改測 V2 唯一 flow，移除 assignment switch assertions。 |
+| `src/lib/checkpoint.test.ts` | V1 checkpoint schema、`study:checkpoint:*` storage | 退役連同 `checkpoint.ts`；V2 checkpoint 行為由 `src/lib/study-stream-outbox.test.ts` 覆蓋。 |
+| `src/lib/review-queue.test.ts` | V1 pending／lease／mutation queue 及 legacy key | 逐項分類為 V2 outbox 等價保障或明確退役；未轉換資料不得產生 V2 action。 |
+| `src/lib/study-session.test.ts` | V1 queue id／resume session validation | 退役 V1 validation；V2 session／credential expiry 由 stream server tests 覆蓋。 |
+| `src/lib/study-client-state.test.ts` | 停權／登出同時清理 V1 及 V2 namespaces | 改為只驗 account-scoped V2 清理及跨帳戶保留；若保留 legacy scrub，必須標明只為安全清理而非執行依賴。 |
+| `tests/e2e/study-stream-v2.spec.ts` | V2 bootstrap、action、reconcile、recover、local-all assignment | 保留核心安全及恢復案例；移除 `STUDY_V2_ASSIGNMENT_MODE=all` 前置，新增 V2-only bootstrap。 |
+| `tests/e2e/study-navigation.spec.ts` | GET `/api/study`、V1 phases／checkpoint keys | 導覽及離開頁面改以 `/api/study/stream`、V2 checkpoint；V1 quiz／done 專用 assertion 退役。 |
+| `tests/e2e/student-ui-final-qa.spec.ts`、`study-action-fidelity.spec.ts`、`study-card-fidelity.spec.ts` | GET `/api/study`、舊 card selectors／actions | 保留 a11y、keyboard、theme、responsive、motion；改用 V2 selectors，舊 prototype layout／文案退役。 |
+| `tests/e2e/student-shell.spec.ts` | 首頁不應發出 V1 study request | 保留首頁無 study side effect；若需要 study bootstrap，改驗 V2 route。 |
+| `tests/e2e/study-workflow.spec.ts` | V1 queue、credentials、rotate、checkpoint、`/api/study` stubs | 拆出仍適用的認證／離線／帳戶隔離案例到 V2 spec；V1 writer／storage／phase assertions 逐項退役。 |
+| `tests/e2e/admin-roster.spec.ts` | 停權清理 V1 keys、恢復後 V2 stream | 保留停權邊界及 V2 resume；V1 key fixture 只在明確 legacy scrub contract 保留時留下。 |
+| `scripts/check-review-idempotency.ts`、`scripts/check-study-stream-v2.ts` | 歷史 V1／雙 flow synthetic rows | 保留歷史資料可讀及 V2 provenance assertions；不把 synthetic V1 writer 當現行產品路徑。 |
+
+每次移植後執行 `npm test`、lint、typecheck 及對應 Playwright project；完整 matrix 未通過前，
+P4 不得標記完成，亦不得把減少的 test count 當作成功證據。
 
 完成條件：舊測試清單每列都有 disposition、目標與理由；有效斷言已在 V2 執行通過，
 無測試只因改了目錄／project／glob 而消失。以 test discovery 清單和實際執行結果核對，
