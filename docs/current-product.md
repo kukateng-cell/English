@@ -48,6 +48,9 @@ engine 已退役，歷史資料欄位及舊 client namespace 仍按 P4 cutover m
 目前不能把整個退役當成已完成。
 `retrieval-v1` 是現行 V2 的 policy identifier，不是 V1 UI 的名稱，不能因字串包含 `v1` 而刪除。
 
+學生 shell 的 rail／bottom navigation 直接連到現行頁面；V2 action 先寫入 account-scoped outbox，離開後
+仍可由下一次 bootstrap／reconciliation 繼續，不再使用 V1 quiz／完成頁的 navigation state adapter。
+
 正式詞庫目前由 `data/catalog/` 下四份 CSV、identity manifest 及 initial-activation manifest 提供；
 [`docs/archive/word-list.md`](./archive/word-list.md) 是歷史詞表。CSV row 內保留 `outputs/...` 作穩定 `sourceFile` 識別名。P3 搬移已按受控 mapping
 完成；之後仍須證明 bytes、source digest、identity、

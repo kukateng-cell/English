@@ -64,3 +64,6 @@ compatibility inventory 仍按 P4 管理。退役前不可刪除名字含 `v1` �
 V2 的 legacy-data reader 及必要的 identity／provenance 欄位可能仍然有效。
 
 完成退役後，本頁要更新為「新入口直接使用 V2、舊 writer 明確拒絕、歷史資料只讀解讀」，並保留實際驗收證據。
+
+Student shell 目前只提供 rail／bottom navigation、account controls 及 skip link；舊 V1 phase／blocked
+navigation context 已移除，V2 的 outbox／reconciliation 負責離開後的安全續接。

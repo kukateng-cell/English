@@ -420,6 +420,8 @@ one-way scrub，未解析、遷移或提交；兩個 DB checker 的歷史 fixtur
 `tests/archive/e2e-v1/`，不再由 Playwright project 執行。V1 session issuance fixture
 已移到 `scripts/legacy-study-session-fixture.ts`，runtime 只保留 V1 historical rows cleanup；P4 cutover matrix 的
 browser／DB／舊 client barrier 驗證仍未完成，故不把退役標記完成。
+另移除沒有任何現行 writer 使用的 `StudentNavigationContext`；student shell 導覽改為直接 links，
+V2 outbox／reconciliation 負責離開後續接，舊 V1 phase／blocked guard assertion 留在 archive。
 本次檔案／計劃驗證：source／文件批次的 `npm test` 429 passed；本批零引用清理後 `npm test` 428 passed；
 `npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（64 files）、
