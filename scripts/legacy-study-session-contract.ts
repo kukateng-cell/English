@@ -1,4 +1,4 @@
-/** Browser checkpoint / GET query can safely carry at most this many word ids. */
+/** 歷史 V1 browser checkpoint／GET query 可安全攜帶的 word id 上限。 */
 export const MAX_STUDY_SESSION_WORDS = 200;
 export const RESUME_SESSION_MIN_REMAINING_MS = 2 * 60_000;
 

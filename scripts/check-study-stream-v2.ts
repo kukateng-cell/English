@@ -31,7 +31,7 @@ async function main() {
   } = await import("../src/lib/study-stream/contracts");
   const { getStudentDashboard, getStudentLearningMetrics } = await import("../src/lib/student-metrics");
   const { fetchUnitProgress } = await import("../src/lib/unit-progress-server");
-  const { cleanupExpiredStudySessions, STUDY_SESSION_RETENTION_MS } = await import("../src/lib/study-session-server");
+  const { cleanupExpiredStudySessions, STUDY_SESSION_RETENTION_MS } = await import("../src/lib/study-session-retention");
   const { getWeeklyLeaderboard } = await import("../src/lib/leaderboard");
   const { todayKey } = await import("../src/lib/streak");
   const { authOptions, validateAuthTokenVersion } = await import("../src/lib/auth");

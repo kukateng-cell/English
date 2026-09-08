@@ -284,7 +284,7 @@ P3 開始前固定實際搬移前 SHA，用可重現的合成 fixture 建立已�
 | V1 UI 分流 | `src/app/(student)/study/page.tsx` 的 `StudyFlowRouter`／`LegacyStudyPage` | `/study` 直接 render `StudyStreamV2`；移除 assignment fetch 及整個 V1 component，保留認證、登入導向、scope query。 |
 | V1 assignment | `src/lib/study-stream/assignment.ts`、`/api/study/stream?assignmentOnly=1` | V2 成為唯一 assignment；移除 `off`／`all`／internal allowlist 執行分支及相關 telemetry outcome。 |
 | V1 writer | `src/app/api/study/route.ts` 的 GET／POST | 先改為 authenticated、無 DB write 的明確 410 rejection，完成舊 client cutover 測試後刪除 writer 實作；不可把 body 轉成 V2 action。 |
-| V1 credential endpoints | `/api/study/credentials`、`/api/study/session/rotate`、`src/lib/study-session.ts`、`src/lib/study-session-server.ts` | V2 使用 stream credential／renew／recovery；確認無現行 caller 後移除 V1 endpoint 與 session issuance，保留歷史 rows reader／cleanup 所需最小邊界。 |
+| V1 credential endpoints | `/api/study/credentials`、`/api/study/session/rotate`；歷史 fixture 已移到 `scripts/legacy-study-session-fixture.ts`／`legacy-study-session-contract.ts` | V2 使用 stream credential／renew／recovery；runtime 已移除 V1 endpoint 與 session issuance，只保留 `src/lib/study-session-retention.ts` 作歷史 rows cleanup；fixture 僅供 DB checker。 |
 | V1 browser checkpoint | `study:checkpoint:*` legacy namespace；`checkpoint.ts` 已無產品 caller | V1 decoder／writer 及專用測試已刪除；shared auth cleanup 只作 account-scoped one-way scrub，V2 只使用 `english:study-stream-v2:checkpoint:*`。 |
 | V1 review queue | `study:review-*` legacy namespaces；`review-queue.ts` 已無產品 caller | V1 queue engine／endpoint adapter 及專用測試已刪除；未送出資料不轉換、不重評分，shared auth cleanup 只作 discard scrub。 |
 | 維護清理 | `src/app/api/maintenance/study-sessions/route.ts` 呼叫 `cleanupExpiredStudySessions` | 盤點 cleanup 是否只清 V1；改為 V2 可安全保留的 maintenance 或移除，不能因刪 V1 writer 而誤刪 V2 session／outbox。 |
@@ -317,7 +317,7 @@ Playwright project／npm command 和結果。不預先把整份 spec 判為可�
 | `src/lib/study-stream-contracts.test.ts` | assignment default／`off`／local `all` assertions | 保留 parser、fingerprint、recovery proof；改測 V2 唯一 flow，移除 assignment switch assertions。 |
 | `src/lib/checkpoint.test.ts` | V1 checkpoint schema、`study:checkpoint:*` storage | 已刪除，因 V1 decoder／writer 無 caller；V2 checkpoint 行為由 `src/lib/study-stream-outbox.test.ts` 覆蓋，legacy key 只由 auth cleanup discard。 |
 | `src/lib/review-queue.test.ts` | V1 pending／lease／mutation queue 及 legacy key | 已刪除，因 V1 queue 無 caller；V2 outbox 等價保障由 `src/lib/study-stream-outbox.test.ts` 覆蓋，未轉換資料不得產生 V2 action。 |
-| `src/lib/study-session.test.ts` | V1 queue id／resume session validation | 退役 V1 validation；V2 session／credential expiry 由 stream server tests 覆蓋。 |
+| `src/lib/study-session.test.ts` | V1 queue id／resume session validation | 已刪除；V1 validation 只留在 script-only historical fixture 的 DB checker，V2 session／credential expiry 由 stream server tests 覆蓋。 |
 | `src/lib/study-client-state.test.ts` | 停權／登出同時清理 V1 及 V2 namespaces | 改為只驗 account-scoped V2 清理及跨帳戶保留；若保留 legacy scrub，必須標明只為安全清理而非執行依賴。 |
 | `tests/e2e/study-stream-v2.spec.ts` | V2 bootstrap、action、reconcile、recover、local-all assignment | 保留核心安全及恢復案例；移除 `STUDY_V2_ASSIGNMENT_MODE=all` 前置，新增 V2-only bootstrap。 |
 | `tests/e2e/study-navigation.spec.ts` | GET `/api/study`、V1 phases／checkpoint keys | 導覽及離開頁面改以 `/api/study/stream`、V2 checkpoint；V1 quiz／done 專用 assertion 退役。 |
@@ -415,7 +415,8 @@ credential routes 移除 assignment gate；舊 `/api/study` writer 改為 authen
 assignment module 及舊 operation compatibility env／guard 已移除。V1 browser state 只保留 account-scoped
 one-way scrub，未解析、遷移或提交；兩個 DB checker 的歷史 fixture writer 移到 `scripts/legacy-review-fixture.ts`，
 避免 route 重新暴露 V1 writer。舊 `/api/study/credentials` 及 `/api/study/session/rotate` 亦已改為共用
-410 retirement contract；`study-flow-retirement.test.ts` 保護 status、cache 及 payload。P4 cutover matrix 的
+410 retirement contract；`study-flow-retirement.test.ts` 保護 status、cache 及 payload。V1 session issuance fixture
+已移到 `scripts/legacy-study-session-fixture.ts`，runtime 只保留 V1 historical rows cleanup；P4 cutover matrix 的
 browser／DB／舊 client barrier 驗證仍未完成，故不把退役標記完成。
 本次檔案／計劃驗證：source／文件批次的 `npm test` 429 passed；本批零引用清理後 `npm test` 428 passed；
 `npm run lint` passed、

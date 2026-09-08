@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cleanupExpiredStudySessions } from "@/lib/study-session-server";
+import { cleanupExpiredStudySessions } from "@/lib/study-session-retention";
 
 export const maxDuration = 60;
 

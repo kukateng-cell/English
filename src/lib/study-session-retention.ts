@@ -1,0 +1,34 @@
+import { prisma, Prisma } from "@/lib/prisma";
+
+/**
+ * Retention boundary for historical V1 StudySession rows.
+ *
+ * V2 sessions own durable stream encounters, so this cleanup deliberately
+ * selects only expired V1 rows with no V2 stream items. It is a maintenance
+ * reader/cleanup boundary, not a session issuance API.
+ */
+export const STUDY_SESSION_RETENTION_MS = 14 * 24 * 60 * 60_000;
+
+export async function cleanupExpiredStudySessions(
+  now = new Date(),
+  batchSize = 1_000,
+  db: Pick<Prisma.TransactionClient, "studySession"> = prisma,
+) {
+  const retentionCutoff = new Date(now.getTime() - STUDY_SESSION_RETENTION_MS);
+  const where = {
+    flowVersion: "v1",
+    streamItems: { none: {} },
+    expiresAt: { lte: retentionCutoff },
+  };
+  const expired = await db.studySession.findMany({
+    where,
+    orderBy: { expiresAt: "asc" },
+    take: batchSize,
+    select: { id: true },
+  });
+  if (expired.length === 0) return 0;
+  const result = await db.studySession.deleteMany({
+    where: { ...where, id: { in: expired.map((session) => session.id) } },
+  });
+  return result.count;
+}

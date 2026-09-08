@@ -12,12 +12,14 @@ async function main() {
     recoverStudySessionCredential,
     renewStudySessionCredentials,
     reuseStudySessionForResume,
-    cleanupExpiredStudySessions,
-    STUDY_SESSION_RETENTION_MS,
     rotateStudySession,
     serializeStudySession,
     studyQueueFingerprint,
-  } = await import("../src/lib/study-session-server");
+  } = await import("./legacy-study-session-fixture");
+  const {
+    cleanupExpiredStudySessions,
+    STUDY_SESSION_RETENTION_MS,
+  } = await import("../src/lib/study-session-retention");
   const suffix = randomUUID();
   let userId: string | null = null;
   let wordId: string | null = null;

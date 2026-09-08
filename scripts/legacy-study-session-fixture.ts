@@ -1,16 +1,22 @@
+/**
+ * 歷史 V1 session DB fixture。
+ *
+ * 這個檔案只供 scripts/check-review-idempotency.ts 使用，並非產品 runtime
+ * contract。新學習流程必須使用 src/lib/study-stream；不要從 src/app 或
+ * 其他現行 server module 匯入這裡的 issuance／rotation writer。
+ */
 import { createHash, randomUUID } from "node:crypto";
 import { prisma, Prisma } from "@/lib/prisma";
 import {
   canReuseResumeSession,
   MAX_STUDY_SESSION_WORDS,
-} from "@/lib/study-session";
+} from "./legacy-study-session-contract";
 import {
   isRetryableTransactionConflict,
   waitForTransactionRetry,
 } from "@/lib/transaction-retry";
 
 const STUDY_SESSION_TTL_MS = 30 * 60_000;
-export const STUDY_SESSION_RETENTION_MS = 14 * 24 * 60 * 60_000;
 const REUSE_MIN_REMAINING_MS = 2 * 60_000;
 export const STUDY_SESSION_ROTATION_WINDOW_MS = 5 * 60_000;
 const MAX_ACTIVE_STUDY_SESSIONS = 6;
@@ -1130,26 +1136,4 @@ export function serializeStudySession(session: IssuedStudySession | null) {
         .map((item) => [item.wordId, item.nonce]),
     ),
   };
-}
-
-export async function cleanupExpiredStudySessions(
-  now = new Date(),
-  batchSize = 1_000,
-  db: Pick<Prisma.TransactionClient, "studySession"> = prisma,
-) {
-  const retentionCutoff = new Date(now.getTime() - STUDY_SESSION_RETENTION_MS);
-  // V2 items own durable encounters. Do not cascade-delete learning history
-  // until a separate archival/retention migration has decoupled it.
-  const where = { flowVersion: "v1", streamItems: { none: {} }, expiresAt: { lte: retentionCutoff } };
-  const expired = await db.studySession.findMany({
-    where,
-    orderBy: { expiresAt: "asc" },
-    take: batchSize,
-    select: { id: true },
-  });
-  if (expired.length === 0) return 0;
-  const result = await db.studySession.deleteMany({
-    where: { ...where, id: { in: expired.map((session) => session.id) } },
-  });
-  return result.count;
 }
