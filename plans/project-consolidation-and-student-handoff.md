@@ -362,6 +362,9 @@ reset helper，將 rotation／keyring 安全斷言移到現行共用 password-re
 再按 C5 完成一批低風險 analytics plumbing：`streak.ts` 統一 date key 驗證／日距離計算，
 新增 `analytics-actor.ts` 統一 teacher analytics／reward report 的 authorization snapshot reader；
 兩套報表的計分政策、版本常數及查詢範圍保持分開。
+另外先修正一個 V1 依賴邊界：學生 dashboard 的未完成提示改讀 V2
+`english:study-stream-v2:checkpoint:`，不再以舊 `study:checkpoint:` 判斷現行學習狀態；
+舊 checkpoint／queue 清理仍暫時保留，待 P4 逐項完成退役驗收。
 本次檔案／計劃驗證：source／文件批次的 `npm test` 429 passed；本批零引用清理後 `npm test` 428 passed；
 `npm run lint` passed、
 `npx tsc --noEmit --incremental false` passed、`npm run check:markdown-links` passed（64 files）、

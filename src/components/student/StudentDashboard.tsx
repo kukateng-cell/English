@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/components/LocaleProvider";
-import { loadCheckpoint } from "@/lib/checkpoint";
+import { loadStudyStreamCheckpoint } from "@/lib/study-stream/outbox";
 import Button from "@/components/ui/Button";
 import Card, { StatCard } from "@/components/ui/Card";
 import PageHeader from "@/components/ui/PageHeader";
@@ -23,7 +23,7 @@ export default function StudentDashboard({ userId }: { userId: string }) {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    queueMicrotask(() => setHasCheckpoint(loadCheckpoint(userId, "global")?.phase !== "done"));
+    queueMicrotask(() => setHasCheckpoint(loadStudyStreamCheckpoint(userId, "global") !== null));
   }, [userId]);
 
   useEffect(() => {
