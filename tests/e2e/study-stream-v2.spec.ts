@@ -360,7 +360,7 @@ test("retrying an initial stream failure also drains pending outbox actions", as
   });
 
   await page.goto("/study");
-  const error = page.getByRole("alert");
+  const error = page.getByRole("alert").filter({ hasText: "initial stream unavailable" });
   await expect(error).toBeVisible();
   await error.getByRole("button", { name: "重試" }).click();
   await expect(page.getByText("initial-retry-card", { exact: true })).toBeVisible();
@@ -1854,8 +1854,9 @@ test("an evicted credential on an already completed item converges through termi
   expect(outboxRows).toHaveLength(0);
 });
 
-test("two independent browser contexts reconcile an evicted completed action without dropping another row", async ({ browser }) => {
-  const storageState = "test-results/.auth/student-chromium.json";
+test("two independent browser contexts reconcile an evicted completed action without dropping another row", async ({ browser, page }) => {
+  test.setTimeout(120_000);
+  const storageState = await page.context().storageState();
   const sessionId = "two-device-session-01";
   const streamItemId = "two-device-item-01";
   const oldCredential = "two-device-credential-k0-012345678901234567890123456789";
@@ -2236,10 +2237,11 @@ test("V2 loading copy follows the selected Chinese locale", async ({ page, conte
       { name: "locale", value: locale, url: "http://127.0.0.1:3100/" },
     ]);
     await page.goto("/study");
-    await expect(page.getByText(locale === "zh-Hant" ? "載入學習流程..." : "加载学习流程...", { exact: true })).toBeVisible();
+    const loadingCopy = locale === "zh-Hant" ? "載入連續學習流..." : "加载连续学习流...";
+    await expect(page.getByText(loadingCopy, { exact: true })).toBeVisible();
     releaseStream();
     streamGate = null;
-    await expect(page.getByText(locale === "zh-Hant" ? "載入學習流程..." : "加载学习流程...", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(loadingCopy, { exact: true })).toHaveCount(0);
     await expect(page.locator('[data-testid="word-card-drag-layer"], [role="radiogroup"]')).toBeVisible();
   }
 });

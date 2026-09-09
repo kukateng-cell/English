@@ -254,7 +254,10 @@ export async function applyReviewEvent(input: {
             : createInitialState();
           const nextState = updateSM2(previousState, input.quality);
 
-          await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v1-fixture', true)`;
+          // expand trigger 以共用 V2 writer marker 識別 explicit ledger path。
+          // 呢個歷史 fixture 仍寫入 V1 形狀資料，但不可因而在明確 ReviewEvent
+          // 旁邊額外產生 bridge event。
+          await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v2', true)`;
           await tx.review.upsert({
             where: {
               userId_wordId: {

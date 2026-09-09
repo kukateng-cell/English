@@ -998,13 +998,41 @@ async function main() {
     }
 
     const legacyReplayAfter = new Date(Date.now() - 10 * 60_000);
+    const legacyEventsBefore = await prisma.reviewEvent.findMany({
+      where: {
+        userId,
+        submittedWordId: wordId,
+        isHistorical: false,
+        createdAt: { gte: legacyReplayAfter },
+      },
+      select: { id: true },
+    });
+    const legacyOperationId = `legacy-v1:${randomUUID()}`;
     const legacyFirst = await applyReviewEvent({
       userId,
       wordId,
       quality: 5,
-      operationId: `legacy-v1:${randomUUID()}`,
+      operationId: legacyOperationId,
       legacyReplayAfter,
     });
+    const legacyEventsAfterFirst = await prisma.reviewEvent.findMany({
+      where: {
+        userId,
+        submittedWordId: wordId,
+        isHistorical: false,
+        createdAt: { gte: legacyReplayAfter },
+      },
+      select: { id: true, operationId: true, eventKind: true, quality: true },
+    });
+    const legacyEventIdsBefore = new Set(legacyEventsBefore.map((event) => event.id));
+    const legacyEventsCreated = legacyEventsAfterFirst.filter((event) => !legacyEventIdsBefore.has(event.id));
+    if (
+      legacyEventsCreated.length !== 1 ||
+      legacyEventsCreated[0]?.operationId !== legacyOperationId ||
+      legacyEventsCreated[0]?.eventKind !== "REVIEW"
+    ) {
+      throw new Error(`legacy fixture created unexpected events: ${JSON.stringify(legacyEventsCreated)}`);
+    }
     const legacyRetry = await applyReviewEvent({
       userId,
       wordId,

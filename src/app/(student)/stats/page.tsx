@@ -82,7 +82,7 @@ export default function StatsPage() {
         <Card padded>
           <div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("活動")}</span><h2>{tc("最近學習活動")}</h2></div></div>
           {data.activity.every((day) => day.count === 0) ? <EmptyState title={tc("還沒有活動記錄")} description={tc("完成學習後，活動圖會顯示每天的學習活動。")}/> : <>
-            {showActivityHeatmap ? <div className="activity-heatmap is-month" aria-label={tc("最近學習活動熱力圖") as string}>
+            {showActivityHeatmap ? <div className="activity-heatmap is-month" role="group" aria-label={tc("最近學習活動熱力圖") as string}>
               <div className="activity-heatmap-grid-wrap">
                 <div className="activity-heatmap-weekdays" aria-hidden="true">{WEEKDAY_LABELS.map((label) => <span key={label}>{tc(label)}</span>)}</div>
                 <div className="activity-heatmap-grid" role="group" aria-label={tc("按星期顯示的學習活動") as string}>
@@ -93,7 +93,7 @@ export default function StatsPage() {
                   })}
                 </div>
               </div>
-              <div className="activity-heatmap-legend" aria-label={tc("活動強度圖例") as string}><span>{tc("少")}</span><div className="activity-heatmap-legend-swatches" aria-hidden="true">{[0, 1, 2, 3, 4].map((level) => <span className="activity-heatmap-cell" data-level={level} key={level} />)}</div><span>{tc("多")}</span></div>
+              <div className="activity-heatmap-legend" role="group" aria-label={tc("活動強度圖例") as string}><span>{tc("少")}</span><div className="activity-heatmap-legend-swatches" aria-hidden="true">{[0, 1, 2, 3, 4].map((level) => <span className="activity-heatmap-cell" data-level={level} key={level} />)}</div><span>{tc("多")}</span></div>
             </div> : <div className="activity-chart" role="img" aria-label={tc("最近學習活動柱狀圖") as string}>{data.activity.map((day) => <div className="activity-bar-column" key={day.day}><span className="activity-bar-value">{day.count || ""}</span><div className="activity-bar-track"><span className="activity-bar" style={{ height: `${Math.max(4, (day.count / maxActivity) * 100)}%` }} /></div><span className="activity-bar-label">{formatDay(day.day)}</span></div>)}</div>}
             <table className="sr-only"><caption>{tc("最近學習活動資料")}</caption><thead><tr><th>{tc("日期")}</th><th>{tc("複習事件")}</th></tr></thead><tbody>{data.activity.map((day) => <tr key={day.day}><td>{formatDay(day.day)}</td><td>{day.count}</td></tr>)}</tbody></table>
           </>}
@@ -120,7 +120,7 @@ export default function StatsPage() {
         {data.recent.length === 0 ? <p className="ui-field-helper">{tc("完成第一次複習後，這裡會顯示最近記錄。")}</p> : <div className="recent-learning-list">{data.recent.map((item) => <div key={item.id} className="recent-learning-row"><span><strong>{item.term}</strong><small>{formatDateTime(item.reviewedAt)}</small></span><span>{item.nextReviewAt ? `${tc("下一次")} ${formatDateTime(item.nextReviewAt)}` : tc("等待下一次複習")}</span></div>)}</div>}
           </Card>
 
-          <Card className="stats-calendar-card" padded><div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("打卡")}</span><h2>{tc("最近學習日")}</h2></div></div><div className="study-day-grid" aria-label={tc("最近學習日") as string}>{data.studyDays.map((day) => <span key={day} className="study-day-dot" title={formatDay(day)}>{formatDay(day)}</span>)}</div></Card>
+          <Card className="stats-calendar-card" padded><div className="dashboard-section-heading"><div><span className="ui-eyebrow">{tc("打卡")}</span><h2>{tc("最近學習日")}</h2></div></div><div className="study-day-grid" role="group" aria-label={tc("最近學習日") as string}>{data.studyDays.map((day) => <span key={day} className="study-day-dot" title={formatDay(day)}>{formatDay(day)}</span>)}</div></Card>
           {error ? <StatusBanner variant="warning" live={false} message={tc(error)} action={<Button variant="quiet" size="small" onClick={() => setReloadKey((key) => key + 1)}>{tc("重試")}</Button>}/> : null}
         </StudentSectionStack>
       </StudentPageStack>

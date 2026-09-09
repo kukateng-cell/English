@@ -67,7 +67,10 @@ function errorText(value: unknown): string {
   if (value instanceof Error && "code" in value && value.code === "REQUEST_TIMEOUT") {
     return "網絡要求逾時；待同步操作已保留，請檢查網絡後重試。";
   }
-  if (value instanceof TypeError && /fetch/i.test(value.message)) {
+  if (
+    (value instanceof TypeError && /fetch/i.test(value.message)) ||
+    (value instanceof Error && /failed to fetch|load failed|networkerror/iu.test(value.message))
+  ) {
     return "網絡暫時不可用；待同步操作已保留，請恢復網絡後重試。";
   }
   if (value instanceof Error && value.message) return value.message;

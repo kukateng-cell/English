@@ -255,11 +255,31 @@ test("student surfaces have no axe WCAG 2A/2AA violations", async ({ page }) => 
     await page.addScriptTag({ content: axe.source });
     const violations = await page.evaluate(async () => {
       const axeApi = (window as Window & {
-        axe?: { run: (context: Document, options: { runOnly: string[] }) => Promise<{ violations: Array<{ id: string; impact: string | null }> }> };
+        axe?: {
+          run: (context: Document, options: { runOnly: string[] }) => Promise<{
+            violations: Array<{
+              id: string;
+              impact: string | null;
+              help: string;
+              helpUrl: string;
+              nodes: Array<{
+                target: string[];
+                html: string;
+                failureSummary?: string;
+              }>;
+            }>;
+          }>;
+        };
       }).axe;
       if (!axeApi) throw new Error("axe failed to load");
       const result = await axeApi.run(document, { runOnly: ["wcag2a", "wcag2aa"] });
-      return result.violations.map(({ id, impact }) => ({ id, impact }));
+      return result.violations.map(({ id, impact, help, helpUrl, nodes }) => ({
+        id,
+        impact,
+        help,
+        helpUrl,
+        nodes: nodes.map(({ target, html, failureSummary }) => ({ target, html, failureSummary })),
+      }));
     });
     expect(violations, `${route.path} axe violations`).toEqual([]);
   }

@@ -30,7 +30,8 @@ setup("authenticate a real study session", async ({ page }, testInfo) => {
       response.url().includes("/api/auth/callback/credentials"),
   );
   await page.getByRole("button", { name: /登入|登錄|登录/ }).click();
-  expect((await callbackResponse).ok()).toBe(true);
+  const callback = await callbackResponse;
+  expect(callback.ok(), `credentials callback returned ${callback.status()} ${callback.statusText()}`).toBe(true);
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
 
   const sessionResponse = await page.request.get("/api/auth/session");

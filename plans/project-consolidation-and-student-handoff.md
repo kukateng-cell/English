@@ -475,3 +475,28 @@ Playwright `--list` 均通過；active V2 stream／shell discovery 共 54 個測
 實際 browser、production build、DB／migration、native device、performance 或獨立 clean-clone
 接手演練；P3 existing-DB regression、P4 cutover matrix browser／DB／舊 client barrier 及 P1 真人
 演練仍未完成，故不勾選相應 checklist，也不把 P4 寫成已完成。
+
+### Revision 4：2026-09-09 審核跟進（驗收收尾）
+
+來源：使用者提供的最新審核報告，審核對象為已推送的 `3285e34b82238a734ba89fe40c974dbf21e61b8c`。
+報告確認整頓方向正確，但指出主要改動已落地而驗收未收尾。本修訂只處理報告列出的可重現問題，
+不恢復 V1 rollback、不改 V2 行為及資料 contract，亦不執行 production、migration contract 或破壞性清理。
+
+| 審核發現 | 跟進處理 | 結果 |
+|---|---|---|
+| `legacy-review-fixture.ts` 將 `Review` upsert 標成 `v1-fixture`，expand trigger 額外寫入 `LEGACY_BRIDGE` | 改用現有 explicit V2 writer marker；fixture 仍保留 V1 形狀的歷史資料用途，但 checker 在寫入前後以 immutable event ID 比對，要求只新增同一 operationId 的一條 `REVIEW` | `npm run test:db` 通過；未再產生額外 bridge event |
+| active V2 loading assertion 使用過時文案 | 兩種中文 locale 改驗證現行 `載入連續學習流...`／`加载连续学习流...` | V2 Chromium／WebKit loading 測試通過 |
+| `/stats` axe 報告 generic `aria-label` 的 `aria-prohibited-attr` | 為熱力圖、圖例及打卡日容器補上適當 `role="group"`；axe failure output 同時保留 help、URL、selector、HTML 及 failure summary | student spacing desktop／mobile 及 axe 全部通過 |
+| browser regression 受測試 fixture／跨瀏覽器差異干擾 | 鎖定 initial error alert 文本、從目前 browser context 取得 storage state、將多 context 長流程上限設為 120 秒，並把 WebKit `Load failed` 正規化為現有繁體網絡錯誤文案；auth setup failure 顯示 HTTP status | Chromium、WebKit（連同 auth setup）完整 V2 stream 回歸通過 |
+
+本輪實際驗證：`npm test` 386 passed；`npm run lint`、`npx tsc --noEmit --incremental false`、
+`npm run build`、`npm run test:db`、`npm run check:markdown-links`（65 files）、
+`npm run test:db:stream-v2`、`npm run check:plan-index`、`git diff --check` 均通過。V2 Chromium stream 24/24、student spacing
+desktop／mobile 15/15（包括 axe）通過；primary card-motion matrix 65 passed、4 skipped（既有
+明確 skip）；WebKit V2 stream 連 auth setup 24/24 通過。Windows 本機的 3100 port 受保留範圍限制，
+browser run 使用臨時 ignored port 3200 config，測試後已刪除該臨時檔，未改正式 Playwright config。
+
+以下仍然是未完成的交接／發佈條件，不能因本輪回歸通過而勾選：P3 existing-history 隔離資料庫與
+舊／新 seed 差異回歸、P4 舊 client／cutover barrier 逐列矩陣、P1／P5 獨立 clean-clone 接手演練、
+遠端 default branch／ruleset／required checks 實值核對，以及 production observation、native
+device／screen-reader matrix、performance 和 research consent gates。計劃狀態維持「進行中」。
