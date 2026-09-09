@@ -500,3 +500,30 @@ browser run 使用臨時 ignored port 3200 config，測試後已刪除該臨時�
 舊／新 seed 差異回歸、P4 舊 client／cutover barrier 逐列矩陣、P1／P5 獨立 clean-clone 接手演練、
 遠端 default branch／ruleset／required checks 實值核對，以及 production observation、native
 device／screen-reader matrix、performance 和 research consent gates。計劃狀態維持「進行中」。
+
+### Revision 5：2026-09-09 生產依賴安全跟進
+
+來源：使用者提供的最新審核報告，審核基線為 `b044e8f84022de0f3ad10dccddf371b8f0742f70`。
+報告確認前述三項回歸問題已修妥；當時唯一獨立失敗的 CI 項目是 production dependency audit。
+本修訂只修補已確認的依賴安全版本，沒有恢復 V1 rollback、改動 V2 行為／資料 contract，亦沒有執行
+database migration、production deploy 或破壞性清理。
+
+| 審核發現 | 跟進處理 | 結果 |
+|---|---|---|
+| `next@16.2.11` 落在 Next.js advisory 的受影響範圍 | `package.json` 及 lockfile 更新至 `next@16.3.3` | production audit 已不再報告該 high／critical advisory |
+| `overrides.next.sharp@0.35.3` 落在 sharp／libheif advisory 的受影響範圍 | override、sharp platform packages 及 lockfile 更新至 `0.35.4` | `npm ls next sharp baseline-browser-mapping` 結構正常；未使用 `npm audit fix --force` |
+| lockfile transitive browser baseline 仍觸發 moderate audit | 只作相容的 targeted lockfile refresh 至 `baseline-browser-mapping@2.11.21` | `npm run audit:production` 顯示 `found 0 vulnerabilities` |
+
+本輪驗證：`npm ci --ignore-scripts --no-audit --no-fund` clean install 通過；`npm ls next sharp
+baseline-browser-mapping --all` 通過；`npm run audit:production` 通過；`npm test` 386 passed；
+`npm run lint`、`npx tsc --noEmit --incremental false`、`npm run build`、`npm run test:db`、
+`npm run test:db:stream-v2` 均通過。依賴更新後以臨時本地 port 3200 執行 V2 Chromium stream
+（auth setup 及完整 23 個案例）24/24 通過；臨時 Playwright 設定已刪除，正式設定沒有改動。
+本地測試出現的 Upstash 缺失限流提示及既有 pg deprecation warning 均屬開發環境／既有訊息，
+沒有新增失敗。前述審核報告建議的 heatmap「最近 30 日」axe 分支屬可選 coverage 增強，本修訂不擴大
+範圍處理。
+
+依賴修補完成後，計劃仍不可標記整體完成；P3 existing-history／seed 差異回歸、P4 舊 client cutover
+矩陣、P1／P5 clean-clone 交接、遠端 branch protection／required checks 實值核對、production
+observation、native device／screen-reader matrix、performance 及 research consent gates 仍待各自
+授權及驗收證據。
