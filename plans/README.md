@@ -16,6 +16,7 @@
 - [系統架構導覽](../docs/architecture.md)：頁面、API、服務、交易及資料邊界。
 - [本地開發指南](../docs/development.md)：環境、資料庫、seed、demo 及常用指令。
 - [測試指南](../docs/testing.md)：改動範圍與必要驗證的對照表。
+- [學生交接收尾 Checklist](../docs/student-handoff-checklist.md)：真實學生使用前的接手、資料相容與裝置核驗清單。
 - [Retrieval-first V2 Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)：V2 現況證據及未完成 external gates。
 - [Retrieval-first Learning Contract](./retrieval-first-learning-contract.md)：學生流程及學習證據的規範性語義。
 
