@@ -1,0 +1,24 @@
+[
+  {
+    "name": "local-tcp-loopback-v6",
+    "transport": "TCP",
+    "clientHost": "localhost",
+    "clientPort": 5432,
+    "database": "english_dev",
+    "schema": "public",
+    "serverAddress": "::1/128",
+    "serverPort": 5432,
+    "dbRole": "english_dev"
+  },
+  {
+    "name": "local-tcp-loopback-v4",
+    "transport": "TCP",
+    "clientHost": "127.0.0.1",
+    "clientPort": 5432,
+    "database": "english_dev",
+    "schema": "public",
+    "serverAddress": "127.0.0.1/32",
+    "serverPort": 5432,
+    "dbRole": "english_dev"
+  }
+]

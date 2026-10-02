@@ -1,11 +1,10 @@
 "use client";
 
 import { SessionProvider as NextAuthSessionProvider } from "next-auth/react";
+import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { LocaleProvider } from "@/components/LocaleProvider";
-import ThemeToggle from "@/components/ThemeToggle";
-import LanguageToggle from "@/components/LanguageToggle";
 
 import type { Locale } from "@/lib/i18n/config";
 
@@ -21,9 +20,7 @@ export default function Providers({
     <NextAuthSessionProvider>
       <LocaleProvider initialLocale={initialLocale}>
         <ThemeProvider>
-          {children}
-          <ThemeToggle />
-          <LanguageToggle />
+          <MotionConfig reducedMotion="user">{children}</MotionConfig>
         </ThemeProvider>
       </LocaleProvider>
     </NextAuthSessionProvider>

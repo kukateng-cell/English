@@ -1,175 +1,166 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ErrorBanner from "@/components/ErrorBanner";
-import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
+import MetricDefinitionsHelp from "@/components/analytics/MetricDefinitionsHelp";
+import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
+import { responseErrorMessage } from "@/lib/api-error";
+import { rosterFetch } from "@/lib/http-client";
+import { CLASS_LABELS, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
+import type { ClassCode, Level, StudentGrade } from "@/generated/prisma";
 
-interface TeacherStats {
-  totalStudents: number;
-  activeToday: number;
-  totalWordsMastered: number;
-  avgProgress: number;
-  byLevel: { level: string; mastered: number; total: number }[];
-  recentActivity: { name: string; email: string; level: string; progress: number }[];
+type ClassSummary = {
+  classId: string;
+  grade: StudentGrade;
+  classCode: ClassCode;
+  studentCount: number;
+  activeTodayCount: number;
+  activeSevenDayCount: number;
+  masteredWordCount: number;
+  masteryAveragePercent: number | null;
+  masteryByLevel: Array<{ level: Level; averagePercent: number | null }>;
+  dueStudentCount: number;
+  inactiveSevenDayCount: number;
+  totalWords: number;
+};
+
+function ratioPercent(count: number, total: number) {
+  return total > 0 ? Math.round((count / total) * 1000) / 10 : null;
 }
 
 export default function TeacherDashboard() {
   const { tc } = useLocale();
-  const [stats, setStats] = useState<TeacherStats | null>(null);
+  const [items, setItems] = useState<ClassSummary[]>([]);
+  const [grade, setGrade] = useState("");
+  const [unassigned, setUnassigned] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await rosterFetch("/api/teacher/class-summary/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grade: grade || undefined }),
+      });
+      if (!response.ok) throw new Error(await responseErrorMessage(response));
+      const payload = await response.json() as { items: ClassSummary[]; unassignedStudentCount: number };
+      setItems(payload.items);
+      setUnassigned(payload.unassignedStudentCount);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : tc("讀取班級概覽失敗"));
+    } finally {
+      setLoading(false);
+    }
+  }, [grade, tc]);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch("/api/teacher/stats");
-        if (!res.ok) {
-          setError(await responseErrorMessage(res));
-          return;
-        }
-        setStats(await res.json());
-      } catch (e) {
-        setError(networkErrorMessage(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [reloadKey]);
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
-      </div>
-    );
-  }
+  const overview = useMemo(() => items.reduce((summary, item) => ({
+    totalStudents: summary.totalStudents + item.studentCount,
+    activeToday: summary.activeToday + item.activeTodayCount,
+    activeSevenDay: summary.activeSevenDay + item.activeSevenDayCount,
+    dueStudents: summary.dueStudents + item.dueStudentCount,
+  }), { totalStudents: 0, activeToday: 0, activeSevenDay: 0, dueStudents: 0 }), [items]);
 
-  if (error) {
-    return (
-      <ErrorBanner
-        message={error}
-        onRetry={() => setReloadKey((k) => k + 1)}
-      />
-    );
-  }
+  const followUpItems = useMemo(() => [...items].sort((left, right) =>
+    right.dueStudentCount - left.dueStudentCount ||
+    (ratioPercent(left.activeSevenDayCount, left.studentCount) ?? 0) - (ratioPercent(right.activeSevenDayCount, right.studentCount) ?? 0) ||
+    left.grade.localeCompare(right.grade) ||
+    left.classCode.localeCompare(right.classCode),
+  ), [items]);
+
+  const classLabel = (item: ClassSummary) => `${tc(GRADE_LABELS[item.grade])}${tc(CLASS_LABELS[item.classCode])}`;
+  const activeTodayRate = ratioPercent(overview.activeToday, overview.totalStudents);
+  const activeSevenDayRate = ratioPercent(overview.activeSevenDay, overview.totalStudents);
+  const dueStudentRate = ratioPercent(overview.dueStudents, overview.totalStudents);
+
+  const rateLabel = (value: number | null) => value === null ? "—" : `${value}%`;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-5"
-    >
-      {/* 标题 */}
-      <div>
-        <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-          {tc("班级概览")}
-        </h1>
-        <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
-          {tc("掌握学生的学习动态")}
-        </p>
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold text-[var(--primary)]">{tc("教師工作臺")}</p>
+          <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)]">{tc("班級概覽")}</h1>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">{tc("快速掌握班級近況；需要整理學生累積分時，可直接開啟報告。")}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/teacher/rewards" className="ui-button ui-button-primary ui-button-small">
+            <Icon name="trending-up" size={17} />{tc("匯出學生累積分")}
+          </Link>
+          <Link href="/teacher/analytics" className="ui-button ui-button-secondary ui-button-small">
+            <Icon name="trending-up" size={17} />{tc("查看學習分析")}
+          </Link>
+          <Link href="/teacher/roster" className="ui-button ui-button-secondary ui-button-small">
+            <Icon name="clipboard" size={17} />{tc("查看學生")}
+          </Link>
+        </div>
+      </header>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="text-sm font-semibold text-[var(--text)]">
+          {tc("年級")}
+          <select value={grade} onChange={(event) => setGrade(event.target.value)} className="ml-2 h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm">
+            <option value="">{tc("全部年級")}</option>
+            {STUDENT_GRADES.map((item) => <option key={item} value={item}>{tc(GRADE_LABELS[item])}</option>)}
+          </select>
+        </label>
+        {unassigned > 0 ? <span className="rounded-full bg-[var(--border-soft)] px-3 py-2 text-xs font-semibold text-[var(--muted)]">{tc("未分班學生")} {unassigned}</span> : null}
       </div>
 
-      {/* 核心指标 */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-          </div>
-          <p className="text-[26px] font-bold text-[#17213C] dark:text-[#E2E8F0]">{stats?.totalStudents ?? 0}</p>
-          <p className="text-[13px] text-[#7C89A5] dark:text-[#64748B]">{tc("学生总数")}</p>
-        </div>
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[#ECFDF5] text-[#15803D] dark:bg-[#052E16] dark:text-[#4ADE80]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-          </div>
-          <p className="text-[26px] font-bold text-[#17213C] dark:text-[#E2E8F0]">{stats?.activeToday ?? 0}</p>
-          <p className="text-[13px] text-[#7C89A5] dark:text-[#64748B]">{tc("今日活跃")}</p>
-        </div>
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF0FF] text-[#4F46E5] dark:bg-[#1E1B4B] dark:text-[#A5B4FC]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" /></svg>
-          </div>
-          <p className="text-[26px] font-bold text-[#17213C] dark:text-[#E2E8F0]">{stats?.totalWordsMastered ?? 0}</p>
-          <p className="text-[13px] text-[#7C89A5] dark:text-[#64748B]">{tc("已掌握词汇")}</p>
-        </div>
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-[#FFFBEB] text-[#B45309] dark:bg-[#291800] dark:text-[#FBBF24]">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
-          </div>
-          <p className="text-[26px] font-bold text-[#17213C] dark:text-[#E2E8F0]">{stats?.avgProgress ?? 0}%</p>
-          <p className="text-[13px] text-[#7C89A5] dark:text-[#64748B]">{tc("平均进度")}</p>
-        </div>
-      </div>
+      {error ? <ErrorBanner message={error} onRetry={() => void load()} /> : null}
 
-      {/* 各等级掌握情况 */}
-      {stats?.byLevel && stats.byLevel.length > 0 && (
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-            {tc("各等级掌握情况")}
-          </h3>
-          <div className="space-y-3">
-            {stats.byLevel.map((l) => {
-              const pct = l.total > 0 ? Math.round((l.mastered / l.total) * 100) : 0;
-              return (
-                <div key={l.level} className="flex items-center gap-3">
-                  <span className="w-10 text-[13px] font-medium text-[#7C89A5] dark:text-[#64748B]">{l.level}</span>
-                  <div className="flex-1 h-2 rounded-full bg-[#EEF2F9] dark:bg-[#1E293B] overflow-hidden">
-                    <motion.div
-                      className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#5B6FEF]"
-                      style={{ width: `${pct}%` }}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ duration: 0.6 }}
-                    />
-                  </div>
-                  <span className="text-[13px] font-medium text-[#17213C] dark:text-[#E2E8F0]">
-                    {l.mastered}/{l.total}
-                  </span>
-                </div>
-              );
+      {loading ? <div className="ui-card ui-card-padding text-sm text-[var(--muted)]">{tc("正在讀取班級概覽…")}</div> : items.length === 0 ? <div className="ui-card ui-card-padding text-center text-sm text-[var(--muted)]">{tc("目前沒有可查看的班級")}</div> : <>
+        <section aria-label={tc("概覽摘要")} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <article className="ui-card ui-card-padding"><p className="text-sm text-[var(--muted)]">{tc("學生總數")}</p><strong className="mt-2 block text-3xl font-black text-[var(--text)]">{overview.totalStudents}{tc("人")}</strong><p className="mt-1 text-xs text-[var(--muted)]">{tc("目前獲授權班級")}</p></article>
+          <article className="ui-card ui-card-padding"><p className="text-sm text-[var(--muted)]">{tc("今日有學習")}</p><strong className="mt-2 block text-3xl font-black text-[var(--primary)]">{overview.activeToday}/{overview.totalStudents}</strong><p className="mt-1 text-xs text-[var(--muted)]">{rateLabel(activeTodayRate)} · {tc("今天完成過學習活動")}</p></article>
+          <article className="ui-card ui-card-padding"><p className="text-sm text-[var(--muted)]">{tc("近七日使用率")}</p><strong className="mt-2 block text-3xl font-black text-[var(--text)]">{overview.activeSevenDay}/{overview.totalStudents}</strong><div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--border-soft)]" role="progressbar" aria-label={tc("近七日使用率")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={activeSevenDayRate ?? 0}><span className="block h-full rounded-full bg-[var(--primary)]" style={{ width: `${activeSevenDayRate ?? 0}%` }} /></div><p className="mt-1 text-xs text-[var(--muted)]">{rateLabel(activeSevenDayRate)} · {tc("最近七日完成過學習活動")}</p></article>
+          <article className="ui-card ui-card-padding"><p className="text-sm text-[var(--muted)]">{tc("需複習學生")}</p><strong className="mt-2 block text-3xl font-black text-[var(--text)]">{overview.dueStudents}/{overview.totalStudents}</strong><p className="mt-1 text-xs text-[var(--muted)]">{rateLabel(dueStudentRate)} · {tc("至少有一個詞語已到複習時間")}</p></article>
+        </section>
+
+        <section className="ui-card ui-card-padding">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-[var(--primary)]">{tc("班級摘要")}</p>
+              <h2 className="mt-1 text-xl font-black text-[var(--text)]">{tc("需要跟進")}</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">{tc("按需複習學生及近七日使用率排列；這裡只作快速提示。")}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <MetricDefinitionsHelp context="class-summary" />
+              <Link href="/teacher/analytics" className="ui-button ui-button-secondary ui-button-small">{tc("查看完整分析")}</Link>
+            </div>
+          </div>
+
+          <div className="mt-5 hidden border-y border-[var(--border)] py-3 text-xs font-semibold text-[var(--muted)] md:grid md:grid-cols-[minmax(80px,0.65fr)_minmax(42px,0.4fr)_minmax(110px,1.45fr)_minmax(110px,1.45fr)_minmax(120px,1.3fr)_minmax(100px,0.95fr)] md:items-center md:gap-3 xl:gap-5">
+            <span>{tc("班級")}</span><span>{tc("學生")}</span><span>{tc("近七日使用率")}</span><span>{tc("需複習學生")}</span><span>{tc("累計平均掌握")}</span><span>{tc("操作")}</span>
+          </div>
+          <div className="divide-y divide-[var(--border)]">
+            {followUpItems.map((item) => {
+              const activeRate = ratioPercent(item.activeSevenDayCount, item.studentCount);
+              const dueRate = ratioPercent(item.dueStudentCount, item.studentCount);
+              return <div key={item.classId} className="grid gap-3 py-4 md:grid-cols-[minmax(80px,0.65fr)_minmax(42px,0.4fr)_minmax(110px,1.45fr)_minmax(110px,1.45fr)_minmax(120px,1.3fr)_minmax(100px,0.95fr)] md:items-center md:gap-3 xl:gap-5">
+              <div><p className="font-bold text-[var(--text)]">{classLabel(item)}</p></div>
+              <div><span className="text-xs text-[var(--muted)] md:hidden">{tc("學生")}</span><strong className="md:block">{item.studentCount}{tc("人")}</strong></div>
+              <div><span className="text-xs text-[var(--muted)] md:hidden">{tc("近七日使用率")}</span><div className="flex items-baseline justify-between gap-2"><strong className="md:block">{item.activeSevenDayCount}/{item.studentCount}</strong><span className="text-xs text-[var(--muted)]">{rateLabel(activeRate)}</span></div><div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[var(--border-soft)]" role="progressbar" aria-label={`${classLabel(item)}${tc("近七日使用率")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={activeRate ?? 0}><span className="block h-full rounded-full bg-[var(--primary)]" style={{ width: `${activeRate ?? 0}%` }} /></div></div>
+              <div><span className="text-xs text-[var(--muted)] md:hidden">{tc("需複習學生")}</span><div className="flex items-baseline justify-between gap-2"><strong className="md:block">{item.dueStudentCount}/{item.studentCount}{tc("人")}</strong><span className="text-xs text-[var(--muted)]">{rateLabel(dueRate)}</span></div><div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[var(--border-soft)]" role="progressbar" aria-label={`${classLabel(item)}${tc("需複習學生")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={dueRate ?? 0}><span className="block h-full rounded-full bg-[var(--warning)]" style={{ width: `${dueRate ?? 0}%` }} /></div></div>
+              <div><span className="text-xs text-[var(--muted)] md:hidden">{tc("累計平均掌握")}</span><strong className="md:block">{item.masteryAveragePercent === null ? "—" : `${item.masteryAveragePercent}%`}</strong>{item.masteryAveragePercent === null ? null : <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[var(--border-soft)]" role="progressbar" aria-label={`${classLabel(item)}${tc("累計平均掌握")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={item.masteryAveragePercent}><span className="block h-full rounded-full bg-[var(--success)]" style={{ width: `${item.masteryAveragePercent}%` }} /></div>}<div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1.5" aria-label={tc("各程度累計平均掌握")}>{item.masteryByLevel.map((level) => <div key={level.level} className="min-w-0"><div className="flex items-baseline justify-between gap-1 text-[11px]"><span className="font-semibold text-[var(--muted)]">{level.level}</span><span className="tabular-nums text-[var(--muted)]">{level.averagePercent === null ? "—" : `${level.averagePercent}%`}</span></div><div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-[var(--border-soft)]"><span className="block h-full rounded-full bg-[var(--success)]" style={{ width: `${level.averagePercent ?? 0}%` }} /></div></div>)}</div></div>
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/teacher/analytics?classId=${item.classId}&grade=${item.grade}`} className="ui-button ui-button-secondary ui-button-small">{tc("查看分析")}</Link>
+                <Link href={`/teacher/roster?classId=${item.classId}&grade=${item.grade}`} className="ui-button ui-button-quiet ui-button-small">{tc("查看學生")}</Link>
+              </div>
+            </div>;
             })}
           </div>
-        </div>
-      )}
-
-      {/* 快捷入口 */}
-      <Link
-        href="/teacher/students"
-        className="flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.18)] transition hover:shadow-[0_12px_30px_rgba(37,99,235,0.25)] active:scale-[0.98]"
-      >
-        {tc("📋 查看学生详细进度 →")}
-      </Link>
-
-      {/* 最近活跃 */}
-      {stats?.recentActivity && stats.recentActivity.length > 0 && (
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-            {tc("最近活跃学生")}
-          </h3>
-          <div className="space-y-2">
-            {stats.recentActivity.slice(0, 5).map((s, i) => (
-              <div key={i} className="flex items-center justify-between py-2">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EEF4FF] text-[12px] font-bold text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-                    {s.name?.charAt(0) || s.email.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="text-[14px] font-medium text-[#17213C] dark:text-[#E2E8F0]">{s.name || s.email}</p>
-                    <p className="text-[12px] text-[#7C89A5] dark:text-[#64748B]">{tc(`${s.level} 级`)}</p>
-                  </div>
-                </div>
-                <span className="text-[14px] font-semibold text-[#2563EB] dark:text-[#60A5FA]">{s.progress}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </motion.div>
+        </section>
+      </>}
+    </div>
   );
 }

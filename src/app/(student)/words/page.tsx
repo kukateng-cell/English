@@ -1,0 +1,210 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useLocale } from "@/components/LocaleProvider";
+import BottomSheet from "@/components/ui/BottomSheet";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import FilterChip from "@/components/ui/FilterChip";
+import Icon from "@/components/ui/Icon";
+import PageHeader from "@/components/ui/PageHeader";
+import { EmptyState, RetryState, Skeleton } from "@/components/ui/Feedback";
+import SegmentedControl from "@/components/ui/SegmentedControl";
+import { StudentPageStack, StudentSectionStack } from "@/components/student/StudentPageStack";
+import type { StudentWordStatus } from "@/lib/student-metrics";
+
+interface WordItem {
+  id: string;
+  term: string;
+  phonetic: string | null;
+  pos: string | null;
+  definition: string;
+  level: string;
+  category: string | null;
+  learned: boolean;
+  mastered: boolean;
+  status: StudentWordStatus;
+  nextReviewAt: string | null;
+}
+
+interface WordResponse {
+  items: WordItem[];
+  nextCursor: string | null;
+  total: number;
+  availableLevels: string[];
+  availableCategories: string[];
+}
+
+const STATUS_OPTIONS: Array<{ value: "all" | StudentWordStatus; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "unseen", label: "未學習" },
+  { value: "learning", label: "學習中" },
+  { value: "due", label: "待複習" },
+  { value: "mastered", label: "長期掌握" },
+];
+
+export default function WordsPage() {
+  const { tc, locale } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const query = searchParams.toString();
+  const latestQueryRef = useRef(query);
+  const level = searchParams.get("level") ?? "";
+  const category = searchParams.get("category") ?? "";
+  const requestedStatus = searchParams.get("status") ?? "all";
+  const status = STATUS_OPTIONS.some((option) => option.value === requestedStatus)
+    ? (requestedStatus as "all" | StudentWordStatus)
+    : "all";
+  const [data, setData] = useState<WordResponse | null>(null);
+  const [items, setItems] = useState<WordItem[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<WordItem | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const updateFilters = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(latestQueryRef.current);
+    Object.entries(changes).forEach(([key, value]) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    });
+    const nextQuery = next.toString();
+    latestQueryRef.current = nextQuery;
+    router.push(nextQuery ? `/words?${nextQuery}` : "/words", { scroll: false });
+  };
+
+  useEffect(() => {
+    latestQueryRef.current = query;
+  }, [query]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadMoreControllerRef.current?.abort();
+    loadMoreControllerRef.current = null;
+    (async () => {
+      setLoading(true);
+      setLoadingMore(false);
+      setError(null);
+      setData(null);
+      setItems([]);
+      setCursor(null);
+      setSelected(null);
+      const params = new URLSearchParams({ limit: "24" });
+      if (level) params.set("level", level);
+      if (category) params.set("category", category);
+      if (status !== "all") params.set("status", status);
+      try {
+        const response = await fetch(`/api/words?${params}`, { cache: "no-store", signal: controller.signal });
+        const payload = (await response.json().catch(() => null)) as (WordResponse & { error?: string }) | null;
+        if (!response.ok) throw new Error(payload?.error || "暫時無法載入詞表");
+        if (!controller.signal.aborted && payload) {
+          setData(payload);
+          setItems(payload.items);
+          setCursor(payload.nextCursor);
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "暫時無法載入詞表");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => {
+      controller.abort();
+      loadMoreControllerRef.current?.abort();
+    };
+  }, [category, level, query, reloadKey, status]);
+
+  async function loadMore() {
+    if (!cursor || loadingMore) return;
+    const requestKey = latestQueryRef.current;
+    const cursorSnapshot = cursor;
+    loadMoreControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadMoreControllerRef.current = controller;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ limit: "24", cursor: cursorSnapshot });
+      if (level) params.set("level", level);
+      if (category) params.set("category", category);
+      if (status !== "all") params.set("status", status);
+      const response = await fetch(`/api/words?${params}`, { cache: "no-store", signal: controller.signal });
+      const payload = (await response.json().catch(() => null)) as (WordResponse & { error?: string }) | null;
+      if (!response.ok || !payload) throw new Error(payload?.error || "暫時無法載入更多詞彙");
+      if (controller.signal.aborted || latestQueryRef.current !== requestKey) return;
+      setItems((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        const uniqueItems = payload.items.filter((item) => {
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        });
+        return [...current, ...uniqueItems];
+      });
+      setCursor(payload.nextCursor);
+    } catch (cause) {
+      if (!controller.signal.aborted && latestQueryRef.current === requestKey) {
+        setError(cause instanceof Error ? cause.message : "暫時無法載入更多詞彙");
+      }
+    } finally {
+      if (loadMoreControllerRef.current === controller) {
+        loadMoreControllerRef.current = null;
+        setLoadingMore(false);
+      }
+    }
+  }
+
+  const statusText = (value: WordItem["status"]) => tc(STATUS_OPTIONS.find((option) => option.value === value)?.label ?? "未學習");
+  const nextReviewText = (value: string | null) => value ? new Intl.DateTimeFormat(locale === "zh-Hans" ? "zh-CN" : "zh-TW", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric" }).format(new Date(value)) : null;
+
+  return (
+    <div className="student-content-wide">
+      <StudentPageStack>
+        <PageHeader eyebrow={tc("詞庫") } title={tc("詞表") } description={tc("只顯示已解鎖的詞；查看內容不會改變學習記錄。") } action={<div className="words-ia-switch"><Link className="is-active" href="/words">{tc("詞表")}</Link><Link href="/units">{tc("單元闖關")}</Link></div>} />
+        <StudentSectionStack>
+          <Card className="words-filter-card" padded>
+        <div className="words-filter-row">
+          <div className="ui-field words-filter-field">
+            <span>{tc("級別")}</span>
+            <SegmentedControl
+              className="words-level-control"
+              label={tc("按級別篩選") as string}
+              value={level}
+              onChange={(value) => updateFilters({ level: value || null, category: null })}
+              items={[
+                { value: "", label: tc("全部") },
+                ...(data?.availableLevels ?? ["A1", "A2", "B1", "B2"]).map((item) => ({ value: item, label: item })),
+              ]}
+            />
+            <div className="words-status-filter" role="group" aria-label={tc("按狀態篩選") as string}>{STATUS_OPTIONS.map((option) => <FilterChip key={option.value} selected={status === option.value} onClick={() => updateFilters({ status: option.value === "all" ? null : option.value })}>{tc(option.label)}</FilterChip>)}</div>
+          </div>
+          <div className="ui-field words-filter-field"><span>{tc("單元")}</span><div className="words-category-chips" role="group" aria-label={tc("按單元篩選") as string}><FilterChip selected={!category} onClick={() => updateFilters({ category: null })}>{tc("全部單元")}</FilterChip>{(data?.availableCategories ?? []).map((item) => <FilterChip key={item} selected={category === item} onClick={() => updateFilters({ category: item })}>{item === "未分類" ? tc("未分類") : tc(item)}</FilterChip>)}</div></div>
+        </div>
+          </Card>
+
+          {error && items.length === 0 ? <RetryState message={tc(error)} onRetry={() => setReloadKey((key) => key + 1)} /> : null}
+          {loading ? <Card className="word-list-card" padded><div className="word-list-skeletons"><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div></Card> : null}
+          {!loading && !error && items.length === 0 ? <EmptyState title={tc("沒有符合條件的已解鎖詞") } description={tc("可以先去單元闖關查看下一項可解鎖內容。") } action={<Link className="ui-button ui-button-secondary ui-button-small" href="/units">{tc("查看單元")}</Link>} /> : null}
+          {!loading && items.length > 0 ? <Card className="word-list-card" padded={false}>
+        <div className="word-list-heading"><div><strong>{tc("已解鎖詞")}</strong><p className="word-list-heading-hint">{tc("點擊詞語查看中文意思及學習狀態。")}</p></div><span>{data?.total ?? items.length} {tc("個詞")}</span></div>
+        <div className="word-list" aria-label={tc("已解鎖詞清單") as string}>{items.map((item) => <button key={item.id} ref={selected?.id === item.id ? triggerRef : undefined} type="button" className="word-list-row" onClick={() => setSelected(item)}><span className="word-list-term"><strong>{item.term}</strong><small>{item.phonetic || item.pos || item.level}</small></span><span className="word-list-definition">{tc(item.definition)}</span><span className={`word-status word-status-${item.status}`}>{statusText(item.status)}</span><Icon name="chevron-right" size={18} /></button>)}</div>
+        <div className="word-list-footer">{error && items.length > 0 ? <StatusInline message={tc(error)} /> : null}{cursor ? <Button variant="secondary" loading={loadingMore} onClick={loadMore}>{tc("載入更多")}</Button> : <span className="ui-field-helper">{tc("已經顯示全部符合條件的詞")}</span>}</div>
+          </Card> : null}
+        </StudentSectionStack>
+      </StudentPageStack>
+
+      <BottomSheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.term ?? ""} description={selected ? [selected.level, selected.category ? (selected.category === "未分類" ? tc("未分類") : selected.category) : null, selected.pos].filter(Boolean).join(" · ") : undefined} returnFocusRef={triggerRef}>
+        {selected ? <div className="word-detail"><div className="word-detail-phonetic">{selected.phonetic || tc("暫無音標")}</div><p>{tc(selected.definition)}</p><div className="word-detail-state"><span>{tc("狀態")}</span><strong>{statusText(selected.status)}</strong></div>{selected.nextReviewAt ? <div className="word-detail-state"><span>{tc("下一次複習")}</span><strong>{nextReviewText(selected.nextReviewAt)}</strong></div> : null}<p className="ui-field-helper">{tc("詞表只供查閱，不會直接計入學習進度；認字卡完成小測後，進度才會更新。")} </p></div> : null}
+      </BottomSheet>
+    </div>
+  );
+}
+
+function StatusInline({ message }: { message: string }) {
+  return <span className="word-list-inline-error" role="alert">{message}</span>;
+}

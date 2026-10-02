@@ -1,0 +1,191 @@
+name: Study quality gate
+
+on:
+  push:
+  pull_request:
+    branches: [main, staging]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: study-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-audit:
+    name: Production dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Audit production dependencies
+        run: npm run audit:production
+
+  study-quality:
+    name: Quality (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, lint, types, build, migrations, fresh-seed, ledger, catalog, stream-v2, browser-motion, browser-ia, browser-qa, browser-catalog, browser-v2, browser-outbox]
+
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+      MIGRATE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+      NEXTAUTH_SECRET: ci-placeholder-secret
+      NEXTAUTH_URL: http://127.0.0.1:3100
+      INITIAL_ADMIN_PASSWORD: CiAdminPlaceholder!2026
+      DATABASE_ENVIRONMENT: test
+      CONFIRM_DATABASE_ENVIRONMENT: test
+      SEED_TEST_STUDENT: "1"
+      TEST_STUDENT_USERNAME: __test_student__ci_card_motion
+      TEST_STUDENT_PASSWORD: CiCardMotion!2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run unit tests
+        if: matrix.suite == 'unit'
+        run: npm test
+
+      - name: Run ESLint with zero warnings
+        if: matrix.suite == 'lint'
+        run: npm run lint -- --max-warnings=0
+
+      - name: Run TypeScript typecheck
+        if: matrix.suite == 'types'
+        run: npx tsc --noEmit
+
+      - name: Verify migration checksums
+        if: matrix.suite == 'migrations'
+        run: npm run test:migration-checksums
+
+      - name: Replay migrations on a fresh schema
+        if: matrix.suite == 'migrations'
+        run: npm run test:migrations
+
+      - name: Verify expand, confirmed contract, and future ordinary deploy
+        if: matrix.suite == 'migrations'
+        run: npm run test:migrations:contract
+
+      - name: Deploy migrations to the CI database
+        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || (startsWith(matrix.suite, 'browser-') && matrix.suite != 'browser-outbox')
+        run: npm run db:deploy
+
+      - name: Run review ledger and concurrency checks
+        if: matrix.suite == 'ledger'
+        run: npm run test:db
+
+      - name: Seed the card-motion test account and words
+        if: contains(fromJSON('["ledger","catalog","stream-v2"]'), matrix.suite) || (startsWith(matrix.suite, 'browser-') && matrix.suite != 'browser-outbox')
+        run: npm run seed
+
+      - name: Verify fresh initialization and repeat bootstrap
+        if: matrix.suite == 'fresh-seed'
+        run: npm run test:db:fresh-seed
+
+      - name: Verify the formal catalog baseline
+        if: matrix.suite == 'catalog'
+        run: |
+          CATALOG_REQUIRE_INITIAL_BASELINE=1 npm run check:catalog
+          npm run check:catalog-governance
+          npm run check:catalog-workspace-pagination
+          npm run check:catalog-immediate-retire
+          npm run check:catalog-submission
+          npm run check:catalog-teacher-workflow
+
+      - name: Run V2 stream integration and bounded soak
+        if: matrix.suite == 'stream-v2'
+        run: |
+          npm run test:db:stream-v2
+          STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak
+
+      - name: Build independently for application and browser checks
+        if: matrix.suite == 'build' || (startsWith(matrix.suite, 'browser-') && matrix.suite != 'browser-motion' && matrix.suite != 'browser-outbox')
+        run: ENABLE_TEST_ROUTES=1 npm run build
+
+      - name: Install Playwright browsers
+        if: startsWith(matrix.suite, 'browser-')
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Verify cross-browser emulated card release motion
+        if: matrix.suite == 'browser-motion'
+        run: npm run test:e2e:card-motion
+
+      - name: Verify cross-tab durable outbox
+        if: matrix.suite == 'browser-outbox'
+        run: npm run test:browser:outbox
+
+      - name: Verify V2 browser workflow
+        if: matrix.suite == 'browser-v2'
+        run: npm run test:e2e:study-stream-v2
+
+      - name: Verify student IA regression
+        if: matrix.suite == 'browser-ia'
+        run: npm run test:e2e:student-ia
+
+      - name: Verify student accessibility and fidelity regression
+        if: matrix.suite == 'browser-qa'
+        run: npm run test:e2e:student-qa
+
+      - name: Verify catalog workspace lifecycle and privacy regression
+        if: matrix.suite == 'browser-catalog'
+        run: npm run test:e2e:catalog-workspace
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: card-motion-playwright-${{ matrix.suite }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+  required-quality-gate:
+    name: Required quality gate
+    if: always()
+    needs: [dependency-audit, study-quality]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every independent check to pass
+        env:
+          AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+          QUALITY_RESULT: ${{ needs.study-quality.result }}
+        run: test "$AUDIT_RESULT" = success && test "$QUALITY_RESULT" = success

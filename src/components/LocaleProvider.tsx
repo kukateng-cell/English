@@ -14,26 +14,25 @@ import {
   LOCALE_COOKIE_KEY,
   LOCALE_STORAGE_KEY,
   localeToHtmlLang,
-  normalizeLocale,
   SITE_TITLE,
   type Locale,
 } from "@/lib/i18n/config";
 import { convertText } from "@/lib/i18n/convert";
+import { useRouter } from "next/navigation";
 
 interface LocaleContextValue {
   locale: Locale;
-  /** 切换语言（同时写入 localStorage 与 cookie，并更新 <html lang>）。 */
+  /** 切換語言（同時寫入 localStorage 與 cookie，並更新 <html lang>）。 */
   setLocale: (locale: Locale) => void;
-  /** 是否已在客户端挂载完成。挂载前 locale 与 SSR 一致（cookie/预设值），
-   *  仅供需要避免 hydration mismatch 的组件判断。 */
+  /** 是否已在 client 掛載完成。掛載前 locale 與 SSR 一致（cookie／預設值），
+   *  只供需要避免 hydration mismatch 的 component 判斷。 */
   mounted: boolean;
   /**
-   * 文案转换：把简体来源字符串转成当前语言的显示形式。
-   * - zh-Hans：原样（来源即简体）。
-   * - zh-Hant：简→繁。
+   * 文案顯示：來源必須是經審定的繁體中文原文。
+   * - zh-Hant：直接保留繁體原文。
+   * - zh-Hans：由繁體原文衍生簡體。
    *
-   * 用于所有「字面量 UI 文案」「DB 单词释义」「单元/分类名」等。
-   * 这是全站唯一的繁简出口，达成「集中管理、不分散硬写两版」。
+   * 用於所有 UI 文案、DB 單詞釋義及單元／分類名；這是全站唯一繁簡出口。
    */
   tc: (text: string) => string;
 }
@@ -42,42 +41,43 @@ const LocaleContext = createContext<LocaleContextValue | undefined>(undefined);
 
 interface LocaleProviderProps {
   children: ReactNode;
-  /** SSR 传入的已规范化语言，用于决定首帧语言（避免客户端再闪烁）。 */
+  /** SSR 傳入的已規範化語言，用於決定首幀語言（避免 client 再閃爍）。 */
   initialLocale?: Locale;
 }
 
 /**
- * 语言提供者：负责把使用者的「繁体 / 简体」偏好持久化到 localStorage + cookie，
- * 并把对应的 BCP-47 语言标签写到 <html lang>。
+ * 語言 provider：把使用者的繁體／簡體偏好持久化到 localStorage＋cookie，
+ * 並把對應的 BCP-47 語言標籤寫到 <html lang>。
  *
- * SSR 阶段根据 initialLocale 决定首帧语言；客户端挂载后再读 localStorage 接管。
- * 挂载后语言变化会即时反映到 <html lang>，满足「lang 跟随选择更新」。
+ * SSR 階段根據 initialLocale 決定首幀語言；client 掛載後把 localStorage
+ * 同步到同一語言，避免舊 localStorage 在 hydration 後覆蓋 SSR 文案造成閃爍。
  */
 export function LocaleProvider({ children, initialLocale }: LocaleProviderProps) {
-  // 首帧语言（SSR 与 hydration 必须一致，避免 mismatch）：从 initialLocale 或预设值。
+  const router = useRouter();
+  // 首幀語言（SSR 與 hydration 必須一致）：從 initialLocale 或預設值取得。
   const [locale, setLocaleState] = useState<Locale>(
     () => initialLocale ?? DEFAULT_LOCALE,
   );
   const [mounted, setMounted] = useState(false);
 
-  // 挂载后：读 localStorage（主要持久化来源），与 SSR 首帧协调。
+  // Cookie 是 server 可見的首幀來源；掛載後把舊版本／衝突的 localStorage
+  // 對齊到 SSR locale，不讓它在 hydration 後改寫頁面語言。
   useEffect(() => {
-    (async () => {
+    queueMicrotask(() => {
       try {
-        const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
-        if (stored) {
-          const next = normalizeLocale(stored);
-          setLocaleState((prev) => (prev === next ? prev : next));
-        }
+        localStorage.setItem(
+          LOCALE_STORAGE_KEY,
+          initialLocale ?? DEFAULT_LOCALE,
+        );
       } catch {
-        // localStorage 不可用（隐私模式等）→ 维持 cookie/预设值。
+        // localStorage 不可用（私隱模式等）→ 維持 cookie／預設值。
+      } finally {
+        setMounted(true);
       }
-      setMounted(true);
-    })();
-  }, []);
+    });
+  }, [initialLocale]);
 
-  // 把语言同步到 <html lang> 与 cookie（SSR 首帧由 layout 的 lang 属性提供，
-  // 这里在挂载后与切换时接管）。localStorage 也在 setLocale 时写入。
+  // 把語言同步到 <html lang> 與 cookie；localStorage 亦在 setLocale 時寫入。
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.lang = localeToHtmlLang(locale);
@@ -87,9 +87,8 @@ export function LocaleProvider({ children, initialLocale }: LocaleProviderProps)
     }
   }, [locale]);
 
-  // 切换语言时同步浏览器标签页标题：metadata 的 <title> 是 SSR 输出，
-  // 客户端切换语言不会自动重算，这里显式覆盖 document.title，
-  // 让繁体偏好立即反映到标签页（与 layout 的 generateMetadata 互补）。
+  // 切換語言時同步瀏覽器分頁標題；metadata 的 <title> 是 SSR 輸出，
+  // client 切換語言不會自動重算，所以在此更新 document.title。
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.title = convertText(SITE_TITLE, locale);
@@ -101,12 +100,14 @@ export function LocaleProvider({ children, initialLocale }: LocaleProviderProps)
     try {
       localStorage.setItem(LOCALE_STORAGE_KEY, next);
     } catch {
-      // 忽略写入失败（隐私模式）
+      // 忽略寫入失敗（私隱模式）。
     }
-    // cookie 由上面的 effect 同步（保证 <html lang> 与 cookie 一起更新）。
-  }, []);
+    // 先同步 cookie，再重新整理 RSC，確保 server 文案立即切換語言。
+    document.cookie = `${LOCALE_COOKIE_KEY}=${encodeURIComponent(next)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    router.refresh();
+  }, [router]);
 
-  // tc：用 useMemo 稳定引用，避免每次渲染都生成新函数导致子组件重渲染。
+  // tc：穩定引用，避免每次 render 都產生新函數令子 component 重繪。
   const tc = useCallback((text: string) => convertText(text, locale), [locale]);
 
   const value = useMemo<LocaleContextValue>(
@@ -119,11 +120,11 @@ export function LocaleProvider({ children, initialLocale }: LocaleProviderProps)
   );
 }
 
-/** 取得当前语言与转换函数。必须在 LocaleProvider 内使用。 */
+/** 取得目前語言與轉換函數；必須在 LocaleProvider 內使用。 */
 export function useLocale(): LocaleContextValue {
   const ctx = useContext(LocaleContext);
   if (!ctx) {
-    throw new Error("useLocale 必须在 <LocaleProvider> 内使用");
+    throw new Error("useLocale 必須在 <LocaleProvider> 內使用");
   }
   return ctx;
 }

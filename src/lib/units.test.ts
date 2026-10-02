@@ -1,0 +1,70 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  aggregateUnitStatRows,
+  computeUnlocks,
+  isLevel,
+  unitCategoryToStorage,
+} from "./units";
+
+const stat = (mastered: number) => ({
+  total: 10,
+  learned: mastered,
+  mastered,
+  due: 0,
+});
+
+test("unlock chain cannot skip an incomplete earlier unit or level", () => {
+  const result = computeUnlocks({
+    A1: [
+      { name: "one", stat: stat(0) },
+      { name: "two", stat: stat(10) },
+      { name: "three", stat: stat(10) },
+    ],
+    A2: [{ name: "legacy-complete", stat: stat(10) }],
+    B1: [{ name: "must-stay-locked", stat: stat(0) }],
+  });
+
+  assert.equal(result.unitUnlock["A1::one"], true);
+  assert.equal(result.unitUnlock["A1::two"], false);
+  assert.equal(result.unitUnlock["A1::three"], false);
+  assert.equal(result.levelUnlock.A2, false);
+  assert.equal(result.levelUnlock.B1, false);
+});
+
+test("strict level predicate rejects mutation typos", () => {
+  assert.equal(isLevel("B2"), true);
+  assert.equal(isLevel("b2"), false);
+  assert.equal(isLevel("B3"), false);
+  assert.equal(isLevel(null), false);
+});
+
+test("the Traditional canonical and legacy Simplified uncategorized labels map to null", () => {
+  assert.equal(unitCategoryToStorage("未分類"), null);
+  assert.equal(unitCategoryToStorage("未分类"), null);
+  assert.equal(unitCategoryToStorage("Family"), "Family");
+});
+
+test("database-aggregated unit rows retain unlock semantics", () => {
+  const result = aggregateUnitStatRows([
+    {
+      level: "A1",
+      category: "one",
+      total: 10,
+      learned: 9,
+      mastered: 8,
+      due: 2,
+    },
+    {
+      level: "A1",
+      category: "two",
+      total: 10,
+      learned: 0,
+      mastered: 0,
+      due: 0,
+    },
+  ]);
+  assert.equal(result[0].units[0].completed, true);
+  assert.equal(result[0].units[1].unlocked, true);
+  assert.equal(result[0].units[0].due, 2);
+});

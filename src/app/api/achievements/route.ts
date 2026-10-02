@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireUser } from "@/lib/session";
 import { getAchievementStatus } from "@/lib/achievements";
 
 /**
@@ -8,11 +7,11 @@ import { getAchievementStatus } from "@/lib/achievements";
  * 返回全部成就定义 + 当前用户的解锁状态与进度。
  */
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
-  const userId = (session.user as { id: string }).id;
+  const userId = auth.userId;
 
   const achievements = await getAchievementStatus(userId);
   return NextResponse.json({ achievements });

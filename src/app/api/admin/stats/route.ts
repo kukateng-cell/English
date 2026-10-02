@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/session";
 import { ROLES } from "@/lib/roles";
 import { todayStartUtc } from "@/lib/streak";
+import { currentCatalogReviewEventWhere, withCurrentCatalogWord } from "@/lib/catalog/runtime";
 
 export async function GET() {
   const auth = await requireRole(ROLES.ADMIN);
@@ -12,16 +13,12 @@ export async function GET() {
     const [totalUsers, totalWords, totalReviews, usersByRole, wordsByLevel, reviewsToday] =
       await Promise.all([
         prisma.user.count(),
-        prisma.word.count(),
-        prisma.review.count(),
+        prisma.word.count({ where: withCurrentCatalogWord() }),
+        prisma.reviewEvent.count({ where: currentCatalogReviewEventWhere() }),
         prisma.user.groupBy({ by: ["role"], _count: true }),
-        prisma.word.groupBy({ by: ["level"], _count: true }),
-        prisma.review.count({
-          where: {
-            lastReviewedAt: {
-              gte: todayStartUtc(),
-            },
-          },
+        prisma.word.groupBy({ by: ["level"], where: withCurrentCatalogWord(), _count: true }),
+        prisma.reviewEvent.count({
+          where: { AND: [currentCatalogReviewEventWhere(), { createdAt: { gte: todayStartUtc() } }] },
         }),
       ]);
 
@@ -39,6 +36,6 @@ export async function GET() {
       wordsByLevel: wordsByLevel.map((w) => ({ level: w.level, count: w._count })),
     });
   } catch {
-    return NextResponse.json({ error: "获取统计数据失败" }, { status: 500 });
+    return NextResponse.json({ error: "取得統計資料失敗" }, { status: 500 });
   }
 }

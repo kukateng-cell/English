@@ -6,31 +6,50 @@ import UserFormModal, { type UserFormData } from "@/components/admin/UserFormMod
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import CopyButton from "@/components/ui/CopyButton";
+import Icon from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { ROLES, isRole, type Role } from "@/lib/roles";
+import { signOut } from "next-auth/react";
+import { rosterFetch } from "@/lib/http-client";
 
 interface UserItem {
   id: string;
-  email: string;
-  name: string | null;
+  accountName?: string;
+  email?: string;
+  name?: string | null;
+  contactEmail?: string | null;
+  nickname?: string | null;
+  grade?: string | null;
+  classCode?: string | null;
+  studentNumber?: number | null;
+  status?: "ACTIVE" | "SUSPENDED";
   role: string;
+  academicYearId?: string | null;
   totalReviews: number;
   createdAt: string;
+  legalName?: string;
+  mustChangePassword?: boolean;
+  classId?: string | null;
+  revision?: number;
+  profileRevision?: number;
+  enrollmentRevision?: number | null;
+  rosterRevision?: number;
 }
 
 const roleLabels: Record<Role, string> = {
-  [ROLES.STUDENT]: "学生",
-  [ROLES.TEACHER]: "老师",
-  [ROLES.ADMIN]: "管理员",
+  [ROLES.STUDENT]: "學生",
+  [ROLES.TEACHER]: "教師",
+  [ROLES.ADMIN]: "管理員",
 };
 
 const roleStyles: Record<Role, string> = {
-  [ROLES.STUDENT]: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]",
-  [ROLES.TEACHER]: "bg-[#EEF0FF] text-[#4F46E5] dark:bg-[#1E1B4B] dark:text-[#A5B4FC]",
-  [ROLES.ADMIN]: "bg-[#FEF3C7] text-[#B45309] dark:bg-[#291800] dark:text-[#FBBF24]",
+  [ROLES.STUDENT]: "bg-[var(--border-soft)] text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]",
+  [ROLES.TEACHER]: "bg-[var(--border-soft)] text-[var(--primary-2)] dark:bg-[var(--border-soft)] dark:text-[var(--primary-2)]",
+  [ROLES.ADMIN]: "bg-[var(--warning-bg)] text-[var(--warning)] dark:bg-[var(--warning-bg)] dark:text-[var(--warning)]",
 };
 
-/** API 返回的 role 是 string；转成 Role 后再查表，非法值回退原值。 */
+/** API 返回的 role 是 string；轉成 Role 后再查表，非法值回退原值。 */
 function roleOf(user: UserItem): Role {
   return isRole(user.role) ? user.role : ROLES.STUDENT;
 }
@@ -41,53 +60,73 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [academicYears, setAcademicYears] = useState<Array<{ id: string; label: string; status: "PLANNED" | "CURRENT" | "CLOSED" }>>([]);
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<Role | "">("");
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "SUSPENDED" | "">("");
+  const [gradeFilter, setGradeFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
+  const [sort, setSort] = useState<"ACCOUNT_ASC" | "STUDENT_NUMBER_ASC">("STUDENT_NUMBER_ASC");
+  const [facets, setFacets] = useState<{ roles?: { all: number; students: number; teachers: number; admins: number }; status?: { active: number; suspended: number } } | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const { tc, locale } = useLocale();
   // 依语言选择日期 locale（繁体用 zh-TW，简体用 zh-CN）
   const dateLocale = locale === "zh-Hant" ? "zh-TW" : "zh-CN";
 
-  // 弹窗状态
+  // 彈窗狀態
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<UserItem | null>(null);
   const [deleting, setDeleting] = useState<UserItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // 删除失败的错误文案（在确认弹窗内展示，不静默失败）
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  // 每次「打开」表单时自增，作为 Modal 的 key 强制 remount，让表单从最新 props 重新初始化。
+  // 每次「開啟」表单时自增，作為 Modal 的 key 強制 remount，让表单从最新 props 重新初始化。
   const [formKey, setFormKey] = useState(0);
+  const [temporaryCredential, setTemporaryCredential] = useState<{
+    accountName: string;
+    password: string;
+  } | null>(null);
 
   useEffect(() => {
-    (async () => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void (async () => {
       setLoading(true);
       setError(null);
       try {
-        const [usersRes, sessionRes] = await Promise.all([
-          fetch("/api/admin/users"),
+        const [usersRes, sessionRes, yearsRes] = await Promise.all([
+          rosterFetch("/api/admin/users/query", { signal: controller.signal, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: roleFilter || undefined, status: statusFilter || undefined, academicYearId: yearFilter || undefined, grade: roleFilter === ROLES.STUDENT ? gradeFilter || undefined : undefined, classCode: roleFilter === ROLES.STUDENT ? classFilter || undefined : undefined, search: search || undefined, sort, limit: 50 }) }),
           fetch("/api/auth/session"),
+          fetch("/api/admin/academic-years"),
         ]);
         if (!usersRes.ok) {
           setError(await responseErrorMessage(usersRes));
           return;
         }
-        setUsers(await usersRes.json());
+        const payload = await usersRes.json() as { items?: UserItem[]; nextCursor?: string | null; facets?: typeof facets };
+        setUsers(payload.items ?? []);
+        setNextCursor(payload.nextCursor ?? null);
+        setFacets(payload.facets ?? null);
         // session 拉取失败不影响列表展示（仅丢失「你」徽标），静默跳过即可
         if (sessionRes.ok) {
           const me = await sessionRes.json();
           setCurrentUserId(me?.user?.id);
         }
+        if (yearsRes.ok) {
+          const years = await yearsRes.json() as Array<{ id: string; label: string; status: "PLANNED" | "CURRENT" | "CLOSED" }>;
+          setAcademicYears(years);
+        }
       } catch (e) {
-        setError(networkErrorMessage(e));
+        if (controller.signal.aborted) return;
+        setError(tc(networkErrorMessage(e)));
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
-    })();
-  }, [reloadKey]);
-
-  const filtered = users.filter(
-    (u) =>
-      u.email.toLowerCase().includes(search.toLowerCase()) ||
-      (u.name && u.name.toLowerCase().includes(search.toLowerCase()))
-  );
+    })(), 180);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [reloadKey, search, roleFilter, statusFilter, gradeFilter, classFilter, yearFilter, sort, tc]);
 
   const openCreate = () => {
     setEditing(null);
@@ -95,42 +134,110 @@ export default function AdminUsersPage() {
     setFormOpen(true);
   };
 
-  const openEdit = (user: UserItem) => {
-    setEditing(user);
-    setFormKey((k) => k + 1);
-    setFormOpen(true);
+  const openEdit = async (user: UserItem) => {
+    setDetailLoadingId(user.id);
+    setError(null);
+    try {
+      const response = await rosterFetch(`/api/admin/users/${user.id}/detail/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (!response.ok) throw new Error(await responseErrorMessage(response, tc));
+      const payload = await response.json().catch(() => null) as { user?: { id: string; accountName: string; role: string; status: "ACTIVE" | "SUSPENDED"; contactEmail: string | null; userRevision: number; profile: { legalName: string; nickname?: string; profileRevision?: number | null } | null }; currentEnrollment?: { academicYearId: string; grade: string; classCode: string | null; studentNumber: number | null; revision: number } | null; rosterRevision?: number } | null;
+      if (!payload?.user) throw new Error(tc("讀取用戶資料失敗"));
+      const detail = payload.user;
+      setEditing({ ...user, id: detail.id, accountName: detail.accountName, email: detail.accountName, role: detail.role, status: detail.status, contactEmail: detail.contactEmail, legalName: detail.profile?.legalName ?? "", nickname: detail.profile?.nickname ?? null, grade: payload.currentEnrollment?.grade ?? null, classCode: payload.currentEnrollment?.classCode ?? null, studentNumber: payload.currentEnrollment?.studentNumber ?? null, academicYearId: payload.currentEnrollment?.academicYearId ?? null, revision: detail.userRevision, profileRevision: detail.profile?.profileRevision ?? undefined, enrollmentRevision: payload.currentEnrollment?.revision ?? null, rosterRevision: payload.rosterRevision ?? 0 });
+      setFormKey((k) => k + 1);
+      setFormOpen(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "讀取用戶資料失敗");
+    } finally { setDetailLoadingId(null); }
+  };
+
+  const resetPassword = async (user: UserItem) => {
+    if (!user.accountName || !user.id || (roleOf(user) !== ROLES.STUDENT && roleOf(user) !== ROLES.TEACHER)) return;
+    if (user.status === "SUSPENDED") return;
+    if (!window.confirm(tc(`確定要重設「${user.legalName || user.name || user.accountName}」的密碼嗎？舊會話會立即失效。`))) return;
+    setResettingId(user.id);
+    try {
+      const prepared = await rosterFetch(`/api/admin/users/${user.id}/password-reset/prepare`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (!prepared.ok) throw new Error(await responseErrorMessage(prepared, tc));
+      const preparePayload = await prepared.json().catch(() => null) as { resetPrecondition?: string } | null;
+      if (!preparePayload?.resetPrecondition) throw new Error(tc("無法準備重設密碼"));
+      const committed = await rosterFetch(`/api/admin/users/${user.id}/password-reset`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resetPrecondition: preparePayload.resetPrecondition }) });
+      if (!committed.ok) throw new Error(await responseErrorMessage(committed, tc));
+      const commitPayload = await committed.json().catch(() => null) as { temporaryPassword?: string } | null;
+      if (!commitPayload?.temporaryPassword) throw new Error(tc("重設密碼失敗"));
+      setTemporaryCredential({ accountName: user.accountName, password: commitPayload.temporaryPassword });
+      setReloadKey((key) => key + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : tc("重設密碼失敗"));
+    } finally { setResettingId(null); }
   };
 
   const handleSubmit = async (data: UserFormData) => {
     setSubmitting(true);
     try {
       if (editing) {
-        const res = await fetch(`/api/admin/users/${editing.id}`, {
+        let expectedUserRevision = editing.revision;
+        if (roleOf(editing) === ROLES.STUDENT && editing.enrollmentRevision !== null && editing.enrollmentRevision !== undefined && data.studentNumber.trim() !== String(editing.studentNumber ?? "")) {
+          const enrollmentResponse = await rosterFetch(`/api/admin/users/${editing.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ operation: "UPDATE_ENROLLMENT", studentNumber: data.studentNumber.trim() ? data.studentNumber.trim() : null, expectedUserRevision: editing.revision, expectedEnrollmentRevision: editing.enrollmentRevision, expectedRosterRevision: editing.rosterRevision }),
+          });
+          if (!enrollmentResponse.ok) throw new Error(await responseErrorMessage(enrollmentResponse, tc));
+          const enrollmentUpdated = await enrollmentResponse.json() as UserItem & { revision?: number; rosterRevision?: number };
+          expectedUserRevision = enrollmentUpdated.revision ?? expectedUserRevision;
+        }
+        const res = await rosterFetch(`/api/admin/users/${editing.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: data.name,
-            role: data.role,
-            ...(data.password ? { password: data.password } : {}),
+            operation: "UPDATE_IDENTITY",
+            legalName: data.name,
+            contactEmail: data.contactEmail,
+            ...(data.nickname ? { nickname: data.nickname } : {}),
+            expectedUserRevision,
+            expectedProfileRevision: editing.profileRevision,
           }),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          throw new Error(err?.error ?? "更新失败");
+          throw new Error(await responseErrorMessage(res, tc));
         }
-        const updated: UserItem = await res.json();
+        const updated = (await res.json()) as UserItem & {
+          sessionInvalidated?: boolean;
+        };
+        if (updated.sessionInvalidated) {
+          await signOut({ callbackUrl: "/login" });
+          return;
+        }
+        if (data.status !== editing.status) {
+          const statusResponse = await rosterFetch(`/api/admin/users/${editing.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ operation: "CHANGE_STATUS", status: data.status, expectedUserRevision: updated.revision ?? editing.revision }),
+          });
+          if (!statusResponse.ok) {
+            throw new Error(await responseErrorMessage(statusResponse, tc));
+          }
+        }
         setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       } else {
-        const res = await fetch("/api/admin/users", {
+        const res = await rosterFetch("/api/admin/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          throw new Error(err?.error ?? "创建失败");
+          throw new Error(await responseErrorMessage(res, tc));
         }
-        const created: UserItem = await res.json();
+        const created = (await res.json()) as UserItem & {
+          temporaryPassword?: string;
+        };
+        if (created.temporaryPassword) {
+          setTemporaryCredential({
+            accountName: created.accountName ?? created.email ?? "",
+            password: created.temporaryPassword,
+          });
+        }
         setUsers((prev) => [created, ...prev]);
       }
     } finally {
@@ -143,17 +250,16 @@ export default function AdminUsersPage() {
     setSubmitting(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`/api/admin/users/${deleting.id}`, {
+        const res = await rosterFetch(`/api/admin/users/${deleting.id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.error ?? "删除失败");
+        throw new Error(await responseErrorMessage(res, tc));
       }
       setUsers((prev) => prev.filter((u) => u.id !== deleting.id));
       setDeleting(null);
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "删除失败，请重试");
+      setDeleteError(e instanceof Error ? e.message : "刪除失敗，請重試");
     } finally {
       setSubmitting(false);
     }
@@ -162,7 +268,7 @@ export default function AdminUsersPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
       </div>
     );
   }
@@ -185,78 +291,91 @@ export default function AdminUsersPage() {
       {/* 页面标题 + 新建按钮 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-            {tc("用户管理")}
+          <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
+            {tc("用戶管理")}
           </h1>
-          <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
-            {tc(`共 ${users.length} 位用户`)}
+          <p className="mt-1 text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">
+            {tc(`共 ${users.length} 位用戶`)}
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="flex h-10 items-center gap-1.5 rounded-2xl bg-gradient-to-r from-[#2563EB] to-[#5B6FEF] px-4 text-[13px] font-semibold text-white shadow-sm transition hover:from-[#1D4ED8] hover:to-[#4F46E5] active:scale-[0.97]"
+          className="flex h-10 items-center gap-1.5 rounded-2xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-[var(--color-surface)] shadow-sm transition active:scale-[0.97]"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <Icon name="plus" size={16} />
           {tc("新建")}
         </button>
       </div>
 
-      {/* 搜索框 */}
+      {/* 搜尋框 */}
+      {temporaryCredential ? (
+        <div className="rounded-2xl border border-[var(--primary)]/30 bg-[var(--border-soft)] p-4 text-[13px] text-[var(--text)]">
+          <p className="font-semibold">{tc("一次性臨時密碼（請立即安全交給用戶）")}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="font-mono select-all">{temporaryCredential.accountName}　{temporaryCredential.password}</span>
+            <CopyButton value={temporaryCredential.password} />
+          </div>
+          <button className="mt-2 text-[var(--primary)]" onClick={() => setTemporaryCredential(null)}>{tc("已儲存，關閉")}</button>
+        </div>
+      ) : null}
       <div className="relative">
-        <svg
-          className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#BFCBE3] dark:text-[#475569]"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
+        <Icon name="search" size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)] dark:text-[var(--muted)]" />
         <input
           type="text"
-          placeholder={tc("搜索用户名或邮箱...")}
+          placeholder={tc("搜尋帳號、姓名或電郵…")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="h-[44px] w-full rounded-2xl border border-[#E7EDF8] bg-white pl-10 pr-4 text-[14px] text-[#17213C] outline-none transition placeholder:text-[#BFCBE3] focus:border-[#2563EB] focus:ring-[3px] focus:ring-[#2563EB]/8 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#E2E8F0] dark:placeholder:text-[#475569] dark:focus:border-[#60A5FA]"
+          className="h-[44px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] pl-10 pr-4 text-[14px] text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--text)] dark:placeholder:text-[var(--muted)] dark:focus:border-[var(--primary)]"
         />
       </div>
 
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label={tc("角色篩選")}>
+        {(["", ROLES.STUDENT, ROLES.TEACHER, ROLES.ADMIN] as const).map((value) => {
+          const label = value === "" ? tc("全部") : tc(roleLabels[value]);
+          const count = value === "" ? facets?.roles?.all : value === ROLES.STUDENT ? facets?.roles?.students : value === ROLES.TEACHER ? facets?.roles?.teachers : facets?.roles?.admins;
+          return <button key={value || "all"} type="button" role="tab" aria-selected={roleFilter === value} onClick={() => { setRoleFilter(value); if (value === ROLES.STUDENT) setSort("STUDENT_NUMBER_ASC"); if (value !== ROLES.STUDENT) { setGradeFilter(""); setClassFilter(""); setYearFilter(""); } }} className={`rounded-2xl border px-4 py-2 text-[13px] font-semibold ${roleFilter === value ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]"}`}>{label}{count === undefined ? "" : ` ${count}`}</button>;
+        })}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <select aria-label={tc("狀態篩選")} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部狀態")}</option><option value="ACTIVE">{tc("使用中")}</option><option value="SUSPENDED">{tc("已停權")}</option></select>
+        {roleFilter === ROLES.STUDENT ? <>
+          <select aria-label={tc("學年篩選")} value={yearFilter} onChange={(event) => setYearFilter(event.target.value)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("目前學年")}</option>{academicYears.map((year) => <option key={year.id} value={year.id}>{year.label}</option>)}</select>
+          <select aria-label={tc("年級篩選")} value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部年級")}</option><option value="JUNIOR_1">{tc("初一")}</option><option value="JUNIOR_2">{tc("初二")}</option><option value="JUNIOR_3">{tc("初三")}</option><option value="SENIOR_1">{tc("高一")}</option><option value="SENIOR_2">{tc("高二")}</option><option value="SENIOR_3">{tc("高三")}</option></select>
+          <select aria-label={tc("班別篩選")} value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部班別")}</option>{[["A","甲"],["B","乙"],["C","丙"],["D","丁"],["E","戊"],["F","己"],["G","庚"],["H","辛"]].map(([code, label]) => <option key={code} value={code}>{tc(label)}</option>)}</select>
+        </> : null}
+        {roleFilter === ROLES.STUDENT ? <select aria-label={tc("排序方式")} value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="ACCOUNT_ASC">{tc("按帳號排序")}</option><option value="STUDENT_NUMBER_ASC">{tc("按學號排序")}</option></select> : null}
+      </div>
+
       {/* 用户列表 */}
-      {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-10 text-center text-[14px] text-[#7C89A5] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#64748B]">
-          {tc("暂无用户数据")}
+      {users.length === 0 ? (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center text-[14px] text-[var(--muted)] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--muted)]">
+          {tc("暫無用戶資料")}
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((user, i) => {
+          {users.map((user) => {
             const isSelf = user.id === currentUserId;
             return (
-              <motion.div
+              <div
                 key={user.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-                className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm transition hover:border-[#2563EB]/20 dark:border-[#1E293B] dark:bg-[#111827]"
+                className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm transition hover:border-[var(--primary)]/20 dark:border-[var(--border)] dark:bg-[var(--surface)]"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[15px] font-bold text-[#2563EB] dark:bg-[#1E3A5F] dark:text-[#60A5FA]">
-                      {(user.name || user.email).charAt(0).toUpperCase()}
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--border-soft)] text-[15px] font-bold text-[var(--primary)] dark:bg-[var(--border-soft)] dark:text-[var(--primary)]">
+                      {(user.legalName || user.name || user.accountName || user.email || "?").charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="flex items-center gap-1.5 truncate text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-                        {user.name || tc("未设置姓名")}
+                      <p className="flex items-center gap-1.5 truncate text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
+                        {user.legalName || user.name || tc("未設姓名")}
                         {isSelf && (
-                          <span className="rounded-full bg-[#EEF4FF] px-1.5 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#1E3A5F]">
+                          <span className="rounded-full bg-[var(--border-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)] dark:bg-[var(--border-soft)]">
                             {tc("你")}
                           </span>
                         )}
                       </p>
-                      <p className="truncate text-[13px] text-[#7C89A5] dark:text-[#64748B]">
-                        {user.email}
+                      <p className="truncate text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">
+                        {user.accountName || user.email}
                       </p>
                     </div>
                   </div>
@@ -264,60 +383,80 @@ export default function AdminUsersPage() {
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${roleStyles[roleOf(user)]}`}>
                       {tc(roleLabels[roleOf(user)])}
                     </span>
+                    {user.status === "SUSPENDED" ? (
+                      <span className="rounded-full bg-[var(--danger-bg)] px-2.5 py-1 text-[11px] font-semibold text-[var(--danger)]">
+                        {tc("已停權")}
+                      </span>
+                    ) : null}
                     {/* 操作按钮 */}
                     <div className="flex items-center gap-1">
+                      {roleOf(user) !== ROLES.ADMIN ? <button type="button" disabled={resettingId === user.id || user.status === "SUSPENDED"} onClick={() => void resetPassword(user)} className="flex h-11 items-center justify-center gap-1 rounded-lg px-2 text-xs font-semibold text-[var(--primary)] transition hover:bg-[var(--border-soft)] disabled:cursor-not-allowed disabled:opacity-40" aria-label={tc("重設密碼")}>{resettingId === user.id ? tc("處理中") : tc("重設密碼")}</button> : null}
                       <button
-                        onClick={() => openEdit(user)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] dark:text-[#64748B] dark:hover:bg-[#1E3A5F] dark:hover:text-[#60A5FA]"
-                        aria-label={tc("编辑")}
+                        onClick={() => void openEdit(user)}
+                        disabled={detailLoadingId === user.id}
+                        className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--border-soft)] hover:text-[var(--primary)] dark:text-[var(--muted)] dark:hover:bg-[var(--border-soft)] dark:hover:text-[var(--primary)]"
+                        aria-label={tc("編輯")}
                       >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                        </svg>
+                        {detailLoadingId === user.id ? <span className="text-[11px]">{tc("讀取中")}</span> : <Icon name="edit" size={16} />}
                       </button>
                       <button
                         onClick={() => setDeleting(user)}
                         disabled={isSelf}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[#7C89A5] transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30 dark:text-[#64748B] dark:hover:bg-red-950/40"
-                        aria-label={tc("删除")}
+                        className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] disabled:cursor-not-allowed disabled:opacity-30 dark:text-[var(--muted)] dark:hover:bg-[var(--danger-bg)]"
+                        aria-label={tc("刪除")}
                       >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
+                        <Icon name="trash" size={16} />
                       </button>
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 flex items-center gap-4 text-[12px] text-[#7C89A5] dark:text-[#64748B]">
-                  <span>📝 {user.totalReviews} {tc("次复习")}</span>
-                  <span>🕐 {new Date(user.createdAt).toLocaleDateString(dateLocale)} {tc("加入")}</span>
+                <div className="mt-3 flex flex-wrap items-center gap-4 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
+                  {roleOf(user) === ROLES.STUDENT ? <span>{tc("學號")}：{user.studentNumber ?? tc("未設定")}</span> : null}
+                  <span className="admin-meta-item"><Icon name="repeat" size={14} /> {user.totalReviews ?? 0} {tc("次練習")}</span>
+                  <span className="admin-meta-item"><Icon name="clock" size={14} /> {new Date(user.createdAt).toLocaleDateString(dateLocale)} {tc("加入")}</span>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>
       )}
 
+      {nextCursor ? (
+        <button
+          type="button"
+          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-[13px] font-semibold text-[var(--primary)]"
+          onClick={async () => {
+            const response = await rosterFetch("/api/admin/users/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: roleFilter || undefined, status: statusFilter || undefined, academicYearId: yearFilter || undefined, grade: roleFilter === ROLES.STUDENT ? gradeFilter || undefined : undefined, classCode: roleFilter === ROLES.STUDENT ? classFilter || undefined : undefined, search: search || undefined, sort, cursor: nextCursor, limit: 50 }) });
+            if (!response.ok) return;
+            const payload = await response.json() as { items?: UserItem[]; nextCursor?: string | null };
+            setUsers((current) => [...current, ...(payload.items ?? [])]);
+            setNextCursor(payload.nextCursor ?? null);
+          }}
+        >
+          {tc("載入更多")}
+        </button>
+      ) : null}
+
       {/* 新建 / 编辑弹窗 */}
       <UserFormModal
         key={formKey}
         open={formOpen}
-        user={editing}
+        user={editing ? { ...editing, email: editing.accountName ?? editing.email ?? "", name: editing.legalName ?? editing.name ?? null } : null}
         currentUserId={currentUserId}
         onClose={() => setFormOpen(false)}
         onSubmit={handleSubmit}
+        academicYears={academicYears}
       />
-      {/* 删除确认 */}
+      {/* 刪除確認 */}
       <ConfirmDialog
         open={!!deleting}
-        title={tc("删除用户")}
+        title={tc("刪除用戶")}
         message={
           deleting
-            ? tc(`确定删除「${deleting.name || deleting.email}」吗？该用户的所有学习记录将一并删除，且无法恢复。`)
+            ? tc(`確定刪除「${deleting.legalName || deleting.name || deleting.accountName || deleting.email}」嗎？該用戶的所有學習記錄將一併刪除，且無法恢復。`)
             : ""
         }
-        confirmText={tc("删除")}
+        confirmText={tc("刪除")}
         destructive
         loading={submitting}
         error={deleteError}

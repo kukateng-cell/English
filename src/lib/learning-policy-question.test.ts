@@ -1,0 +1,156 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  buildObjectiveQuestion,
+  toPublicObjectiveQuestion,
+  type QuestionWord,
+} from "@/lib/learning-policy/question";
+
+const target: QuestionWord = {
+  id: "word-target",
+  term: "rapid",
+  definition: "迅速的；快速的",
+  synonyms: ["fast"],
+  antonyms: ["slow"],
+};
+
+const source: QuestionWord[] = [
+  target,
+  { id: "word-1", term: "ancient", definition: "古代的；古老的" },
+  { id: "word-2", term: "bright", definition: "明亮的；聰明的" },
+  { id: "word-3", term: "quiet", definition: "安靜的" },
+  { id: "word-4", term: "slow", definition: "緩慢的" },
+  { id: "word-5", term: "fast", definition: "快速的" },
+  { id: "word-6", term: "quick", definition: "迅速的；快速的" },
+  { id: "word-7", term: "DVD", definition: "DVD" },
+];
+
+test("objective construction is deterministic and uses four opaque options", () => {
+  const first = buildObjectiveQuestion(target, source, "stream-item-1");
+  const second = buildObjectiveQuestion(target, source, "stream-item-1");
+
+  assert.deepEqual(first, second);
+  assert.ok(first);
+  assert.equal(first.options.length, 4);
+  assert.equal(first.options.filter((option) => option.id === first.correctOptionId).length, 1);
+  assert.ok(first.options.every((option) => !option.id.includes("word-")));
+  assert.notEqual(first.correctOptionId, target.id);
+});
+
+test("construction rejects synonym, duplicate-definition and non-quizzable distractors", () => {
+  const snapshot = buildObjectiveQuestion(target, source, "stream-item-2");
+
+  assert.ok(snapshot);
+  const texts = snapshot.options.map((option) => option.text.toLocaleLowerCase("en-US"));
+  assert.equal(new Set(texts).size, texts.length);
+  assert.ok(!texts.includes("快速的；快速的"));
+  assert.ok(!texts.includes("dvd"));
+  assert.ok(!snapshot.options.some((option) => option.text === "fast"));
+});
+
+test("construction allows an antonym as a clearly incorrect distractor", () => {
+  const sense: QuestionWord = {
+    id: "accept-sense",
+    senseId: "sense-accept",
+    term: "accept",
+    definition: "接受",
+    synonyms: ["receive"],
+    antonyms: ["reject"],
+    enableEnToZh: false,
+    enableZhToEn: true,
+    curatedDistractorsZh: [],
+    curatedDistractorsEn: ["reject", "leave", "remove"],
+  };
+  const snapshot = buildObjectiveQuestion(sense, [sense], "accept-antonym");
+  assert.ok(snapshot);
+  assert.equal(snapshot.direction, "zh-en");
+  assert.ok(snapshot.options.some((option) => option.text === "reject"));
+});
+
+test("construction fails closed when fewer than three valid distractors exist", () => {
+  const snapshot = buildObjectiveQuestion(
+    target,
+    [target, { id: "only", term: "calm", definition: "平靜的" }],
+    "stream-item-3",
+  );
+
+  assert.equal(snapshot, null);
+});
+
+test("public projection never exposes the answer key", () => {
+  const snapshot = buildObjectiveQuestion(target, source, "stream-item-4");
+  assert.ok(snapshot);
+
+  const publicQuestion = toPublicObjectiveQuestion(snapshot);
+  assert.equal("correctOptionId" in publicQuestion, false);
+  assert.equal("wordTerm" in publicQuestion, false);
+  assert.equal("wordDefinition" in publicQuestion, false);
+  assert.deepEqual(publicQuestion.options, snapshot.options);
+});
+
+test("CIS-010 curated construction uses row-local safety regardless of sibling senses", () => {
+  const sense: QuestionWord = {
+    id: "run-a1",
+    senseId: "sense-run-a1",
+    term: "run",
+    definition: "跑步",
+    enableEnToZh: true,
+    enableZhToEn: false,
+    curatedDistractorsZh: ["經營", "跳躍", "游泳", "坐下"],
+    curatedDistractorsEn: ["walk", "jump", "swim", "stand", "sit"],
+  };
+  const snapshot = buildObjectiveQuestion(sense, [sense, { id: "run-a2", senseId: "sense-run-a2", term: "run", definition: "經營" }], "sense-seed");
+  assert.ok(snapshot);
+  assert.equal(snapshot.direction, "en-zh");
+  assert.ok(snapshot.options.every((option) => option.text === "跑步" || sense.curatedDistractorsZh?.includes(option.text)));
+  assert.deepEqual(snapshot, buildObjectiveQuestion(sense, [sense], "sense-seed"));
+});
+
+test("old revision accepted answers cannot contaminate a corrected proposal", () => {
+  const proposal: QuestionWord = { id: "apple", senseId: "sense-apple", term: "apple", definition: "蘋果", acceptedAnswers: [], enableEnToZh: true, enableZhToEn: false, curatedDistractorsZh: ["桌子", "椅子", "書本", "汽車", "鞋子"] };
+  const oldRevision: QuestionWord = { ...proposal, acceptedAnswers: ["桌子", "椅子", "書本"] };
+  const preview = buildObjectiveQuestion(proposal, [oldRevision], "corrected-apple");
+  const approved = buildObjectiveQuestion(proposal, [proposal], "corrected-apple");
+  assert.ok(preview);
+  assert.equal(preview.options.length, 4);
+  assert.deepEqual(preview, approved);
+});
+
+test("teacher preview can request an enabled direction without changing default construction", () => {
+  const sense: QuestionWord = {
+    id: "book-sense",
+    senseId: "sense-book",
+    term: "book",
+    definition: "書本",
+    enableEnToZh: true,
+    enableZhToEn: true,
+    curatedDistractorsZh: ["鉛筆", "桌子", "窗戶", "書包", "尺子"],
+    curatedDistractorsEn: ["pen", "desk", "window", "bag", "ruler"],
+  };
+  const defaultQuestion = buildObjectiveQuestion(sense, [sense], "unchanged-default-seed");
+  const englishToChinese = buildObjectiveQuestion(sense, [sense], "preview-seed", { direction: "en-zh" });
+  const chineseToEnglish = buildObjectiveQuestion(sense, [sense], "preview-seed", { direction: "zh-en" });
+
+  assert.ok(defaultQuestion);
+  assert.ok(englishToChinese);
+  assert.ok(chineseToEnglish);
+  assert.equal(englishToChinese.direction, "en-zh");
+  assert.equal(englishToChinese.prompt, "book");
+  assert.equal(chineseToEnglish.direction, "zh-en");
+  assert.equal(chineseToEnglish.prompt, "書本");
+});
+
+test("teacher preview fails closed when requesting a disabled direction", () => {
+  const sense: QuestionWord = {
+    id: "run-a1",
+    senseId: "sense-run-a1",
+    term: "run",
+    definition: "跑步",
+    enableEnToZh: true,
+    enableZhToEn: false,
+    curatedDistractorsZh: ["行走", "跳躍", "游泳", "站立", "坐下"],
+    curatedDistractorsEn: ["walk", "jump", "swim", "stand", "sit"],
+  };
+
+  assert.equal(buildObjectiveQuestion(sense, [sense], "preview-seed", { direction: "zh-en" }), null);
+});

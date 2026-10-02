@@ -1,10 +1,11 @@
+import { CATALOG_CATEGORIES } from "@/lib/catalog/taxonomy";
+
 /**
- * 单元（unit）定义：单元即 word list.md 中的 `### Category` 分组。
+ * 單元（unit）定義：單元即 versioned CSV catalog 中的 category code 分組。
  * 这里显式声明每个级别的单元顺序，保证 /units 页面与 API 的展示顺序一致、
  * 且符合词表的学习顺序（数据库本身不存储顺序）。
  *
- * category 名必须与 seed.ts 解析出的 Word.category 完全一致
- * （seed 用 `### Title (中文)` 中的英文标题，去掉括号）。
+ * category 名必須與 catalog taxonomy 完全一致；未知 code 由 validator 拒絕。
  *
  * 注意：这里【不】从 @/generated/prisma 直接 import Level，而是用本地
  * `as const` 字面量联合——保持 lib 层与 Prisma 生成代码解耦，便于单测
@@ -12,48 +13,15 @@
  * 可直接赋给 where/create/update 的 level 字段。
  */
 
-/** A1 级别全部单元（按词表顺序） */
-export const A1_UNITS: string[] = [
-  "Hello and Goodbye",
-  "People",
-  "Numbers 0 to 100",
-  "Family",
-  "Colors",
-  "Months and Seasons",
-  "Time and Date",
-  "Personal Information",
-  "The Body",
-  "The Head and Face",
-  "Opposite Adjectives",
-  "House and Apartment",
-  "Furniture and Home Appliances",
-  "Jobs",
-  "Clothes and Shoes",
-  "Animals",
-  "Basic Verbs",
-  "Household Items",
-  "Food and Ingredients",
-  "Food and Drinks",
-  "The Weather and Nature",
-  "Useful Verbs",
-  "School",
-  "City",
-  "Free Time Activities",
-  "Countries and Nationalities",
-  "Simple Verbs",
-  "Transportation",
-  "Directions and Continents",
-  "Adverbs and Pronouns",
-  "Prepositions and Determiners",
-  "Describing People",
-];
+/** A1 級別全部單元（按 catalog taxonomy 順序） */
+export const A1_UNITS: string[] = [...CATALOG_CATEGORIES];
 
 /** 每个级别的单元顺序；未在表中出现的单元会追加在末尾（按字母序）。 */
 export const UNIT_ORDER: Record<string, string[]> = {
   A1: A1_UNITS,
-  A2: [],
-  B1: [],
-  B2: [],
+  A2: [...CATALOG_CATEGORIES],
+  B1: [...CATALOG_CATEGORIES],
+  B2: [...CATALOG_CATEGORIES],
 };
 
 /**
@@ -101,6 +69,14 @@ export const LEVEL_ORDER: string[] = ["A1", "A2", "B1", "B2"];
 export const LEVELS = ["A1", "A2", "B1", "B2"] as const;
 export type LevelCode = (typeof LEVELS)[number];
 
+/** 写入 API 使用的严格级别校验；与 normalizeLevel 的宽松回退语义分开。 */
+export function isLevel(value: unknown): value is LevelCode {
+  return (
+    typeof value === "string" &&
+    (LEVELS as readonly string[]).includes(value)
+  );
+}
+
 /**
  * 把任意输入规范化为合法级别字面量；空值/非法值回退为 A1。
  *
@@ -121,6 +97,11 @@ export function normalizeLevel(s: unknown): LevelCode {
 export function normalizeLevelOrNull(s: unknown): LevelCode | null {
   if (s == null || s === "") return null;
   return normalizeLevel(s);
+}
+
+/** UI／API 用「未分類」代表資料庫的 NULL category；兼容舊簡體 route value。 */
+export function unitCategoryToStorage(category: string | null): string | null {
+  return category === "未分類" || category === "未分类" ? null : category;
 }
 
 /** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
@@ -189,10 +170,10 @@ export function computeUnlocks(stats: LeveledUnitStats): {
   const levelUnlock: Record<string, boolean> = {};
   const unitUnlock: Record<string, boolean> = {};
 
-  let prevLevelFullyCompleted = true; // 第一个级别恒解锁
+  let previousLevelChainCompleted = true; // 第一个级别恒解锁
   for (const lvl of sortedLevels) {
     const units = stats[lvl] ?? [];
-    const levelUnlocked = prevLevelFullyCompleted;
+    const levelUnlocked: boolean = previousLevelChainCompleted;
     levelUnlock[lvl] = levelUnlocked;
 
     if (!levelUnlocked) {
@@ -201,16 +182,19 @@ export function computeUnlocks(stats: LeveledUnitStats): {
         unitUnlock[`${lvl}::${u.name}`] = false;
       }
     } else {
-      let prevUnitCompleted = true; // 该级别第一个单元直接开放
+      let previousUnitChainCompleted = true; // 该级别第一个单元直接开放
       for (const u of units) {
-        unitUnlock[`${lvl}::${u.name}`] = prevUnitCompleted;
-        prevUnitCompleted = isUnitCompleted(u.stat.total, u.stat.mastered);
+        unitUnlock[`${lvl}::${u.name}`] = previousUnitChainCompleted;
+        previousUnitChainCompleted =
+          previousUnitChainCompleted &&
+          isUnitCompleted(u.stat.total, u.stat.mastered);
       }
     }
 
     // 本级别是否「全部单元已完成」（用于解锁下一级别）。
     // 注意：必须基于真实数据，而非解锁标记，确保解锁判定稳健。
-    prevLevelFullyCompleted =
+    previousLevelChainCompleted =
+      levelUnlocked &&
       units.length > 0 &&
       units.every((u) => isUnitCompleted(u.stat.total, u.stat.mastered));
   }
@@ -259,15 +243,49 @@ export function aggregateAllLevels(
   };
 
   for (const u of unitTotals) {
-    ensureUnit(u.level, u.category ?? "未分类").total += u.total;
+    ensureUnit(u.level, u.category ?? "未分類").total += u.total;
   }
   for (const r of reviews) {
-    const s = ensureUnit(r.level, r.category ?? "未分类");
+    const s = ensureUnit(r.level, r.category ?? "未分類");
     s.learned += 1;
     if (r.repetitions >= MASTERED_REPETITIONS) s.mastered += 1;
     if (new Date(r.nextReviewDate) <= now) s.due += 1;
   }
 
+  return buildLevelAggregations(levels, agg);
+}
+
+export interface UnitStatRow {
+  level: string;
+  category: string | null;
+  total: number;
+  learned: number;
+  mastered: number;
+  due: number;
+}
+
+/** Build unlock/progress output from rows already aggregated by PostgreSQL. */
+export function aggregateUnitStatRows(rows: UnitStatRow[]): LevelAggregation[] {
+  const levels = [...new Set(rows.map((row) => row.level))].sort(levelCompare);
+  const agg = new Map<string, Map<string, UnitStat>>();
+  for (const row of rows) {
+    const category = row.category ?? "未分類";
+    const level = agg.get(row.level) ?? new Map<string, UnitStat>();
+    level.set(category, {
+      total: row.total,
+      learned: row.learned,
+      mastered: row.mastered,
+      due: row.due,
+    });
+    agg.set(row.level, level);
+  }
+  return buildLevelAggregations(levels, agg);
+}
+
+function buildLevelAggregations(
+  levels: string[],
+  agg: Map<string, Map<string, UnitStat>>,
+): LevelAggregation[] {
   // 给 computeUnlocks 准备有序统计结构
   const stats: LeveledUnitStats = {};
   for (const lvl of levels) {

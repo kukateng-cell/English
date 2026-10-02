@@ -1,0 +1,205 @@
+name: Migrate and deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  database-verification:
+    name: Verify migrations and review ledger
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+      MIGRATE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+      NEXTAUTH_SECRET: ci-placeholder-secret
+      NEXTAUTH_URL: http://127.0.0.1:3100
+      INITIAL_ADMIN_PASSWORD: CiAdminPlaceholder!2026
+      DATABASE_ENVIRONMENT: test
+      CONFIRM_DATABASE_ENVIRONMENT: test
+      SEED_TEST_STUDENT: "1"
+      TEST_STUDENT_USERNAME: __test_student__ci_card_motion
+      TEST_STUDENT_PASSWORD: CiCardMotion!2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Audit production dependencies
+        run: npm run audit:production
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Verify migration checksums
+        run: npm run test:migration-checksums
+
+      - name: Replay migrations on a fresh schema
+        run: npm run test:migrations
+
+      - name: Verify expand, confirmed contract, and future ordinary deploy
+        run: npm run test:migrations:contract
+
+      - name: Deploy migrations to the CI database
+        run: npm run db:deploy
+
+      - name: Verify V1/V2 credential compatibility inventory
+        run: npm run check:study-credential-v2
+
+      - name: Run review ledger and concurrency checks
+        run: npm run test:db
+
+      - name: Seed the card-motion test account and words
+        run: npm run seed
+
+      - name: Verify the formal catalog baseline
+        run: |
+          CATALOG_REQUIRE_INITIAL_BASELINE=1 npm run check:catalog
+          npm run check:catalog-governance
+          npm run check:catalog-workspace-pagination
+          npm run check:catalog-immediate-retire
+          npm run check:catalog-submission
+          npm run check:catalog-teacher-workflow
+
+      - name: Run V2 stream integration and bounded soak
+        run: |
+          npm run test:db:stream-v2
+          STUDY_STREAM_SOAK_ITERATIONS=3 npm run check:study-stream-v2:soak
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Verify mouse and touch card release motion
+        run: npm run test:e2e:card-motion
+
+      - name: Verify student IA regression
+        run: npm run test:e2e:student-ia
+
+      - name: Verify student accessibility and fidelity regression
+        run: npm run test:e2e:student-qa
+
+      - name: Verify catalog workspace lifecycle and privacy regression
+        run: npm run test:e2e:catalog-workspace
+
+  migrate-and-deploy:
+    name: Migrate database, then trigger Vercel
+    needs: database-verification
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+      NEXTAUTH_SECRET: production-gate-build-placeholder
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Require the exact current main commit
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main" || { echo "::error::Production deploys must run from main"; exit 1; }
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "::error::Checkout is not the current main commit"; exit 1; }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Verify required production secrets
+        env:
+          MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SECURITY_AUDIT_HMAC_SECRET: ${{ secrets.SECURITY_AUDIT_HMAC_SECRET }}
+          SECURITY_AUDIT_HMAC_KEY_ID: ${{ secrets.SECURITY_AUDIT_HMAC_KEY_ID }}
+          SECURITY_AUDIT_HASH_SECRET: ${{ secrets.SECURITY_AUDIT_HASH_SECRET }}
+          SECURITY_AUDIT_HASH_KEY_ID: ${{ secrets.SECURITY_AUDIT_HASH_KEY_ID }}
+          TEACHER_RESET_PRECONDITION_KEY_CURRENT: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_CURRENT }}
+          TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_CURRENT_ID }}
+          TEACHER_RESET_PRECONDITION_KEY_PREVIOUS: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_PREVIOUS }}
+          TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID: ${{ secrets.TEACHER_RESET_PRECONDITION_KEY_PREVIOUS_ID }}
+          PASSWORD_RESET_PRECONDITION_KEY_CURRENT: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_CURRENT }}
+          PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_CURRENT_ID }}
+          PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS }}
+          PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID: ${{ secrets.PASSWORD_RESET_PRECONDITION_KEY_PREVIOUS_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          test -n "$MIGRATE_URL" || { echo "::error::Missing production MIGRATE_URL"; exit 1; }
+          test -n "$UPSTASH_REDIS_REST_URL" || { echo "::error::Missing production UPSTASH_REDIS_REST_URL"; exit 1; }
+          test -n "$UPSTASH_REDIS_REST_TOKEN" || { echo "::error::Missing production UPSTASH_REDIS_REST_TOKEN"; exit 1; }
+          test -n "$CRON_SECRET" || { echo "::error::Missing production CRON_SECRET"; exit 1; }
+          test -n "$SECURITY_AUDIT_HMAC_SECRET" || test -n "$SECURITY_AUDIT_HASH_SECRET" || { echo "::error::Missing SECURITY_AUDIT_HMAC_SECRET"; exit 1; }
+          test -n "$SECURITY_AUDIT_HMAC_KEY_ID" || test -n "$SECURITY_AUDIT_HASH_KEY_ID" || { echo "::error::Missing SECURITY_AUDIT_HMAC_KEY_ID"; exit 1; }
+          test -n "$VERCEL_TOKEN" || { echo "::error::Missing VERCEL_TOKEN"; exit 1; }
+          test -n "$VERCEL_ORG_ID" || { echo "::error::Missing VERCEL_ORG_ID"; exit 1; }
+          test -n "$VERCEL_PROJECT_ID" || { echo "::error::Missing VERCEL_PROJECT_ID"; exit 1; }
+          npm run check:production-config
+
+      - name: Verify application
+        run: |
+          npx prisma generate
+          npm test
+          npm run lint
+          npx tsc --noEmit
+          npm run build
+
+      - name: Link Vercel project and pull production runtime configuration
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel link --yes --project="$VERCEL_PROJECT_ID" --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN"
+          npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID"
+
+      - name: Verify actual Vercel production runtime configuration
+        env:
+          NODE_ENV: production
+          VERCEL_ENV: production
+          DOTENV_CONFIG_PATH: .vercel/.env.production.local
+        run: node --require dotenv/config --import tsx scripts/check-production-config.ts
+
+      - name: Apply production migrations
+        env:
+          MIGRATE_URL: ${{ secrets.MIGRATE_URL }}
+        run: npm run db:deploy
+
+      - name: Deploy this exact checkout to Vercel production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: npx vercel deploy --prod --yes --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID" --meta githubCommitSha="$GITHUB_SHA"

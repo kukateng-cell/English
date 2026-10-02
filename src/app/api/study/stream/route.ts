@@ -1,0 +1,47 @@
+import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/session";
+import { getClientIp } from "@/lib/login-limiter";
+import { checkStudyQueueRate } from "@/lib/study-limiter";
+import {
+  getOrCreateStudyStream,
+  StudyStreamError,
+} from "@/lib/study-stream/server";
+import { describeStudyStreamFailure } from "@/lib/study-stream/logging";
+import { observeStudyStreamRequest } from "@/lib/study-stream/observability";
+
+function errorResponse(error: unknown): NextResponse {
+  if (error instanceof StudyStreamError) {
+    return NextResponse.json({ error: error.message, ...error.details }, { status: error.status });
+  }
+  console.error("[study-stream] bootstrap failed", describeStudyStreamFailure(error));
+  return NextResponse.json({ error: "學習流暫時不可用，請稍後重試" }, { status: 503 });
+}
+
+/** GET /api/study/stream — the authenticated V2 bootstrap/resume endpoint. */
+export async function GET(req: Request) {
+  const context: { flowVersion?: "v2"; outcome?: "rate-limited" } = {};
+  return observeStudyStreamRequest("bootstrap", async () => {
+    const auth = await requireUser();
+    if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+    context.flowVersion = "v2";
+    const rate = await checkStudyQueueRate(auth.userId, getClientIp(req.headers));
+    if (!rate.ok) {
+      context.outcome = "rate-limited";
+      return NextResponse.json(
+        { error: "學習隊列請求過於頻繁，請稍後再試" },
+        { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } },
+      );
+    }
+    const url = new URL(req.url);
+    try {
+      return NextResponse.json(await getOrCreateStudyStream(auth.userId, {
+        mode: url.searchParams.get("mode"),
+        level: url.searchParams.get("level"),
+        category: url.searchParams.has("category") ? url.searchParams.get("category") : null,
+        itemCredential: url.searchParams.get("itemCredential"),
+      }));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }, () => context);
+}

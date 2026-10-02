@@ -63,8 +63,8 @@ export async function GET(req: Request) {
 
   const message =
     status.dimension === "account"
-      ? "该账号登录失败次数过多，已临时锁定"
-      : "当前网络登录失败次数过多，已临时锁定";
+      ? "該帳號登入失敗次數過多，已臨時鎖定"
+      : "目前網絡登入失敗次數過多，已臨時鎖定";
 
   // 4. 锁定 → HTTP 429 + 标准 Retry-After Header（粗估）；Body 仅给粗估秒数。
   return NextResponse.json(

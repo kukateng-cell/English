@@ -1,0 +1,417 @@
+/**
+ * Development-only deterministic analytics fixture.
+ *
+ * This command intentionally has a guarded destructive mode. It keeps the
+ * canonical Word catalogue, but replaces all local User/roster/learning rows
+ * with the exact demo namespace so stale test accounts cannot distort charts.
+ */
+import dotenv from "dotenv";
+import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Prisma, PrismaClient, type StudentGrade, type ClassCode } from "../src/generated/prisma";
+import { currentAcademicYearDates, STUDENT_GRADES } from "../src/lib/roster-domain";
+import { passwordPolicyError } from "../src/lib/password-policy";
+import { todayKey, offsetDay } from "../src/lib/streak";
+import { createInitialState, updateSM2At, type ReviewState, type Quality } from "../src/lib/sm2";
+import { isMasteredByInterval } from "../src/lib/mastered";
+import { OBJECTIVE_ITEM_CONSTRUCTION_VERSION, OBJECTIVE_QUALITY_POLICY_VERSION, RETRIEVAL_POLICY_VERSION } from "../src/lib/learning-policy/types";
+import { buildObjectiveQuestion, type QuestionWord } from "../src/lib/learning-policy/question";
+
+dotenv.config({ path: ".env.local" });
+dotenv.config();
+
+type Environment = "development" | "test";
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.MIGRATE_URL ?? "" }) });
+const args = new Set(process.argv.slice(2));
+const preview = args.has("--preview-reset");
+const rebuild = args.has("--reset-and-rebuild");
+const confirmed = args.has("--confirm-local-demo-reset");
+// Bump the local fixture marker when lineage semantics change. The current
+// version is intentionally distinct from the pre-purpose-aware fixture whose
+// DUE_REVIEW targets incorrectly carried an evidence obligation.
+const VERSION = "demo-analytics-v4-reward-purpose";
+
+const DEMO_LEVELS = ["A1", "A2", "B1", "B2"] as const;
+type DemoLevel = (typeof DEMO_LEVELS)[number];
+type DemoTrack = "LEADING" | "ADVANCED" | "STEADY" | "PROGRESSING" | "DEVELOPING" | "INTERMITTENT" | "FOLLOW_UP" | "NEW";
+type DemoWord = {
+  id: string;
+  senseId: string;
+  senseKey: string | null;
+  contentRevisionId: string | null;
+  catalogRevisionId: string | null;
+  term: string;
+  level: DemoLevel;
+  definition: string;
+  acceptedAnswers: string[];
+  acceptedForms: string[];
+  synonyms: string[];
+  antonyms: string[];
+  distractorZh: string[];
+  distractorEn: string[];
+  enableEnToZh: boolean;
+  enableZhToEn: boolean;
+};
+type DemoStage = { level: DemoLevel; poolSize: number };
+type DemoTrackConfig = {
+  stages: readonly DemoStage[];
+  participates: (day: number, effectiveDays: number) => boolean;
+  objectiveInterval: number;
+  streakTailDays: number;
+};
+
+const DEMO_TRACK_ORDER: readonly DemoTrack[] = ["NEW", "FOLLOW_UP", "INTERMITTENT", "DEVELOPING", "PROGRESSING", "STEADY", "ADVANCED", "LEADING"];
+const CLASS_TRACKS: readonly DemoTrack[] = [
+  "LEADING", "PROGRESSING", "DEVELOPING",
+  "ADVANCED", "STEADY", "INTERMITTENT",
+  "LEADING", "PROGRESSING", "FOLLOW_UP",
+  "ADVANCED", "STEADY", "DEVELOPING",
+  "LEADING", "PROGRESSING", "INTERMITTENT",
+  "ADVANCED", "STEADY", "NEW",
+];
+const DEMO_MIN_WORDS_PER_LEVEL = 10;
+const DEMO_TRACKS: Record<DemoTrack, DemoTrackConfig> = {
+  LEADING: {
+    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }, { level: "B2", poolSize: 2 }],
+    participates: () => true,
+    objectiveInterval: 3,
+    streakTailDays: 7,
+  },
+  ADVANCED: {
+    stages: [{ level: "A1", poolSize: 2 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }, { level: "B2", poolSize: 1 }],
+    participates: (day) => day % 7 < 6,
+    objectiveInterval: 3,
+    streakTailDays: 5,
+  },
+  STEADY: {
+    stages: [{ level: "A1", poolSize: 3 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    participates: (day) => day % 7 < 5,
+    objectiveInterval: 3,
+    streakTailDays: 3,
+  },
+  PROGRESSING: {
+    stages: [{ level: "A1", poolSize: 3 }, { level: "A2", poolSize: 2 }, { level: "B1", poolSize: 2 }],
+    participates: (day) => day % 7 < 4,
+    objectiveInterval: 3,
+    streakTailDays: 2,
+  },
+  DEVELOPING: {
+    stages: [{ level: "A1", poolSize: 5 }, { level: "A2", poolSize: 4 }, { level: "B1", poolSize: 3 }],
+    participates: (day) => day % 7 < 3,
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+  INTERMITTENT: {
+    stages: [{ level: "A1", poolSize: 4 }, { level: "A2", poolSize: 3 }, { level: "B1", poolSize: 2 }],
+    participates: (day) => day % 21 < 4,
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+  FOLLOW_UP: {
+    stages: [{ level: "A1", poolSize: 3 }, { level: "A2", poolSize: 2 }],
+    participates: (day) => day % 13 === 0,
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+  NEW: {
+    stages: [{ level: "A1", poolSize: 3 }],
+    participates: (day, effectiveDays) => day >= Math.max(0, effectiveDays - 4),
+    objectiveInterval: 3,
+    streakTailDays: 0,
+  },
+};
+
+function fail(message: string): never { throw new Error(message); }
+function requireLocalEnvironment(): Environment {
+  if (!process.env.MIGRATE_URL) fail("建立示範資料必須明確設定 MIGRATE_URL。");
+  const env = process.env.DATABASE_ENVIRONMENT;
+  if (env !== "development" && env !== "test") fail("示範資料只容許 DATABASE_ENVIRONMENT=development 或 test。");
+  if (process.env.CONFIRM_DATABASE_ENVIRONMENT !== env) fail(`請同時設定 CONFIRM_DATABASE_ENVIRONMENT=${env}。`);
+  return env;
+}
+// Anchor the local fixture to today's Shanghai calendar date. The leaderboard
+// is intentionally a current-week experience, so a fixed historical anchor
+// would make the board unavailable after the academic year rolls over.
+const DEMO_ANCHOR_DATE = todayKey();
+function fixtureId(prefix: string, key: string) { return `${prefix}-${hash(`${VERSION}:${key}`).slice(0, 32)}`; }
+function hash(value: string) { return crypto.createHash("sha256").update(value).digest("hex"); }
+function dateAt(key: string, hour = 12) { return new Date(`${key}T${String(hour).padStart(2, "0")}:00:00+08:00`); }
+function fixturePassword(envName: string) { const value = process.env[envName] ?? ""; if (passwordPolicyError(value)) fail(`${envName} 不符合密碼政策。`); return value; }
+
+function asQuestionWord(word: DemoWord): QuestionWord {
+  return {
+    id: word.id,
+    senseId: word.senseId,
+    term: word.term,
+    definition: word.definition,
+    acceptedAnswers: word.acceptedAnswers,
+    acceptedForms: word.acceptedForms,
+    synonyms: word.synonyms,
+    antonyms: word.antonyms,
+    curatedDistractorsZh: word.distractorZh,
+    curatedDistractorsEn: word.distractorEn,
+    enableEnToZh: word.enableEnToZh,
+    enableZhToEn: word.enableZhToEn,
+  };
+}
+
+function deterministicSample(words: readonly DemoWord[], poolSize: number, seed: string): DemoWord[] {
+  return [...words]
+    .sort((left, right) => hash(`${seed}:${left.id}`).localeCompare(hash(`${seed}:${right.id}`)))
+    .slice(0, poolSize);
+}
+
+function trackForStudent(classIndex: number, studentIndex: number): DemoTrack {
+  const base = CLASS_TRACKS[classIndex]!;
+  const baseIndex = DEMO_TRACK_ORDER.indexOf(base);
+  const variation = studentIndex === 0 ? 1 : studentIndex >= 6 ? -1 : 0;
+  return DEMO_TRACK_ORDER[Math.max(0, Math.min(DEMO_TRACK_ORDER.length - 1, baseIndex + variation))]!;
+}
+
+function startOfDemoWeek(key: string): string {
+  const [year, month, day] = key.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return offsetDay(key, -(weekday === 0 ? 6 : weekday - 1));
+}
+
+function demoParticipation(track: DemoTrack, config: DemoTrackConfig, day: number, effectiveDays: number, date: string, studentIndex: number): boolean {
+  const weekStart = startOfDemoWeek(DEMO_ANCHOR_DATE);
+  if (date < weekStart) return config.participates(day, effectiveDays);
+  const elapsed = dateDistance(weekStart, date);
+  const currentElapsed = dateDistance(weekStart, DEMO_ANCHOR_DATE);
+  // Give the current-week fixture a visible range of progress. This keeps
+  // the local board useful for UI review while the older history still uses
+  // each track's long-term cadence.
+  const targetDays = Math.max(0, currentElapsed + 1 - studentIndex * 2);
+  if (track === "FOLLOW_UP") return studentIndex === 0 && elapsed === 0;
+  if (track === "NEW") return elapsed < Math.min(4, targetDays);
+  return elapsed < targetDays;
+}
+
+function demoQuality(track: DemoTrack, day: number, studentIndex: number, effectiveDays: number): Quality {
+  if (studentIndex === 1 && day >= effectiveDays - 2) return 2;
+  if (track === "FOLLOW_UP") return 2;
+  if (track === "INTERMITTENT") return (day + studentIndex) % 3 === 0 ? 2 : 4;
+  if (track === "DEVELOPING") return (day + studentIndex) % 17 === 0 ? 2 : 4;
+  if (track === "PROGRESSING" && studentIndex % 3 === 0 && day % 19 === 0) return 2;
+  return 4;
+}
+
+async function previewReset(env: Environment) {
+  const [users, years, classes, reviews, events, encounters, days] = await Promise.all([
+    prisma.user.count(), prisma.academicYear.count(), prisma.schoolClass.count(), prisma.review.count(), prisma.reviewEvent.count(), prisma.studyEncounter.count(), prisma.studyDay.count(),
+  ]);
+  console.log(JSON.stringify({ environment: env, version: VERSION, warning: "這會徹底刪除本機名單及學習測試資料，只保留已由 CSV 建立的 catalog／sense 及 Word compatibility projection。", existingRows: { users, years, classes, reviews, events, encounters, days }, target: { classes: 18, rosterStudents: 144, specialStudents: 6 } }, null, 2));
+}
+
+async function clearLocalDemo(tx: Prisma.TransactionClient) {
+  await tx.$executeRaw`TRUNCATE TABLE "User", "AcademicYear", "RosterMutationState", "DatabaseMetadata" RESTART IDENTITY CASCADE`;
+  await tx.rosterMutationState.create({ data: { id: 1, revision: 0, calendarRevision: 0 } });
+  await tx.databaseMetadata.create({ data: { key: "environment", value: process.env.DATABASE_ENVIRONMENT! } });
+  await tx.databaseMetadata.create({ data: { key: "demoAnalytics", value: "BUILDING" } });
+}
+
+async function createUser(tx: Prisma.TransactionClient, input: { accountName: string; legalName: string; nickname?: string; role: "STUDENT" | "TEACHER" | "ADMIN"; password: string; grade?: StudentGrade; classId?: string | null; studentNumber?: number | null; startedAt?: Date | null; canResetStudentPassword?: boolean }) {
+  const passwordHash = await bcrypt.hash(input.password, 10);
+  if (input.role === "STUDENT") {
+    if (!input.grade || input.classId === undefined) fail("student fixture requires grade/class");
+    return tx.user.create({ data: { accountName: input.accountName, accountNameCanonical: input.accountName, passwordHash, credentialRevision: 1, legacyName: input.legalName, role: "STUDENT", mustChangePassword: false, studentProfile: { create: { legalName: input.legalName, nickname: input.nickname ?? input.legalName, nicknameNormalized: (input.nickname ?? input.legalName).normalize("NFKC").toLowerCase(), enrollments: { create: { academicYearId: (await tx.academicYear.findFirstOrThrow({ where: { status: "CURRENT" }, select: { id: true } })).id, grade: input.grade, classId: input.classId, studentNumber: input.studentNumber ?? null, isCurrent: true, status: "ACTIVE", origin: "SEED", startedAt: input.startedAt ?? new Date() } } } } } });
+  }
+  if (input.role === "TEACHER") return tx.user.create({ data: { accountName: input.accountName, accountNameCanonical: input.accountName, passwordHash, credentialRevision: 1, legacyName: input.legalName, role: "TEACHER", mustChangePassword: false, teacherProfile: { create: { legalName: input.legalName, canResetStudentPassword: input.canResetStudentPassword ?? false } } } });
+  return tx.user.create({ data: { accountName: input.accountName, accountNameCanonical: input.accountName, passwordHash, credentialRevision: 1, legacyName: input.legalName, role: "ADMIN", mustChangePassword: false } });
+}
+
+async function buildDemo() {
+  const dates = currentAcademicYearDates(dateAt(DEMO_ANCHOR_DATE));
+  const anchor = DEMO_ANCHOR_DATE;
+  const start = todayKey(dates.startsOn) > anchor ? todayKey(dates.startsOn) : todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : todayKey(dates.startsOn);
+  const effectiveEnd = todayKey(dates.endsOn) < anchor ? todayKey(dates.endsOn) : anchor;
+  if (start > effectiveEnd) fail("目前學年沒有可建立示範資料的有效日期。");
+  // Keep a full 90-day signal window even when the local calendar has just
+  // rolled into a new academic year. The fixture is for analytics coverage;
+  // the weekly board itself still uses the current academic year and week.
+  const effectiveStart = offsetDay(effectiveEnd, -89);
+  const effectiveDays = dateDistance(effectiveStart, effectiveEnd) + 1;
+  if (effectiveDays < 1) fail("示範資料日期範圍無效。");
+  // The rich analytics fixture deliberately reuses the normal local test
+  // identities and their existing env-owned credentials. It is the data
+  // that is special, not a second set of "demo" accounts.
+  const adminPassword = fixturePassword("INITIAL_ADMIN_PASSWORD");
+  const teacherPassword = adminPassword;
+  const studentPassword = fixturePassword("TEST_STUDENT_PASSWORD");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('demo-analytics-reset-v1'))`;
+    await clearLocalDemo(tx);
+    const year = await tx.academicYear.create({ data: { ...dates, isCurrent: true, status: "CURRENT", revision: 1 } });
+    const classMap = new Map<string, string>();
+    for (const grade of STUDENT_GRADES) for (const code of ["A", "B", "C"] as const) {
+      const row = await tx.schoolClass.create({ data: { academicYearId: year.id, grade, classCode: code, active: true, revision: 1 } });
+      classMap.set(`${grade}:${code}`, row.id);
+    }
+    const admin = await createUser(tx, { accountName: "admin", legalName: "管理員", role: "ADMIN", password: adminPassword });
+    const teachers = [];
+    const teacherFixtures = [
+      ["teacher", "王老師"],
+      ["teacher-reset", "重設密碼測試老師"],
+      ["teacher-analytics-3", "分析測試老師三"],
+      ["teacher-analytics-4", "分析測試老師四"],
+    ] as const;
+    for (const [index, [accountName, name]] of teacherFixtures.entries()) teachers.push(await createUser(tx, { accountName, legalName: name, role: "TEACHER", password: teacherPassword, canResetStudentPassword: index < 3 }));
+    for (const [index, teacher] of teachers.entries()) {
+      const assigned = [...classMap.values()].filter((_, classIndex) => classIndex % teachers.length === index || (index === 0 && classIndex < 6));
+      for (const classId of assigned) await tx.teacherClassAccess.create({ data: { teacherId: teacher.id, classId, canViewProgress: true, canResetStudentPassword: index < 3, grantedById: admin.id } });
+    }
+    const wordsByLevel = new Map<DemoLevel, DemoWord[]>();
+    const catalogRevision = await tx.catalogRevision.findFirst({ orderBy: { createdAt: "desc" }, select: { id: true, sourceDigest: true } });
+    if (!catalogRevision) fail("找不到 CSV catalog revision。");
+    for (const level of DEMO_LEVELS) {
+      const rows = await tx.word.findMany({
+        where: { level, senseId: { not: null }, catalogRevisionId: catalogRevision.id },
+        take: 80,
+        orderBy: [{ category: "asc" }, { term: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          senseId: true,
+          senseKey: true,
+          contentRevisionId: true,
+          catalogRevisionId: true,
+          term: true,
+          level: true,
+          definition: true,
+          acceptedAnswers: true,
+          acceptedForms: true,
+          synonyms: true,
+          antonyms: true,
+          distractorZh: true,
+          distractorEn: true,
+          enableEnToZh: true,
+          enableZhToEn: true,
+        },
+      });
+      if (rows.length < DEMO_MIN_WORDS_PER_LEVEL) fail(`${level} 詞庫不足，至少需要 ${DEMO_MIN_WORDS_PER_LEVEL} 個單詞。`);
+      const normalized = rows.flatMap((row) => row.senseId ? [{ ...row, senseId: row.senseId, level }] : []);
+      wordsByLevel.set(level, normalized);
+    }
+    const allDemoWords = [...wordsByLevel.values()].flat();
+    // Direct fixture writes still use the same V2 writer marker as production,
+    // so the legacy Review trigger cannot create a second incomplete event.
+    await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v2', true)`;
+    const students = [] as Array<{ id: string; grade: StudentGrade; classId: string; index: number }>;
+    for (let classIndex = 0; classIndex < 18; classIndex += 1) {
+      const grade = STUDENT_GRADES[Math.floor(classIndex / 3)]!; const code = ["A", "B", "C"][classIndex % 3] as ClassCode; const classId = classMap.get(`${grade}:${code}`)!;
+      for (let studentIndex = 0; studentIndex < 8; studentIndex += 1) {
+        const index = classIndex * 8 + studentIndex;
+        const accountName = index === 0 ? "student-test" : index === 1 ? "student-test_webkit" : `student-${String(index + 1).padStart(3, "0")}`;
+        const user = await createUser(tx, { accountName, legalName: `測試學生${String(index + 1).padStart(3, "0")}`, nickname: `學習者${String(index + 1).padStart(3, "0")}`, role: "STUDENT", password: studentPassword, grade, classId, studentNumber: studentIndex + 1, startedAt: dateAt(effectiveStart) });
+        students.push({ id: user.id, grade, classId, index });
+      }
+    }
+    const specialSpecs: Array<{ accountName: string; legalName: string; grade: StudentGrade; studentNumber: number; status?: "SUSPENDED"; classId?: string | null; startedAt?: Date }> = [
+      { accountName: "student-unassigned", legalName: "未分班測試學生", grade: "JUNIOR_1", studentNumber: 1001, classId: null },
+      { accountName: "student-new", legalName: "新加入測試學生", grade: "JUNIOR_1", studentNumber: 1002, classId: null, startedAt: dateAt(offsetDay(effectiveEnd, -2)) },
+      { accountName: "student-quiet", legalName: "低活動測試學生", grade: "JUNIOR_2", studentNumber: 1003, classId: null },
+      { accountName: "student-suspended", legalName: "停權測試學生", grade: "JUNIOR_3", studentNumber: 1004, classId: null, status: "SUSPENDED" },
+      { accountName: "student-transfer", legalName: "轉班測試學生", grade: "SENIOR_1", studentNumber: 1005, classId: null },
+      { accountName: "student-followup", legalName: "跟進測試學生", grade: "SENIOR_2", studentNumber: 1006, classId: null },
+    ];
+    const special = [] as string[];
+    for (const spec of specialSpecs) {
+      const user = await createUser(tx, { accountName: spec.accountName, legalName: spec.legalName, nickname: `測試${spec.legalName}`, role: "STUDENT", password: studentPassword, grade: spec.grade, classId: spec.classId ?? null, studentNumber: spec.studentNumber, startedAt: spec.startedAt ?? dateAt(effectiveStart) });
+      if (spec.status) await tx.user.update({ where: { id: user.id }, data: { status: spec.status, suspendedAt: dateAt(effectiveEnd, 18), tokenVersion: { increment: 1 }, revision: { increment: 1 } } });
+      special.push(user.id);
+    }
+    const missingStudentNumbers = await tx.studentEnrollment.count({ where: { academicYearId: year.id, student: { user: { role: "STUDENT" } }, studentNumber: null } });
+    if (missingStudentNumbers !== 0) fail(`示範資料有 ${missingStudentNumbers} 名學生未設定學號。`);
+    for (const student of students) {
+      const studentIndex = student.index % 8;
+      const track = trackForStudent(Math.floor(student.index / 8), studentIndex);
+      const trackConfig = DEMO_TRACKS[track];
+      const session = await tx.studySession.create({ data: { userId: student.id, queueFingerprint: hash(`${VERSION}:${student.index}`), expiresAt: dateAt(offsetDay(effectiveEnd, -1)), retiredAt: dateAt(effectiveEnd), flowVersion: "v2", learningPolicyVersion: "retrieval-v1", mode: "global", catalogReadMode: "SENSE_V1", revision: 0 } });
+      const reviewStates = new Map<string, ReviewState>();
+      const reviewRevisions = new Map<string, number>();
+      const reviewTotals = new Map<string, number>();
+      const stagePools = trackConfig.stages.map((stage) => {
+        const words = deterministicSample(wordsByLevel.get(stage.level) ?? [], stage.poolSize, `${student.index}:${stage.level}`);
+        if (words.length !== stage.poolSize) fail(`${track} 的 ${stage.level} staged pool 不足。`);
+        return { ...stage, words };
+      });
+      let currentStageIndex = 0;
+      let stageAttempt = 0;
+      const nextStagedWord = () => {
+        const previousStageIndex = currentStageIndex;
+        while (currentStageIndex < stagePools.length - 1) {
+          const stage = stagePools[currentStageIndex]!;
+          if (!stage.words.every((word) => isMasteredByInterval(reviewStates.get(word.id)?.interval ?? 0))) break;
+          currentStageIndex += 1;
+        }
+        if (currentStageIndex !== previousStageIndex) stageAttempt = 0;
+        const stage = stagePools[currentStageIndex]!;
+        const word = stage.words[stageAttempt % stage.words.length]!;
+        stageAttempt += 1;
+        return word;
+      };
+      for (let day = 0; day < effectiveDays; day += 1) {
+        const date = offsetDay(effectiveStart, day);
+        const participate = demoParticipation(track, trackConfig, day, effectiveDays, date, studentIndex);
+        if (!participate) continue;
+        const quality = demoQuality(track, day, studentIndex, effectiveDays);
+        const objectiveProbe = day % trackConfig.objectiveInterval === 0 || day >= Math.max(0, effectiveDays - trackConfig.streakTailDays);
+        await tx.studyDay.upsert({ where: { userId_date: { userId: student.id, date } }, create: { userId: student.id, date, createdAt: dateAt(date, 18) }, update: {} });
+        const word = nextStagedWord();
+        const streamItemId = fixtureId("stream", `${student.index}:${day}:card`);
+        const revealOperation = fixtureId("reveal", `${student.index}:${day}:card`);
+        const operationId = fixtureId("encounter", `${student.index}:${day}:card`);
+        const learningRevision = session.revision + 1;
+        await tx.studyStreamItem.create({ data: { id: streamItemId, sessionId: session.id, streamItemKey: `${student.index}-${day}-card`, wordId: word.id, senseId: word.senseId, itemKind: "LEARNING_CARD", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", status: "ACKNOWLEDGED", leaseExpiresAt: dateAt(date, 12), credentialDigest: hash(`${student.index}:${day}:card:digest`), credentialExpiresAt: dateAt(date, 12), credentialLineage: { version: 1, parentDigest: null, issuedAt: dateAt(date, 12).toISOString(), expiresAt: dateAt(date, 12).toISOString() }, revealedAt: dateAt(date, 12), usedAt: dateAt(date, 13), feedbackAcknowledgedAt: dateAt(date, 13), operationId, clientRevision: learningRevision } });
+        await tx.operationReceipt.createMany({ data: [
+          { userId: student.id, operationId: revealOperation, flowVersion: "v2", actionKind: "REVEAL", requestFingerprint: hash(`${streamItemId}:reveal`), outcomeStatus: "REVEALED", outcomeReference: streamItemId },
+          { userId: student.id, operationId, flowVersion: "v2", actionKind: "SELF_RATING", requestFingerprint: hash(`${streamItemId}:self-rating`), outcomeStatus: "COMMITTED", outcomeReference: streamItemId },
+        ] });
+        await tx.studyEncounter.create({ data: { userId: student.id, wordId: word.id, senseId: word.senseId, streamItemId, operationId, selfRating: quality === 4 ? "selfRecalled" : "selfForgot", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", requiresVerification: false, acknowledgedAt: dateAt(date, 13), createdAt: dateAt(date, 13) } });
+        session.revision = learningRevision;
+        if (objectiveProbe) {
+          const eventId = fixtureId("event", `${student.index}:${day}:objective`); const targetId = fixtureId("target", `${student.index}:${day}:objective`); const snapshotId = fixtureId("snapshot", `${student.index}:${day}:objective`); const answerOperation = fixtureId("answer", `${student.index}:${day}:objective`); const feedbackOperation = fixtureId("feedback", `${student.index}:${day}:objective`);
+          const expectedRevision = reviewRevisions.get(word.id) ?? 0;
+          // Direct due-review probes do not carry an evidence obligation. This
+          // keeps the fixture aligned with the purpose-specific metric rule.
+          await tx.objectiveEvidenceTarget.create({ data: { id: targetId, userId: student.id, wordId: word.id, senseId: word.senseId, purpose: "DUE_REVIEW", expectedReviewRevision: expectedRevision, policyVersion: RETRIEVAL_POLICY_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, status: "CONSUMED", winningOperationId: answerOperation, winningReviewEventId: eventId, consumedAt: dateAt(date, 15) } });
+          const question = buildObjectiveQuestion(asQuestionWord(word), allDemoWords.map(asQuestionWord), `${student.index}:${day}:${targetId}:${expectedRevision}`);
+          if (!question) fail(`${word.term} 缺少 production-grade curated objective question。`);
+          await tx.objectiveQuestionSnapshot.create({ data: { id: snapshotId, targetId, wordId: word.id, senseId: word.senseId, contentRevisionId: word.contentRevisionId, catalogRevisionId: word.catalogRevisionId, prompt: question.prompt, wordTerm: question.wordTerm, wordDefinition: question.wordDefinition, direction: question.direction, options: question.options as unknown as Prisma.InputJsonValue, correctOptionId: question.correctOptionId, contentVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, createdAt: dateAt(date, 14) } });
+          const answerRevision = session.revision + 1;
+          const objectiveItemId = fixtureId("stream", `${student.index}:${day}:objective`);
+          await tx.studyStreamItem.create({ data: { id: objectiveItemId, sessionId: session.id, streamItemKey: `${student.index}-${day}-objective`, wordId: word.id, senseId: word.senseId, itemKind: "OBJECTIVE_PROBE", selectionReason: "DUE_REVIEW", policyVersion: "retrieval-v1", status: "ACKNOWLEDGED", leaseExpiresAt: dateAt(date, 14), credentialDigest: hash(`${student.index}:${day}:objective:digest`), credentialExpiresAt: dateAt(date, 14), credentialLineage: { version: 1, parentDigest: null, issuedAt: dateAt(date, 14).toISOString(), expiresAt: dateAt(date, 14).toISOString() }, usedAt: dateAt(date, 15), feedbackAcknowledgedAt: dateAt(date, 16), operationId: answerOperation, clientRevision: answerRevision, objectiveEvidenceTargetId: targetId, objectiveQuestionSnapshotId: snapshotId } });
+          const previous = reviewStates.get(word.id) ?? createInitialState();
+          const nextState = updateSM2At(previous, quality, dateAt(date, 15));
+          const nextTotal = (reviewTotals.get(word.id) ?? 0) + 1;
+          if (reviewRevisions.has(word.id)) await tx.review.update({ where: { userId_wordId: { userId: student.id, wordId: word.id } }, data: { ...nextState, senseId: word.senseId, revision: expectedRevision + 1, totalReviews: nextTotal } });
+          else await tx.review.create({ data: { userId: student.id, wordId: word.id, senseId: word.senseId, ...nextState, revision: 1, totalReviews: nextTotal } });
+          reviewStates.set(word.id, nextState); reviewRevisions.set(word.id, expectedRevision + 1); reviewTotals.set(word.id, nextTotal);
+          await tx.reviewEvent.create({ data: { id: eventId, operationId: answerOperation, userId: student.id, submittedWordId: word.id, wordId: word.id, senseId: word.senseId, submittedSenseId: word.senseId, senseKey: word.senseKey, contentRevisionId: word.contentRevisionId, catalogRevisionId: word.catalogRevisionId, wordTerm: word.term, wordLevel: word.level, quality, evidenceKind: "OBJECTIVE_PROBE", flowVersion: "v2", qualityPolicyVersion: OBJECTIVE_QUALITY_POLICY_VERSION, probePurpose: "DUE_REVIEW", itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, objectiveEvidenceTargetId: targetId, objectiveQuestionSnapshotId: snapshotId, createdAt: dateAt(date, 15) } });
+          if (quality === 2) await tx.evidenceObligation.create({ data: { id: fixtureId("remediation", `${student.index}:${day}:objective`), userId: student.id, wordId: word.id, senseId: word.senseId, kind: "REMEDIATION", status: "EXPIRED", sourceOperationId: answerOperation, selectionReason: "self-forgot-remediation", policyVersion: "retrieval-v1", eligibleAt: dateAt(date, 15), expiresAt: dateAt(date, 15), answeredAt: null, terminalReason: "demo-expired" } });
+          await tx.operationReceipt.createMany({ data: [
+            { userId: student.id, operationId: answerOperation, flowVersion: "v2", actionKind: "ANSWER", requestFingerprint: hash(`${targetId}:answer`), outcomeStatus: "COMMITTED", outcomeReference: eventId },
+            { userId: student.id, operationId: feedbackOperation, flowVersion: "v2", actionKind: "FEEDBACK_ACK", requestFingerprint: hash(`${targetId}:feedback`), outcomeStatus: "COMMITTED", outcomeReference: objectiveItemId },
+          ] });
+          session.revision = answerRevision + 1;
+        }
+      }
+      await tx.studySession.update({ where: { id: session.id }, data: { revision: session.revision } });
+    }
+    await tx.databaseMetadata.update({ where: { key: "demoAnalytics" }, data: { value: VERSION } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 120_000 });
+  console.log(`示範資料已建立：18 個班、144 名班內學生、6 名特殊學生、${effectiveDays} 日活動。`);
+}
+
+function dateDistance(from: string, to: string) { const [fy, fm, fd] = from.split("-").map(Number); const [ty, tm, td] = to.split("-").map(Number); return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000); }
+
+async function main() {
+  const env = requireLocalEnvironment();
+  if (!preview && !rebuild) fail("請指定 --preview-reset 或 --reset-and-rebuild。");
+  if (preview) await previewReset(env);
+  if (rebuild) { if (!confirmed) fail("破壞性示範資料重建需要 --confirm-local-demo-reset。"); await buildDemo(); }
+}
+
+main().catch((error) => { console.error(error instanceof Error ? error.message : "示範資料建立失敗"); process.exitCode = 1; }).finally(() => prisma.$disconnect());

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon, { type IconName } from "@/components/ui/Icon";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface Stats {
@@ -32,32 +33,53 @@ export default function AdminDashboard() {
       try {
         const res = await fetch("/api/admin/stats");
         if (!res.ok) {
-          setError(await responseErrorMessage(res));
+          setError(await responseErrorMessage(res, tc));
           return;
         }
         setStats(await res.json());
       } catch (e) {
-        setError(networkErrorMessage(e));
+        setError(tc(networkErrorMessage(e)));
       } finally {
         setLoading(false);
       }
     })();
-  }, [reloadKey]);
+  }, [reloadKey, tc]);
+
+  const rewardEntry = (
+    <section className="rounded-2xl border border-[var(--primary)]/25 bg-[var(--border-soft)] p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold text-[var(--primary)]">{tc("教師／管理工作臺")}</p>
+          <h2 className="mt-1 text-xl font-black text-[var(--text)]">{tc("學生累積分")}</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">{tc("按日期和班級查看累積投入分、累積成效分及累積總分，並匯出報告。")}</p>
+        </div>
+        <Link href="/admin/rewards" className="ui-button ui-button-primary ui-button-small">
+          <Icon name="trending-up" size={17} />{tc("匯出學生累積分")}
+        </Link>
+      </div>
+    </section>
+  );
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2563EB] border-t-transparent" />
+      <div className="space-y-5">
+        {rewardEntry}
+        <div className="flex items-center justify-center py-20">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <ErrorBanner
-        message={error}
-        onRetry={() => setReloadKey((k) => k + 1)}
-      />
+      <div className="space-y-5">
+        {rewardEntry}
+        <ErrorBanner
+          message={error}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+      </div>
     );
   }
 
@@ -67,76 +89,69 @@ export default function AdminDashboard() {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-5"
     >
+      {rewardEntry}
       {/* 页面标题 */}
       <div>
-        <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[#17213C] dark:text-[#E2E8F0]">
-          {tc("系统概览")}
+        <h1 className="text-[22px] font-bold tracking-[-0.03em] text-[var(--text)] dark:text-[var(--text)]">
+          {tc("系統概覽")}
         </h1>
-        <p className="mt-1 text-[14px] text-[#7C89A5] dark:text-[#64748B]">
-          {tc("全局数据一览")}
+        <p className="mt-1 text-[14px] text-[var(--muted)] dark:text-[var(--muted)]">
+          {tc("全域資料總覽")}
         </p>
       </div>
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 gap-3">
         <StatCard
-          label={tc("总用户数")}
+          label={tc("總用戶數")}
           value={stats?.totalUsers ?? 0}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>
-          }
+          icon={<Icon name="users" size={20} />}
           color="blue"
         />
         <StatCard
-          label={tc("总单词数")}
+          label={tc("總單詞數")}
           value={stats?.totalWords ?? 0}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" /></svg>
-          }
+          icon={<Icon name="book" size={20} />}
           color="indigo"
         />
         <StatCard
-          label={tc("总复习次数")}
+          label={tc("總複習次數")}
           value={stats?.totalReviews ?? 0}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
-          }
+          icon={<Icon name="repeat" size={20} />}
           color="green"
         />
         <StatCard
-          label={tc("今日学习")}
+          label={tc("今日學習")}
           value={stats?.reviewsToday ?? 0}
           subtitle={tc("次")}
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-          }
+          icon={<Icon name="clock" size={20} />}
           color="amber"
         />
       </div>
 
       {/* 用户角色分布 */}
-      <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-        <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-          {tc("用户角色分布")}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
+        <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
+          {tc("用戶角色分佈")}
         </h3>
-        <div className="space-y-3">
-          <RoleBar label={tc("学生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#2563EB]" />
-          <RoleBar label={tc("老师")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#5B6FEF]" />
-          <RoleBar label={tc("管理员")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 1} color="bg-[#4F46E5]" />
+        <div className="admin-role-metrics">
+          <RoleMetric label={tc("學生")} count={stats?.totalStudents ?? 0} total={stats?.totalUsers ?? 0} icon="users" tone="primary" />
+          <RoleMetric label={tc("教師")} count={stats?.totalTeachers ?? 0} total={stats?.totalUsers ?? 0} icon="user" tone="secondary" />
+          <RoleMetric label={tc("管理員")} count={stats?.totalAdmins ?? 0} total={stats?.totalUsers ?? 0} icon="shield" tone="warning" />
         </div>
       </div>
 
-      {/* 单词等级分布 */}
+      {/* 單詞等級分布 */}
       {stats?.wordsByLevel && stats.wordsByLevel.length > 0 && (
-        <div className="rounded-2xl border border-[#E7EDF8] bg-white p-5 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
-          <h3 className="mb-4 text-[15px] font-semibold text-[#17213C] dark:text-[#E2E8F0]">
-            {tc("单词等级分布")}
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
+          <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)] dark:text-[var(--text)]">
+            {tc("單詞等級分佈")}
           </h3>
-          <div className="flex gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {stats.wordsByLevel.map((l) => (
-              <div key={l.level} className="flex-1 rounded-xl bg-[#EEF4FF] px-4 py-3 text-center dark:bg-[#1E3A5F]">
-                <p className="text-[20px] font-bold text-[#2563EB] dark:text-[#60A5FA]">{l.count}</p>
-                <p className="mt-0.5 text-[12px] font-medium text-[#7C89A5] dark:text-[#64748B]">{l.level}</p>
+              <div key={l.level} className="rounded-xl bg-[var(--border-soft)] px-4 py-3 text-center dark:bg-[var(--border-soft)]">
+                <p className="text-[20px] font-bold text-[var(--primary)] dark:text-[var(--primary)]">{l.count}</p>
+                <p className="mt-0.5 text-[12px] font-medium text-[var(--muted)] dark:text-[var(--muted)]">{l.level}</p>
               </div>
             ))}
           </div>
@@ -147,15 +162,15 @@ export default function AdminDashboard() {
       <div className="flex gap-3">
         <Link
           href="/admin/users"
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[#E7EDF8] bg-white py-3.5 text-[14px] font-medium text-[#2563EB] transition hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1A2332]"
+          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
-          👥 {tc("管理用户")}
+          <Icon name="users" size={18} /> {tc("管理用戶")}
         </Link>
         <Link
           href="/admin/words"
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[#E7EDF8] bg-white py-3.5 text-[14px] font-medium text-[#2563EB] transition hover:bg-[#F8FAFF] active:scale-[0.98] dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#60A5FA] dark:hover:bg-[#1A2332]"
+          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] py-3.5 text-[14px] font-medium text-[var(--primary)] transition hover:bg-[var(--border-soft)] active:scale-[0.98] dark:border-[var(--border)] dark:bg-[var(--surface)] dark:text-[var(--primary)] dark:hover:bg-[var(--border-soft)]"
         >
-          📚 {tc("单词库")}
+          <Icon name="book" size={18} /> {tc("單詞庫")}
         </Link>
       </div>
     </motion.div>
@@ -176,52 +191,50 @@ function StatCard({
   color: "blue" | "indigo" | "green" | "amber";
 }) {
   const colorMap = {
-    blue: { bg: "bg-[#EEF4FF]", text: "text-[#2563EB]", darkBg: "dark:bg-[#1E3A5F]", darkText: "dark:text-[#60A5FA]" },
-    indigo: { bg: "bg-[#EEF0FF]", text: "text-[#4F46E5]", darkBg: "dark:bg-[#1E1B4B]", darkText: "dark:text-[#A5B4FC]" },
-    green: { bg: "bg-[#ECFDF5]", text: "text-[#15803D]", darkBg: "dark:bg-[#052E16]", darkText: "dark:text-[#4ADE80]" },
-    amber: { bg: "bg-[#FFFBEB]", text: "text-[#B45309]", darkBg: "dark:bg-[#291800]", darkText: "dark:text-[#FBBF24]" },
+    blue: { bg: "bg-[var(--border-soft)]", text: "text-[var(--primary)]", darkBg: "dark:bg-[var(--border-soft)]", darkText: "dark:text-[var(--primary)]" },
+    indigo: { bg: "bg-[var(--border-soft)]", text: "text-[var(--primary-2)]", darkBg: "dark:bg-[var(--border-soft)]", darkText: "dark:text-[var(--primary-2)]" },
+    green: { bg: "bg-[var(--success-bg)]", text: "text-[var(--success)]", darkBg: "dark:bg-[var(--success-bg)]", darkText: "dark:text-[var(--success)]" },
+    amber: { bg: "bg-[var(--warning-bg)]", text: "text-[var(--warning)]", darkBg: "dark:bg-[var(--warning-bg)]", darkText: "dark:text-[var(--warning)]" },
   };
   const c = colorMap[color];
 
   return (
-    <div className="rounded-2xl border border-[#E7EDF8] bg-white p-4 shadow-sm dark:border-[#1E293B] dark:bg-[#111827]">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm dark:border-[var(--border)] dark:bg-[var(--surface)]">
       <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${c.bg} ${c.text} ${c.darkBg} ${c.darkText}`}>
         {icon}
       </div>
-      <p className="text-[26px] font-bold tracking-[-0.02em] text-[#17213C] dark:text-[#E2E8F0]">
+      <p className="text-[26px] font-bold tracking-[-0.02em] text-[var(--text)] dark:text-[var(--text)]">
         {value}
-        {subtitle && <span className="ml-1 text-[14px] font-normal text-[#7C89A5]">{subtitle}</span>}
+        {subtitle && <span className="ml-1 text-[14px] font-normal text-[var(--muted)]">{subtitle}</span>}
       </p>
-      <p className="mt-0.5 text-[13px] text-[#7C89A5] dark:text-[#64748B]">{label}</p>
+      <p className="mt-0.5 text-[13px] text-[var(--muted)] dark:text-[var(--muted)]">{label}</p>
     </div>
   );
 }
 
-function RoleBar({
+function RoleMetric({
   label,
   count,
   total,
-  color,
+  icon,
+  tone,
 }: {
   label: string;
   count: number;
   total: number;
-  color: string;
+  icon: IconName;
+  tone: "primary" | "secondary" | "warning";
 }) {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  const percentage = total > 0 ? (count / total) * 100 : 0;
+  const pctLabel = count > 0 && percentage < 1 ? "<1%" : `${Math.round(percentage)}%`;
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-12 text-[13px] text-[#7C89A5] dark:text-[#64748B]">{label}</span>
-      <div className="flex-1 h-2 rounded-full bg-[#EEF2F9] dark:bg-[#1E293B] overflow-hidden">
-        <motion.div
-          className={`h-full rounded-full ${color}`}
-          style={{ width: `${pct}%` }}
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.6 }}
-        />
+    <div className="admin-role-metric">
+      <span className={`admin-role-metric-icon is-${tone}`}><Icon name={icon} size={18} /></span>
+      <div className="admin-role-metric-copy">
+        <span>{label}</span>
+        <strong>{count}</strong>
       </div>
-      <span className="w-10 text-right text-[13px] font-medium text-[#17213C] dark:text-[#E2E8F0]">{count}</span>
+      <small>{pctLabel}</small>
     </div>
   );
 }

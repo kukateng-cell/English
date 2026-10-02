@@ -1,64 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 見字會 SeeWord
 
-## Getting Started
+English 是面向中文學校中學生的英語詞彙認讀平台。現行產品採用 Retrieval-first Learning Stream V2：
+學生先嘗試回想詞義，再揭示答案；主觀 self-rating 與客觀認讀證據分開，只有 Objective Probe
+第一次合法答案由 server 判分並推進 SM-2。
 
-First, run the development server:
+## 現行狀態
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- 唯一現行開發主線：`codex/project-consolidation-and-student-handoff`
+- 項目整頓現正進行 P1 文件入口；歷史盤點及修訂記錄見[整頓計劃](plans/project-consolidation-and-student-handoff.md)
+- Global `/study` 是 continuous stream，沒有固定完成題數
+- 產品方向不保留 rollback；V1 退役正按 P4 實施，完整驗收仍未完成
+- Production deploy、真實學生 pilot、research telemetry／consent、完整原生裝置驗收及 destructive cleanup 尚未執行
+
+## 學生流程
+
+```text
+Learning Card
+→ 先嘗試回想中文意思
+→ 約一秒後顯示長按提示
+→ 非發音區域 stationary long-press 3 秒揭示
+→ 報告和剛才所想是否一致
+→ server 確認 operational action
+
+Objective Probe
+→ 第一次合法選擇由 server 判分
+→ correct=quality 4；wrong=quality 2
+→ 選項狀態顯示結果，確認 feedback 後繼續
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 開始閱讀
 
-You can start editing the page in `src/app/`. The page auto-updates as you edit the file.
+新接手者按以下次序閱讀：
 
-## 环境变量（Environment Variables）
+1. [現行產品](docs/current-product.md)
+2. [本地開發](docs/development.md)
+3. [架構導覽](docs/architecture.md)
+4. [測試指南](docs/testing.md)
+5. [Retrieval-first Contract](plans/retrieval-first-learning-contract.md)
+6. [計劃索引](plans/README.md)
 
-复制 `.env.example` 为 `.env` 并按需填写：
+根目錄指引各有單一責任：`AGENTS.md` 說明如何安全修改項目，`DEPLOY.md` 是正式發佈與 migration
+runbook。文件與程式／測試／schema 不一致時，以可執行證據為準，並在同一批修正文件。
 
-| 变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `DATABASE_URL` | ✅ | Prisma 数据库连接串（本地 SQLite 或生产 PostgreSQL） |
-| `NEXTAUTH_SECRET` | ✅ | JWT 签名密钥，生产请用 `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | ✅ | 应用根 URL（本地为 `http://localhost:3000`） |
-| `UPSTASH_REDIS_REST_URL` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST URL |
-| `UPSTASH_REDIS_REST_TOKEN` | ⚠️ 生产必填 | 登录限流用的 Upstash Redis REST Token |
+## 主要能力
 
-### 登录限流（Upstash Redis）
+- A1／A2／B1／B2 sense-level 詞庫、主題、解鎖及學習進度
+- Retrieval-first Learning Card、Objective Probe、versioned learning policy 及 SM-2
+- Study session、opaque credential、operationId、receipt、CAS、Serializable transaction、
+  offline outbox、checkpoint 及 bounded recovery
+- 學生／教師／管理員角色、首次改密、session 撤銷、名冊權限及最後管理員保護
+- 學生首頁／詞表／統計／打卡／成就／排行榜，教師工作區及管理員工具
+- 詞庫治理、sense revision、審核歷史、CSV／XLSX 匯入匯出及正式 catalog baseline
+- 繁體／簡體、明／暗 theme、mobile／tablet／desktop responsive layout
 
-登录限流基于 `@upstash/ratelimit` + `@upstash/redis`，按「账号」与「来源 IP」双维度
-滑动窗口限流：**同一账号或同一 IP 每 1 分钟最多 5 次登录尝试**，超出即拒绝并返回剩余等待秒数。
-分布式存储确保 Serverless / 多实例（如 Vercel）部署下计数共享、无法被绕过。
+## 技術棧
 
-**未配置** `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` 时，会自动降级为
-**单实例内存限流**（仅适合本地开发，多副本下计数不共享、可被绕过，启动时会打印一条警告）。
+Next.js 16 App Router、React 19、TypeScript、Tailwind CSS 4、Framer Motion、Auth.js、Prisma 7、
+PostgreSQL、Upstash Redis、Node test、Playwright、GitHub Actions 及 Vercel。
 
-配置步骤：
+## 本地快速啟動
 
-1. 到 [upstash.com](https://upstash.com) 注册并创建一个 Redis 数据库（Global 或 Regional）。
-2. 在该数据库的 **REST API** 页面复制 `UPSTASH_REDIS_REST_URL` 与 `UPSTASH_REDIS_REST_TOKEN`。
-3. 写入本地 `.env`，或填入 Vercel 项目的 **Settings → Environment Variables**。
-4. 重新部署即可；限流键统一带前缀 `login:`，便于在 Upstash 控制台辨识。
+```powershell
+npm ci
+docker compose up -d
+Copy-Item .env.example .env.local
+npm run db:deploy
+npm run seed
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+先按 [本地開發](docs/development.md) 設定 `MIGRATE_URL`、資料庫環境 marker、密鑰及測試帳戶；
+不要把 `.env.local` 或任何憑證提交。開啟 <http://localhost:3000/login>。
 
-## Learn More
+`/study` 現在直接使用 V2；不需要設定 assignment 開關。`demo:init --confirm-reset` 會清除指定本地帳戶、學年、名冊及學習資料，只有在確認使用 demo reset DB 時才執行。
 
-To learn more about Next.js, take a look at the following resources:
+## 常用驗證
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```powershell
+npm test
+npm run lint
+npx tsc --noEmit
+npm run build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+按改動範圍選擇 DB／catalog／V2／browser 測試，詳見[測試指南](docs/testing.md)。
+Production migration 只按 `DEPLOY.md` 及 `.github/workflows/deploy-production.yml` 執行，
+不得以 `prisma db push` 取代 migrations。

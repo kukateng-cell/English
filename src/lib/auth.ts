@@ -1,4 +1,5 @@
 import type { NextAuthOptions } from "next-auth";
+import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -8,6 +9,100 @@ import {
   resetAccount,
   getClientIp,
 } from "@/lib/login-limiter";
+import { roleDisplayName } from "@/lib/identity";
+import {
+  createSessionJti,
+  hashSessionJti,
+  issueRecentAuthGrant,
+} from "@/lib/recent-auth";
+
+type AuthValidationUser = {
+  role: Role;
+  status: "ACTIVE" | "SUSPENDED";
+  tokenVersion: number;
+  credentialRevision: number;
+  mustChangePassword: boolean;
+  accountName: string;
+  legacyName: string | null;
+  studentProfile: { nickname: string } | null;
+  teacherProfile: { legalName: string } | null;
+};
+
+export type AuthValidationStore = {
+  findUser(userId: string): Promise<AuthValidationUser | null>;
+  findCurrentStudentEnrollment(userId: string): Promise<{ id: string } | null>;
+};
+
+const authValidationStore: AuthValidationStore = {
+  findUser: (userId) => prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: true,
+      status: true,
+      tokenVersion: true,
+      credentialRevision: true,
+      mustChangePassword: true,
+      accountName: true,
+      legacyName: true,
+      studentProfile: { select: { nickname: true } },
+      teacherProfile: { select: { legalName: true } },
+    },
+  }),
+  findCurrentStudentEnrollment: (userId) => prisma.studentEnrollment.findFirst({
+    where: { studentId: userId, status: "ACTIVE", academicYear: { status: "CURRENT" } },
+    select: { id: true },
+  }),
+};
+
+/**
+ * Revalidate the account-bound claims used by protected routes. Keeping this
+ * boundary callable outside the NextAuth callback makes token-version
+ * revocation testable without fabricating a login event.
+ */
+export async function validateAuthTokenVersion(
+  token: JWT,
+  store: AuthValidationStore = authValidationStore,
+): Promise<JWT> {
+  const userId = token.id as string | undefined;
+  if (!userId) return token;
+
+  // Session validity is a security decision: a transient DB failure keeps the
+  // cookie but marks it unavailable so protected APIs fail closed with 503.
+  let dbUser: AuthValidationUser | null;
+  let currentEnrollment: { id: string } | null = null;
+  try {
+    dbUser = await store.findUser(userId);
+    if (dbUser?.role === "STUDENT") {
+      currentEnrollment = await store.findCurrentStudentEnrollment(userId);
+    }
+  } catch (error) {
+    console.error("[auth] session validation database unavailable", {
+      name: error instanceof Error ? error.name : "UnknownError",
+    });
+    token.authUnavailable = true;
+    return token;
+  }
+  if (!dbUser) throw new Error("SESSION_INVALIDATED");
+  if (dbUser.status !== "ACTIVE") throw new Error("SESSION_INVALIDATED");
+  if (dbUser.role === "STUDENT" && !currentEnrollment) throw new Error("SESSION_INVALIDATED");
+  if (dbUser.tokenVersion !== token.tokenVersion || dbUser.role !== token.role) {
+    throw new Error("SESSION_INVALIDATED");
+  }
+  if (
+    !token.sessionJti ||
+    dbUser.credentialRevision !== token.credentialRevision
+  ) {
+    throw new Error("SESSION_INVALIDATED");
+  }
+  const displayName = roleDisplayName(dbUser);
+  token.accountName = dbUser.accountName;
+  token.displayName = displayName;
+  token.name = displayName;
+  token.email = dbUser.accountName;
+  token.mustChangePassword = dbUser.mustChangePassword;
+  token.authUnavailable = false;
+  return token;
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -15,8 +110,8 @@ export const authOptions: NextAuthOptions = {
       name: "account",
       credentials: {
         // ‘email’ 字段实际存放账号名（如 student01），保留键名以兼容 NextAuth 表单
-        email: { label: "账号", type: "text" },
-        password: { label: "密码", type: "password" },
+        email: { label: "帳號", type: "text" },
+        password: { label: "密碼", type: "password" },
       },
       async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
@@ -31,14 +126,20 @@ export const authOptions: NextAuthOptions = {
         const limit = await checkLimit(account, ip);
         if (!limit.ok) {
           console.warn(
-            `[login-limiter] 拒绝登录尝试 account=${account} ip=${ip} ` +
+            `[login-limiter] 拒絕登入嘗試 account=${account} ip=${ip} ` +
               `dimension=${limit.dimension} retryAfter=${limit.retryAfterSec}s`,
           );
           return null;
         }
 
-        const user = await prisma.user.findUnique({ where: { email: account } });
-        if (!user) {
+        const user = await prisma.user.findUnique({
+          where: { accountName: account },
+          include: {
+            studentProfile: { select: { nickname: true } },
+            teacherProfile: { select: { legalName: true } },
+          },
+        });
+        if (!user || user.status !== "ACTIVE") {
           // 失败已在 checkLimit 时计入滑动窗口，无需再记一笔。
           return null;
         }
@@ -51,12 +152,42 @@ export const authOptions: NextAuthOptions = {
 
         // 登录成功：清空该账号维度的计数（IP 维度继续累积）。
         await resetAccount(account);
+        if (user.role === "STUDENT") {
+          const currentEnrollment = await prisma.studentEnrollment.findFirst({
+            where: {
+              studentId: user.id,
+              status: "ACTIVE",
+              academicYear: { status: "CURRENT" },
+            },
+            select: { id: true },
+          });
+          if (!currentEnrollment) return null;
+        }
+        const sessionJti = createSessionJti();
+        try {
+          await prisma.$transaction((tx) =>
+            issueRecentAuthGrant(tx, {
+              sessionJti,
+              userId: user.id,
+              tokenVersion: user.tokenVersion,
+              credentialRevision: user.credentialRevision,
+            }),
+          );
+        } catch (error) {
+          console.error("[auth] recent-auth grant creation failed", error);
+          return null;
+        }
+        const displayName = roleDisplayName(user);
         return {
           id: user.id,
-          email: user.email,
-          name: user.name,
+          email: user.accountName,
+          name: displayName,
+          accountName: user.accountName,
+          displayName,
           role: user.role,
           tokenVersion: user.tokenVersion,
+          credentialRevision: user.credentialRevision,
+          sessionJti,
           mustChangePassword: user.mustChangePassword,
         };
       },
@@ -85,56 +216,51 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = user.role as Role;
         token.tokenVersion = user.tokenVersion as number;
+        token.credentialRevision = user.credentialRevision as number;
+        token.sessionJti = user.sessionJti as string;
         token.mustChangePassword = user.mustChangePassword as boolean;
+        token.accountName = user.accountName as string;
+        token.displayName = user.displayName as string;
+        token.name = user.displayName as string;
+        token.email = user.accountName as string;
+        token.authenticatedAt = Date.now();
+        token.authUnavailable = false;
         return token;
       }
 
-      // 后续请求：user 不存在（只在登录时传入）。
-      // 用 token.id 查库校验会话是否仍有效：
-      //   - 用户已被删除（dbUser 不存在）→ 旧会话失效；
-      //   - tokenVersion 已变化（管理员改角色 / 重置密码）→ 旧会话失效，需重新登录。
-      // 实现：jwt 回调抛错会让 NextAuth 的 session 处理清除会话 cookie
-      // （见 node_modules/next-auth/core/routes/session.js 的 catch 分支），
-      // 前端 useSession / 服务端 getServerSession 随之视为未登录。
-      const userId = token.id as string | undefined;
-      if (userId) {
-        // 查库失败（DB 抖动）时 fail-open 放行，避免全体用户被误登出；
-        // 仅在「明确检测到用户已删除 / 版本不一致」时才销毁会话。
-        let dbUser: {
-          role: Role;
-          tokenVersion: number;
-          mustChangePassword: boolean;
-        } | null = null;
-        try {
-          dbUser = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { role: true, tokenVersion: true, mustChangePassword: true },
-          });
-        } catch {
-          return token;
-        }
-        if (!dbUser) {
-          // 用户已被删除 → 会话失效。
-          throw new Error("SESSION_INVALIDATED");
-        }
-        if (dbUser.tokenVersion !== token.tokenVersion) {
-          // 版本号变化（改角色 / 重置密码）→ 旧会话失效，需重新登录。
-          throw new Error("SESSION_INVALIDATED");
-        }
-        // mustChangePassword 可能被用户自己（重设密码）或管理员修改，
-        // 每次都从 DB 刷新，确保重设密码后立即生效。
-        token.mustChangePassword = dbUser.mustChangePassword;
-      }
-      return token;
+      // 后续请求：user 不存在（只在登录时传入）。JWT callback 抛出
+      // SESSION_INVALIDATED 时，NextAuth 会清除失效 session cookie。
+      return validateAuthTokenVersion(token);
     },
     async session({ session, token }) {
       if (session.user) {
         (session.user as { id: string }).id = token.id as string;
         (session.user as { role: Role }).role = token.role as Role;
+        session.user.accountName = token.accountName as string;
+        session.user.displayName = token.displayName as string;
+        session.user.name = token.displayName as string;
+        session.user.email = token.accountName as string;
         (session.user as { mustChangePassword: boolean }).mustChangePassword =
           token.mustChangePassword as boolean;
+        (session.user as { authenticatedAt?: number }).authenticatedAt =
+          token.authenticatedAt as number | undefined;
+        (session.user as { authUnavailable?: boolean }).authUnavailable =
+          token.authUnavailable === true;
       }
       return session;
+    },
+  },
+  events: {
+    async signOut({ token }) {
+      if (!token?.sessionJti) return;
+      try {
+        await prisma.recentAuthGrant.delete({
+          where: { id: hashSessionJti(token.sessionJti) },
+        });
+      } catch {
+        // Logout is best effort; token expiry and revision revocation remain
+        // authoritative even when the cleanup write is unavailable.
+      }
     },
   },
 };

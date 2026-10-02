@@ -8,7 +8,7 @@
  *
  * 限流策略：滑动窗口（sliding window）。
  *  - 账号维度：同一 Email 每 1 分钟最多 5 次登录尝试。
- *  - IP    维度：同一 IP   每 1 分钟最多 5 次登录尝试。
+ *  - IP    维度：同一 IP   每 1 分钟最多 120 次预认证尝试（校园/NAT 友好）。
  *  - 任一维度耗尽即拒绝（并返回距下次可重试的秒数）。
  *
  * 为什么用「每次尝试都计数」而非「只记失败」：
@@ -21,18 +21,24 @@
  *    各副本计数不共享，攻击者请求被负载均衡分散即可绕过。
  *  - Upstash Redis 通过 REST API 共享计数，所有副本读写同一窗口状态。
  *
- * 故障策略：后端（Redis）调用抛错时「fail-open」放行并记录错误，
- *  避免 Redis 抖动时把全部合法用户锁死在登录页（可用性优先于严格限流）。
+ * 故障策略：production runtime 的后端（Redis）调用抛错时 fail-closed 并记录错误；
+ * 只有 local／明确 browser-test runtime 才允许使用单实例 memory fallback。
  *
  * 本地开发：未配置 UPSTASH_REDIS_REST_URL / TOKEN 时，自动降级为
  *  单实例内存滑动窗口（语义一致，仅限本地/单副本，会打印一次警告）。
+ * production release gate 会拒绝缺少任一变量，runtime guard 亦避免多实例静默降级。
  */
 
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import {
+  describeBackendFailure,
+  requiresDistributedRateLimitBackend,
+} from "@/lib/production-config";
 
-/** 每个窗口内允许的最大尝试次数（账号 / IP 两个维度各自计数）。 */
-const MAX_ATTEMPTS = 5;
+/** 单账号保持严格；共享校园/NAT IP 使用较宽的预认证防洪门槛。 */
+const ACCOUNT_MAX_ATTEMPTS = 5;
+const IP_MAX_ATTEMPTS = 120;
 
 /** Upstash 滑动窗口时长（@upstash/ratelimit 接受的 Duration 字符串）。 */
 const WINDOW = "1 m";
@@ -54,7 +60,7 @@ const STATUS_KEY_PREFIX = "login-status";
  */
 const STATUS_MAX = 20;
 
-type Dimension = "account" | "ip";
+type Dimension = "account" | "ip" | "session";
 
 interface LimitResult {
   ok: boolean;
@@ -62,6 +68,8 @@ interface LimitResult {
   retryAfterSec?: number;
   /** 命中限流的维度，便于排查。 */
   dimension?: Dimension;
+  /** Production Redis/configuration failure, distinct from a consumed quota. */
+  backendUnavailable?: boolean;
 }
 
 /**
@@ -168,6 +176,13 @@ function createMemoryBackend(max: number, windowMs: number): {
 
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const productionRateLimitRequired = requiresDistributedRateLimitBackend();
+
+if (Boolean(UPSTASH_URL) !== Boolean(UPSTASH_TOKEN)) {
+  throw new Error(
+    "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together",
+  );
+}
 
 /** 内存回退模式下，所有桶的「清空」函数集合（仅供测试）。 */
 const memoryResets: Array<() => void> = [];
@@ -181,18 +196,37 @@ const sharedRedis = useUpstash
   : null;
 
 /**
- * 登录尝试限流后端（prefix="login"）。
- * 账号维度防暴力破解；IP 维度防密码喷洒。
+ * 账号维度限流后端（严格防暴力破解）。
  */
-const backend: LimiterBackend = useUpstash
-  ? createUpstashBackend(MAX_ATTEMPTS, WINDOW, sharedRedis!, KEY_PREFIX)
+const accountBackend: LimiterBackend = useUpstash
+  ? createUpstashBackend(
+      ACCOUNT_MAX_ATTEMPTS,
+      WINDOW,
+      sharedRedis!,
+      `${KEY_PREFIX}-account`,
+    )
   : (() => {
       // 本地开发回退：单实例内存计数（与分布式语义一致，但不跨实例共享）。
-      console.warn(
-        "[login-limiter] 未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
-          "降级为单实例内存限流（仅供本地开发；生产请务必配置 Upstash Redis）。",
-      );
-      const mem = createMemoryBackend(MAX_ATTEMPTS, WINDOW_MS);
+      if (!productionRateLimitRequired) {
+        console.warn(
+          "[login-limiter] 未設定 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN，" +
+            "降級為單實例記憶體限流（僅供本地開發；生產請務必設定 Upstash Redis）。",
+        );
+      }
+      const mem = createMemoryBackend(ACCOUNT_MAX_ATTEMPTS, WINDOW_MS);
+      memoryResets.push(mem.resetAllForTests);
+      return mem.backend;
+    })();
+
+const ipBackend: LimiterBackend = useUpstash
+  ? createUpstashBackend(
+      IP_MAX_ATTEMPTS,
+      WINDOW,
+      sharedRedis!,
+      `${KEY_PREFIX}-ip`,
+    )
+  : (() => {
+      const mem = createMemoryBackend(IP_MAX_ATTEMPTS, WINDOW_MS);
       memoryResets.push(mem.resetAllForTests);
       return mem.backend;
     })();
@@ -206,6 +240,16 @@ const statusBackend: LimiterBackend = useUpstash
   ? createUpstashBackend(STATUS_MAX, WINDOW, sharedRedis!, STATUS_KEY_PREFIX)
   : (() => {
       const mem = createMemoryBackend(STATUS_MAX, WINDOW_MS);
+      memoryResets.push(mem.resetAllForTests);
+    return mem.backend;
+  })();
+
+/** Re-authentication has its own session bucket in addition to account/IP. */
+const REAUTH_SESSION_MAX = 10;
+const reauthSessionBackend: LimiterBackend = useUpstash
+  ? createUpstashBackend(REAUTH_SESSION_MAX, WINDOW, sharedRedis!, "reauth-session")
+  : (() => {
+      const mem = createMemoryBackend(REAUTH_SESSION_MAX, WINDOW_MS);
       memoryResets.push(mem.resetAllForTests);
       return mem.backend;
     })();
@@ -257,41 +301,62 @@ function normalizeAccount(account: string): string {
 /**
  * 检查当前请求是否被允许尝试登录，并消费一个令牌。
  *
- * 策略：先消费「账号」维度，再消费「IP」维度；任一维度耗尽即拒绝。
- * 先查账号是为了在账号已被限流时不额外消耗 IP 维度的配额。
+ * 策略：先消费「IP」预认证维度，再消费严格「账号」维度；任一耗尽即拒绝。
+ * IP 已被封锁时绝不触碰账号桶，防止攻击者借一个 blocked IP 批量耗尽其他
+ * 学生账号的登录配额。
  *
  * 注意：本函数「会」消费令牌（即使是合法用户登录也计 1 次）。
  * 这是「每分钟最多 5 次尝试」的直接实现，并能保护后续 bcrypt 计算不被滥用。
  *
- * Redis 故障时 fail-open 放行（可用性优先），并记录错误日志。
+ * Redis 故障时 production fail-closed；本地开发才允许继续使用本地实现。
  */
 export async function checkLimit(
   account: string,
   ip: string,
 ): Promise<LimitResult> {
+  if (productionRateLimitRequired && !useUpstash) {
+    return { ok: false, retryAfterSec: 60, backendUnavailable: true };
+  }
   try {
-    const r1 = await backend.limit(`account:${normalizeAccount(account)}`);
-    if (!r1.ok) {
+    const ipResult = await ipBackend.limit(ip);
+    if (!ipResult.ok) {
       return {
         ok: false,
-        retryAfterSec: toRetryAfterSec(r1.reset),
-        dimension: "account",
+        retryAfterSec: toRetryAfterSec(ipResult.reset),
+        dimension: "ip",
       };
     }
 
-    const r2 = await backend.limit(`ip:${ip}`);
-    if (!r2.ok) {
+    const accountResult = await accountBackend.limit(normalizeAccount(account));
+    if (!accountResult.ok) {
       return {
         ok: false,
-        retryAfterSec: toRetryAfterSec(r2.reset),
-        dimension: "ip",
+        retryAfterSec: toRetryAfterSec(accountResult.reset),
+        dimension: "account",
       };
     }
 
     return { ok: true };
   } catch (err) {
-    console.error("[login-limiter] checkLimit 后端错误，fail-open 放行：", err);
-    return { ok: true };
+    console.error(
+      `[login-limiter] checkLimit 後端錯誤，${productionRateLimitRequired ? "fail-closed" : "本地繼續"}：`,
+      { errorType: describeBackendFailure(err) },
+    );
+    return productionRateLimitRequired
+      ? { ok: false, retryAfterSec: 60, backendUnavailable: true }
+      : { ok: true };
+  }
+}
+
+/** Consume a session-bound reauth bucket after the normal account/IP gate. */
+export async function checkReauthSessionLimit(sessionJti: string): Promise<LimitResult> {
+  if (productionRateLimitRequired && !useUpstash) return { ok: false, retryAfterSec: 60, dimension: "session" };
+  try {
+    const result = await reauthSessionBackend.limit(sessionJti);
+    return result.ok ? { ok: true } : { ok: false, retryAfterSec: toRetryAfterSec(result.reset), dimension: "session" };
+  } catch (err) {
+    console.error("[login-limiter] reauth session bucket failure", { errorType: describeBackendFailure(err) });
+    return productionRateLimitRequired ? { ok: false, retryAfterSec: 60, dimension: "session" } : { ok: true };
   }
 }
 
@@ -311,8 +376,11 @@ export async function getLimitStatus(
   retryAfterSec?: number;
   dimension?: Dimension;
 }> {
+  if (productionRateLimitRequired && !useUpstash) {
+    return { locked: true, retryAfterSec: 60, dimension: "account" };
+  }
   try {
-    const acct = await backend.remaining(`account:${normalizeAccount(account)}`);
+    const acct = await accountBackend.remaining(normalizeAccount(account));
     if (acct.remaining <= 0) {
       return {
         locked: true,
@@ -321,7 +389,7 @@ export async function getLimitStatus(
       };
     }
 
-    const ipr = await backend.remaining(`ip:${ip}`);
+    const ipr = await ipBackend.remaining(ip);
     if (ipr.remaining <= 0) {
       return {
         locked: true,
@@ -332,8 +400,13 @@ export async function getLimitStatus(
 
     return { locked: false };
   } catch (err) {
-    console.error("[login-limiter] getLimitStatus 后端错误，按未锁定返回：", err);
-    return { locked: false };
+    console.error(
+      `[login-limiter] getLimitStatus 後端錯誤，${productionRateLimitRequired ? "按已鎖定返回" : "按未鎖定返回"}：`,
+      { errorType: describeBackendFailure(err) },
+    );
+    return productionRateLimitRequired
+      ? { locked: true, retryAfterSec: 60, dimension: "account" }
+      : { locked: false };
   }
 }
 
@@ -343,9 +416,12 @@ export async function getLimitStatus(
  * 使用独立的 statusBackend 桶（prefix="login-status"），**不消耗登录尝试配额**，
  * 因此合法用户查询锁定状态不会影响其登录尝试次数。
  *
- * 故障时 fail-open 放行（与 checkLimit 一致），避免 Redis 抖动影响可用性。
+ * production 故障时 fail-closed；本地开发才允许继续运行。
  */
 export async function checkStatusRate(ip: string): Promise<LimitResult> {
+  if (productionRateLimitRequired && !useUpstash) {
+    return { ok: false, retryAfterSec: 60, dimension: "ip" };
+  }
   try {
     const r = await statusBackend.limit(`ip:${ip}`);
     if (!r.ok) {
@@ -357,8 +433,13 @@ export async function checkStatusRate(ip: string): Promise<LimitResult> {
     }
     return { ok: true };
   } catch (err) {
-    console.error("[login-limiter] checkStatusRate 后端错误，fail-open 放行：", err);
-    return { ok: true };
+    console.error(
+      `[login-limiter] checkStatusRate 後端錯誤，${productionRateLimitRequired ? "fail-closed" : "本地繼續"}：`,
+      { errorType: describeBackendFailure(err) },
+    );
+    return productionRateLimitRequired
+      ? { ok: false, retryAfterSec: 60, dimension: "ip" }
+      : { ok: true };
   }
 }
 
@@ -373,9 +454,11 @@ export async function checkStatusRate(ip: string): Promise<LimitResult> {
  */
 export async function resetAccount(account: string): Promise<void> {
   try {
-    await backend.reset(`account:${normalizeAccount(account)}`);
+    await accountBackend.reset(normalizeAccount(account));
   } catch (err) {
-    console.error("[login-limiter] resetAccount 后端错误：", err);
+    console.error("[login-limiter] resetAccount 後端錯誤：", {
+      errorType: describeBackendFailure(err),
+    });
   }
 }
 
@@ -385,8 +468,19 @@ export async function resetAccount(account: string): Promise<void> {
  * 反代 / 托管平台（Vercel / Supabase 等）通常在 x-forwarded-for 里给真实 IP；
  * 次选 x-real-ip；都拿不到时回退 "unknown"（共享 NAT / 本地开发常见）。
  */
-export function getClientIp(headers: unknown): string {
+export function getClientIp(headers: Headers | Record<string, string | string[] | undefined> | undefined): string {
   if (!headers || typeof headers !== "object") return "unknown";
+  if (
+    "get" in headers &&
+    typeof (headers as { get?: unknown }).get === "function"
+  ) {
+    const webHeaders = headers as { get(name: string): string | null };
+    const xff = webHeaders.get("x-forwarded-for");
+    if (xff) return xff.split(",")[0].trim();
+    const xri = webHeaders.get("x-real-ip");
+    if (xri) return xri.trim();
+    return "unknown";
+  }
   const h = headers as Record<string, unknown>;
   const pick = (name: string): string | undefined => {
     const v = h[name];

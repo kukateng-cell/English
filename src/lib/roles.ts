@@ -37,5 +37,5 @@ export type { Role } from "@/generated/prisma";
 export function homePathFor(role: Role): string {
   if (role === ROLES.ADMIN) return "/admin";
   if (role === ROLES.TEACHER) return "/teacher";
-  return "/study";
+  return "/";
 }

@@ -1,0 +1,162 @@
+# 計劃書目錄
+
+本目錄集中保存項目的產品計劃、功能實施計劃及大型重構計劃。新增功能或跨頁面／跨層改動應先在此建立計劃書，再按 checklist 實施及更新進度。
+
+計劃書記錄目標、範圍、取捨與驗收方式，但不是現況的唯一真相。當文件與實作不一致時，程式、測試、`prisma/schema.prisma`、migration 歷史及 production workflow 優先；發現差異後應同步修正相關計劃書。
+
+本文及本目錄其他文件內的程式路徑，除非另有說明，均相對 repository root。
+
+## 快速閱讀分區
+
+新人先按以下次序閱讀，毋須由最早的 implementation plan 開始逐份翻查：
+
+### 現行產品與開發規範
+
+- [現行產品概覽](../docs/current-product.md)：目前學生、教師、管理員功能及已知限制。
+- [系統架構導覽](../docs/architecture.md)：頁面、API、服務、交易及資料邊界。
+- [本地開發指南](../docs/development.md)：環境、資料庫、seed、demo 及常用指令。
+- [測試指南](../docs/testing.md)：改動範圍與必要驗證的對照表。
+- [Retrieval-first V2 Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)：V2 現況證據及未完成 external gates。
+- [Retrieval-first Learning Contract](./retrieval-first-learning-contract.md)：學生流程及學習證據的規範性語義。
+
+### 目前進行中
+
+- [項目整理、重構與學生交接](./project-consolidation-and-student-handoff.md)：本分支的主線工作；目前處於 P1 文件入口、P3 source layer 及 P4 cutover 階段。
+- [教師學習／獎勵索引](./teacher-learning-reward-index.md)：本地功能已實作，整體環境驗證及 external gates 仍待處理。
+- [詞庫問題指引及選擇版面修正](./catalog-issue-guidance-and-selection-layout-corrections.md)：匯出格式修訂已完成，完整 viewport matrix 仍待執行。
+- [CSV 詞庫本地資料庫切換](./csv-word-catalog-local-database-cutover.md)：local baseline reconciliation 進行中，production rollout 未獲授權。
+- [管理員目錄及學習分析](./admin-user-directory-and-learning-analytics.md)：student number／analytics export review 進行中，production 及原生裝置驗證另列 deferred。
+
+### 暫緩或需要額外授權
+
+- [研究學習框架](./research-learning-framework.md)：research feature 維持關閉，未獲 consent／privacy／telemetry 批准前不啟動。
+- 各計劃內標示的 production deploy、destructive migration、真實學生 pilot、完整原生 screen-reader／device matrix，均須按該計劃重新確認，不能因 local PASS 自動視為完成。
+
+### 已完成與歷史記錄
+
+下方完整索引保留每份計劃的決策、驗收證據及未執行項目。標示「已完成」只代表該文件所述的本地範圍；標示「已取代」的文件仍保留作歷史參考，現行行為以新人指南、程式、測試及 schema 為準。
+歷史文件若仍提及 `V1 rollback`、舊 assignment 或舊 client，該文字只描述當時的驗收範圍，
+已由本分支「只保留 V2」決定取代；現行工作以 [`docs/current-product.md`](../docs/current-product.md)、
+[`docs/architecture.md`](../docs/architecture.md) 及主線整頓計劃為準。
+
+## 完整計劃書索引（保留歷史記錄）
+
+維護審視：[2026-09-08 項目整理、重構與學生交接報告](./artifacts/project-maintainability-audit-2026-09-08.md)。
+這是全庫結構盤點及分階段建議，分析已完成；尚未實施重構，不取代現行產品規範或既有計劃。
+使用者其後指定只保留 V2、不保留 V1 rollback；報告已把 V1 退役納入建議範圍。
+
+| 文件 | 類型 | 狀態 | 說明 |
+|---|---|---|---|
+| [project-consolidation-and-student-handoff.md](./project-consolidation-and-student-handoff.md) | 全項目整頓與交接計劃 | 進行中（P1／P3 source layer／P4 cutover） | 現行開發主線、P1 獨立交接、P3 existing-DB 回歸、P4 cutover／測試移植矩陣、環境分離及主線治理已補入；四份新人指南、`data/catalog/` source mapping、V2 study entry、legacy retirement barrier 及 active V2 shell／stream browser coverage 已實作，DB／browser cutover 回歸及獨立交接仍待驗證 |
+| [realistic-demo-school.md](./realistic-demo-school.md) | 虛構學校及增量模擬 | 已完成（本地驗證） | 18班566人、自然名冊、seeded 活動、每日補漏、重跑/中斷續跑及正式報表reader驗證；只供本地 |
+| [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) | 學生排行榜重設計計劃 | 已完成（本地核心實作；大型DB效能／原生screen-reader列後續） | 本班每週學習分主榜、附近／完整排名、個人週目標；直接替換舊榜，已清空重建本地資料；含reward contract、API／snapshot、自動化及CUA視覺驗收，不含production工作 |
+| [teacher-reward-summary-usability.md](./teacher-reward-summary-usability.md) | 教師體驗修改計劃 | 已完成（本地驗收；native screen-reader matrix deferred；production／pilot deferred） | 首頁首屏匯出入口、獨立學生累積分頁、三個累積結果及簡潔 Excel／CSV；已核對客觀作答全零的舊 fixture 根因，保留 strict provenance 驗證 |
+| [teacher-learning-reward-index.md](./teacher-learning-reward-index.md) | 實施計劃 | 進行中（Revision 2；使用者已批准；兩位 reviewer PASS） | 教師自訂投入／成效權重、每日及期間累積分、完整明細匯出；不設派分或已匯出扣除機制；20/5量尺及目前學年範圍已按批准方案實作；四項分支審核修正及針對性回歸完成，整體環境驗證仍有既有阻礙；production／pilot／destructive migration 仍 deferred |
+| [study-stream-consistency-and-recovery-audit.md](./study-stream-consistency-and-recovery-audit.md) | V2 集中審核修正 | 已完成（本地驗證；雙 reviewer PASS；push 後 hosted CI／production gate 待確認） | SCH-01 排程及新版恢復流程維持已關閉；CI-01 obligation 狀態測試已改為按原始 ID／狀態驗證，舊待同步列在本次部署確認不存在，維持 fail-closed 相容性限制 |
+| [study-stream-retention-and-recovery-audit.md](./study-stream-retention-and-recovery-audit.md) | V2 審核修正 | 已完成（第九輪本地驗證；hosted CI 待推送） | 已完成直接提交 terminal 409／403 reconciliation 後嘅 pending drain，以及權威重載失敗／blocked 保留操作控制；待本次推送後 hosted CI |
+| [staging-audit-followup.md](./staging-audit-followup.md) | 審核第二／三輪 | 第二輪 CI 全通過；第三輪局部補修本地完成 | fresh seed、CSV、CIS-010 預覽、問題篩選、route cap；第三輪負號公式編碼、379 unit 及真實試算表 round-trip 通過；分支規則待管理員 |
+| [staging-audit-remediation.md](./staging-audit-remediation.md) | 審核修正 | 已完成（分支保護待管理員） | seed、V2 outbox、題目安全、catalog輸入輸出、依賴及CI修正；374 unit、V2 DB／browser、三引擎雙分頁測試通過 |
+| [project-plan.md](./project-plan.md) | 產品總體計劃 | 持續維護 | 產品願景、研究背景、已實現能力及長期路線 |
+| [retrieval-first-learning-program.md](./retrieval-first-learning-program.md) | 主計劃／Program Plan | 進行中（本地基線完成） | Retrieval-first V2 local product 已完成並凍結；只餘未獲授權 external rollout／research gates |
+| [retrieval-first-learning-contract.md](./retrieval-first-learning-contract.md) | RFC／產品及學習規範 | 已批准並生效 | 卡片語義、3 秒 long-press reveal、客觀證據、bounded verification debt、metrics 及 policy version |
+| [learning-stream-v2-implementation.md](./learning-stream-v2-implementation.md) | 核心學習流程實施計劃 | 已完成（本地產品；歷史 V1 分流記錄已取代） | Continuous stream、UI state machine、API、outbox、checkpoint；原有 V1 分流／rollback 只保留作歷史證據，現行退役工作見整頓計劃 P4 |
+| [study-credential-v2-migration.md](./study-credential-v2-migration.md) | 安全／資料遷移計劃 | 已完成（product scope） | Stream-item credential、v1/v2 coexistence、rotation 及 expand migrations；Stage E destructive cleanup deferred |
+| [research-learning-framework.md](./research-learning-framework.md) | 研究治理／telemetry 計劃 | 待審批（暫緩） | Research feature off；consent、privacy、diagnostic、telemetry 及 experiment 未獲外部批准 |
+| [ui-design-system-migration.md](./ui-design-system-migration.md) | 實施計劃 | 已完成 | 將 EMM Style 01 設計系統遷移到學生端、教師端及管理端 |
+| [class-roster-import-and-access-control.md](./class-roster-import-and-access-control.md) | 實施計劃 | 已完成（local verification；production/native gates deferred） | Revision 3 主體、session/API 邊界及 protected layout auth-backend 503 故障頁均完成 local verification。audit advisory、production-only positive config、production deploy、完整原生 screen-reader／device matrix仍 deferred |
+| [word-catalog-governance-and-lifecycle.md](./word-catalog-governance-and-lifecycle.md) | 實施計劃 | 已完成（本地 implementation／verification） | 建立 sense-level 詞庫、乾淨34欄老師CSV／受控39欄bootstrap、分方向人工干擾池、immutable approved revision及老師 capability 單一獨立審核；治理API／UI、學生及統計current reader、完整詞庫server pagination、draft privacy、revision CAS、current-rule reactivation及claim recovery均完成本地驗證；production rollout、managed環境效能／外部UAT及legacy cleanup仍待後續 |
+| [word-catalog-bulk-submission-and-history.md](./word-catalog-bulk-submission-and-history.md) | 實施計劃 | 已完成（第 27 輪 retry closure 加固） | 200-row preview／compact mutation、批次原子審核及逐詞歷史已完成；全 `NO_CHANGE` retry source已有一次性closure、冪等receipt及待辦移除，staging／Vercel及production migration／deploy未執行 |
+| [catalog-teacher-feedback-preview-and-work-items.md](./catalog-teacher-feedback-preview-and-work-items.md) | 實施計劃 | 已完成（第七輪 freshness／closure 加固） | 老師簡化意見、正式學生題目預覽、個人待辦及immutable retry已完成；review dialog intent、全 `NO_CHANGE` retry closure及sense-aware題目預覽freshness已通過本機驗證 |
+| [word-catalog-teacher-workspace-usability-redesign.md](./word-catalog-teacher-workspace-usability-redesign.md) | 重設計計劃 | 已完成（本地 implementation／verification；雙reviewer PASS；external gates deferred） | 老師完整詞庫已改為高密度響應式語義列表，分拆生命週期／待審流程／出題／問題scope，加入完整資料集詞性、A–Z、主題及排序，並以保留列表狀態嘅逐詞歷史drawer取代技術代碼畫面；source交付Git staging，不改現有審批及資料生命週期，亦不代表production deploy |
+| [catalog-issue-guidance-and-selection-layout-corrections.md](./catalog-issue-guidance-and-selection-layout-corrections.md) | UX／修正計劃 | 進行中 | 第五輪匯出格式修訂完成：移除「修改表」術語，匯出預設改為 XLSX 並保留 CSV，下載／上載／範本同步支援兩種格式；unit／lint／typecheck／build／真實瀏覽器驗證通過，待完整 viewport matrix |
+| [catalog-entry-form-guidance-and-duplicate-precheck.md](./catalog-entry-form-guidance-and-duplicate-precheck.md) | UX／實施計劃 | 已完成（本地驗證；雙 reviewer PASS；external gates deferred） | 逐詞新增／修改表單指導、提交與停用操作語義及新增詞義重複預檢已完成；production deploy未執行 |
+| [csv-word-catalog-local-database-cutover.md](./csv-word-catalog-local-database-cutover.md) | 資料切換／實施計劃 | 進行中（Revision 3；正式 baseline reconciliation） | 以 A1–B2 sense-level CSV 取代 Markdown canonical seed，加入逐表 word→sense transition、V1 read-only compatibility、digest-bound 正式初始 ACTIVE／DRAFT 狀態、ACTIVE-only runtime、安全 public question contract及真實解鎖 demo；local reset 已完成，production rollout仍未授權 |
+| [teacher-workspace-roster-progress-redesign.md](./teacher-workspace-roster-progress-redesign.md) | 重設計計劃 | 已完成（Revision 5 local implementation／verification；external gates deferred） | `/teacher`只保留快速KPI及班級跟進摘要；`/teacher/analytics`集中詳細班級／學生分析；學生工作區用「學生名冊／學生進度」分頁，保留 `/teacher/progress` 相容入口；`npm run lint`、`npx tsc --noEmit`、`npm run build`通過；production deploy、full-scale及native device matrix仍 deferred |
+| [admin-user-directory-and-learning-analytics.md](./admin-user-directory-and-learning-analytics.md) | 實施計劃 | 進行中（student number／analytics export review） | 學號 migration、匯入／排序、教師／管理員顯示及 analytics CSV／XLSX 已實作；兩個獨立 reviewer 正進行全範圍收尾，production deploy、contract migration、VoiceOver／TalkBack及完整原生裝置QA deferred |
+| [student-leaderboard-scopes-and-overview.md](./student-leaderboard-scopes-and-overview.md) | 實施計劃 | 已由 successor 取代 | 舊版本班／全年級／全校範圍及個人概覽記錄；現行學生榜請參閱 student-weekly-leaderboard-redesign.md |
+| [student-ui-fidelity-corrections.md](./student-ui-fidelity-corrections.md) | 修正計劃 | 已完成 | 修正 mobile 導覽、繁簡／品牌、學生頁 spacing 及認字卡 Prototype fidelity |
+| [study-header-floating-navigation.md](./study-header-floating-navigation.md) | 修正計劃 | 已完成 | 對齊認字頁 header，並把 mobile bottom navigation 改為 floating surface |
+| [student-desktop-layout-corrections.md](./student-desktop-layout-corrections.md) | 修正計劃 | 已完成 | 修正 desktop 認字卡置中、sticky 側欄帳戶控制、單元闖關寬版、首頁快捷卡高度及統計入口可見性；lint、typecheck、build 及 targeted browser geometry／study reveal tests 通過 |
+| [student-dashboard-navigation-corrections.md](./student-dashboard-navigation-corrections.md) | 修正計劃 | 已完成 | 修正「今日」四個快捷入口的 desktop 排列，加入排行榜／成就入口，並放大詞表頁切換控制；lint、typecheck、build 及 targeted browser screenshot／geometry tests 通過 |
+| [admin-and-student-icon-fidelity-corrections.md](./admin-and-student-icon-fidelity-corrections.md) | 修正計劃 | 已完成 | 修正管理工作台 active 導覽、角色概覽可讀性及管理／學生排行榜成就圖示一致性 |
+| [icon-system-audit-and-redesign.md](./icon-system-audit-and-redesign.md) | 修正計劃 | 已完成（local verification） | 全面清理學生、教師、管理員及共用頁面嘅舊 inline SVG、emoji、Unicode 視覺圖標，統一 EMM Style 02；authenticated browser matrix deferred |
+| [workspace-desktop-account-rail-correction.md](./workspace-desktop-account-rail-correction.md) | 修正計劃 | 已完成（local verification） | 修正教師／管理員 desktop sidebar 帳戶控制隨長頁下移，令其固定於左下 viewport；authenticated browser smoke deferred |
+| [account-pages-responsive-copy-corrections.md](./account-pages-responsive-copy-corrections.md) | 修正計劃 | 已完成（local verification） | 跨學生／教師／管理員帳號頁面修正平板／手機排版、欄位說明及過度技術化文案；完整瀏覽器裝置矩陣 deferred |
+| [traditional-chinese-source-copy-baseline.md](./traditional-chinese-source-copy-baseline.md) | i18n／跨頁文案修正計劃 | 已完成（本地 implementation／verification；external gates deferred） | 把產品可見中文固定為繁體香港中文原始基準，繁體顯示不再做簡轉繁，簡體只由繁體衍生；修正「乾擾項」錯轉並建立全站 source regression |
+| [teacher-class-summary-improvement.md](./teacher-class-summary-improvement.md) | 修正計劃 | 已完成（local verification） | 改善教師班級摘要的使用率、待複習人數、比例視覺化、A1／A2／B1／B2 分項掌握及欄位說明；不涉及加分機制；登入後瀏覽器矩陣 deferred |
+| [icon-semantic-deduplication.md](./icon-semantic-deduplication.md) | 修正計劃 | 已完成（local verification） | 全站圖標語義去重，分開單元闖關、統計、排行榜、成就、名冊、單詞庫及客觀測驗入口；登入後瀏覽器矩陣 deferred |
+
+新增、改名、完成或取代計劃書時，必須同步更新此表。
+
+### Retrieval-first Learning Program 文件關係
+
+五份文件都放喺 `plans/`，但唔係五份平排又重複嘅 implementation plan：
+
+```text
+retrieval-first-learning-program.md              總入口及跨計劃 release gates
+├── retrieval-first-learning-contract.md         規範產品／學習語義
+├── learning-stream-v2-implementation.md         落實 UI、API、續接及 rollout
+├── study-credential-v2-migration.md              落實安全、資料及 compatibility
+└── research-learning-framework.md                獨立嘅研究治理及研究里程碑
+```
+
+主計劃唔重複子計劃 checklist；gesture／evidence 變更先更新 Contract，API／schema／
+migration 變更更新對應實施計劃，研究 consent／retention／assignment 變更更新 Research
+Framework。第一份正式 experiment protocol 獲批准時，先建立並索引
+`research/protocols/<study-name>.md`。
+
+Retrieval-first 嘅可重現 handoff、credential compatibility inventory 同 internal soak／incident
+runbook 放喺 `plans/artifacts/`；呢啲係受控計劃嘅 evidence artifacts，唔係額外嘅產品規格或
+rollout approval。
+
+後續 AI／開發者應先讀
+[Retrieval-first V2 Current Product Baseline](./artifacts/retrieval-first-v2-current-product-baseline.md)，
+了解 I-011–I-035 後嘅最終學生流程、視覺 override、可靠性不變條件同仍未獲授權嘅 external gates。
+
+## 文件命名
+
+- 使用小寫 kebab-case，例如 `student-assignment-workflow.md`。
+- 一份文件只負責一個可清楚界定的功能、重構或發佈項目。
+- 跨多個里程碑的產品願景放在 `project-plan.md`；具體實施步驟另開文件。
+- 已完成文件保留在 `plans/`，狀態改為「已完成」；文件數量明顯增加後才建立 `plans/archive/`。
+
+## 狀態定義
+
+每份實施計劃頂部應標示以下其中一個狀態：
+
+- `草擬中`：範圍或關鍵決定仍未整理完成。
+- `待審批`：計劃已可評審，但未獲確認開始實作。
+- `進行中`：已開始修改程式或資料。
+- `受阻`：有明確外部依賴或決定阻止後續工作。
+- `已完成`：所有必要 checklist 及驗收已完成。
+- `已取代`：由另一份計劃書接替，必須連結到取代文件。
+- `已批准並生效`：只用於 normative contract；規範已獲批准並由現行 implementation 選用，
+  但仍可另列 external acceptance gate。
+- `暫緩`：目前無已授權工作；重開前要重新確認 scope、依賴及外部批准，唔可以自動續做。
+
+## 實施計劃必要內容
+
+新計劃至少包括：
+
+- [ ] 背景及問題定義
+- [ ] 目標、非目標及成功準則
+- [ ] 現況與依賴盤點
+- [ ] 路由、元件、API、資料及 migration 影響
+- [ ] 分階段實施步驟
+- [ ] 每個階段的 checklist、產出及驗收條件
+- [ ] 安全、資料一致性、效能、無障礙及相容性風險
+- [ ] 測試矩陣及實際驗證指令
+- [ ] 發佈、觀察及 rollback 策略
+- [ ] 決策紀錄及未決事項
+
+## 工作流程
+
+1. 在寫代碼前盤點現有實作、測試及相關計劃。
+2. 建立或更新 `plans/<feature-name>.md`，並加入本索引。
+3. 將工作拆成可驗證、可獨立勾選的 checklist；高風險行為要另列保護措施。
+4. 獲准開始實作後，將狀態改為「進行中」。
+5. 每完成一項且通過相應驗證後才由 `[ ]` 改成 `[x]`；不要以「已寫代碼」代替「已驗證」。
+6. 實作期間如改變範圍、資料 contract 或驗收方式，先更新計劃書再繼續。
+7. 完成時記錄實際執行的測試、未執行項目、已知限制及後續工作，然後把狀態改為「已完成」。
+
+小型、局部、低風險修正不必為每次改動另建計劃書；但如已有相關計劃，仍應更新對應 checklist。新功能、資料模型改動、跨頁面 UI 重構、認證／學習流程改動及 production 發佈改動則必須先有計劃。

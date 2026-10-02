@@ -1,0 +1,5 @@
+export const CATALOG_STRUCTURED_ISSUE_VERSION =
+  "catalog-structured-issues-v1" as const;
+
+export const CATALOG_UNSUPPORTED_STRUCTURED_ISSUE_CODE =
+  "CATALOG_STRUCTURED_ISSUE_VERSION_UNSUPPORTED" as const;

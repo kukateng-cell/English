@@ -11,6 +11,7 @@ import {
   stopSpeech,
 } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
+import Icon from "@/components/ui/Icon";
 
 const PRESETS = [
   { label: "慢", value: 0.6 },
@@ -78,16 +79,16 @@ export default function SpeechRateControl() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-40">
+    <div className="study-speech-rate-control fixed bottom-4 left-4 z-40">
       <button
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label="调整朗读语速"
-        className="flex items-center gap-1.5 rounded-full border border-zinc-200/70 bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm backdrop-blur transition hover:bg-white active:scale-95"
+        aria-label={tc("調整朗讀語速")}
+        className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)]/90 px-3 py-1.5 text-xs font-medium text-[var(--muted)] shadow-[var(--shadow-sm)] backdrop-blur transition hover:bg-[var(--border-soft)] active:scale-95"
       >
-        <span>🔊</span>
-        <span>{tc("语速")} {formatRate(rate)}</span>
+        <Icon name="volume" size={14} />
+        <span>{tc("語速")} {formatRate(rate)}</span>
       </button>
 
       <AnimatePresence>
@@ -98,13 +99,13 @@ export default function SpeechRateControl() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-full left-0 mb-2 w-64 rounded-2xl border border-zinc-200/70 bg-white p-4 shadow-xl"
+            className="absolute bottom-full left-0 mb-2 w-64 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow-elevated)]"
           >
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-semibold text-zinc-800">
-                {tc("朗读语速")}
+              <span className="text-sm font-semibold text-[var(--text)]">
+                {tc("朗讀語速")}
               </span>
-              <span className="text-xs font-medium text-blue-600">
+              <span className="text-xs font-medium text-[var(--primary)]">
                 {formatRate(rate)}
               </span>
             </div>
@@ -117,10 +118,10 @@ export default function SpeechRateControl() {
               step={0.05}
               value={rate}
               onChange={(e) => commit(Number(e.target.value))}
-              className="w-full accent-blue-600"
-              aria-label="语速滑杆"
+              className="w-full accent-[var(--primary)]"
+              aria-label={tc("語速滑桿")}
             />
-            <div className="mt-1 flex justify-between text-[10px] text-zinc-400">
+            <div className="mt-1 flex justify-between text-[10px] text-[var(--muted)]">
               <span>{tc("慢")}</span>
               <span>{tc("快")}</span>
             </div>
@@ -136,8 +137,8 @@ export default function SpeechRateControl() {
                     onClick={() => commit(p.value)}
                     className={`rounded-lg border px-1 py-1.5 text-xs transition ${
                       active
-                        ? "border-blue-500 bg-blue-50 text-blue-600"
-                        : "border-zinc-200 text-zinc-500 hover:bg-zinc-50"
+                        ? "border-[var(--primary)] bg-[var(--border-soft)] text-[var(--primary)]"
+                        : "border-[var(--border)] text-[var(--muted)] hover:bg-[var(--border-soft)]"
                     }`}
                   >
                     {tc(p.label)}
@@ -151,22 +152,22 @@ export default function SpeechRateControl() {
               <button
                 type="button"
                 onClick={preview}
-                className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-medium text-white transition hover:bg-blue-700 active:scale-[0.98]"
+                className="flex-1 rounded-lg bg-[var(--primary)] py-2 text-xs font-medium text-[var(--color-surface)] transition hover:bg-[var(--primary-2)] active:scale-[0.98]"
               >
-                ▶ 试听
+                ▶ {tc("試聽")}
               </button>
               <button
                 type="button"
                 onClick={stopSpeech}
-                aria-label="停止朗读"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 transition hover:bg-zinc-50"
+                aria-label={tc("停止朗讀")}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition hover:bg-[var(--border-soft)]"
               >
                 ■
               </button>
             </div>
 
-            <p className="mt-2 text-center text-[10px] text-zinc-400">
-              设置会自动保存，所有朗读都会套用
+            <p className="mt-2 text-center text-[10px] text-[var(--muted)]">
+              {tc("設定會自動儲存，所有朗讀都會套用")}
             </p>
           </motion.div>
         )}

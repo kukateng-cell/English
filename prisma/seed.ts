@@ -1,319 +1,468 @@
 /**
- * Seed 脚本：解析 word list.md 导入单词到数据库
- * 运行：npx tsx prisma/seed.ts
+ * Seed 腳本：匯入 versioned CSV 詞庫及本地帳戶 fixture
+ * 執行：npx tsx prisma/seed.ts
  *
- * word list.md 格式：
- *   ## A1 Level / A1 级别
- *   ### Category Name (中文名)
- *   - english — 中文释义
+ * canonical vocabulary source: data/catalog/*-word-catalog-reference-v1/*.csv
  */
 import dotenv from "dotenv";
+import { assertSeedAccountRole } from "../src/lib/seed-account-guard";
 import bcrypt from "bcryptjs";
-import { randomBytes } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient, type Level } from "../src/generated/prisma";
+import { Prisma, PrismaClient } from "../src/generated/prisma";
+import { seedCatalog } from "../src/lib/catalog/seed";
 import { ROLES } from "../src/lib/roles";
+import { passwordPolicyError } from "../src/lib/password-policy";
+import { generateTemporaryPassword } from "../src/lib/temporary-password";
+import { replacePasswordCredential } from "../src/lib/password-credentials";
+import { currentAcademicYearDates } from "../src/lib/roster-domain";
 
-// seed 是独立脚本（tsx 运行），不会自动读环境变量，手动加载 .env.local。
+// seed 是獨立腳本（tsx 執行），不會自動讀環境變數，手動載入 .env.local。
 dotenv.config({ path: ".env.local" });
 
-// Seed 用 Session pooler（MIGRATE_URL，5432，支持长事务）；运行时才用 6543 的 DATABASE_URL。
+// Seed 會寫入大量資料，必須明確使用 Session/direct connection；絕不回退 runtime URL。
+if (!process.env.MIGRATE_URL) {
+  throw new Error("執行 seed 必須明確設定 MIGRATE_URL。");
+}
 const prisma = new PrismaClient({
   adapter: new PrismaPg({
-    connectionString: process.env.MIGRATE_URL ?? process.env.DATABASE_URL,
+    connectionString: process.env.MIGRATE_URL,
   }),
 });
 
-const WORD_LIST_PATH = fileURLToPath(
-  new URL("../word list.md", import.meta.url),
-);
-
-// ── 学生账号预生成 ──
-// 账号由老师统一发放给学生，不做自助注册。
-// 格式：student01..studentNN，统一默认密码（首次登入強制修改）。
+// ── 學生帳號預生成 ──
+// 帳號由教師統一發放給學生，不設自助註冊。
+// 格式：student01..studentNN，每個帳號獨立臨時密碼（首次登入強制修改）。
 const STUDENT_COUNT = 40;
+const TEST_STUDENT_NUMBER = 9001;
+const WEBKIT_TEST_STUDENT_NUMBER = 9002;
+type DatabaseEnvironment = "development" | "test" | "production";
 
-/**
- * 解析学生预设密码：优先读环境变量 SEED_STUDENT_DEFAULT_PASSWORD，
- * 未设置时自动产生一组强随机密码并打印到控制台（避免密码进入版本库）。
- *
- * 安全要求：绝不在代码里硬编码默认密码。返回 { password, fromEnv }。
- */
-function resolveStudentPassword(): { password: string; fromEnv: boolean } {
-  const fromEnv = process.env.SEED_STUDENT_DEFAULT_PASSWORD;
-  if (fromEnv && fromEnv.trim().length >= 8) {
-    return { password: fromEnv.trim(), fromEnv: true };
+async function requireDatabaseEnvironment(): Promise<DatabaseEnvironment> {
+  const declared = process.env.DATABASE_ENVIRONMENT;
+  if (
+    declared !== "development" &&
+    declared !== "test" &&
+    declared !== "production"
+  ) {
+    throw new Error(
+      "執行 seed 必須把 DATABASE_ENVIRONMENT 明確設為 development、test 或 production。",
+    );
   }
-  // 未提供或强度不足：生成 24 字节 base64 随机密码（~192 bit 熵）。
-  const generated = randomBytes(24).toString("base64");
-  console.warn(
-    "⚠️  SEED_STUDENT_DEFAULT_PASSWORD 未设置或长度 < 8，已自动生成强随机密码。\n" +
-      "   请妥善记录下方密码并分发给学生；首次登入后会强制要求修改。\n" +
-      "   建议：在 .env.local 中设置 SEED_STUDENT_DEFAULT_PASSWORD 以便复用。",
+
+  return prisma.$transaction(
+    async (tx) => {
+      const row = await tx.databaseMetadata.findUnique({
+        where: { key: "environment" },
+      });
+      const persisted = row?.value ?? "unclassified";
+      if (persisted === "unclassified") {
+        if (process.env.CONFIRM_DATABASE_ENVIRONMENT !== declared) {
+          throw new Error(
+            `資料庫尚未分類。請確認目標後同時設定 CONFIRM_DATABASE_ENVIRONMENT=${declared}。`,
+          );
+        }
+        const claimed = await tx.databaseMetadata.updateMany({
+          where: { key: "environment", value: "unclassified" },
+          data: { value: declared },
+        });
+        if (claimed.count === 1) return declared;
+        const winner = await tx.databaseMetadata.findUnique({
+          where: { key: "environment" },
+        });
+        if (winner?.value === declared) return declared;
+        throw new Error(
+          `資料庫已被另一程序標記為 ${winner?.value ?? "unknown"}；已拒絕 seed。`,
+        );
+      }
+      if (persisted !== declared) {
+        throw new Error(
+          `資料庫環境標記為 ${persisted}，但 DATABASE_ENVIRONMENT=${declared}；已拒絕 seed。`,
+        );
+      }
+      return declared;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
-  return { password: generated, fromEnv: false };
+}
+
+const SEED_GRADES = [
+  "JUNIOR_1",
+  "JUNIOR_2",
+  "JUNIOR_3",
+  "SENIOR_1",
+  "SENIOR_2",
+  "SENIOR_3",
+] as const;
+
+async function ensureSeedCurrentYear() {
+  const current = await prisma.academicYear.findFirst({ where: { status: "CURRENT" } });
+  if (current) return current;
+  const anyYear = await prisma.academicYear.count();
+  if (anyYear > 0) throw new Error("Seed 找不到 CURRENT 學年；請先由管理員完成學年啟用或重設 disposable local DB。");
+  const input = currentAcademicYearDates();
+  return prisma.academicYear.create({ data: { ...input, isCurrent: true, status: "CURRENT" } });
+}
+
+async function ensureSeedClasses(academicYearId: string) {
+  const result: Array<Record<(typeof SEED_GRADES)[number], string>> = [];
+  for (const grade of SEED_GRADES) {
+    const schoolClass = await prisma.schoolClass.upsert({
+      where: { academicYearId_grade_classCode: { academicYearId, grade, classCode: "A" } },
+      create: { academicYearId, grade, classCode: "A", active: true },
+      update: { active: true },
+    });
+    result.push({ [grade]: schoolClass.id } as Record<(typeof SEED_GRADES)[number], string>);
+  }
+  return result;
 }
 
 async function seedStudents() {
-  const { password: studentPassword, fromEnv } = resolveStudentPassword();
-  const hash = await bcrypt.hash(studentPassword, 12);
+  const currentYear = await ensureSeedCurrentYear();
+  const classes = await ensureSeedClasses(currentYear.id);
   let created = 0;
+  let rotated = 0;
   let existed = 0;
+  console.log("一次性學生臨時密碼（請立即安全保存）：");
   for (let i = 1; i <= STUDENT_COUNT; i++) {
     const account = `student${String(i).padStart(2, "0")}`; // student01, student02, ...
-    const existing = await prisma.user.findUnique({ where: { email: account } });
-    if (existing) {
+    const credentialMarkerKey = `studentTemporaryCredential:${account}`;
+    const existing = await prisma.user.findUnique({ where: { accountName: account } });
+    const credentialMarker = await prisma.databaseMetadata.findUnique({
+      where: { key: credentialMarkerKey },
+    });
+    if (
+      existing &&
+      (existing.role !== ROLES.STUDENT ||
+        !existing.mustChangePassword ||
+        credentialMarker !== null)
+    ) {
+      if (
+        existing.role === ROLES.STUDENT &&
+        !existing.mustChangePassword &&
+        credentialMarker === null
+      ) {
+        await prisma.databaseMetadata.create({
+          data: { key: credentialMarkerKey, value: "claimed-or-managed" },
+        });
+      }
       existed++;
       continue;
     }
-    await prisma.user.create({
-      data: {
-        email: account,
-        passwordHash: hash,
-        name: `学生 ${i}`,
-        // 首次登入強制改密碼：学生用此预设密码登入后会被引导到 /reset-password。
-        mustChangePassword: true,
-      },
-    });
-    created++;
+    const temporaryPassword = generateTemporaryPassword();
+    const policyError = passwordPolicyError(temporaryPassword);
+    if (policyError) throw new Error(policyError);
+    const hash = await bcrypt.hash(temporaryPassword, 12);
+    if (existing) {
+      await prisma.$transaction(async (tx) => {
+        const updated = await replacePasswordCredential(tx, {
+          userId: existing.id,
+          passwordHash: hash,
+          mustChangePassword: true,
+          expectedTokenVersion: existing.tokenVersion,
+        });
+        if (!updated) {
+          throw new Error(`${account} 已被並發修改，請重新執行 seed。`);
+        }
+        await tx.databaseMetadata.upsert({
+          where: { key: credentialMarkerKey },
+          create: { key: credentialMarkerKey, value: "issued-v1" },
+          update: { value: "reissued-after-account-recreation-v1" },
+        });
+      });
+      rotated++;
+    } else {
+      await prisma.$transaction(async (tx) => {
+        const grade = (["JUNIOR_1", "JUNIOR_2", "JUNIOR_3", "SENIOR_1", "SENIOR_2", "SENIOR_3"] as const)[(i - 1) % 6];
+        const classId = classes[(i - 1) % classes.length]?.[grade] ?? null;
+        await tx.user.create({
+          data: {
+            accountName: account,
+            accountNameCanonical: account,
+            passwordHash: hash,
+            credentialRevision: 1,
+            legacyName: `學生 ${i}`,
+            mustChangePassword: true,
+            studentProfile: {
+              create: {
+                legalName: `學生 ${i}`,
+                nickname: `學員-${String(i).padStart(2, "0")}`,
+                nicknameNormalized: `學員-${String(i).padStart(2, "0")}`,
+                enrollments: {
+                  create: {
+                    academicYearId: currentYear.id,
+                    grade,
+                    classId,
+                    studentNumber: i,
+                    isCurrent: true,
+                    status: "ACTIVE",
+                    origin: "SEED",
+                    startedAt: new Date(),
+                  },
+                },
+              },
+            },
+          },
+        });
+        await tx.databaseMetadata.upsert({
+          where: { key: credentialMarkerKey },
+          create: { key: credentialMarkerKey, value: "issued-v1" },
+          update: { value: "reissued-after-account-recreation-v1" },
+        });
+      });
+      created++;
+    }
+    // Emit immediately after this account commits. A later failure cannot
+    // leave already-created accounts with passwords that were never shown.
+    console.log(`${account}\t${temporaryPassword}`);
   }
   const last = `student${String(STUDENT_COUNT).padStart(2, "0")}`;
-  const source = fromEnv ? "(来自 SEED_STUDENT_DEFAULT_PASSWORD)" : "(自动生成)";
   console.log(
-    `Students: ${created} created, ${existed} already exist | ` +
-      `account: student01..${last} | password ${source}: ${studentPassword}`,
+    `Students: ${created} created, ${rotated} unclaimed rotated, ${existed} unchanged | ` +
+      `account: student01..${last}`,
   );
 }
 
-// ── 测试 / 管理员种子账号 ──
-// 账号名随机生成、难以被猜中，专供内部测试功能使用；未来需要时可升级为管理员。
-// 生产环境可通过环境变量 TEST_ACCOUNT_PASSWORD 覆盖密码，避免密码进入版本库。
-const TEST_ACCOUNT = "qa-4347e0aa14";
-const TEST_ACCOUNT_PASSWORD =
-  process.env.TEST_ACCOUNT_PASSWORD ?? "e8yJ4F+bZso&aKxnC3pjzBVp";
+async function assertSeedStudentNumbers() {
+  const missing = await prisma.studentEnrollment.count({ where: { origin: "SEED", studentNumber: null, student: { user: { role: ROLES.STUDENT } } } });
+  if (missing > 0) throw new Error(`示範學生資料有 ${missing} 筆缺少學號，請修正 seed 後再繼續。`);
+}
 
-async function seedTestAccount() {
-  const hash = await bcrypt.hash(TEST_ACCOUNT_PASSWORD, 12);
+// ── 本地測試學生 ──
+// 與批量 student01..40 的「首次登入預設密碼」分開：測試學生視為已經完成改密，
+// mustChangePassword=false，可直接進入學習頁。必須明確 opt-in，正式環境預設不建立。
+async function seedTestStudent(
+  username: string,
+  password: string,
+  databaseEnvironment: DatabaseEnvironment,
+  studentNumber: number,
+) {
+  if (databaseEnvironment === "production") {
+    throw new Error("正式環境禁止建立本地測試學生帳號。");
+  }
+  if (!Number.isSafeInteger(studentNumber) || studentNumber <= 0) {
+    throw new Error(`測試學生學號無效：${studentNumber}`);
+  }
+  const policyError = passwordPolicyError(password);
+  if (policyError) throw new Error(policyError);
+  const hash = await bcrypt.hash(password, 12);
+  const currentYear = await ensureSeedCurrentYear();
+  const classes = await ensureSeedClasses(currentYear.id);
+  const classId = classes[0]?.JUNIOR_1 ?? null;
   const existing = await prisma.user.findUnique({
-    where: { email: TEST_ACCOUNT },
+    where: { accountName: username },
   });
   if (existing) {
-    console.log(`Test account already exists: ${TEST_ACCOUNT}`);
-    return;
+    throw new Error(
+      `測試學生帳號「${username}」已經存在；seed 不會覆蓋現有帳號或改變其角色。` +
+        "請使用新的保留測試帳號，或先由管理員明確刪除該帳號。",
+    );
   }
   await prisma.user.create({
     data: {
-      email: TEST_ACCOUNT,
+      accountName: username,
+      accountNameCanonical: username,
       passwordHash: hash,
-      name: "测试账号",
-      // 特权测试账号不强制改密碼。
+      credentialRevision: 1,
+      legacyName: "本地測試學生",
+      role: ROLES.STUDENT,
+      // 這組獨立測試憑證視為已經完成首次改密，可直接進入學習頁。
       mustChangePassword: false,
+      studentProfile: {
+        create: {
+          legalName: "本地測試學生",
+          nickname: "本地測試生",
+          nicknameNormalized: "本地測試生",
+            enrollments: {
+              create: {
+                academicYearId: currentYear.id,
+                grade: "JUNIOR_1",
+                classId,
+                studentNumber,
+                isCurrent: true,
+              status: "ACTIVE",
+              origin: "SEED",
+              startedAt: new Date(),
+            },
+          },
+        },
+      },
     },
   });
-  console.log(`Test account created: ${TEST_ACCOUNT}`);
+  console.log(`測試學生已就緒：${username}（已建立）`);
 }
 
-// ── 管理员 / 教师种子账号 ──
-// 通过 CLI seed 创建，取代旧的公开 HTTP 端点 /api/seed-roles（避免无鉴权提权）。
-// 初始密码必须来自环境变量 INITIAL_ADMIN_PASSWORD，严禁硬编码（安全审计要求）。
-// 使用 upsert：账号已存在时仅校正角色，绝不覆盖密码——尊重管理员可能已自行修改的密码。
+// ── 管理員 / 教師種子帳號 ──
+// 透過 CLI seed 建立，取代舊的公開 HTTP 端點 /api/seed-roles（避免無鑑權提權）。
+// 初始密碼必須來自環境變數 INITIAL_ADMIN_PASSWORD，嚴禁硬編碼（安全審計要求）。
+// 既有帳號只核對角色，絕不認領、升權或覆蓋既有身份與密碼。
 async function seedRoles(password: string) {
+  const policyError = passwordPolicyError(password);
+  if (policyError) throw new Error(`INITIAL_ADMIN_PASSWORD：${policyError}`);
   const hash = await bcrypt.hash(password, 12);
 
-  const admin = await prisma.user.upsert({
-    where: { email: "admin" },
-    create: {
-      email: "admin",
-      passwordHash: hash,
-      name: "管理员",
-      role: ROLES.ADMIN,
-      // 管理员账号不强制改密碼（密码来自 INITIAL_ADMIN_PASSWORD 环境变量）。
-      mustChangePassword: false,
-    },
-    update: { role: ROLES.ADMIN },
-  });
+  const ensureRole = async (
+    accountName: string,
+    legalName: string,
+    role: typeof ROLES.ADMIN | typeof ROLES.TEACHER,
+  ) => {
+    const existing = await prisma.user.findUnique({ where: { accountName } });
+    if (!existing) {
+      return prisma.user.create({
+        data: {
+          accountName,
+          accountNameCanonical: accountName,
+          passwordHash: hash,
+          credentialRevision: 1,
+          legacyName: legalName,
+          role,
+          mustChangePassword: false,
+          ...(role === ROLES.TEACHER
+            ? { teacherProfile: { create: { legalName, canResetStudentPassword: false } } }
+            : {}),
+        },
+      });
+    }
+    assertSeedAccountRole(existing, role, accountName);
+    return existing;
+  };
 
-  const teacher = await prisma.user.upsert({
-    where: { email: "teacher" },
-    create: {
-      email: "teacher",
-      passwordHash: hash,
-      name: "王老师",
-      role: ROLES.TEACHER,
-      // 教师账号不强制改密碼。
-      mustChangePassword: false,
-    },
-    update: { role: ROLES.TEACHER },
-  });
+  const admin = await ensureRole("admin", "管理員", ROLES.ADMIN);
+  const teacher = await ensureRole("teacher", "王老師", ROLES.TEACHER);
 
   console.log(
     `Roles seeded: admin (id=${admin.id}), teacher (id=${teacher.id})`,
   );
 }
 
+async function seedTeacherCapabilityFixtures(password: string, databaseEnvironment: DatabaseEnvironment) {
+  if (databaseEnvironment === "production") return;
+  // A matching name is not proof that seed owns an existing account.
+  const existing = await prisma.user.findUnique({ where: { accountName: "teacher-reset" } });
+  if (existing) {
+    assertSeedAccountRole(existing, ROLES.TEACHER, "teacher-reset");
+    return;
+  }
+  const currentYear = await ensureSeedCurrentYear();
+  const classA = await prisma.schoolClass.upsert({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "A" } }, create: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "A" }, update: { active: true } });
+  const classB = await prisma.schoolClass.upsert({ where: { academicYearId_grade_classCode: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "B" } }, create: { academicYearId: currentYear.id, grade: "JUNIOR_1", classCode: "B" }, update: { active: true } });
+  const hash = await bcrypt.hash(password, 12);
+  const accountName = "teacher-reset";
+  const teacher = await prisma.user.create({
+    data: { accountName, accountNameCanonical: accountName, passwordHash: hash, credentialRevision: 1, legacyName: "重設密碼測試老師", role: ROLES.TEACHER, mustChangePassword: false, teacherProfile: { create: { legalName: "重設密碼測試老師", canResetStudentPassword: true } } },
+    select: { id: true },
+  });
+  await prisma.teacherClassAccess.upsert({ where: { teacherId_classId: { teacherId: teacher.id, classId: classA.id } }, create: { teacherId: teacher.id, classId: classA.id, canViewProgress: true, canResetStudentPassword: true }, update: { canViewProgress: true, canResetStudentPassword: true } });
+  await prisma.teacherClassAccess.upsert({ where: { teacherId_classId: { teacherId: teacher.id, classId: classB.id } }, create: { teacherId: teacher.id, classId: classB.id, canViewProgress: true, canResetStudentPassword: true }, update: { canViewProgress: true, canResetStudentPassword: true } });
+  console.log(`Teacher fixtures ready: teacher (global reset off), ${accountName} (global reset on, two classes)`);
+}
+
 async function main() {
-  // 初始密码必须由环境变量提供，严禁硬编码（安全审计要求）。
+  const databaseEnvironment = await requireDatabaseEnvironment();
+  // 初始密碼必須由環境變數提供，嚴禁硬編碼（安全審計要求）。
   const initialPassword = process.env.INITIAL_ADMIN_PASSWORD;
-  if (!initialPassword) {
-    throw new Error(
-      "INITIAL_ADMIN_PASSWORD 未设置：请在 .env.local 中配置初始密码后再运行 seed。",
-    );
+  const initialPasswordError = passwordPolicyError(initialPassword ?? "");
+  if (!initialPassword || initialPasswordError) {
+    throw new Error(`INITIAL_ADMIN_PASSWORD：${initialPasswordError}`);
   }
 
-  // 读文件（Node.js 兼容）
-  const fs = await import("fs");
-  const text = fs.readFileSync(WORD_LIST_PATH, "utf-8");
-
-  // 支持的级别（与 schema 的 enum Level 一致）。
-  const SUPPORTED_LEVELS = ["A1", "A2", "B1", "B2"] as const;
-  const isSupportedLevel = (s: string): s is Level =>
-    (SUPPORTED_LEVELS as readonly string[]).includes(s.toUpperCase());
-
-  // 任何 `## XXX Level` 形式的标题都會被捕获（含 A1/A2/B1/B2 及未知级别）。
-  // 遇到未知级别時立刻报错并中止，避免沿用上一個级别导致错误归类（历史上
-  // 正因旧正则只匹配 A\d，B1 被静默吞入 A2）。
-  const LEVEL_HEADING_RE = /^##\s+([A-Za-z]\d)\s+Level\b/i;
-
-  let currentLevel: Level | null = null;
-  let currentCategory = "";
-  const words: { term: string; definition: string; level: Level; category: string }[] = [];
-
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine;
-    // 级别标题：先捕获所有 `## X# Level`，再校验是否為支持级别。
-    const levelMatch = line.match(LEVEL_HEADING_RE);
-    if (levelMatch) {
-      const raw = levelMatch[1];
-      if (!isSupportedLevel(raw)) {
-        throw new Error(
-          `word list.md 出現不支援的级别「${raw}」（支持的级别：${SUPPORTED_LEVELS.join(", ")}）。` +
-            `已中止匯入，请修正词表后重试。`,
-        );
-      }
-      currentLevel = raw.toUpperCase() as Level;
-      continue;
-    }
-
-    // 分类标题
-    const catMatch = line.match(/^###\s+(.+?)(?:\s*\(.+\))?\s*$/);
-    if (catMatch) {
-      currentCategory = catMatch[1].trim();
-      continue;
-    }
-
-    // 单词行
-    const wordMatch = line.match(/^-\s+(.+?)\s+[—–-]\s+(.+)$/);
-    if (wordMatch) {
-      const term = wordMatch[1].trim();
-      const definition = wordMatch[2].trim();
-      // currentLevel 在出現任何级别标题前必须已被設定，否则视为词表结构错误。
-      if (currentLevel === null) {
-        throw new Error(
-          `在出現任何级别标题（## A1/A2/B1/B2 Level）前就读到单词「${term}」。` +
-            `请检查 word list.md 是否以级别标题开头。`,
-        );
-      }
-      words.push({ term, definition, level: currentLevel, category: currentCategory });
-    }
+  // Refuse all reserved-name collisions before catalog or account writes.
+  for (const [accountName, role] of [["admin", ROLES.ADMIN], ["teacher", ROLES.TEACHER], ...(databaseEnvironment !== "production" ? [["teacher-reset", ROLES.TEACHER]] : [])]) {
+    const existing = await prisma.user.findUnique({ where: { accountName } });
+    assertSeedAccountRole(existing, role, accountName);
   }
 
-  // 解析后 sanity check：三个级别都必须出現，且数量 > 0。
-  const byLevel = new Map<Level, number>();
-  for (const w of words) byLevel.set(w.level, (byLevel.get(w.level) ?? 0) + 1);
-  const missing = SUPPORTED_LEVELS.filter((lv) => !byLevel.has(lv));
-  if (missing.length > 0) {
-    throw new Error(
-      `word list.md 解析后缺少以下级别：${missing.join(", ")}。` +
-        `各级别统计：${[...byLevel.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`,
-    );
-  }
+  const catalog = await prisma.$transaction(
+    (tx) =>
+      seedCatalog(tx, {
+        environment: databaseEnvironment,
+        actor: "prisma/seed",
+        finalize: process.env.CATALOG_FINALIZE !== "0",
+      }),
+    { isolationLevel: "Serializable", timeout: 120_000 },
+  );
   console.log(
-    `Parsed ${words.length} words from word list.md | ` +
-      `per-level: ${[...byLevel.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`,
+    `Catalog ready: ${catalog.rows} rows, ${catalog.validRows} valid, ` +
+      `${catalog.validationFailed} failed, ${catalog.active} ACTIVE, ` +
+      `${catalog.draft} DRAFT, ${catalog.retired} RETIRED, ` +
+      `${catalog.projections} Word compatibility projections | ` +
+      `revision=${catalog.catalogRevisionKey}`,
   );
 
-  // 按 term 去重。
-  // DB 的 Word.term 是唯一鍵，但詞表中同一 term 可能出現在多個級別
-  // （如 "red" 同時在 A1 與 B1、"date" 在 A1/B1/B2）。教學慣例取「最低級別」
-  // （該詞最早被引入的級別），因此按 (A1 > A2 > B1 > B2) 優先序保留；
-  // 同級別內多筆取第一筆（保留首次出現的 category/definition）。
-  // 注意：絕不能用 (term, level, category) 當 key 去重——那會讓同一 term 出現多筆，
-  // 後續 upsert 時「後寫入者勝」（B2 在檔案最後），會把共享 term 錯誤抬高到高級別。
-  const LEVEL_RANK: Record<Level, number> = { A1: 0, A2: 1, B1: 2, B2: 3 };
-  const bestByTerm = new Map<string, { rank: number; word: typeof words[number] }>();
-  for (const w of words) {
-    const rank = LEVEL_RANK[w.level];
-    const cur = bestByTerm.get(w.term);
-    if (!cur || rank < cur.rank) {
-      bestByTerm.set(w.term, { rank, word: w });
-    }
-  }
-  const unique = [...bestByTerm.values()].map((x) => x.word);
-
-  console.log(`After dedup (lowest-level wins per term): ${unique.length} words`);
-
-  // 批量插入 / 校正
-  // 关键：使用 upsert 而非「存在即跳过」。历史上因级别正则 bug，B1 单词被误归入 A2；
-  // 若只改正则重跑 seed，旧记录仍会是错的。upsert 能在重跑時把 level/category/definition
-  // 一次性校正为词表的最新值，保证「重新执行 seed 不会再次造成错误分类」。
-  let inserted = 0;
-  let updated = 0;
-  let unchanged = 0;
-  // 记录本次实际落库的 per-level 数量，用于和解析统计对照。
-  const dbByLevel = new Map<Level, number>();
-
-  for (const w of unique) {
-    const existing = await prisma.word.findUnique({ where: { term: w.term } });
-    if (!existing) {
-      await prisma.word.create({
-        data: {
-          term: w.term,
-          definition: w.definition,
-          level: w.level,
-          category: w.category || null,
-          // Postgres 原生 String[]：用空数组
-          synonyms: [],
-          antonyms: [],
-        },
-      });
-      inserted++;
-    } else {
-      const needsUpdate =
-        existing.level !== w.level ||
-        existing.definition !== w.definition ||
-        (existing.category ?? null) !== (w.category || null);
-      if (needsUpdate) {
-        await prisma.word.update({
-          where: { id: existing.id },
-          data: {
-            definition: w.definition,
-            level: w.level,
-            category: w.category || null,
-          },
-        });
-        // 含级别被纠正的情况（如 B1 误归 A2 的修正）。
-        updated++;
-      } else {
-        unchanged++;
-      }
-    }
-    dbByLevel.set(w.level, (dbByLevel.get(w.level) ?? 0) + 1);
-  }
-
-  console.log(
-    `Done: ${inserted} inserted, ${updated} updated, ${unchanged} unchanged | ` +
-      `db per-level: ${[...dbByLevel.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`,
-  );
-
-  // 管理员 / 教师账号（每次 seed 都会 upsert，幂等）。
+  // 管理員 / 教師帳號：只建立缺少的帳號，不修改既有帳號。
   await seedRoles(initialPassword);
+  await seedTeacherCapabilityFixtures(initialPassword, databaseEnvironment);
 
-  // 学生账号默认不创建；需要时在 .env 设 SEED_STUDENTS=1 重新跑 seed 即可。
+  // 學生帳號預設不建立；需要時在 .env 設 SEED_STUDENTS=1 重新跑 seed 即可。
   if (process.env.SEED_STUDENTS === "1") {
     await seedStudents();
+    await assertSeedStudentNumbers();
   }
-  await seedTestAccount();
+  // 建議新變數；保留舊 SEED_TEST_ACCOUNT / TEST_ACCOUNT_PASSWORD 一個發布週期，
+  // 讓已有本地環境升級後不會突然失效。
+  if (
+    process.env.SEED_TEST_STUDENT === "1" ||
+    process.env.SEED_TEST_ACCOUNT === "1"
+  ) {
+    const testUsername = (
+      process.env.TEST_STUDENT_USERNAME ?? "__test_student__local"
+    ).trim();
+    const webkitTestUsername = (
+      process.env.TEST_STUDENT_WEBKIT_USERNAME ??
+      `${testUsername.slice(0, 56)}_webkit`
+    ).trim();
+    const testPassword =
+      process.env.TEST_STUDENT_PASSWORD ??
+      process.env.TEST_ACCOUNT_PASSWORD ??
+      "";
+    for (const [name, username] of [
+      ["TEST_STUDENT_USERNAME", testUsername],
+      ["TEST_STUDENT_WEBKIT_USERNAME", webkitTestUsername],
+    ] as const) {
+      if (!/^[A-Za-z0-9._-]{3,64}$/.test(username)) {
+        throw new Error(
+          `${name} 必須為 3–64 位，只可包含字母、數字、點、底線或連字號。`,
+        );
+      }
+      if (!username.startsWith("__test_student__") && !username.startsWith("student-test")) {
+        throw new Error(
+          `${name} 必須使用保留前綴 __test_student__，避免誤用現有帳號。`,
+        );
+      }
+    }
+    const testPasswordError = passwordPolicyError(testPassword);
+    if (testPasswordError) {
+      throw new Error(`TEST_STUDENT_PASSWORD：${testPasswordError}`);
+    }
+    const testStudentFixtures = [
+      {
+        username: testUsername,
+        studentNumber: TEST_STUDENT_NUMBER,
+      },
+      ...(webkitTestUsername !== testUsername
+        ? [
+            {
+              username: webkitTestUsername,
+              studentNumber: WEBKIT_TEST_STUDENT_NUMBER,
+            },
+          ]
+        : []),
+    ];
+    const studentNumbers = testStudentFixtures.map(
+      (fixture) => fixture.studentNumber,
+    );
+    if (new Set(studentNumbers).size !== studentNumbers.length) {
+      throw new Error("測試學生 fixture 使用了重複學號。");
+    }
+    for (const fixture of testStudentFixtures) {
+      await seedTestStudent(
+        fixture.username,
+        testPassword,
+        databaseEnvironment,
+        fixture.studentNumber,
+      );
+    }
+    await assertSeedStudentNumbers();
+  }
 
   await prisma.$disconnect();
 }

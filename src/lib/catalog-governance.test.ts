@@ -1,0 +1,102 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  catalogEntryAcceptsLemma,
+  catalogGovernancePayloadFromUnknown,
+  parseCatalogGovernancePayload,
+  payloadFingerprint,
+  payloadToSourceRow,
+  resolveExistingCatalogEntryForLemma,
+  splitListForEditor,
+  parseEditorList,
+  validateCatalogGovernancePayload,
+  type CatalogGovernancePayload,
+} from "./catalog/governance";
+
+const payload: CatalogGovernancePayload = {
+  term: "run",
+  lemma: "run",
+  partOfSpeech: "verb",
+  level: "A1",
+  category: "actions-events",
+  definitionZh: "跑步",
+  acceptedAnswersZh: ["跑步"],
+  phoneticIpa: "/rʌn/",
+  exampleEn: "I run every morning.",
+  exampleZh: "我每天早上跑步。",
+  acceptedFormsEn: ["run"],
+  synonymsEn: [],
+  antonymsEn: [],
+  enableEnToZh: true,
+  distractorZh: ["跳躍", "行走", "游泳", "站立", "坐下"],
+  enableZhToEn: true,
+  distractorEn: ["walk", "jump", "swim", "stand", "sit"],
+  sourceReference: null,
+  contributorRef: null,
+  changeNote: null,
+  retirementReason: null,
+};
+
+test("governance payload never serializes student-facing prompts", () => {
+  const row = payloadToSourceRow(payload, { catalogKey: "people-actions", senseKey: "run-a1", sourceFile: "governance", sourceRow: 0 }, 1);
+  assert.equal(row.prompt_en, "");
+  assert.equal(row.prompt_zh, "");
+});
+
+test("governance validation keeps each sense identity and validates only the current row", () => {
+  const result = validateCatalogGovernancePayload({ ...payload, distractorZh: ["經營", "跳躍", "行走", "游泳", "站立"] }, { catalogKey: "actions", senseKey: "run-a1", sourceFile: "fixture", sourceRow: 2 }, 1);
+  assert.equal(
+    result.issues.some((issue) => issue.code === "CATALOG_DISTRACTOR_SIBLING_COLLISION"),
+    false,
+  );
+  assert.equal(result.row.senseKey, "run-a1");
+});
+
+test("editor list round-trip and request fingerprint are deterministic", () => {
+  const editorValue = splitListForEditor(["跳躍", "行走", "游泳"]);
+  assert.deepEqual(parseEditorList(editorValue), ["跳躍", "行走", "游泳"]);
+  assert.equal(payloadFingerprint({ kind: "UPDATE", payload }), payloadFingerprint({ kind: "UPDATE", payload }));
+  assert.notEqual(payloadFingerprint({ kind: "UPDATE", payload }), payloadFingerprint({ kind: "UPDATE", payload: { ...payload, level: "A2" } }));
+});
+
+test("governance parser rejects malformed booleans and preserves null optional fields", () => {
+  assert.throws(() => parseCatalogGovernancePayload({ ...payload, enableEnToZh: "TRUE" }), /enableEnToZh must be boolean/);
+  const parsed = parseCatalogGovernancePayload({ ...payload, phoneticIpa: "", exampleEn: "", exampleZh: "" });
+  assert.equal(parsed.phoneticIpa, null);
+  assert.equal(parsed.exampleEn, null);
+  assert.equal(parsed.exampleZh, null);
+});
+
+test("safe governance payload parsing rejects legacy empty lifecycle payloads", () => {
+  assert.deepEqual(catalogGovernancePayloadFromUnknown(payload), payload);
+  assert.equal(catalogGovernancePayloadFromUnknown({}), null);
+  assert.equal(catalogGovernancePayloadFromUnknown(null), null);
+});
+
+test("governance validation rejects categories outside the controlled taxonomy", () => {
+  const result = validateCatalogGovernancePayload(
+    { ...payload, category: "teacher-invented-category" },
+    { catalogKey: "run", senseKey: "run-a1", sourceFile: "fixture", sourceRow: 1 },
+    1,
+  );
+  assert.ok(result.errors.includes("unknown category: teacher-invented-category"));
+});
+
+test("catalog entry lemma comparison is normalized but does not permit a new headword", () => {
+  assert.equal(catalogEntryAcceptsLemma("run", " RUN "), true);
+  assert.equal(catalogEntryAcceptsLemma("run", "running"), false);
+});
+
+test("new senses reuse one existing headword and reject split identities", () => {
+  const runEntry = { id: "entry-run", catalogKey: "run", normalizedLemma: "run" };
+  assert.equal(resolveExistingCatalogEntryForLemma("run", null, runEntry), runEntry);
+  assert.equal(resolveExistingCatalogEntryForLemma(" RUN ", runEntry, runEntry), runEntry);
+  assert.throws(
+    () => resolveExistingCatalogEntryForLemma("walk", runEntry, null),
+    /CATALOG_ENTRY_IDENTITY_CONFLICT/,
+  );
+  assert.throws(
+    () => resolveExistingCatalogEntryForLemma("run", runEntry, { ...runEntry, id: "split-run", catalogKey: "pending-run" }),
+    /CATALOG_ENTRY_IDENTITY_CONFLICT/,
+  );
+});
