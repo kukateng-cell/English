@@ -102,6 +102,16 @@
 - 只有 24 名學生升級至 A2 以上，其餘 542 名仍以 A1 為主，屬刻意的分層設計。
 - 未執行高成本 regression（`npm run test:e2e:card-motion` 等），因為本次只改資料、不改程式行為。
 
+## 部署紀錄（2026-11-01）
+
+- 補寫完成後以 `vercel --prod` 部署到 `english-seeword` 專案：
+  `https://english-seeword-3t8kcpnnn-chao9.vercel.app`，alias `https://english-seeword.vercel.app`。
+- `main`、`data-1`、`data-2` 三個分支內容一致；`main` 已透過 PR #82（squash）包含本計劃及
+  `scripts/backfill-demo-realism.ts`。`main` 受 repository rule 保護，只接受 Pull Request，不能直接 push。
+- GitHub About 連結指向另一個 Vercel 專案（`english-tan-chi.vercel.app`），該專案的 Production
+  部署失敗與本補寫無關；需要在該 Vercel 專案補齊 Production 環境變數，或改用已部署的
+  `english-seeword` 專案。
+
 ## 風險
 
 - 雲端免費方案 500 MB，目前 396 MB；補寫預計增加 15–25 MB，完成後需量測。
