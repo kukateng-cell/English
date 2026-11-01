@@ -32,6 +32,7 @@
 ## 環境變數（Vercel project settings）
 
 必要（gate 強制）：
+
 - `DATABASE_URL`＝Supabase transaction pooler（6543，`?pgbouncer=true`）
 - `DATABASE_POOL_MAX=3`
 - `NEXTAUTH_SECRET`（隨機 32 bytes base64）

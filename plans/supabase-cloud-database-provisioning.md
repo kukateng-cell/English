@@ -177,11 +177,13 @@ Supabase 專案建立後**不可更改區域**，只能「建新專案 → 遷�
    - **Session pooler（5432）** → `MIGRATE_URL`（Direct connection 只有 IPv6，本機不可用）
 3. 執行 `npm run db:deploy`（以 shell 覆寫 `MIGRATE_URL`）。
 4. 執行：
+
    ```bash
    SOURCE_URL="postgresql://postgres:<本機密碼>@localhost:5432/english_demo" \
    TARGET_URL="<session pooler 連線字串>" \
    node scripts/copy-demo-data-to-cloud.mjs
    ```
+
 5. 核對 row count、外鍵及觸發器數量，再以 dev server 做登入 smoke test。
 6. 確認新庫正常後，在 Dashboard 刪除舊 `eu-west-1` 專案。
 
