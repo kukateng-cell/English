@@ -128,6 +128,37 @@ production config 檢查通過，並在本文件記錄實際結果與網域。
 | 答題寫入 | 成功；Supabase 新增 2026-10-31 15:32 `uncle` REVIEW quality=4 |
 | 限流 | 登入經 Upstash 生效（未見 fail-closed 拒絕） |
 
+### 環境變數必須按環境分別設定（2026-11-01 事故）
+
+**現象**：在其他 Vercel 專案／部署上建置失敗，錯誤為
+`Invalid production configuration: distributed Upstash login/study rate limiting is
+required; CRON_SECRET must contain at least 16 characters; SECURITY_AUDIT_HMAC_SECRET
+must contain at least 32 characters; SECURITY_AUDIT_HMAC_KEY_ID must be a safe
+non-empty key id`。
+
+**原因**：這是 `next.config.ts` 刻意設計的 fail-closed 閘門
+（`productionConfigurationErrors`）。當 `VERCEL_ENV=production` 而缺少上述變數時，
+**建置階段即中止**，避免把沒有共享限流的應用推上線。`english-seeword` 專案最初只把
+14 個變數設在 **Production**，**Preview 與 Development 皆為 0 個**，因此在其他
+環境／其他專案部署時必然重現此錯誤。
+
+**這不是程式錯誤，不應以修改 `next.config.ts` 繞過**：缺少 Upstash 時 runtime 限流
+fail-closed，登入會直接回 503，應用本身無法運作。正確做法是補齊環境變數。
+
+已處理：對 `english-seeword` 的 **Preview** 環境補上 13 個變數（`NEXTAUTH_URL` 除外，
+因預覽網域逐次變動，Auth.js 會自行推導）。
+
+操作備註：
+
+- Vercel CLI 54 的 `vercel env add` 在非互動模式下必須同時提供
+  `--value <值>` 與 `--yes`；僅以 stdin 餵值會卡在分支選擇提示。
+- 批次設定可改用 REST API：
+  `POST https://api.vercel.com/v10/projects/<projectId>/env?teamId=<teamId>&upsert=true`，
+  body 為 `{"key","value","type":"encrypted","target":["preview"]}`。
+- 在 Dashboard 亦可用「Import .env」批量貼上（本機參考檔為 gitignored 的 `.env.vercel`）。
+- **建立新專案時務必同時設定 Production 與 Preview 兩個環境**，或直接沿用已設定的
+  `english-seeword`。
+
 ### 未執行項目
 
 - 未跑 `npm run test:e2e:card-motion` 或完整瀏覽器矩陣（部署為示範用途）。
