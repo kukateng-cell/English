@@ -7,7 +7,9 @@ import { updateSM2At, type ReviewState } from "./sm2";
 import { selectNextItem } from "./learning-policy/scheduler";
 import { admitWork, requiresEvidenceObligation, verificationTimes } from "./learning-policy/admission";
 import { mapObjectiveFirstResponse } from "./learning-policy/quality";
-import { type CandidateRecord, type WorkRecord, type SelfRating, type LearningPolicyVersion, RETRIEVAL_V1_POLICY, RETRIEVAL_V2_POLICY } from "./learning-policy/types";
+import { type CandidateRecord, type WorkRecord, type SelfRating, type LearningPolicyVersion, RETRIEVAL_V1_POLICY, RETRIEVAL_V2_POLICY, RETRIEVAL_V3_POLICY } from "./learning-policy/types";
+
+import { initialCheckReady, nextPhaseCursor } from "./learning-policy/phases";
 
 export const DEMO_VERSION = "school-simulation-v1";
 export function demoId(key: string): string {
@@ -53,7 +55,7 @@ export function schoolRoster(seed: string): DemoStudent[] {
   }
   return result;
 }
-export type SimulationWord = { id: string; level: string; category: string | null };
+export type SimulationWord = { id: string; level: string; category: string | null; term?: string };
 export type SimReview = ReviewState & { revision: number };
 export type SimWork = WorkRecord & { answeredAt?: number };
 export type SimAction = {
@@ -90,8 +92,9 @@ export function activitySlots(seed: string, student: DemoStudent, date: string, 
 }
 
 export function simulateStudent(seed: string, student: DemoStudent, words: SimulationWord[], startDate: string, asOf: Date, policyVersion: LearningPolicyVersion = "retrieval-v1") {
-  const policy = policyVersion === "retrieval-v2" ? RETRIEVAL_V2_POLICY : RETRIEVAL_V1_POLICY;
-  const modern = policyVersion === "retrieval-v2";
+  const phase = policyVersion === "retrieval-v3";
+  const policy = phase ? RETRIEVAL_V3_POLICY : policyVersion === "retrieval-v2" ? RETRIEVAL_V2_POLICY : RETRIEVAL_V1_POLICY;
+  const modern = policyVersion !== "retrieval-v1";
   let lastProbeAt: number | undefined;
   const reviews = new Map<string, SimReview>();
   const work: SimWork[] = [];
@@ -106,7 +109,7 @@ export function simulateStudent(seed: string, student: DemoStudent, words: Simul
     group.total++; groups.set(key, group);
   }
   const byId = new Map(words.map(w => [w.id, w]));
-  const expire = (now: number) => { for (const w of work) if (w.status === "PENDING" && w.expiresAt <= now) w.status = "EXPIRED"; };
+  const expire = (now: number) => { for (const w of work) if (!phase && w.status === "PENDING" && w.expiresAt <= now) w.status = "EXPIRED"; };
   for (let date = startDate; date <= todayKey(asOf); date = offsetDay(date, 1)) {
     for (const slot of activitySlots(seed, student, date, startDate)) {
       if (slot.end > asOf.getTime()) continue;
@@ -119,18 +122,26 @@ export function simulateStudent(seed: string, student: DemoStudent, words: Simul
       const available = words.filter(w => unlocked.has(`${w.level}::${w.category ?? "未分類"}`));
       const candidates: CandidateRecord[] = [];
       for (const w of active) {
-        candidates.push({ id: w.id, wordId: w.wordId, kind: w.kind === "REMEDIATION" ? "LEARNING_CARD" : "OBJECTIVE_PROBE", purpose: "EVIDENCE_OBLIGATION", workId: w.id, eligibleAt: w.eligibleAt, expiresAt: w.expiresAt, selectionReason: "evidence-work" });
+        if (phase && !available.some(word => word.id === w.wordId)) continue;
+        const exposed = contacts.get(w.wordId) ?? w.admittedAt;
+        const otherTerms = actions.filter(a => a.end > exposed).map(a => byId.get(a.wordId)?.term ?? a.wordId);
+        const initialGapPending = phase && !initialCheckReady(now, exposed, otherTerms, byId.get(w.wordId)?.term ?? w.wordId);
+        candidates.push({ id: w.id, wordId: w.wordId, kind: w.kind === "REMEDIATION" ? "LEARNING_CARD" : "OBJECTIVE_PROBE", purpose: "EVIDENCE_OBLIGATION", workId: w.id, eligibleAt: w.eligibleAt, expiresAt: w.expiresAt, selectionReason: phase ? "initial-check" : "evidence-work", policyVersion, initialGapPending, selectionPriority: phase ? w.admittedAt : undefined });
         if (!modern && w.kind === "EVIDENCE_OBLIGATION") candidates.push({ id: `filler:${w.id}`, wordId: w.wordId, kind: "LEARNING_CARD", eligibleAt: w.eligibleAt, expiresAt: w.expiresAt, selectionReason: "evidence-obligation-gap-filler" });
       }
       const ordered = [...available].sort((a,b) => (contacts.get(a.id) ?? 0) - (contacts.get(b.id) ?? 0) || a.id.localeCompare(b.id));
       for (const [i, w] of ordered.entries()) {
         if (activeWords.has(w.id)) continue;
         const review = reviews.get(w.id);
-        if (modern && (active.length >= 5 || (contacts.get(w.id) ?? 0) + 600000 > now || (review && review.nextReviewDate.getTime() > now))) continue;
+        if (phase) {
+          if (review && (review.nextReviewDate.getTime() > now || (contacts.get(w.id) ?? 0) + 600000 > now)) continue;
+          if (!review && (active.length >= 5 || contacts.has(w.id))) continue;
+        } else if (modern && (active.length >= 5 || (contacts.get(w.id) ?? 0) + 600000 > now || (review && review.nextReviewDate.getTime() > now))) continue;
         if (review && review.nextReviewDate.getTime() <= now) candidates.push({ id: `due:${w.id}`, wordId: w.id, kind: "OBJECTIVE_PROBE", purpose: "DUE_REVIEW", eligibleAt: review.nextReviewDate.getTime(), selectionReason: "due-review" });
         if (!modern || !review) candidates.push({ id: `card:${w.id}`, wordId: w.id, kind: "LEARNING_CARD", selectionPriority: i, selectionReason: review ? "ordinary-review" : contacts.has(w.id) ? "contacted-word" : "new-word" });
       }
-      const decision = selectNextItem({ mode: "global", now, consecutiveProbes, acknowledgedItemsSinceProbe: gap, hasPreviousProbe, recentWordIds: recent, activeWork: active, candidates, lastProbeAt }, policy);
+      for (const candidate of candidates) if (phase) candidate.policyVersion = "retrieval-v3";
+      const decision = selectNextItem({ phaseCursor: nextPhaseCursor(actions.at(-1)?.override), allowSmallPoolInitial: true, mode: "global", now, consecutiveProbes, acknowledgedItemsSinceProbe: gap, hasPreviousProbe, recentWordIds: recent, activeWork: active, candidates, lastProbeAt }, policy);
       const c = decision.candidate;
       if (!c) continue;
       const id = demoId(`${seed}:${student.key}:${slot.start}`);
@@ -145,8 +156,8 @@ export function simulateStudent(seed: string, student: DemoStudent, words: Simul
       const served = work.find(w => w.id === c.workId);
       if (served) { served.status = "ANSWERED"; served.answeredAt = action.answer; }
       const admit = (kind: "REMEDIATION" | "EVIDENCE_OBLIGATION") => {
-        const admitted = admitWork({ learnerId: student.key, wordId: c.wordId, kind, now: action.answer, eligibleAt: kind === "EVIDENCE_OBLIGATION" || modern ? verificationTimes(action.answer).eligibleAt : action.answer, sourceOperationId: `${id}:answer`, activeWork: active.filter(w => w.status === "PENDING") });
-        if (admitted.record) { admitted.record.id = demoId(admitted.record.id); work.push(admitted.record); action.admittedWorkId = admitted.record.id; }
+        const admitted = admitWork({ policy, learnerId: student.key, wordId: c.wordId, kind, now: action.answer, eligibleAt: phase ? action.answer : kind === "EVIDENCE_OBLIGATION" || modern ? verificationTimes(action.answer).eligibleAt : action.answer, sourceOperationId: `${id}:answer`, activeWork: active.filter(w => w.status === "PENDING") });
+        if (admitted.record) { if (phase) admitted.record.expiresAt = Date.parse("9999-12-31T00:00:00Z"); admitted.record.policyVersion = policyVersion; admitted.record.id = demoId(admitted.record.id); work.push(admitted.record); action.admittedWorkId = admitted.record.id; }
       };
       if (c.kind === "OBJECTIVE_PROBE") {
         action.purpose = c.workId ? "EVIDENCE_OBLIGATION" : "DUE_REVIEW";
@@ -154,11 +165,12 @@ export function simulateStudent(seed: string, student: DemoStudent, words: Simul
         const initial: ReviewState = { easeFactor: 2.5, interval: 0, repetitions: 0, nextReviewDate: new Date(now), lastReviewedAt: null };
         action.after = { ...updateSM2At(previous ?? initial, mapObjectiveFirstResponse(correct ? "correct" : "wrong", action.purpose)!.quality, new Date(action.answer)), revision: (previous?.revision ?? 0) + 1 };
         reviews.set(c.wordId, action.after);
-        if (!correct) admit("REMEDIATION");
+        if (!correct && !phase) admit("REMEDIATION");
         gap = 0; consecutiveProbes++; hasPreviousProbe = true; lastProbeAt = action.end;
       } else {
-        if (requiresEvidenceObligation({ learnerId: student.key, wordId: c.wordId, selfRating, repetitions: previous?.repetitions ?? 0, hadObjectiveEvidence: Boolean(previous), activeWork: active, now: action.answer, sourceOperationId: `${id}:answer` })) admit("EVIDENCE_OBLIGATION");
-        if (modern && selfRating === "selfForgot") admit("REMEDIATION");
+        if (phase && !previous) admit("EVIDENCE_OBLIGATION");
+        if (!phase && requiresEvidenceObligation({ learnerId: student.key, wordId: c.wordId, selfRating, repetitions: previous?.repetitions ?? 0, hadObjectiveEvidence: Boolean(previous), activeWork: active, now: action.answer, sourceOperationId: `${id}:answer` })) admit("EVIDENCE_OBLIGATION");
+        if (modern && !phase && selfRating === "selfForgot") admit("REMEDIATION");
         gap++; consecutiveProbes = 0;
       }
       contacts.set(c.wordId, action.end);

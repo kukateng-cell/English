@@ -1058,85 +1058,15 @@ async function main() {
     if (unknownFeedbackReconciliation.terminal) assert.equal(unknownFeedbackReconciliation.code, "FEEDBACK_ALREADY_ACKNOWLEDGED");
     assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), feedbackReceiptCount);
     await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { revealedAt: elapsedExposure, usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
-    let postFeedbackLearningCards = 0;
-    let remediation = await getOrCreateStudyStream(user.id);
-    // Remediation obeys the same learner-scoped spacing window as every
-    // other candidate source. Complete any intervening card through the real
-    // action path before asserting that the pending remediation is eventually
-    // selected; a fixed immediate-selection expectation would reject the
-    // intentional spacing contract.
-    while (
-      remediation.item?.kind === "LEARNING_CARD" &&
-      remediation.item.selectionReason !== "remediation" &&
-      postFeedbackLearningCards < 4
-    ) {
-      const card = remediation.item;
-      const cardOperation = `stream-post-feedback-card-${suffix}-${postFeedbackLearningCards}`;
-      await applyStudyStreamAction(user.id, {
-        flowVersion: "v2",
-        studySessionId: remediation.session.id,
-        streamItemId: card.streamItemId,
-        operationId: `${cardOperation}-reveal`,
-        itemCredential: card.itemCredential,
-        actionKind: "REVEAL",
-        clientKnownRevision: card.clientRevision,
-        payload: {},
-      });
-      await applyStudyStreamAction(user.id, {
-        flowVersion: "v2",
-        studySessionId: remediation.session.id,
-        streamItemId: card.streamItemId,
-        operationId: `${cardOperation}-rating`,
-        itemCredential: card.itemCredential,
-        actionKind: "SELF_RATING",
-        clientKnownRevision: card.clientRevision,
-        payload: { selfRating: "selfRecalled" },
-      });
-      postFeedbackLearningCards += 1;
-      remediation = await getOrCreateStudyStream(user.id);
-    }
-    assert.ok(remediation.item, "study-stream invariant failed");
-    assert.equal(remediation.item.kind, "LEARNING_CARD");
-    assert.equal(remediation.item.selectionReason, "remediation");
-    const remediationItem = remediation.item;
-    const remediationRow = await prisma.studyStreamItem.findUniqueOrThrow({
-      where: { id: remediationItem.streamItemId },
-      select: { workObligationId: true },
-    });
-    assert.ok(remediationRow.workObligationId, "study-stream invariant failed");
-    const remediationReveal: StudyStreamActionInput = {
-      flowVersion: "v2",
-      studySessionId: remediation.session.id,
-      streamItemId: remediationItem.streamItemId,
-      operationId: `stream-remediation-reveal-${suffix}`,
-      itemCredential: remediationItem.itemCredential,
-      actionKind: "REVEAL",
-      clientKnownRevision: remediationItem.clientRevision,
-      payload: {},
-    };
-    await applyStudyStreamAction(user.id, remediationReveal);
-    const remediationForgot: StudyStreamActionInput = {
-      ...remediationReveal,
-      operationId: `stream-remediation-forgot-${suffix}`,
-      actionKind: "SELF_RATING",
-      payload: { selfRating: "selfForgot" },
-    };
-    const remediationResult = await applyStudyStreamAction(user.id, remediationForgot);
-    assert.equal(remediationResult.response.evidenceObligation?.created, true);
-    const answeredRemediation = await prisma.evidenceObligation.findUniqueOrThrow({
-      where: { id: remediationRow.workObligationId },
-      select: { status: true, activeKey: true },
-    });
-    assert.equal(answeredRemediation.status, "ANSWERED");
-    assert.equal(answeredRemediation.activeKey, null);
-    assert.equal(
-      await prisma.studyEncounter.count({ where: { userId: user.id } }),
-      encountersBeforeObjective + intermediateLearningCards + postFeedbackLearningCards + 1,
-    );
-    assert.equal(
-      await prisma.operationReceipt.count({ where: { userId: user.id } }),
-      receiptsBeforeObjective + intermediateLearningCards * 2 + postFeedbackLearningCards * 2 + 5,
-    );
+    // 新政策：錯誤由當次 feedback 糾正，未來 Review 保留，不建立同場補救循環。
+    const afterWrong = await getOrCreateStudyStream(user.id);
+    assert.ok(afterWrong.item, "答錯後仍可繼續其他內容");
+    assert.notEqual(afterWrong.item.selectionReason, "remediation");
+    const failedReview = await prisma.review.findUniqueOrThrow({ where: { userId_wordId: { userId: user.id, wordId: event.wordId! } } });
+    assert.equal(failedReview.interval, 1);
+    assert.equal(failedReview.repetitions, 0);
+    assert.ok(failedReview.nextReviewDate > new Date(), "錯題保留未來複習");
+    assert.equal(await prisma.evidenceObligation.count({where:{userId:user.id,kind:"REMEDIATION",sourceOperationId:answerInput.operationId}}),0);
 
     // Exact negative controls prevent a vacuous SQL/Prisma equivalence pass on
     // a database containing only current words.
@@ -1303,7 +1233,7 @@ async function main() {
     assert.equal(metrics.objectiveRecognitionCount, 1);
     assert.equal(
       metrics.selfRatedEncounterCount,
-      encountersBeforeObjective + intermediateLearningCards + postFeedbackLearningCards + 1,
+      encountersBeforeObjective + intermediateLearningCards,
     );
     assert.equal(metrics.legacyUnknownEventCount, 0);
     assert.ok(metrics.learnedCount >= 1, "repetitions=1 must count as learned");
@@ -1420,7 +1350,7 @@ async function main() {
     assert.equal(dashboard.today.objectiveRecognitionCount, 1);
     assert.equal(
       dashboard.today.selfRatedEncounterCount,
-      encountersBeforeObjective + intermediateLearningCards + postFeedbackLearningCards + 1,
+      encountersBeforeObjective + intermediateLearningCards,
     );
     assert.equal(dashboard.library.masteredCount, 0);
     const unitSummaryAfter = await getOrCreateStudyStream(user.id, {
@@ -1488,7 +1418,9 @@ async function main() {
         nextReviewDate: new Date(dueOrderNow.getTime() - 30_000),
       },
     });
-    const dueOrderStream = await getOrCreateStudyStream(studyDayOnlyUser.id);
+    const dueOrderOtherWords = await prisma.word.findMany({where:withCurrentCatalogWord({level:"A1",category:unitCategoryToStorage(testUnitCategory)}),select:{id:true}});
+    await prisma.review.createMany({data:dueOrderOtherWords.filter(w=>!dueOrderWords.some(d=>d.id===w.id)).map(w=>({userId:studyDayOnlyUser.id,wordId:w.id,nextReviewDate:new Date(Date.now()+86400000)}))});
+    const dueOrderStream = await getOrCreateStudyStream(studyDayOnlyUser.id,{mode:"unit",level:"A1",category:testUnitCategory});
     const dueOrderItem = await prisma.studyStreamItem.findUniqueOrThrow({
       where: { id: dueOrderStream.item?.streamItemId ?? "" },
       select: { itemKind: true, wordId: true, selectionReason: true },
@@ -1665,10 +1597,10 @@ async function main() {
       level: "A1" as const,
       category: testUnitCategory,
     };
-    await prisma.review.createMany({ data: scheduleGapWords.slice(3).map(word => ({ userId: obligationGapUser.id, wordId: word.id, senseId: word.senseId, nextReviewDate: new Date(Date.now()+86400000) })) });
+    await prisma.review.createMany({ data: [obligationGapWords[0],...obligationGapWords.slice(4)].map(word => ({ userId: obligationGapUser.id, wordId: word.id, senseId: word.senseId, nextReviewDate: new Date(Date.now()+86400000) })) });
     const obligationGapProbe = await getOrCreateStudyStream(obligationGapUser.id, obligationGapOptions);
     assert.equal(obligationGapProbe.item?.kind, "OBJECTIVE_PROBE");
-    assert.equal(obligationGapProbe.item?.selectionReason, "evidence-obligation");
+    assert.equal(obligationGapProbe.item?.selectionReason, "initial-check");
     const obligationGapProbeRow = await prisma.studyStreamItem.findUniqueOrThrow({
       where: { id: obligationGapProbe.item?.streamItemId ?? "" },
       select: { workObligationId: true },
@@ -1679,16 +1611,10 @@ async function main() {
       select: { id: true, status: true },
       orderBy: { createdAt: "asc" },
     });
-    assert.equal(obligationGapRows.length, obligationGapIds.length);
-    assert.deepEqual(new Set(obligationGapRows.map((row) => row.id)), new Set(obligationGapIds));
-    if (!obligationGapProbeRow.workObligationId) throw new Error("obligation-gap probe lost its obligation identity");
-    const obligationGapStatusesById = new Map(obligationGapRows.map((row) => [row.id, row.status]));
-    for (const obligationId of obligationGapIds) {
-      assert.equal(
-        obligationGapStatusesById.get(obligationId),
-        obligationId === obligationGapProbeRow.workObligationId ? "LEASED" : "PENDING",
-      );
-    }
+    assert.equal(obligationGapRows.length, obligationGapIds.length * 2, "舊工作保留並建立後繼");
+    for (const id of obligationGapIds) assert.equal(obligationGapRows.find(r=>r.id===id)?.status,"SUPERSEDED");
+    assert.equal(obligationGapRows.filter(r=>r.status==="LEASED").length,1);
+    assert.equal(obligationGapRows.filter(r=>r.status==="PENDING").length,2);
 
     // A long-running learner can have more encounters than the bounded
     // contact-time history window. The contacted/untouched partition must
@@ -1846,9 +1772,9 @@ async function main() {
       },
     });
     const secondLongHistory = await getOrCreateStudyStream(longHistoryUser.id, longHistoryOptions);
-    assert.equal(secondLongHistory.item, null);
-    assert.equal(secondLongHistory.availability?.state, "waiting");
-    assert.ok(await prisma.evidenceObligation.count({ where: { userId: longHistoryUser.id, status: "PENDING", wordId: longHistoryTarget.id } }), "long history must preserve pending verification");
+    assert.equal(secondLongHistory.item?.kind, "OBJECTIVE_PROBE", "尾段初驗不用等十分鐘");
+    assert.equal(secondLongHistory.item?.selectionReason, "initial-check");
+    assert.ok(await prisma.evidenceObligation.count({ where: { userId: longHistoryUser.id, status: {in:["PENDING","LEASED"]}, wordId: longHistoryTarget.id } }), "長歷史需求保留");
 
     const leaderboard = await getWeeklyLeaderboard({ userId: user.id, scope: "school", view: "summary" });
     assert.ok(leaderboard.personal.scoreMilliPoints > 0, "study-stream invariant failed");
@@ -2095,6 +2021,13 @@ async function main() {
         activeKey: `cross-scope-remediation:${suffix}`,
       },
     });
+    async function issuedLegacyRemediation(obligationId:string, key:string) {
+      const credential=createStudyStreamCredential();
+      const session=await prisma.studySession.create({data:{userId:user.id,queueFingerprint:key,flowVersion:"v2",learningPolicyVersion:"retrieval-v1",mode:"global",expiresAt:new Date(Date.now()+1800000)}});
+      await prisma.studyStreamItem.create({data:{sessionId:session.id,streamItemKey:key,wordId:unitRemediationWord.id,senseId:unitRemediationWord.senseId,itemKind:"LEARNING_CARD",selectionReason:"remediation",policyVersion:"retrieval-v1",status:"LEASED",workObligationId:obligationId,leaseExpiresAt:new Date(Date.now()+900000),credentialDigest:digestStudyStreamCredential(credential),credentialExpiresAt:new Date(Date.now()+900000)}});
+      await prisma.evidenceObligation.update({where:{id:obligationId},data:{admittedAt:elapsedExposure,status:"LEASED",leaseOwnerSessionId:session.id,leaseExpiresAt:new Date(Date.now()+900000)}});
+    }
+    await issuedLegacyRemediation(remediationObligation.id,`issued-remediation-${suffix}`);
     await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, revealedAt: { not: null } }, data: { revealedAt: elapsedExposure } });
     await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
     const globalRemediation = await getOrCreateStudyStream(user.id);
@@ -2156,6 +2089,7 @@ async function main() {
         activeKey: `expired-remediation:${suffix}`,
       },
     });
+    await issuedLegacyRemediation(expiringObligation.id,`issued-expiring-${suffix}`);
     const expiringGlobal = await getOrCreateStudyStream(user.id);
     assert.equal(expiringGlobal.item?.kind, "LEARNING_CARD");
     assert.equal(expiringGlobal.item?.selectionReason, "remediation");

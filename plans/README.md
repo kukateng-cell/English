@@ -21,7 +21,8 @@
 
 ### 目前進行中
 
-- [學習流揀詞、短期重複與驗證進度改進](./study-stream-selection-improvement.md)：進行中（已批准本地實作），含可重跑循環證據、容量／等待取捨及驗收矩陣。
+- [新詞引入、初次驗證與間隔複習重設計](./study-stream-learning-phases.md)：本地實作及驗收完成；以短期初驗釋放窗口、未來複習獨立排程，處理上一版五詞／十分鐘的新手阻塞。
+- [學習流揀詞、短期重複與驗證進度改進](./study-stream-selection-improvement.md)：本地修正已推送；節奏規則已由三階段方案取代，保留循環根因及驗收證據。
 - [項目整理、重構與學生交接](./project-consolidation-and-student-handoff.md)：本分支的主線工作；目前處於 P1 文件入口、P3 source layer 及 P4 cutover 階段。
 - [教師學習／獎勵索引](./teacher-learning-reward-index.md)：本地功能已實作，整體環境驗證及 external gates 仍待處理。
 - [詞庫問題指引及選擇版面修正](./catalog-issue-guidance-and-selection-layout-corrections.md)：匯出格式修訂已完成，完整 viewport matrix 仍待執行。
@@ -48,7 +49,8 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
-| [study-stream-selection-improvement.md](./study-stream-selection-improvement.md) | 分析及改進方案 | 進行中（已批准本地實作） | 三字循環、驗證容量缺口、模擬器差異及版本相容分析；建議公平輪換、發卡容量節制、明確等待與跨日驗證；線上帳戶個案仍待可用憑證 |
+| [study-stream-learning-phases.md](./study-stream-learning-phases.md) | 三階段重設計及驗收方案 | 已完成（本地實作及驗收） | 取消初驗十分鐘硬門檻；正誤都釋放初學名額；到期複習獨立；含概念模擬、細詞集、舊版相容及實作 gates |
+| [study-stream-selection-improvement.md](./study-stream-selection-improvement.md) | 分析及改進方案 | 本地修正已推送；節奏已取代 | 保留三字循環、驗證容量缺口及修正證據；五詞／十分鐘方案有新手阻塞，不作最終教學方案；線上個案仍待可用憑證 |
 | [project-consolidation-and-student-handoff.md](./project-consolidation-and-student-handoff.md) | 全項目整頓與交接計劃 | 進行中（P1／P3 source layer／P4 cutover） | 現行開發主線、P1 獨立交接、P3 existing-DB 回歸、P4 cutover／測試移植矩陣、環境分離及主線治理已補入；四份新人指南、`data/catalog/` source mapping、V2 study entry、legacy retirement barrier 及 active V2 shell／stream browser coverage 已實作，DB／browser cutover 回歸及獨立交接仍待驗證 |
 | [realistic-demo-school.md](./realistic-demo-school.md) | 虛構學校及增量模擬 | 已完成（本地驗證） | 18班566人、自然名冊、seeded 活動、每日補漏、重跑/中斷續跑及正式報表reader驗證；只供本地 |
 | [supabase-cloud-database-provisioning.md](./supabase-cloud-database-provisioning.md) | 雲端資料庫建立及資料上載 | 已完成（東京庫；已公開唯讀供評委） | 專案 `ogxdoezdhixgahlfylmf`（`ap-northeast-1`東京）：67 migration、396 MB、566 學生、資料至 2026-10-31；25 表 `public_read` 唯讀公開（`User` 欄位級隱藏密碼；寫入與敏感表封閉）；舊 `eu-west-1` 專案待刪 |

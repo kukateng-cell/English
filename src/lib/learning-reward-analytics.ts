@@ -40,7 +40,7 @@ const CURSOR_VERSION = 2;
 // cannot silently rewrite old reward reports.
 // 獎勵 reader 的版本白名單獨立固定，未來新政策不會自動改寫歷史報表。
 function isSupportedLearningPolicy(value: unknown): boolean {
-  return value === "retrieval-v1" || value === "retrieval-v2";
+  return value === "retrieval-v1" || value === "retrieval-v2" || value === "retrieval-v3";
 }
 const REWARD_SUPPORTED_FLOW_VERSION = "v2" as const;
 const REWARD_SUPPORTED_QUALITY_POLICY_VERSION = "retrieval-v1-quality-v1" as const;

@@ -7,6 +7,7 @@ import {
   type SelectionDecision,
   type SelectionState,
 } from "./types";
+import { choosePhase } from "./phases";
 
 function compareUrgency(left: CandidateRecord, right: CandidateRecord): number {
   const leftExpiry = left.expiresAt ?? Number.POSITIVE_INFINITY;
@@ -81,6 +82,24 @@ function decision(
   };
 }
 
+function selectV3(state: SelectionState): SelectionDecision {
+  const eligible = eligibleCandidates(state);
+  // Server 只保留已派發的舊 work；先續接其原身份，再開始新版來源輪次。
+  const leased = eligible.find(c => c.leasedToCurrentSession || (c.workId && c.policyVersion !== "retrieval-v3"));
+  if (leased) return decision(leased, "resume-leased", eligible);
+  const initial = eligible.filter(c => c.workId).sort(compareUrgency);
+  const due = eligible.filter(c => !c.workId && c.kind === "OBJECTIVE_PROBE").sort(compareUrgency);
+  const fresh = eligible.filter(c => !c.workId && c.kind === "LEARNING_CARD").sort(compareUrgency);
+  const selected = choosePhase(state.phaseCursor ?? 3, lane => lane === "initial"
+    ? initial.find(c => !c.initialGapPending) : lane === "due" ? due[0] : fresh[0]);
+  const fallback = !selected && state.allowSmallPoolInitial ? initial.find(c => c.initialGapPending) : undefined;
+  const candidate = selected?.value ?? fallback;
+  const result = decision(candidate ?? null, candidate?.selectionReason ?? "waiting", eligible,
+    candidate ? `phase-lane:${selected?.laneIndex ?? 0}${fallback ? "+small-pool-initial-check" : ""}` : undefined);
+  result.versionBundle.policyVersion = candidate?.policyVersion ?? "retrieval-v3";
+  return result;
+}
+
 /**
  * Select one item. The function never mutates the candidate list or work
  * records; admission and lease writes happen inside the server transaction.
@@ -89,6 +108,7 @@ export function selectNextItem(
   state: SelectionState,
   policy: RetrievalPolicyConfig = RETRIEVAL_V1_POLICY,
 ): SelectionDecision {
+  if (policy.policyVersion === "retrieval-v3") return selectV3(state);
   if (policy.policyVersion === "retrieval-v2") return selectV2(state, policy);
   const eligible = eligibleCandidates(state);
   if (eligible.length === 0) return decision(null, "no-candidate", eligible);

@@ -416,6 +416,10 @@ review、production deployment／student pilot 及 research governance gate；�
 
 ## 2026-11-02 已批准修訂：retrieval-v2 揀詞政策
 
+> 後續設計註記：使用者其後指出本節五詞＋十分鐘造成新手阻塞，已要求重設計。
+> [三階段方案](./study-stream-learning-phases.md) 已在本地實作，規範見下方 retrieval-v3 修訂；
+> 以下保留描述 `45b67be` 的歷史行為，不能當成目前新 issuance 或已部署版本。
+
 使用者已批准按 [揀詞改進方案](./study-stream-selection-improvement.md) 實作。
 UI flow 仍為 V2；新版學習政策 ID 是 `retrieval-v2`，舊 row／receipt 不改寫。
 quality 4／2 及 `retrieval-v1-mcq-curated-v2` 題目版本不變，reader 明確支援兩個合法組合。
@@ -433,3 +437,19 @@ quality 4／2 及 `retrieval-v1-mcq-curated-v2` 題目版本不變，reader 明�
 
 上述規則取代舊版本對強制 probe item gap 及補位卡的要求；舊政策用於歷史解讀及既有 action 恢復。
 10 分鐘沿用既有基線，60 秒是工程驗收起始值，不宣稱已驗證為真實學生的最優教學節奏。
+
+## 2026-11-02 已批准修訂：retrieval-v3 三階段
+
+使用者已批准 [三階段方案](./study-stream-learning-phases.md) 實作。新 issuance 使用 retrieval-v3；UI flow 仍是 V2，quality 4／2、客觀 snapshot、一次合法答案、receipt、CAS 及 recovery 不變。
+
+- 五詞只限制未完成首次客觀試答的詞及可恢復新詞預留，未來 Review 與到期題不占名額。
+- 新詞兩種自評都安排 EVIDENCE_OBLIGATION 初驗；自評不計分。最後曝光後完成兩個不同其他拼寫的詞，或已隔十分鐘，即可初驗。
+- 無其他合法項目的細詞集／尾段可一次降低初驗間隔並記原因；其他 scope／裝置預留不能冒充詞集用盡。
+- 初驗正誤均結束初學需求，首次 Review 間隔一天；錯誤 feedback 完成當次糾錯，不自動重新入補救循環。
+- 到期 DUE_REVIEW 直接試答，正確按 SM-2 延長、錯誤回一天；未到期不補位、不計分。
+- 來源輪次為初驗、到期、到期、新詞；跳過空來源，首次從新詞開始。只由已確認 action 推進 learner-wide cursor，最老持續合資格初驗服務上限改為十九個其他已確認項目。
+- 取消兩題後六十秒強制休息。所有合法來源用盡才正常暫無內容，仍可隨時安全離開。
+- 初驗／到期以 purpose＋policy 區分，舊資料不假造 phase；認字率與 interval≥22 天的長期掌握保持分開。
+- 舊已派 item／target 按原版本結算；舊未派需求具來源連結轉移，不能遺失未驗證需求或重開已計分 target。
+
+本節取代新版的 combined remediation cap、十分鐘 AND gate、二十四小時需求淘汰及強制 probe rest；舊版本只作歷史和既有 action 支援。

@@ -20,7 +20,7 @@ import {
 import { mapObjectiveFirstResponse } from "@/lib/learning-policy/quality";
 import {
   RETRIEVAL_V1_POLICY,
-  RETRIEVAL_V2_POLICY,
+  RETRIEVAL_V3_POLICY,
   isSupportedLearningPolicy,
   type LearningPolicyVersion,
   type CandidateRecord,
@@ -37,6 +37,7 @@ import {
   type ObjectiveQuestionSnapshotData,
   type QuestionWord,
 } from "@/lib/learning-policy/question";
+import { initialCheckReady, nextPhaseCursor } from "@/lib/learning-policy/phases";
 import { selectNextItem } from "@/lib/learning-policy/scheduler";
 import {
   actionFingerprint,
@@ -501,6 +502,7 @@ async function expireWork(tx: StreamTransaction, userId: string, now: Date): Pro
       userId,
       status: { in: ["PENDING", "LEASED"] },
       expiresAt: { lte: now },
+      policyVersion: { not: "retrieval-v3" },
     },
     select: { id: true },
   });
@@ -520,34 +522,6 @@ async function expireWork(tx: StreamTransaction, userId: string, now: Date): Pro
       status: "LEASED",
     },
     data: { status: "SUPERSEDED" },
-  });
-}
-
-async function activeWork(
-  tx: StreamTransaction,
-  userId: string,
-  scope: StreamScope,
-  now: Date,
-): Promise<WorkRecord[]> {
-  const rows = await tx.evidenceObligation.findMany({
-    where: {
-      userId,
-      status: { in: ["PENDING", "LEASED"] },
-      eligibleAt: { lte: now },
-      expiresAt: { gt: now },
-      wordId: { not: null },
-      word: scope.where,
-    },
-    orderBy: [{ expiresAt: "asc" }, { createdAt: "asc" }],
-    // Filtered presentation rows can occupy the first part of the review
-    // index (for example an already leased target). Read a bounded surplus
-    // before applying application-level admission checks so legal candidates
-    // are not starved behind stale rows.
-    take: MAX_CANDIDATES * 8,
-  });
-  return rows.flatMap((row) => {
-    const work = toWorkRecord(row);
-    return work ? [work] : [];
   });
 }
 
@@ -661,18 +635,17 @@ function candidateForWork(
 }
 
 /** 新發卡政策。所有資料均在既有 learner lock／Serializable transaction 內讀寫。 */
-async function buildV2Candidates(
+async function buildV3Candidates(
   tx: StreamTransaction, userId: string, scope: StreamScope, now: Date,
 ) {
-  await expireWork(tx, userId, now);
   const history = await learnerStreamHistory(tx, userId, scope);
-  const words = await tx.word.findMany({ where: scope.where, select: { id: true, senseId: true, term: true } });
-  const reviews = await tx.review.findMany({ where: { userId, word: scope.where } });
+  const words = await tx.word.findMany({ where: scope.where });
+  const reviews = await tx.review.findMany({ where: { userId } });
   const reviewByWord = new Map(reviews.map(r => [r.wordId, r]));
   const contacts = await tx.studyEncounter.findMany({
     where: { userId, wordId: { not: null }, word: scope.where },
     orderBy: [{ acknowledgedAt: "desc" }, { id: "desc" }], distinct: ["wordId"],
-    select: { wordId: true, selfRating: true, acknowledgedAt: true, operationId: true },
+    select: { wordId: true, acknowledgedAt: true, operationId: true },
   });
   const contactByWord = new Map(contacts.map(c => [c.wordId, c]));
   const exposures = await tx.studyStreamItem.groupBy({
@@ -680,94 +653,144 @@ async function buildV2Candidates(
     _max: { revealedAt: true, usedAt: true, feedbackAcknowledgedAt: true },
   });
   const lastExposure = new Map(exposures.map(e => [e.wordId, Math.max(
-    e._max.revealedAt?.getTime() ?? 0, e._max.usedAt?.getTime() ?? 0,
-    e._max.feedbackAcknowledgedAt?.getTime() ?? 0,
+    e._max.revealedAt?.getTime() ?? 0, e._max.usedAt?.getTime() ?? 0, e._max.feedbackAcknowledgedAt?.getTime() ?? 0,
   )]));
-  const pendingRows = await tx.evidenceObligation.findMany({
+  // 未派舊工作保留來源並移交；已派 item／target 仍按原版本恢復。
+  const old = await tx.evidenceObligation.findMany({
+    where: { userId, status: { in: ["PENDING", "LEASED"] } },
+    include: { workStreamItems: { where: { usedAt: null, status: "LEASED" }, take: 1 }, objectiveEvidenceTarget: true },
+  });
+  for (const work of old) {
+    if (work.workStreamItems.length) continue;
+    if (work.policyVersion === "retrieval-v3" && (!work.wordId || !reviewByWord.has(work.wordId))) continue;
+    if (work.objectiveEvidenceTarget?.status === "OPEN") await tx.objectiveEvidenceTarget.update({
+      where: { id: work.objectiveEvidenceTarget.id }, data: { status: "CANCELLED", activeKey: null },
+    });
+    await tx.evidenceObligation.update({ where: { id: work.id }, data: {
+      status: "SUPERSEDED", activeKey: null, terminalReason: "phase-transfer",
+    } });
+  }
+  let pending = await tx.evidenceObligation.findMany({
     where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now } },
-    orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
+    orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
+    include: { workStreamItems: { where: { status: "LEASED", usedAt: null }, take: 1 } },
   });
-  const pending = pendingRows.flatMap(r => { const w = toWorkRecord(r); return w ? [w] : []; });
+  // 用 learner-wide catalog 判定內容失效；scope 外的合法工作不能被誤取消。
+  const unissued = pending.filter(w => (!w.wordId || !reviewByWord.has(w.wordId)) && !w.workStreamItems.length);
+  if (unissued.length) {
+    const content = await tx.word.findMany({ where: withCurrentCatalogWord({ id: { in: unissued.flatMap(w => w.wordId ? [w.wordId] : []) } }) });
+    const usable = new Set(content.filter(w => buildObjectiveQuestion(questionWord(w), [questionWord(w)], `eligibility:${w.id}`)).map(w => w.id));
+    const invalid = unissued.filter(w => !w.wordId || !usable.has(w.wordId)).map(w => w.id);
+    if (invalid.length) {
+      await tx.objectiveEvidenceTarget.updateMany({ where: { obligationId: { in: invalid }, status: "OPEN" }, data: { status: "CANCELLED", activeKey: null } });
+      await tx.evidenceObligation.updateMany({ where: { id: { in: invalid } }, data: { status: "CANCELLED", activeKey: null, terminalReason: "content-unavailable" } });
+      pending = pending.filter(w => !invalid.includes(w.id));
+    }
+  }
   const reserved = await tx.studyStreamItem.findMany({
-    where: { session: { userId, retiredAt: null }, status: "LEASED", usedAt: null, workObligationId: null, OR: [{ itemKind: "LEARNING_CARD" }, { session: { expiresAt: { gt: now } } }] },
-    orderBy: { createdAt: "asc" },
-    select: { wordId: true, session: { select: { mode: true, scopeLevel: true, scopeCategory: true } } },
+    where: { session: { userId, retiredAt: null }, status: "LEASED", usedAt: null,
+      OR: [{ itemKind: "LEARNING_CARD" }, { session: { expiresAt: { gt: now } } }] },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { wordId: true, itemKind: true, workObligationId: true,
+      session: { select: { mode: true, scopeLevel: true, scopeCategory: true } } },
   });
-  const workWords = new Set(pending.map(w => w.wordId));
-  const reservedWords = new Set(reserved.flatMap(r => r.wordId && !workWords.has(r.wordId) ? [r.wordId] : []));
-  const cancelledRows = await tx.evidenceObligation.findMany({ where: { userId, status: { in: ["CANCELLED", "SUPERSEDED"] } }, select: { sourceOperationId: true } });
-  const cancelledSources = new Set(cancelledRows.map(w => w.sourceOperationId));
-  let capacity = Math.max(0, 5 - pending.length - reservedWords.size);
-  // 舊 cap／expired 接觸也有可追蹤的後續，不需重看答案再等十分鐘。
+  const workWords = new Set(pending.flatMap(w => w.wordId ? [w.wordId] : []));
+  const reservedWords = new Set(reserved.flatMap(r => r.wordId ? [r.wordId] : []));
+  const initialWords = new Set([...workWords, ...reserved.filter(r => r.itemKind === "LEARNING_CARD").flatMap(r => r.wordId ? [r.wordId] : [])]
+    .filter(id => !reviewByWord.has(id)));
+  let capacity = Math.max(0, 5 - initialWords.size);
+  const cancelled = await tx.evidenceObligation.findMany({ where: {
+    userId, status: { in: ["CANCELLED", "SUPERSEDED"] }, OR: [{ terminalReason: null }, { terminalReason: { not: "phase-transfer" } }],
+  }, select: { sourceOperationId: true } });
+  const cancelledSources = new Set(cancelled.map(w => w.sourceOperationId));
+  const validWords = words.filter(w => buildObjectiveQuestion(questionWord(w), [questionWord(w)], `eligibility:${w.id}`));
+  const validIds = new Set(validWords.map(w => w.id));
+  const transfers = await tx.evidenceObligation.findMany({
+    where: { userId, status: "SUPERSEDED", terminalReason: "phase-transfer", word: scope.where },
+    orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
+  });
+  for (const work of transfers) {
+    if (!capacity || !work.wordId || !validIds.has(work.wordId) || reviewByWord.has(work.wordId)
+      || workWords.has(work.wordId) || reservedWords.has(work.wordId)) continue;
+    const admitted = await admissionWork(tx, userId, work.wordId, work.senseId, "EVIDENCE_OBLIGATION", now,
+      work.sourceOperationId ?? `phase-transfer:${work.id}`, "retrieval-v3", now);
+    if (admitted.disposition === "accepted") {
+      await tx.evidenceObligation.update({ where: { id: admitted.obligationId! }, data: {
+        admittedAt: work.admittedAt, selectionReason: `phase-successor:${work.id}`,
+      } });
+      capacity--; workWords.add(work.wordId);
+    }
+  }
   for (const c of [...contacts].reverse()) {
-    if (cancelledSources.has(c.operationId) || !capacity || !c.wordId || workWords.has(c.wordId) || reservedWords.has(c.wordId)) continue;
-    const review = reviewByWord.get(c.wordId);
-    if (review && (c.selfRating !== "selfForgot" || (review.lastReviewedAt?.getTime() ?? 0) >= c.acknowledgedAt.getTime())) continue;
-    const word = words.find(w => w.id === c.wordId);
-    if (!word) continue;
-    const kind = c.selfRating === "selfForgot" ? "REMEDIATION" : "EVIDENCE_OBLIGATION";
-    const admitted = await admissionWork(tx, userId, word.id, word.senseId, kind, now,
-      c.operationId, "retrieval-v2", new Date(Math.max(c.acknowledgedAt.getTime(), lastExposure.get(word.id) ?? 0) + 600_000));
+    if (!capacity || !c.wordId || !validIds.has(c.wordId) || reviewByWord.has(c.wordId)
+      || workWords.has(c.wordId) || reservedWords.has(c.wordId) || cancelledSources.has(c.operationId)) continue;
+    const word = words.find(w => w.id === c.wordId)!;
+    const admitted = await admissionWork(tx, userId, word.id, word.senseId, "EVIDENCE_OBLIGATION", now,
+      c.operationId, "retrieval-v3", now);
     if (admitted.disposition === "accepted") { capacity--; workWords.add(word.id); }
   }
-  // 客觀答錯的合法舊遲交也可能曾因容量延後補救，從 scored ledger 恢復需求。
-  const failed = await tx.reviewEvent.findMany({
-    where: { userId, word: scope.where, quality: 2, evidenceKind: "OBJECTIVE_PROBE", isHistorical: false },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }], distinct: ["wordId"],
-    select: { wordId: true, createdAt: true, operationId: true },
+  const rows = await tx.evidenceObligation.findMany({
+    where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now }, word: scope.where },
+    orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
   });
-  for (const event of failed) {
-    if (cancelledSources.has(event.operationId) || !capacity || !event.wordId || workWords.has(event.wordId) || reservedWords.has(event.wordId)) continue;
-    const review = reviewByWord.get(event.wordId);
-    const contact = contactByWord.get(event.wordId);
-    if (!review || review.repetitions !== 0 || (review.lastReviewedAt?.getTime() ?? 0) > event.createdAt.getTime() + 1000 || (contact?.acknowledgedAt.getTime() ?? 0) > event.createdAt.getTime()) continue;
-    const word = words.find(w => w.id === event.wordId);
-    if (!word) continue;
-    const admitted = await admissionWork(tx, userId, word.id, word.senseId, "REMEDIATION", now,
-      event.operationId, "retrieval-v2", new Date(Math.max(event.createdAt.getTime(), lastExposure.get(word.id) ?? 0) + 600_000));
-    if (admitted.disposition === "accepted") { capacity--; workWords.add(word.id); }
-  }
-  const active = await activeWork(tx, userId, scope, now);
+  const active = rows.flatMap(r => { const w = toWorkRecord(r); return w ? [w] : []; });
+  const acknowledged = await tx.studyStreamItem.findMany({
+    where: { session: { userId }, feedbackAcknowledgedAt: { gt: new Date(now.getTime() - 600_000) } },
+    select: { feedbackAcknowledgedAt: true, word: { select: { term: true } } },
+  });
+  const last = await tx.studyStreamItem.findFirst({
+    where: { session: { userId }, policyVersion: "retrieval-v3", status: "ACKNOWLEDGED", feedbackAcknowledgedAt: { not: null } },
+    orderBy: [{ feedbackAcknowledgedAt: "desc" }, { id: "desc" }], select: { selectionOverrideReason: true },
+  });
   const candidates: CandidateRecord[] = [];
   const waits: number[] = [];
-  for (const work of active) {
-    const exposure = lastExposure.get(work.wordId) ?? 0;
-    const eligibleAt = Math.max(work.eligibleAt, exposure + 600_000);
-    if (eligibleAt > now.getTime()) { waits.push(eligibleAt); continue; }
-    candidates.push({ ...candidateForWork(work, scope.mode), eligibleAt });
+  for (const [index, work] of active.entries()) {
+    const word = words.find(w => w.id === work.wordId);
+    if (!word) continue;
+    const exposure = lastExposure.get(work.wordId) ?? work.admittedAt;
+    if (work.policyVersion !== "retrieval-v3") {
+      const eligibleAt = Math.max(work.eligibleAt, exposure + 600_000);
+      if (eligibleAt > now.getTime()) { waits.push(eligibleAt); continue; }
+      candidates.push({ ...candidateForWork(work, scope.mode), eligibleAt });
+      continue;
+    }
+    if (reviewByWord.has(work.wordId) || !validIds.has(work.wordId)) continue;
+    const otherTerms = acknowledged.filter(r => r.feedbackAcknowledgedAt!.getTime() > exposure).flatMap(r => r.word ? [r.word.term] : []);
+    const ready = initialCheckReady(now.getTime(), exposure, otherTerms, word.term);
+    candidates.push({ ...candidateForWork(work, scope.mode), eligibleAt: undefined, expiresAt: undefined,
+      selectionReason: "initial-check", selectionPriority: index, initialGapPending: !ready });
+    if (!ready) waits.push(exposure + 600_000);
   }
-  for (const row of pending) if (row.eligibleAt > now.getTime()) waits.push(row.eligibleAt);
-  const ordered = [...words].sort((a,b) =>
+  const ordered = [...validWords].sort((a,b) =>
     (contactByWord.get(a.id)?.acknowledgedAt.getTime() ?? 0) - (contactByWord.get(b.id)?.acknowledgedAt.getTime() ?? 0)
     || a.term.localeCompare(b.term) || a.id.localeCompare(b.id));
   for (const word of ordered) {
     if (workWords.has(word.id) || reservedWords.has(word.id)) continue;
     const review = reviewByWord.get(word.id);
-    if (review && review.nextReviewDate > now) continue;
-    const exposure = lastExposure.get(word.id) ?? 0;
-    if (exposure + 600_000 > now.getTime()) { waits.push(exposure + 600_000); continue; }
-    if (!capacity) continue;
-    // 每次只發一張；容量在下一次 transaction 根據 work＋未提交 item 重算。
-    candidates.push({ id: `v2:${word.id}`, wordId: word.id, senseId: word.senseId,
-      kind: review ? "OBJECTIVE_PROBE" : "LEARNING_CARD", purpose: review ? "DUE_REVIEW" : undefined,
-      eligibleAt: review?.nextReviewDate.getTime(), selectionPriority: candidates.length,
-      policyVersion: "retrieval-v2", mode: scope.mode, selectionReason: review ? "due-review" : "new-word" });
+    if (review && review.nextReviewDate > now) { waits.push(review.nextReviewDate.getTime()); continue; }
+    if (review) {
+      const readyAt = Math.max(review.nextReviewDate.getTime(), (lastExposure.get(word.id) ?? 0) + 600_000);
+      if (readyAt > now.getTime()) { waits.push(readyAt); continue; }
+      candidates.push({ id: `due:${word.id}`, wordId: word.id, senseId: word.senseId, kind: "OBJECTIVE_PROBE",
+        purpose: "DUE_REVIEW", policyVersion: "retrieval-v3", eligibleAt: review.nextReviewDate.getTime(), selectionReason: "due-review", mode: scope.mode });
+    } else if (capacity && !contactByWord.has(word.id)) {
+      candidates.push({ id: `new:${word.id}`, wordId: word.id, senseId: word.senseId, kind: "LEARNING_CARD",
+        policyVersion: "retrieval-v3", selectionReason: "new-word", selectionPriority: candidates.length, mode: scope.mode });
+    }
   }
-  const lastProbeAt = history.acknowledged.find(r => r.itemKind === "OBJECTIVE_PROBE")?.acknowledgedAt.getTime();
-  if (lastProbeAt !== undefined && recentStreamShape(history.acknowledged).consecutiveProbes >= 2 && candidates.some(c => c.kind === "OBJECTIVE_PROBE") && now.getTime() < lastProbeAt + 60_000) waits.push(lastProbeAt + 60_000);
-  const lastNew = await tx.studyEncounter.findFirst({
-    where: { userId, selectionReason: "new-word" }, orderBy: { acknowledgedAt: "desc" }, select: { acknowledgedAt: true },
-  });
-  const itemsSinceNewWord = history.acknowledged.filter(r => r.acknowledgedAt.getTime() > (lastNew?.acknowledgedAt.getTime() ?? 0)).length;
+  const blockedScope = pending.some(w => w.wordId && !words.some(word => word.id === w.wordId) && !reviewByWord.has(w.wordId));
   const r = reserved[0];
   const resumePath = r ? (r.session.mode === "unit"
-    ? `/study?${new URLSearchParams({ mode: "unit", level: r.session.scopeLevel ?? "A1", category: r.session.scopeCategory ?? "未分類" })}` : "/study") : undefined;
-  return { candidates, active, history, lastProbeAt, itemsSinceNewWord, availability: {
-    state: (pending.length || reserved.length || waits.length ? "waiting" : "no-content") as "waiting" | "no-content",
-    reason: reserved.length ? "other-scope" : !capacity ? "capacity" : "cooldown",
-    nextEligibleAt: waits.length ? new Date(Math.min(...waits)).toISOString() : null,
-    ...(resumePath ? { resumePath } : {}),
-  } };
+    ? `/study?${new URLSearchParams({ mode: "unit", level: r.session.scopeLevel ?? "A1", category: r.session.scopeCategory ?? "未分類" })}` : "/study") : blockedScope ? "/study" : undefined;
+  return { candidates, active, history, phaseCursor: nextPhaseCursor(last?.selectionOverrideReason),
+    allowSmallPoolInitial: !reserved.length && !blockedScope,
+    availability: {
+      state: (pending.length || reserved.length || waits.length ? "waiting" : "no-content") as "waiting" | "no-content",
+      reason: reserved.length || blockedScope ? "other-scope" : !capacity ? "capacity" : "cooldown",
+      nextEligibleAt: waits.length ? new Date(Math.min(...waits)).toISOString() : null,
+      ...(resumePath ? { resumePath } : {}),
+    },
+  };
 }
 
 function snapshotToData(snapshot: ObjectiveQuestionSnapshot): ObjectiveQuestionSnapshotData | null {
@@ -1071,6 +1094,7 @@ async function retireInvalidObjectivePresentation(
   tx: StreamTransaction,
   item: StreamItemWithRelations,
   currentReviewRevision: number,
+  invalidPhaseOrExposure = false,
 ): Promise<boolean> {
   if (
     item.itemKind !== "OBJECTIVE_PROBE" ||
@@ -1080,7 +1104,7 @@ async function retireInvalidObjectivePresentation(
     return false;
   }
   const target = item.objectiveEvidenceTarget;
-  if (target.status === "OPEN" && target.expectedReviewRevision === currentReviewRevision) {
+  if (!invalidPhaseOrExposure && target.status === "OPEN" && target.expectedReviewRevision === currentReviewRevision) {
     return false;
   }
 
@@ -1105,6 +1129,15 @@ async function retireInvalidObjectivePresentation(
   return true;
 }
 
+/** 發題後另一次合法揭示會污染當前題目；重建而不把提示當客觀保留。 */
+async function hasNewAnswerExposure(tx: StreamTransaction, userId: string, item: StudyStreamItem): Promise<boolean> {
+  if (item.policyVersion !== "retrieval-v3" || !item.wordId) return false;
+  return (await tx.studyStreamItem.count({ where: {
+    session: { userId }, wordId: item.wordId, id: { not: item.id }, itemKind: "LEARNING_CARD",
+    revealedAt: { gte: item.createdAt },
+  } })) > 0;
+}
+
 async function ensureSession(
   tx: StreamTransaction,
   userId: string,
@@ -1127,10 +1160,10 @@ async function ensureSession(
   return tx.studySession.create({
     data: {
       userId,
-      queueFingerprint: `retrieval-v2:${scope.mode}:${scope.level ?? ""}:${scope.category ?? ""}`,
+      queueFingerprint: `retrieval-v3:${scope.mode}:${scope.level ?? ""}:${scope.category ?? ""}`,
       expiresAt: new Date(now.getTime() + STREAM_SESSION_TTL_MS),
       flowVersion: STUDY_STREAM_FLOW_VERSION,
-      learningPolicyVersion: RETRIEVAL_V2_POLICY.policyVersion,
+      learningPolicyVersion: RETRIEVAL_V3_POLICY.policyVersion,
       mode: scope.mode,
       catalogReadMode: "SENSE_V1",
       scopeLevel: scope.level,
@@ -1189,7 +1222,7 @@ async function createObjectiveTarget(
         senseId: word.senseId,
         purpose,
         expectedReviewRevision: expectedRevision,
-        policyVersion: candidate.policyVersion ?? "retrieval-v2",
+        policyVersion: candidate.policyVersion ?? "retrieval-v3",
         itemConstructionVersion: RETRIEVAL_V1_POLICY.itemConstructionVersion,
         status: "OPEN",
         activeKey,
@@ -1270,7 +1303,7 @@ async function createStreamItem(
       itemKind: candidate.kind,
       selectionReason: candidate.selectionReason,
       selectionOverrideReason: selectionOverrideReason ?? null,
-      policyVersion: candidate.policyVersion ?? "retrieval-v2",
+      policyVersion: candidate.policyVersion ?? "retrieval-v3",
       status: "LEASED",
       leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
       credentialDigest: digestStudyStreamCredential(credential),
@@ -1444,7 +1477,10 @@ export async function getOrCreateStudyStream(
               select: { revision: true },
             });
             const currentReviewRevision = review?.revision ?? 0;
-            if (await retireInvalidObjectivePresentation(tx, current, currentReviewRevision)) {
+            const invalidPhase = current.policyVersion === "retrieval-v3"
+              && current.objectiveEvidenceTarget?.purpose === "EVIDENCE_OBLIGATION" && review !== null;
+            if (await retireInvalidObjectivePresentation(tx, current, currentReviewRevision,
+              invalidPhase || await hasNewAnswerExposure(tx, userId, current))) {
               current = null;
             }
           }
@@ -1483,7 +1519,7 @@ export async function getOrCreateStudyStream(
             );
           }
 
-          const built = await buildV2Candidates(tx, userId, scope, now);
+          const built = await buildV3Candidates(tx, userId, scope, now);
           const shape = recentStreamShape(built.history.acknowledged);
           const excluded = new Set<string>();
           for (let selectionAttempt = 0; selectionAttempt < built.candidates.length; selectionAttempt += 1) {
@@ -1498,9 +1534,9 @@ export async function getOrCreateStudyStream(
               recentWordIds: built.history.recentWordIds,
               activeWork: built.active,
               candidates,
-              lastProbeAt: built.lastProbeAt,
-              itemsSinceNewWord: built.itemsSinceNewWord,
-            }, RETRIEVAL_V2_POLICY);
+              phaseCursor: built.phaseCursor,
+              allowSmallPoolInitial: built.allowSmallPoolInitial,
+            }, RETRIEVAL_V3_POLICY);
             if (!decision.candidate) break;
             try {
               const created = await createStreamItem(
@@ -1744,12 +1780,13 @@ async function admissionWork(
     where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now } },
     orderBy: [{ expiresAt: "asc" }, { createdAt: "asc" }],
   });
-  const activeRecords = activeRows.flatMap((row) => {
+  const reviewed = policyVersion === "retrieval-v3" ? new Set((await tx.review.findMany({ where: { userId }, select: { wordId: true } })).map(r => r.wordId)) : new Set<string>();
+  const activeRecords = activeRows.filter(r => !r.wordId || !reviewed.has(r.wordId)).flatMap((row) => {
     const record = toWorkRecord(row);
     return record ? [record] : [];
   });
   const times = kind === "EVIDENCE_OBLIGATION"
-    ? verificationTimes(now.getTime())
+    ? verificationTimes(now.getTime(), policyVersion === "retrieval-v3" ? RETRIEVAL_V3_POLICY : RETRIEVAL_V1_POLICY)
     : { eligibleAt: now.getTime(), expiresAt: now.getTime() + RETRIEVAL_V1_POLICY.maxObligationAgeMs };
   const admitted = admitWork({
     learnerId: userId,
@@ -1777,7 +1814,7 @@ async function admissionWork(
       selectionReason: kind === "REMEDIATION" ? "self-forgot-remediation" : "self-recalled-verification",
       policyVersion,
       eligibleAt: eligibleOverride ?? new Date(admitted.record.eligibleAt),
-      expiresAt: new Date(admitted.record.expiresAt),
+      expiresAt: policyVersion === "retrieval-v3" ? new Date("9999-12-31T00:00:00.000Z") : new Date(admitted.record.expiresAt),
       activeKey: `${userId}:${kind}:${wordId}`,
     },
   });
@@ -1864,7 +1901,9 @@ async function processSelfRating(
     },
   }) > 0;
   let admission: AdmissionOutcome = { disposition: "not-required", obligationId: null };
-  if (selfRating === "selfRecalled") {
+  if (item.policyVersion === "retrieval-v3") {
+    if (!review) admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "EVIDENCE_OBLIGATION", now, input.operationId, "retrieval-v3", now);
+  } else if (selfRating === "selfRecalled") {
     const required = requiresEvidenceObligation({
       learnerId: userId,
       wordId: item.word.id,
@@ -1893,7 +1932,7 @@ async function processSelfRating(
       selfRating,
       selectionReason: item.selectionReason,
       policyVersion: item.policyVersion,
-      requiresVerification: selfRating === "selfRecalled" && (admission.disposition !== "not-required"),
+      requiresVerification: (item.policyVersion === "retrieval-v3" || selfRating === "selfRecalled") && admission.disposition !== "not-required",
       verificationDisposition: admission.disposition,
       evidenceObligationId: admission.obligationId,
       createdAt: now,
@@ -1973,6 +2012,11 @@ async function processObjectiveAnswer(
     });
   }
   const purpose = item.objectiveEvidenceTarget.purpose as ProbePurpose;
+  if (item.policyVersion === "retrieval-v3" && (
+    (purpose === "EVIDENCE_OBLIGATION" && review !== null)
+    || (purpose === "DUE_REVIEW" && (!review || review.nextReviewDate > new Date()))
+    || await hasNewAnswerExposure(tx, userId, item)
+  )) throw new StudyStreamError(409, "學習內容已變更，請重新取得題目", { code: "STALE_EVIDENCE_TARGET" });
   const isCorrect = selectedOptionId === snapshot.correctOptionId;
   const mapping = mapObjectiveFirstResponse(isCorrect ? "correct" : "wrong", purpose);
   if (!mapping) throw new StudyStreamError(409, "目前客觀題目的評分策略無效");
@@ -2077,7 +2121,7 @@ async function processObjectiveAnswer(
       },
     });
   }
-  if (!isCorrect) {
+  if (!isCorrect && item.policyVersion !== "retrieval-v3") {
     await admissionWork(tx, userId, item.word.id, item.word.senseId, "REMEDIATION", new Date(), input.operationId, isSupportedLearningPolicy(item.policyVersion) ? item.policyVersion : "retrieval-v1");
   }
 

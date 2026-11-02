@@ -1,5 +1,6 @@
 "use client";
 
+import type { ObjectivePhases } from "@/lib/learning-policy/evidence-phase";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import ErrorBanner from "@/components/ErrorBanner";
@@ -41,6 +42,7 @@ type AnalyticsTimeline = {
     learningEncounterCount: number;
     effectiveReviewCount: number;
     objective: {
+      phases?: ObjectivePhases;
       eligibleAttemptCount: number;
       correctCount: number;
       accuracyPercent: number | null;
@@ -168,7 +170,8 @@ export default function TeacherStudentDetail({ studentId, from }: { studentId: s
           <MetricDefinitionsHelp context="trend" />
         </div>
         <p className="mt-2 text-xs text-[var(--muted)]">{tc("每日認字、已計入測驗及客觀測驗分開計算。")}</p>
-        <p className="mt-3 text-right text-xs text-[var(--muted)]">{tc("認字練習")} {analytics.summary.learningEncounterCount} · {tc("已計入測驗")} {analytics.summary.effectiveReviewCount}<br />{tc("客觀測驗")} {analytics.summary.objective.correctCount}/{analytics.summary.objective.eligibleAttemptCount} · {analytics.summary.objective.accuracyPercent === null ? "—" : `${analytics.summary.objective.accuracyPercent}%`}</p>
+        <p className="mt-3 text-right text-xs text-[var(--muted)]">{tc("認字練習")} {analytics.summary.learningEncounterCount} · {tc("已計入測驗")} {analytics.summary.effectiveReviewCount}<br />{tc("整體認讀測驗")} {analytics.summary.objective.correctCount}/{analytics.summary.objective.eligibleAttemptCount} · {analytics.summary.objective.accuracyPercent === null ? "—" : `${analytics.summary.objective.accuracyPercent}%`}</p>
+        {analytics.summary.objective.phases ? <p className="mt-1 text-right text-xs text-[var(--muted)]">{tc("初次驗證")} {analytics.summary.objective.phases.initial.correct}/{analytics.summary.objective.phases.initial.attempts} · {tc("到期複習")} {analytics.summary.objective.phases.due.correct}/{analytics.summary.objective.phases.due.attempts}</p> : null}
         <p className="teacher-table-hint">{tc("欄位較多；手機上可左右滑動查看完整資料。")}</p>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[620px] table-fixed text-left text-sm">
