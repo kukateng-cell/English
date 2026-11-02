@@ -1,3 +1,4 @@
+import { summarizeObjectivePhases, type ObjectivePhases } from "./learning-policy/evidence-phase";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Prisma, StudentGrade, ClassCode, Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
@@ -86,6 +87,7 @@ type Member = {
 type CandidateExcluded = { historical: number; bridge: number; nonWinning: number; unsupportedPurpose: number; missingProvenance: number; unknownPolicyVersion: number; invalidPolicyOutcome: number };
 export type ObjectiveEventDisposition = keyof CandidateExcluded | "eligible";
 type ObjectiveMetric = {
+  phases?: ObjectivePhases;
   objectiveCandidateCount: number;
   correctCount: number;
   eligibleAttemptCount: number;
@@ -536,6 +538,7 @@ function objectiveFor(memberIds: string[], events: LoadedReviewEvent[], dateFrom
   const excluded: CandidateExcluded = { historical: 0, bridge: 0, nonWinning: 0, unsupportedPurpose: 0, missingProvenance: 0, unknownPolicyVersion: 0, invalidPolicyOutcome: 0 };
   const perStudent = new Map<string, { correct: number; attempts: number }>();
   const allowedMembers = new Set(memberIds);
+  const phaseEvents: LoadedReviewEvent[] = [];
   let candidate = 0; let correct = 0; let eligible = 0;
   for (const event of events) {
     if (!allowedMembers.has(event.userId)) continue;
@@ -547,13 +550,14 @@ function objectiveFor(memberIds: string[], events: LoadedReviewEvent[], dateFrom
     candidate += 1;
     const disposition = classifyObjectiveEvent(event);
     if (disposition !== "eligible") { excluded[disposition] += 1; continue; }
+    phaseEvents.push(event);
     const quality = event.quality;
     eligible += 1; if (quality === 4) correct += 1;
     const current = perStudent.get(event.userId) ?? { correct: 0, attempts: 0 }; current.attempts += 1; if (quality === 4) current.correct += 1; perStudent.set(event.userId, current);
   }
   const rates = [...perStudent.values()].filter((item) => item.attempts > 0).map((item) => item.correct / item.attempts * 100);
   const excludedDistinctTotal = Object.values(excluded).reduce((sum, value) => sum + value, 0);
-  return { metric: { objectiveCandidateCount: candidate, correctCount: correct, eligibleAttemptCount: eligible, accuracyPercent: eligible ? round(correct / eligible * 100) : null, accuracyDisplayStatus: eligible === 0 ? "NO_DATA" as const : eligible < 5 ? "SMALL_SAMPLE" as const : "SUFFICIENT" as const, studentsWithAttempts: perStudent.size, perStudentAccuracyMedian: round(median(rates)), perStudentAccuracyMedianDisplayStatus: rates.length === 0 ? "NO_DATA" as const : rates.length < 5 ? "SMALL_COHORT" as const : "SUFFICIENT" as const, excludedDistinctTotal, excludedCounts: excluded }, perStudent };
+  return { metric: { phases: summarizeObjectivePhases(phaseEvents), objectiveCandidateCount: candidate, correctCount: correct, eligibleAttemptCount: eligible, accuracyPercent: eligible ? round(correct / eligible * 100) : null, accuracyDisplayStatus: eligible === 0 ? "NO_DATA" as const : eligible < 5 ? "SMALL_SAMPLE" as const : "SUFFICIENT" as const, studentsWithAttempts: perStudent.size, perStudentAccuracyMedian: round(median(rates)), perStudentAccuracyMedianDisplayStatus: rates.length === 0 ? "NO_DATA" as const : rates.length < 5 ? "SMALL_COHORT" as const : "SUFFICIENT" as const, excludedDistinctTotal, excludedCounts: excluded }, perStudent };
 }
 
 function metricFor(members: Member[], activity: LoadedActivity, range: EffectiveRange, dateFrom?: string, dateTo?: string, asOf = new Date()): Metric {
@@ -824,6 +828,11 @@ function exportMetricFields(metric: Metric, includeCurrentMemberCount = false) {
     learningEncounterCount: metric.learningEncounterCount,
     medianLearningEncounters: metric.medianLearningEncounters,
     effectiveReviewCount: metric.effectiveReviewCount,
+    initialCheckAttempts: metric.objective.phases?.initial.attempts ?? 0,
+    initialCheckAccuracy: metric.objective.phases?.initial.accuracyPercent ?? null,
+    dueCheckAttempts: metric.objective.phases?.due.attempts ?? 0,
+    dueCheckAccuracy: metric.objective.phases?.due.accuracyPercent ?? null,
+    unknownPhaseAttempts: metric.objective.phases?.unknown.attempts ?? 0,
     objectiveCorrectCount: metric.objective.correctCount,
     objectiveAttemptCount: metric.objective.eligibleAttemptCount,
     objectiveAccuracyPercent: metric.objective.accuracyPercent,
