@@ -158,7 +158,7 @@ export default function TeacherStudentDetail({ studentId, from }: { studentId: s
       <section className="ui-card ui-card-padding">
         <div className="flex items-center justify-between gap-3">
           <div><p className="text-sm font-bold text-[var(--primary)]">{tc("學習摘要")}</p><h2 className="mt-1 text-xl font-black text-[var(--text)]">{student.masteryPercent === null ? "—" : `${student.masteryPercent}%`}</h2></div>
-          <p className="text-right text-xs text-[var(--muted)]">{tc("客觀測驗")} {student.effectiveObjectiveProbeCount}<br />{tc("已計入測驗")} {student.effectiveReviewEventCount}<br />{tc("最近學習")} {student.lastActivityAt ? new Date(student.lastActivityAt).toLocaleDateString() : "—"}</p>
+          <p className="text-right text-xs text-[var(--muted)]">{tc("客觀測驗")} {student.effectiveObjectiveProbeCount}<br />{tc("已計入測驗")} {student.effectiveReviewEventCount}<br />{tc("最近學習")} {student.lastActivityAt ? new Date(student.lastActivityAt).toLocaleDateString(undefined, { timeZone: "Asia/Shanghai" }) : "—"}</p>
         </div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">{student.byLevel.map((level) => <div key={level.level}><div className="flex justify-between text-xs text-[var(--muted)]"><span>{level.level}</span><span>{level.mastered}/{level.total} · {level.progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--border-soft)]"><div className="h-full rounded-full bg-[var(--primary)]" style={{ width: `${level.progress}%` }} /></div></div>)}</div>
       </section>
