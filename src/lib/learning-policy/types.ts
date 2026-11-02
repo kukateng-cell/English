@@ -9,6 +9,11 @@ export const RETRIEVAL_POLICY_VERSION = "retrieval-v1" as const;
 export const OBJECTIVE_QUALITY_POLICY_VERSION = "retrieval-v1-quality-v1" as const;
 export const OBJECTIVE_ITEM_CONSTRUCTION_VERSION = "retrieval-v1-mcq-curated-v2" as const;
 
+export type LearningPolicyVersion = "retrieval-v1" | "retrieval-v2";
+export function isSupportedLearningPolicy(value: unknown): value is LearningPolicyVersion {
+  return value === "retrieval-v1" || value === "retrieval-v2";
+}
+
 export type StreamMode = "global" | "unit";
 
 export type StreamItemKind = "LEARNING_CARD" | "OBJECTIVE_PROBE";
@@ -32,7 +37,7 @@ export type WorkStatus =
 export type SelfRating = "selfForgot" | "selfRecalled";
 
 export interface RetrievalPolicyConfig {
-  policyVersion: typeof RETRIEVAL_POLICY_VERSION;
+  policyVersion: LearningPolicyVersion;
   qualityPolicyVersion: typeof OBJECTIVE_QUALITY_POLICY_VERSION;
   itemConstructionVersion: typeof OBJECTIVE_ITEM_CONSTRUCTION_VERSION;
   maxCombinedWorkDebt: number;
@@ -58,7 +63,12 @@ export const RETRIEVAL_V1_POLICY: Readonly<RetrievalPolicyConfig> = Object.freez
   maxEligibleServiceGap: 6,
 });
 
+export const RETRIEVAL_V2_POLICY: Readonly<RetrievalPolicyConfig> = Object.freeze({
+  ...RETRIEVAL_V1_POLICY, policyVersion: "retrieval-v2",
+});
+
 export interface WorkRecord {
+  policyVersion?: LearningPolicyVersion;
   id: string;
   learnerId: string;
   wordId: string;
@@ -73,6 +83,7 @@ export interface WorkRecord {
 }
 
 export interface CandidateRecord {
+  policyVersion?: LearningPolicyVersion;
   id: string;
   wordId: string;
   senseId?: string | null;
@@ -97,6 +108,8 @@ export interface SelectionState {
   acknowledgedItemsSinceProbe: number;
   /** Whether the retained learner history contains any acknowledged probe. */
   hasPreviousProbe: boolean;
+  lastProbeAt?: number;
+  itemsSinceNewWord?: number;
   lastWordId?: string | null;
   /** Learner-scoped recent acknowledged words used for spacing. */
   recentWordIds?: readonly string[];
@@ -109,7 +122,7 @@ export interface SelectionDecision {
   reason: string;
   overrideReason?: string;
   versionBundle: {
-    policyVersion: typeof RETRIEVAL_POLICY_VERSION;
+    policyVersion: LearningPolicyVersion;
     qualityPolicyVersion: typeof OBJECTIVE_QUALITY_POLICY_VERSION;
     itemConstructionVersion: typeof OBJECTIVE_ITEM_CONSTRUCTION_VERSION;
   };

@@ -160,6 +160,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const router = useRouter();
   const [session, setSession] = useState<PublicStreamResponse["session"] | null>(null);
   const [item, setItem] = useState<PublicStreamItemBase | null>(null);
+  const [availability, setAvailability] = useState<PublicStreamResponse["availability"]>();
   const [unitSummary, setUnitSummary] = useState<PublicStreamResponse["unitSummary"]>();
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState(false);
@@ -246,6 +247,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     itemRef.current = data.item;
     setItem(data.item);
     setUnitSummary(data.unitSummary);
+    setAvailability(data.availability);
     setSelectedOptionId(data.item?.feedback?.selectedOptionId ?? null);
     updateCheckpoint(data.item, data.session);
   }, [updateCheckpoint]);
@@ -966,7 +968,10 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           )
         ) : (
           <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center text-center">
-            <p className="mb-4 text-[var(--muted)]">{tc(unitSummary ? "本單元目前沒有可安全安排的學習項目" : "目前沒有可安全安排的學習項目")}</p>
+            <p className="mb-4 text-[var(--muted)]">{tc(availability?.state === "waiting" ? "進度已保留，可以稍後再回來複習" : "目前沒有待學習或到期複習的內容")}</p>
+            {availability?.nextEligibleAt && <p className="mb-4 text-sm text-[var(--muted)]">{tc("最早可再檢查時間")} {new Date(availability.nextEligibleAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>}
+            {availability?.resumePath && <Link className="mb-4 underline" href={availability.resumePath}>{tc("返回未完成的學習")}</Link>}
+            <Link className="mb-4 underline" href="/">{tc("返回首頁")}</Link>
             <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50">{tc("重新載入")}</button>
           </div>
         )}

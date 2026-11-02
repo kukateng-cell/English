@@ -51,3 +51,14 @@ test("late evening sessions never overlap or reorder the student's actions", () 
     for (let j = 1; j < slots.length; j++) assert.ok(slots[j].start > slots[j-1].end);
   }
 });
+
+test("new policy simulation has no future review fillers and retains the five-work cap", () => {
+  const student = { ...schoolRoster("sample")[0], participation: 0.95, minutes: 30, joinDelay: 0 };
+  const result = simulateStudent("sample", student, words, "2026-09-01", new Date("2026-09-08T12:00:00+08:00"), "retrieval-v2");
+  assert.ok(result.actions.length > 0);
+  assert.ok(result.actions.every(a => !a.reason.includes("gap-filler") && a.reason !== "ordinary-review"));
+  for (const a of result.actions) {
+    const active = result.work.filter(w => w.admittedAt <= a.start && w.expiresAt > a.start && (!w.answeredAt || w.answeredAt > a.start));
+    assert.ok(active.length <= 5);
+  }
+});

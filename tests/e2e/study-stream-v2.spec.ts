@@ -2295,3 +2295,17 @@ test("V2 study surface keeps its hierarchy in dark reduced-motion mode", async (
     await expect(visibleFace.getByRole("button", { name: "發音" })).toContainText("發音");
   }
 });
+
+test("capacity waiting keeps progress and offers an accessible exit without a fake completion", async ({ page }) => {
+  await page.route("**/api/study/stream**", route => route.fulfill({ json: {
+    ok: true, assigned: true, resumedFeedback: false, item: null,
+    session: { id: "waiting-session", mode: "global", flowVersion: "v2", policyVersion: "retrieval-v2", revision: 5, expiresAt: new Date(Date.now()+1800000).toISOString() },
+    availability: { state: "waiting", reason: "capacity", nextEligibleAt: new Date(Date.now()+600000).toISOString(), resumePath: "/study?mode=unit&level=A1&category=people-family" },
+  } }));
+  await page.goto("/study");
+  await expect(page.getByText("進度已保留，可以稍後再回來複習")).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回首頁", exact: true })).toHaveAttribute("href", "/");
+  await expect(page.getByRole("link", { name: "返回未完成的學習" })).toHaveAttribute("href", /mode=unit/);
+  await expect(page.getByRole("button", { name: "重新載入", exact: true })).toBeEnabled();
+  await expect(page.getByTestId("word-card-hint")).toHaveCount(0);
+});

@@ -81,7 +81,7 @@ async function main() {
     });
 
     const jwtCallback = authOptions.callbacks?.jwt;
-    assert.ok(jwtCallback);
+    assert.ok(jwtCallback, "study-stream invariant failed");
     type JwtCallbackInput = Parameters<typeof jwtCallback>[0];
     const initialToken = await jwtCallback({
       token: {},
@@ -118,7 +118,7 @@ async function main() {
 
     const bootstrap = await getOrCreateStudyStream(user.id);
     assert.equal(bootstrap.assigned, true);
-    assert.ok(bootstrap.item);
+    assert.ok(bootstrap.item, "study-stream invariant failed");
     assert.equal(bootstrap.item.kind, "LEARNING_CARD");
     assert.equal(bootstrap.item.learningCard, undefined);
     const learningItem = bootstrap.item;
@@ -130,11 +130,11 @@ async function main() {
       category: testUnitCategory,
     });
     assert.equal(unitBootstrap.session.mode, "unit");
-    assert.ok(unitBootstrap.item);
+    assert.ok(unitBootstrap.item, "study-stream invariant failed");
     assert.equal(unitBootstrap.item.kind, "LEARNING_CARD");
-    assert.ok(unitBootstrap.item.prompt.length > 0);
-    assert.ok(unitBootstrap.unitSummary);
-    assert.ok(unitBootstrap.unitSummary.totalWordCount > 0);
+    assert.ok(unitBootstrap.item.prompt.length > 0, "study-stream invariant failed");
+    assert.ok(unitBootstrap.unitSummary, "study-stream invariant failed");
+    assert.ok(unitBootstrap.unitSummary.totalWordCount > 0, "study-stream invariant failed");
     assert.equal(unitBootstrap.unitSummary.objectiveRecognitionCount, 0);
     assert.equal(unitBootstrap.unitSummary.encounteredWordCount, 0);
 
@@ -189,7 +189,7 @@ async function main() {
       }),
       (error: unknown) => error instanceof StudyStreamError && error.status === 409 && error.message.includes("operationId"),
     );
-    assert.ok(selfRated.response.evidenceObligation?.obligationId);
+    assert.ok(selfRated.response.evidenceObligation?.obligationId, "study-stream invariant failed");
     assert.equal(await prisma.review.count({ where: { userId: user.id } }), 0);
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), 1);
     const obligation = await prisma.evidenceObligation.findFirstOrThrow({
@@ -231,7 +231,7 @@ async function main() {
         include: { streamItems: true },
       });
       const item = session.streamItems[0];
-      assert.ok(item);
+      assert.ok(item, "study-stream invariant failed");
       return {
         sessionId: session.id,
         streamItemId: item.id,
@@ -290,7 +290,7 @@ async function main() {
       include: { streamItems: true },
     });
     const raceItem = raceSession.streamItems[0];
-    assert.ok(raceItem);
+    assert.ok(raceItem, "study-stream invariant failed");
     const sameWordSecondItem = await prisma.studyStreamItem.create({
       data: {
         sessionId: raceSession.id,
@@ -332,8 +332,8 @@ async function main() {
       where: { id: raceItem.id },
       select: { credentialLineage: true },
     });
-    assert.ok(Array.isArray(raceLineage.credentialLineage));
-    assert.ok(raceLineage.credentialLineage.length >= 3);
+    assert.ok(Array.isArray(raceLineage.credentialLineage), "study-stream invariant failed");
+    assert.ok(raceLineage.credentialLineage.length >= 3, "study-stream invariant failed");
     const raceCredentials = [firstRaceRenewal.itemCredential, secondRaceRenewal.itemCredential];
     const raceResults = await Promise.allSettled([0, 1].map((index) => applyStudyStreamAction(user.id, {
       flowVersion: "v2",
@@ -349,7 +349,7 @@ async function main() {
     const raceFailures = raceResults.filter((result) => result.status === "rejected");
     assert.equal(raceSuccesses.length, 1);
     assert.equal(raceFailures.length, 1);
-    assert.ok(raceFailures[0]?.status === "rejected" && raceFailures[0].reason instanceof StudyStreamError);
+    assert.ok(raceFailures[0]?.status === "rejected" && raceFailures[0].reason instanceof StudyStreamError, "study-stream invariant failed");
     if (raceFailures[0]?.status === "rejected" && raceFailures[0].reason instanceof StudyStreamError) {
       assert.equal(raceFailures[0].reason.status, 409);
       assert.equal(raceFailures[0].reason.details.code, "STREAM_ITEM_COMPLETED");
@@ -384,7 +384,7 @@ async function main() {
       include: { streamItems: true },
     });
     const expiredItem = expiredSession.streamItems[0];
-    assert.ok(expiredItem);
+    assert.ok(expiredItem, "study-stream invariant failed");
     await assert.rejects(
       () => applyStudyStreamAction(user.id, {
         flowVersion: "v2",
@@ -415,7 +415,7 @@ async function main() {
       where: { id: expiredItem.id },
       select: { leaseExpiresAt: true },
     });
-    assert.ok(leaseRecoveryRow.leaseExpiresAt.getTime() > Date.now());
+    assert.ok(leaseRecoveryRow.leaseExpiresAt.getTime() > Date.now(), "study-stream invariant failed");
     const renewed = await renewStudyStreamCredential(user.id, {
       studySessionId: expiredSession.id,
       streamItemId: expiredItem.id,
@@ -427,8 +427,8 @@ async function main() {
       where: { id: expiredItem.id },
       select: { leaseExpiresAt: true, credentialExpiresAt: true },
     });
-    assert.ok(renewedRow.leaseExpiresAt.getTime() > Date.now());
-    assert.ok(renewedRow.credentialExpiresAt.getTime() > Date.now());
+    assert.ok(renewedRow.leaseExpiresAt.getTime() > Date.now(), "study-stream invariant failed");
+    assert.ok(renewedRow.credentialExpiresAt.getTime() > Date.now(), "study-stream invariant failed");
     await prisma.studyStreamItem.update({
       where: { id: expiredItem.id },
       data: {
@@ -445,7 +445,7 @@ async function main() {
       itemCredential: renewed.itemCredential,
     });
     assert.equal(rotatedAfterExpiry.session.id, expiredSession.id);
-    assert.ok(rotatedAfterExpiry.item);
+    assert.ok(rotatedAfterExpiry.item, "study-stream invariant failed");
     assert.notEqual(rotatedAfterExpiry.item.itemCredential, renewed.itemCredential);
     const expiredCredentialAction: StudyStreamActionInput = {
       flowVersion: "v2",
@@ -562,7 +562,7 @@ async function main() {
       include: { streamItems: true },
     });
     const evictedItem = evictedSession.streamItems[0];
-    assert.ok(evictedItem);
+    assert.ok(evictedItem, "study-stream invariant failed");
     let evictedCurrentCredential = evictedInitialCredential;
     let credentialAfterOneRotation = evictedInitialCredential;
     let credentialAfterSevenRotations = evictedInitialCredential;
@@ -581,7 +581,7 @@ async function main() {
       where: { id: evictedItem.id },
       select: { credentialLineage: true },
     });
-    assert.ok(Array.isArray(evictedLineage.credentialLineage));
+    assert.ok(Array.isArray(evictedLineage.credentialLineage), "study-stream invariant failed");
     const evictedLineageDigests = evictedLineage.credentialLineage.flatMap((entry) => {
       if (typeof entry !== "object" || entry === null || !("digest" in entry)) return [];
       return typeof entry.digest === "string" ? [entry.digest] : [];
@@ -734,14 +734,14 @@ async function main() {
       select: { status: true, usedAt: true },
     });
     assert.equal(evictedCompletedRow.status, "ACKNOWLEDGED");
-    assert.ok(evictedCompletedRow.usedAt);
+    assert.ok(evictedCompletedRow.usedAt, "study-stream invariant failed");
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), evictedEncounterCount);
     assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), evictedReceiptCount);
     const evictedSessionAfterTerminal = await prisma.studySession.findUniqueOrThrow({
       where: { id: evictedSession.id },
       select: { expiresAt: true },
     });
-    assert.ok(evictedSessionAfterTerminal.expiresAt.getTime() <= Date.now());
+    assert.ok(evictedSessionAfterTerminal.expiresAt.getTime() <= Date.now(), "study-stream invariant failed");
 
     // The same eight-rotation boundary keeps the original grant recognizable
     // for an unresolved item. Recovery still requires the exact typed action,
@@ -780,7 +780,7 @@ async function main() {
       include: { streamItems: true },
     });
     const pendingItem = pendingSession.streamItems[0];
-    assert.ok(pendingItem);
+    assert.ok(pendingItem, "study-stream invariant failed");
     let pendingCurrentCredential = pendingInitialCredential;
     let pendingEvictedCredential = pendingInitialCredential;
     for (let rotation = 0; rotation < 8; rotation += 1) {
@@ -826,7 +826,7 @@ async function main() {
       itemCredential: pendingEvictedCredential,
     });
     assert.equal(reboundPendingView.session.id, pendingSession.id);
-    assert.ok(reboundPendingView.item);
+    assert.ok(reboundPendingView.item, "study-stream invariant failed");
     assert.equal(reboundPendingView.item.streamItemId, pendingItem.id);
     assert.notEqual(reboundPendingView.item.itemCredential, pendingEvictedCredential);
     assert.equal(await prisma.studyEncounter.count({ where: { userId: user.id } }), pendingRebindEncounterCount);
@@ -927,6 +927,9 @@ async function main() {
       data: { eligibleAt: new Date(Date.now() - 1_000) },
     });
 
+    const elapsedExposure = new Date(Date.now() - 20 * 60_000);
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { revealedAt: elapsedExposure, usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
+    await prisma.studyEncounter.updateMany({ where: { userId: user.id }, data: { acknowledgedAt: elapsedExposure } });
     const encountersBeforeObjective = await prisma.studyEncounter.count({ where: { userId: user.id } });
     const receiptsBeforeObjective = await prisma.operationReceipt.count({ where: { userId: user.id } });
     let intermediateLearningCards = 0;
@@ -960,13 +963,13 @@ async function main() {
       intermediateLearningCards += 1;
       probeBootstrap = await getOrCreateStudyStream(user.id);
     }
-    assert.ok(probeBootstrap.item);
+    assert.ok(probeBootstrap.item, "study-stream invariant failed");
     assert.equal(probeBootstrap.item.kind, "OBJECTIVE_PROBE");
-    assert.ok(probeBootstrap.item.objectiveQuestion);
+    assert.ok(probeBootstrap.item.objectiveQuestion, "study-stream invariant failed");
     assert.equal("correctOptionId" in probeBootstrap.item.objectiveQuestion, false);
     const probeItem = probeBootstrap.item;
     const question = probeItem.objectiveQuestion;
-    assert.ok(question);
+    assert.ok(question, "study-stream invariant failed");
     const probeRow = await prisma.studyStreamItem.findUniqueOrThrow({
       where: { id: probeItem.streamItemId },
       select: { objectiveQuestionSnapshotId: true },
@@ -978,7 +981,7 @@ async function main() {
     const selectedOption = question.options.find(
       (option) => option.id !== snapshotRow.correctOptionId,
     );
-    assert.ok(selectedOption);
+    assert.ok(selectedOption, "study-stream invariant failed");
     const answerInput: StudyStreamActionInput = {
       flowVersion: "v2",
       studySessionId: probeBootstrap.session.id,
@@ -1001,7 +1004,7 @@ async function main() {
     assert.equal(event.flowVersion, "v2");
     assert.equal(event.evidenceKind, "OBJECTIVE_PROBE");
     assert.equal(event.quality, 2);
-    assert.ok(event.objectiveEvidenceTargetId);
+    assert.ok(event.objectiveEvidenceTargetId, "study-stream invariant failed");
     assert.equal(
       await prisma.studyEncounter.count({ where: { userId: user.id } }),
       encountersBeforeObjective + intermediateLearningCards,
@@ -1015,7 +1018,7 @@ async function main() {
       itemCredential: probeItem.itemCredential,
     });
     assert.equal(resumed.resumedFeedback, true);
-    assert.ok(resumed.item?.feedback);
+    assert.ok(resumed.item?.feedback, "study-stream invariant failed");
     const ackInput: StudyStreamActionInput = {
       flowVersion: "v2",
       studySessionId: resumed.session.id,
@@ -1054,6 +1057,7 @@ async function main() {
     assert.equal(unknownFeedbackReconciliation.terminal, true);
     if (unknownFeedbackReconciliation.terminal) assert.equal(unknownFeedbackReconciliation.code, "FEEDBACK_ALREADY_ACKNOWLEDGED");
     assert.equal(await prisma.operationReceipt.count({ where: { userId: user.id } }), feedbackReceiptCount);
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { revealedAt: elapsedExposure, usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
     let postFeedbackLearningCards = 0;
     let remediation = await getOrCreateStudyStream(user.id);
     // Remediation obeys the same learner-scoped spacing window as every
@@ -1091,7 +1095,7 @@ async function main() {
       postFeedbackLearningCards += 1;
       remediation = await getOrCreateStudyStream(user.id);
     }
-    assert.ok(remediation.item);
+    assert.ok(remediation.item, "study-stream invariant failed");
     assert.equal(remediation.item.kind, "LEARNING_CARD");
     assert.equal(remediation.item.selectionReason, "remediation");
     const remediationItem = remediation.item;
@@ -1099,7 +1103,7 @@ async function main() {
       where: { id: remediationItem.streamItemId },
       select: { workObligationId: true },
     });
-    assert.ok(remediationRow.workObligationId);
+    assert.ok(remediationRow.workObligationId, "study-stream invariant failed");
     const remediationReveal: StudyStreamActionInput = {
       flowVersion: "v2",
       studySessionId: remediation.session.id,
@@ -1425,7 +1429,7 @@ async function main() {
       category: testUnitCategory,
     });
     assert.equal(unitSummaryAfter.unitSummary?.objectiveRecognitionCount, 1);
-    assert.ok((unitSummaryAfter.unitSummary?.encounteredWordCount ?? 0) > 0);
+    assert.ok((unitSummaryAfter.unitSummary?.encounteredWordCount ?? 0) > 0, "study-stream invariant failed");
 
     // A personal learning day is not a scored weekly leaderboard activity.
     // This fixture has a StudyDay but no provenance-complete reward event.
@@ -1495,9 +1499,7 @@ async function main() {
 
     // A unit whose every word already has a due Review must still make
     // progress after a confirmed Objective Probe. Due probes are the normal
-    // evidence source, while due-review-gap-filler cards provide the two
-    // non-scoring acknowledged items required by the learner-wide spacing
-    // policy before the next probe can be issued.
+    // evidence source；新版在沒有合適卡時直接派合法 probe，不製造補位卡。
     const scheduleGapUser = await prisma.user.create({
       data: {
         accountName: `codex-schedule-gap-${suffix}`,
@@ -1570,57 +1572,14 @@ async function main() {
         },
       },
     });
-    const completeGapCard = async (stream: Awaited<ReturnType<typeof getOrCreateStudyStream>>, label: string) => {
-      assert.equal(stream.item?.kind, "LEARNING_CARD");
-      assert.equal(stream.item?.selectionReason, "due-review-gap-filler");
-      assert.ok(stream.item);
-      await applyStudyStreamAction(scheduleGapUser.id, {
-        flowVersion: "v2",
-        studySessionId: stream.session.id,
-        streamItemId: stream.item.streamItemId,
-        operationId: `schedule-gap-${label}-reveal-${suffix}`,
-        itemCredential: stream.item.itemCredential,
-        actionKind: "REVEAL",
-        clientKnownRevision: stream.item.clientRevision,
-        payload: {},
-      });
-      await applyStudyStreamAction(scheduleGapUser.id, {
-        flowVersion: "v2",
-        studySessionId: stream.session.id,
-        streamItemId: stream.item.streamItemId,
-        operationId: `schedule-gap-${label}-rating-${suffix}`,
-        itemCredential: stream.item.itemCredential,
-        actionKind: "SELF_RATING",
-        clientKnownRevision: stream.item.clientRevision,
-        payload: { selfRating: "selfRecalled" },
-      });
-    };
-    const gapFirst = await getOrCreateStudyStream(scheduleGapUser.id, {
-      mode: "unit",
-      level: "A1",
-      category: testUnitCategory,
-    });
-    await completeGapCard(gapFirst, "first");
-    const gapSecond = await getOrCreateStudyStream(scheduleGapUser.id, {
-      mode: "unit",
-      level: "A1",
-      category: testUnitCategory,
-    });
-    await completeGapCard(gapSecond, "second");
-    const gapProbe = await getOrCreateStudyStream(scheduleGapUser.id, {
-      mode: "unit",
-      level: "A1",
-      category: testUnitCategory,
-    });
+    const gapProbe = await getOrCreateStudyStream(scheduleGapUser.id, { mode: "unit", level: "A1", category: testUnitCategory });
     assert.equal(gapProbe.item?.kind, "OBJECTIVE_PROBE");
     assert.equal(gapProbe.item?.selectionReason, "due-review");
-    assert.notEqual(gapFirst.item?.streamItemId, gapSecond.item?.streamItemId);
-    assert.notEqual(scheduleGapSession.id, gapFirst.session.id);
+    assert.notEqual(scheduleGapSession.id, gapProbe.session.id);
+    assert.equal(await prisma.studyEncounter.count({ where: { userId: scheduleGapUser.id } }), 0);
 
     // An evidence obligation without a Review must get the same safe spacing
-    // fallback as a due Review. The gap-filler card is deliberately separate
-    // from the obligation so self-rating cannot mark the objective target
-    // ANSWERED before an Objective Probe is submitted.
+    // 時間 gate；沒有合適卡時可直接驗證，不以 self-rating 消耗 obligation。
     const obligationGapUser = await prisma.user.create({
       data: {
         accountName: `codex-obligation-gap-${suffix}`,
@@ -1706,43 +1665,7 @@ async function main() {
       level: "A1" as const,
       category: testUnitCategory,
     };
-    const completeObligationGapCard = async (
-      stream: Awaited<ReturnType<typeof getOrCreateStudyStream>>,
-      label: string,
-    ) => {
-      assert.equal(stream.item?.kind, "LEARNING_CARD");
-      assert.equal(stream.item?.selectionReason, "evidence-obligation-gap-filler");
-      assert.ok(stream.item);
-      const row = await prisma.studyStreamItem.findUniqueOrThrow({
-        where: { id: stream.item.streamItemId },
-        select: { workObligationId: true },
-      });
-      assert.equal(row.workObligationId, null);
-      await applyStudyStreamAction(obligationGapUser.id, {
-        flowVersion: "v2",
-        studySessionId: stream.session.id,
-        streamItemId: stream.item.streamItemId,
-        operationId: `obligation-gap-${label}-reveal-${suffix}`,
-        itemCredential: stream.item.itemCredential,
-        actionKind: "REVEAL",
-        clientKnownRevision: stream.item.clientRevision,
-        payload: {},
-      });
-      await applyStudyStreamAction(obligationGapUser.id, {
-        flowVersion: "v2",
-        studySessionId: stream.session.id,
-        streamItemId: stream.item.streamItemId,
-        operationId: `obligation-gap-${label}-rating-${suffix}`,
-        itemCredential: stream.item.itemCredential,
-        actionKind: "SELF_RATING",
-        clientKnownRevision: stream.item.clientRevision,
-        payload: { selfRating: "selfRecalled" },
-      });
-    };
-    const obligationGapFirst = await getOrCreateStudyStream(obligationGapUser.id, obligationGapOptions);
-    await completeObligationGapCard(obligationGapFirst, "first");
-    const obligationGapSecond = await getOrCreateStudyStream(obligationGapUser.id, obligationGapOptions);
-    await completeObligationGapCard(obligationGapSecond, "second");
+    await prisma.review.createMany({ data: scheduleGapWords.slice(3).map(word => ({ userId: obligationGapUser.id, wordId: word.id, senseId: word.senseId, nextReviewDate: new Date(Date.now()+86400000) })) });
     const obligationGapProbe = await getOrCreateStudyStream(obligationGapUser.id, obligationGapOptions);
     assert.equal(obligationGapProbe.item?.kind, "OBJECTIVE_PROBE");
     assert.equal(obligationGapProbe.item?.selectionReason, "evidence-obligation");
@@ -1750,7 +1673,7 @@ async function main() {
       where: { id: obligationGapProbe.item?.streamItemId ?? "" },
       select: { workObligationId: true },
     });
-    assert.ok(obligationGapProbeRow.workObligationId);
+    assert.ok(obligationGapProbeRow.workObligationId, "study-stream invariant failed");
     const obligationGapRows = await prisma.evidenceObligation.findMany({
       where: { userId: obligationGapUser.id },
       select: { id: true, status: true },
@@ -1884,7 +1807,7 @@ async function main() {
 
     const longHistoryOptions = { mode: "unit" as const, level: "A1", category: testUnitCategory };
     const firstLongHistory = await getOrCreateStudyStream(longHistoryUser.id, longHistoryOptions);
-    assert.ok(firstLongHistory.item);
+    assert.ok(firstLongHistory.item, "study-stream invariant failed");
     assert.equal(firstLongHistory.item.kind, "LEARNING_CARD");
     const firstLongHistoryRow = await prisma.studyStreamItem.findUniqueOrThrow({
       where: { id: firstLongHistory.item.streamItemId },
@@ -1923,16 +1846,12 @@ async function main() {
       },
     });
     const secondLongHistory = await getOrCreateStudyStream(longHistoryUser.id, longHistoryOptions);
-    assert.ok(secondLongHistory.item);
-    const secondLongHistoryRow = await prisma.studyStreamItem.findUniqueOrThrow({
-      where: { id: secondLongHistory.item.streamItemId },
-      select: { wordId: true, selectionReason: true },
-    });
-    assert.equal(secondLongHistoryRow.wordId, longHistoryTarget.id);
-    assert.equal(secondLongHistoryRow.selectionReason, "unverified-contact");
+    assert.equal(secondLongHistory.item, null);
+    assert.equal(secondLongHistory.availability?.state, "waiting");
+    assert.ok(await prisma.evidenceObligation.count({ where: { userId: longHistoryUser.id, status: "PENDING", wordId: longHistoryTarget.id } }), "long history must preserve pending verification");
 
     const leaderboard = await getWeeklyLeaderboard({ userId: user.id, scope: "school", view: "summary" });
-    assert.ok(leaderboard.personal.scoreMilliPoints > 0);
+    assert.ok(leaderboard.personal.scoreMilliPoints > 0, "study-stream invariant failed");
     const studyDayOnlyLeaderboard = await getWeeklyLeaderboard({ userId: studyDayOnlyUser.id, scope: "school", view: "summary" });
     assert.equal(studyDayOnlyLeaderboard.personal.scoreMilliPoints, 0);
     assert.equal(studyDayOnlyLeaderboard.personal.rankingState, "PENDING_REVIEW");
@@ -1999,12 +1918,12 @@ async function main() {
       const beforeEncounters = await tx.studyEncounter.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
       const beforeEvents = await tx.reviewEvent.count({ where: { userId: user.id } });
       const beforeCoverage = new Set(beforeEncounters.map(row => row.wordId)).size;
-      assert.ok(beforeCoverage > 0);
+      assert.ok(beforeCoverage > 0, "study-stream invariant failed");
       const past = new Date(Date.now() - STUDY_SESSION_RETENTION_MS - 60_000);
       await tx.studySession.updateMany({ where: { userId: user.id }, data: { expiresAt: past } });
       await cleanupExpiredStudySessions(new Date(), 100_000, tx);
       assert.equal(await tx.studySession.count({ where: { id: legacySession.id } }), 0);
-      assert.ok(await tx.studySession.count({ where: { userId: user.id, flowVersion: "v2" } }));
+      assert.ok(await tx.studySession.count({ where: { userId: user.id, flowVersion: "v2" } }), "study-stream invariant failed");
       const afterEncounters = await tx.studyEncounter.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
       assert.deepEqual(afterEncounters, beforeEncounters);
       assert.equal(new Set(afterEncounters.map(row => row.wordId)).size, beforeCoverage);
@@ -2023,6 +1942,9 @@ async function main() {
       create: { userId: user.id, wordId: recoveryWordId, nextReviewDate: new Date(0) },
       update: { nextReviewDate: new Date(0) },
     });
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { revealedAt: elapsedExposure, usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, revealedAt: { not: null } }, data: { revealedAt: elapsedExposure } });
+    await prisma.studyEncounter.updateMany({ where: { userId: user.id }, data: { acknowledgedAt: elapsedExposure } });
     let oldDue = await getOrCreateStudyStream(user.id);
     let dueInterveningCards = 0;
     // The due word may still be inside the learner-scoped spacing window
@@ -2061,11 +1983,11 @@ async function main() {
       oldDue = await getOrCreateStudyStream(user.id);
     }
     assert.equal(oldDue.item?.selectionReason, "due-review");
-    assert.ok(oldDue.item?.objectiveQuestion);
+    assert.ok(oldDue.item?.objectiveQuestion, "study-stream invariant failed");
     const oldDueRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: oldDue.item.streamItemId } });
     await prisma.studySession.update({ where: { id: oldDue.session.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
     const renewedDue = await getOrCreateStudyStream(user.id);
-    assert.ok(renewedDue.item?.objectiveQuestion);
+    assert.ok(renewedDue.item?.objectiveQuestion, "study-stream invariant failed");
     assert.notEqual(renewedDue.session.id, oldDue.session.id);
     const renewedDueRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: renewedDue.item.streamItemId } });
     assert.equal(renewedDueRow.objectiveEvidenceTargetId, oldDueRow.objectiveEvidenceTargetId);
@@ -2090,11 +2012,12 @@ async function main() {
     // the target. The losing presentation must not keep resuming a spent goal.
     await prisma.studySession.updateMany({ where: { userId: user.id }, data: { retiredAt: new Date() } });
     await prisma.review.update({ where: { userId_wordId: { userId: user.id, wordId: recoveryWordId } }, data: { nextReviewDate: new Date(0) } });
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { revealedAt: elapsedExposure, usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
     const reverseOld = await getOrCreateStudyStream(user.id);
-    assert.ok(reverseOld.item?.objectiveQuestion);
+    assert.ok(reverseOld.item?.objectiveQuestion, "study-stream invariant failed");
     await prisma.studySession.update({ where: { id: reverseOld.session.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
     const reverseNew = await getOrCreateStudyStream(user.id);
-    assert.ok(reverseNew.item?.objectiveQuestion);
+    assert.ok(reverseNew.item?.objectiveQuestion, "study-stream invariant failed");
     const reverseRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: reverseNew.item.streamItemId } });
     const reverseSnapshot = await prisma.objectiveQuestionSnapshot.findUniqueOrThrow({ where: { id: reverseRow.objectiveQuestionSnapshotId! } });
     const reverseAction: StudyStreamActionInput = {
@@ -2122,12 +2045,14 @@ async function main() {
       where: { userId_wordId: { userId: user.id, wordId: recoveryWordId } },
       data: { nextReviewDate: new Date(0) },
     });
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, revealedAt: { not: null } }, data: { revealedAt: elapsedExposure } });
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
     const staleBefore = await getOrCreateStudyStream(user.id);
     assert.equal(staleBefore.item?.kind, "OBJECTIVE_PROBE");
-    assert.ok(staleBefore.item);
+    assert.ok(staleBefore.item, "study-stream invariant failed");
     const staleBeforeRow = await prisma.studyStreamItem.findUniqueOrThrow({ where: { id: staleBefore.item.streamItemId } });
     const staleBeforeTargetId = staleBeforeRow.objectiveEvidenceTargetId;
-    assert.ok(staleBeforeTargetId);
+    assert.ok(staleBeforeTargetId, "study-stream invariant failed");
     await prisma.review.update({
       where: { userId_wordId: { userId: user.id, wordId: recoveryWordId } },
       data: { revision: { increment: 1 }, nextReviewDate: new Date(0) },
@@ -2170,6 +2095,8 @@ async function main() {
         activeKey: `cross-scope-remediation:${suffix}`,
       },
     });
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, revealedAt: { not: null } }, data: { revealedAt: elapsedExposure } });
+    await prisma.studyStreamItem.updateMany({ where: { session: { userId: user.id }, usedAt: { not: null } }, data: { usedAt: elapsedExposure, feedbackAcknowledgedAt: elapsedExposure } });
     const globalRemediation = await getOrCreateStudyStream(user.id);
     assert.equal(globalRemediation.item?.kind, "LEARNING_CARD");
     assert.equal(globalRemediation.item?.selectionReason, "remediation");
@@ -2437,7 +2364,7 @@ async function main() {
     });
     const provenanceProbe = await getOrCreateStudyStream(user.id);
     assert.equal(provenanceProbe.item?.kind, "OBJECTIVE_PROBE");
-    assert.ok(provenanceProbe.item);
+    assert.ok(provenanceProbe.item, "study-stream invariant failed");
     const provenanceStreamRow = await prisma.studyStreamItem.findUniqueOrThrow({
       where: { id: provenanceProbe.item.streamItemId },
       select: { wordId: true, objectiveQuestionSnapshotId: true },
@@ -2518,7 +2445,7 @@ async function main() {
     assert.equal(expiredFeedbackA.item?.streamItemId, provenanceProbe.item.streamItemId);
     assert.equal(expiredFeedbackA.item?.feedback?.acknowledged, false);
     const expiredFeedbackItem = expiredFeedbackA.item;
-    assert.ok(expiredFeedbackItem);
+    assert.ok(expiredFeedbackItem, "study-stream invariant failed");
     await assert.rejects(
       () => applyStudyStreamAction(user.id, {
         flowVersion: "v2",
@@ -2538,7 +2465,7 @@ async function main() {
     assert.equal(expiredFeedbackB.resumedFeedback, true);
     assert.equal(expiredFeedbackB.session.id, provenanceProbe.session.id);
     assert.equal(expiredFeedbackB.item?.streamItemId, provenanceProbe.item.streamItemId);
-    assert.ok(expiredFeedbackB.item);
+    assert.ok(expiredFeedbackB.item, "study-stream invariant failed");
 
     // Two tabs can confirm the recovered feedback concurrently. Both callers
     // receive an authoritative acknowledgement, while the scored event stays
@@ -2567,13 +2494,13 @@ async function main() {
       where: { id: provenanceProbe.item.streamItemId },
       select: { feedbackAcknowledgedAt: true, status: true },
     });
-    assert.ok(acknowledgedProvenanceItem.feedbackAcknowledgedAt);
+    assert.ok(acknowledgedProvenanceItem.feedbackAcknowledgedAt, "study-stream invariant failed");
     assert.equal(acknowledgedProvenanceItem.status, "ACKNOWLEDGED");
     const expiredSourceSession = await prisma.studySession.findUniqueOrThrow({
       where: { id: provenanceProbe.session.id },
       select: { expiresAt: true },
     });
-    assert.ok(expiredSourceSession.expiresAt.getTime() <= Date.now());
+    assert.ok(expiredSourceSession.expiresAt.getTime() <= Date.now(), "study-stream invariant failed");
     assert.equal(await prisma.reviewEvent.count({ where: { userId: user.id, objectiveQuestionSnapshotId: provenanceSnapshot.id } }), 1);
     const afterExpiredFeedback = await getOrCreateStudyStream(user.id);
     assert.notEqual(afterExpiredFeedback.item?.streamItemId, provenanceProbe.item.streamItemId);
@@ -2630,8 +2557,8 @@ async function main() {
       where: { userId: user.id },
       _count: { _all: true },
     });
-    assert.ok(dualFlowSessions.some((row) => row.flowVersion === "v1" && row._count._all >= 1));
-    assert.ok(dualFlowSessions.some((row) => row.flowVersion === "v2" && row._count._all >= 1));
+    assert.ok(dualFlowSessions.some((row) => row.flowVersion === "v1" && row._count._all >= 1), "study-stream invariant failed");
+    assert.ok(dualFlowSessions.some((row) => row.flowVersion === "v2" && row._count._all >= 1), "study-stream invariant failed");
 
     // The helper is intentionally exercised so this gate also catches accidental
     // replacement of opaque random credentials with a client-chosen value.

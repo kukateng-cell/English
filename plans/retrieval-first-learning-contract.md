@@ -413,3 +413,23 @@ screen-reader、手機實機及完整 accessibility acceptance matrix 係 extern
 仍未完成：原生 screen-reader／手機實機驗收、長時間 production observability、正式文案
 review、production deployment／student pilot 及 research governance gate；相關 checklist
 保持未勾選。
+
+## 2026-11-02 已批准修訂：retrieval-v2 揀詞政策
+
+使用者已批准按 [揀詞改進方案](./study-stream-selection-improvement.md) 實作。
+UI flow 仍為 V2；新版學習政策 ID 是 `retrieval-v2`，舊 row／receipt 不改寫。
+quality 4／2 及 `retrieval-v1-mcq-curated-v2` 題目版本不變，reader 明確支援兩個合法組合。
+
+- 所有未結 work（含尚未 eligible）及可恢復的未提交 item 須佔容量，上限 5。
+  新詞發卡先預留容量；合法舊遲交如未能入列，仍保存需要驗證的接觸／錯誤 ledger，後續優先補入。
+- 以最新已確認接觸排序；只揭示亦計入同詞答案曝光冷卻。驗證及重複補救距最後答案曝光至少 10 分鐘。
+- 不用未到期普通 Review、同詞 due／obligation gap filler 維持串流。
+  兩個其他 items 是有合適卡時的 preference；只有合法 probe 時可連續最多兩題，之後休息 60 秒。
+  時間 eligibility、scope、target consumption 及 Review CAS 不能 override。
+- 沒有合適內容是正常等待／暫無內容，提供安全離開及稍後重試；不是錯誤或固定完成頁。
+- 24 小時過期終結原 work，不代表已驗證。未解決的接觸可依原 source operation 建立後繼工作，
+  不必重新揭示答案再等；新 target 仍綁定當前 Review revision。
+- 舊政策及新版有效證據均須保留在學生、教師及獎勵 reader；未知政策 fail closed。
+
+上述規則取代舊版本對強制 probe item gap 及補位卡的要求；舊政策用於歷史解讀及既有 action 恢復。
+10 分鐘沿用既有基線，60 秒是工程驗收起始值，不宣稱已驗證為真實學生的最優教學節奏。

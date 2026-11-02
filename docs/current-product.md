@@ -28,12 +28,14 @@ Objective Probe
 ```
 
 Global `/study` 是 continuous stream，沒有固定完成題數；每次已確認 action 後都可安全離開。
+待驗證容量為 5，驗證距最近答案曝光至少 10 分鐘；沒有合適項目時顯示可稍後回來的等待狀態，
+不以未到期詞或同詞補位卡無限填充。
 Unit mode 可以限制詞集，仍使用同一張卡片、題目、續接及 server action contract。
 
 ## 現行功能範圍
 
 - A1、A2、B1、B2 sense-level 詞庫、主題及解鎖進度。
-- Retrieval-first Learning Card、Objective Probe、versioned `retrieval-v1` learning policy 及 SM-2。
+- Retrieval-first Learning Card、Objective Probe、versioned `retrieval-v2` learning policy（保留 `retrieval-v1` 歷史／既有 action 支援） 及 SM-2。
 - Study session、opaque item credential、operationId、global receipt、CAS、Serializable transaction、
   offline outbox、checkpoint、跨分頁／跨裝置 reconciliation 及 bounded recovery。
 - 學生、教師、管理員角色；首次改密、session 撤銷、名冊權限及最後管理員保護。

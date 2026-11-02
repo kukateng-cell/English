@@ -72,7 +72,7 @@ function decision(
     reason,
     ...(overrideReason ? { overrideReason } : {}),
     versionBundle: {
-      policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
+      policyVersion: candidate?.policyVersion ?? RETRIEVAL_V1_POLICY.policyVersion,
       qualityPolicyVersion: RETRIEVAL_V1_POLICY.qualityPolicyVersion,
       itemConstructionVersion: RETRIEVAL_V1_POLICY.itemConstructionVersion,
     },
@@ -89,6 +89,7 @@ export function selectNextItem(
   state: SelectionState,
   policy: RetrievalPolicyConfig = RETRIEVAL_V1_POLICY,
 ): SelectionDecision {
+  if (policy.policyVersion === "retrieval-v2") return selectV2(state, policy);
   const eligible = eligibleCandidates(state);
   if (eligible.length === 0) return decision(null, "no-candidate", eligible);
 
@@ -198,4 +199,25 @@ export function combinedDebtWithinCap(
   policy: RetrievalPolicyConfig = RETRIEVAL_V1_POLICY,
 ): boolean {
   return activeWorkCount(work) <= policy.maxCombinedWorkDebt;
+}
+
+/** 新政策不以無目的的認讀卡湊 probe 間隔。時間冷卻由 server 候選 gate 保護。 */
+function selectV2(state: SelectionState, policy: RetrievalPolicyConfig): SelectionDecision {
+  const eligible = eligibleCandidates(state);
+  const leased = eligible.find(c => c.leasedToCurrentSession);
+  if (leased) return decision(leased, "resume-leased", eligible);
+  const spaced = spacedCandidates(eligible, state);
+  const cards = spaced.candidates.filter(c => c.kind === "LEARNING_CARD").sort(compareUrgency);
+  const probes = spaced.candidates.filter(c => c.kind === "OBJECTIVE_PROBE").sort(compareUrgency);
+  const rested = state.lastProbeAt === undefined || state.now - state.lastProbeAt >= 60_000;
+  const burstClosed = state.consecutiveProbes >= policy.maxConsecutiveProbes && !rested;
+  const preferCard = state.hasPreviousProbe && state.acknowledgedItemsSinceProbe < policy.minInterveningItems;
+  const fresh = cards.find(c => c.selectionReason === "new-word");
+  const urgent = probes.some(c => c.expiresAt !== undefined && c.expiresAt - state.now <= policy.minVerificationDelayMs);
+  const newWordTurn = fresh && !urgent && (state.itemsSinceNewWord ?? 0) >= policy.maxEligibleServiceGap;
+  const selected = newWordTurn ? fresh : !burstClosed && probes[0] && (!preferCard || !cards[0]) ? probes[0] : cards[0];
+  const result = decision(selected ?? null, selected ? selected.selectionReason : "waiting", eligible,
+    selected?.kind === "OBJECTIVE_PROBE" && preferCard ? "probe-only-time-gated" : undefined);
+  result.versionBundle.policyVersion = selected?.policyVersion ?? "retrieval-v2";
+  return result;
 }

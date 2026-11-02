@@ -38,8 +38,11 @@ const CURSOR_VERSION = 2;
 // reward-v1 is a historical projection. These literals are deliberately not
 // imported from the current learning-policy module so a future product policy
 // cannot silently rewrite old reward reports.
+// 獎勵 reader 的版本白名單獨立固定，未來新政策不會自動改寫歷史報表。
+function isSupportedLearningPolicy(value: unknown): boolean {
+  return value === "retrieval-v1" || value === "retrieval-v2";
+}
 const REWARD_SUPPORTED_FLOW_VERSION = "v2" as const;
-const REWARD_SUPPORTED_POLICY_VERSION = "retrieval-v1" as const;
 const REWARD_SUPPORTED_QUALITY_POLICY_VERSION = "retrieval-v1-quality-v1" as const;
 const REWARD_SUPPORTED_CONSTRUCTION_VERSION = "retrieval-v1-mcq-curated-v2" as const;
 
@@ -943,7 +946,7 @@ function classifyRewardReviewEvent(event: RewardReviewEvent): SourceBucket {
     !event.userId || target.userId !== event.userId ||
     !event.contentRevisionId || !event.catalogRevisionId || snapshot.contentRevisionId !== event.contentRevisionId || snapshot.catalogRevisionId !== event.catalogRevisionId ||
     target.id !== event.objectiveEvidenceTargetId || snapshot.id !== event.objectiveQuestionSnapshotId || snapshot.targetId !== target.id ||
-    target.purpose !== event.probePurpose || target.policyVersion !== REWARD_SUPPORTED_POLICY_VERSION || target.itemConstructionVersion !== REWARD_SUPPORTED_CONSTRUCTION_VERSION ||
+    target.purpose !== event.probePurpose || !isSupportedLearningPolicy(target.policyVersion) || target.itemConstructionVersion !== REWARD_SUPPORTED_CONSTRUCTION_VERSION ||
     snapshot.contentVersion !== REWARD_SUPPORTED_CONSTRUCTION_VERSION || snapshot.itemConstructionVersion !== REWARD_SUPPORTED_CONSTRUCTION_VERSION
   ) return "missingIdentityOrProvenance";
   if (target.status !== "CONSUMED" || target.winningOperationId !== event.operationId || target.winningReviewEventId !== event.id) return "nonWinningOrInvalidOutcome";
@@ -951,7 +954,7 @@ function classifyRewardReviewEvent(event: RewardReviewEvent): SourceBucket {
     if (target.obligationId !== null || target.obligation !== null) return "missingIdentityOrProvenance";
   } else if (event.probePurpose === "EVIDENCE_OBLIGATION") {
     const obligation = target.obligation;
-    if (!target.obligationId || !obligation || obligation.id !== target.obligationId || obligation.userId !== event.userId || obligation.wordId !== event.wordId || obligation.senseId !== event.senseId || obligation.kind !== "EVIDENCE_OBLIGATION" || obligation.policyVersion !== REWARD_SUPPORTED_POLICY_VERSION || obligation.status !== "ANSWERED") return "missingIdentityOrProvenance";
+    if (!target.obligationId || !obligation || obligation.id !== target.obligationId || obligation.userId !== event.userId || obligation.wordId !== event.wordId || obligation.senseId !== event.senseId || obligation.kind !== "EVIDENCE_OBLIGATION" || obligation.policyVersion !== target.policyVersion || obligation.status !== "ANSWERED") return "missingIdentityOrProvenance";
   } else {
     return "unsupportedVersion";
   }
@@ -964,7 +967,7 @@ function classifyRewardEncounter(encounter: RewardEncounter): SourceBucket {
   if (!item) return "missingIdentityOrProvenance";
   if (item.itemKind !== "LEARNING_CARD") return "policyExcluded";
   if (item.session?.flowVersion === null || item.policyVersion === null || encounter.policyVersion === null) return "missingIdentityOrProvenance";
-  if (item.session?.flowVersion !== REWARD_SUPPORTED_FLOW_VERSION || item.policyVersion !== REWARD_SUPPORTED_POLICY_VERSION || encounter.policyVersion !== REWARD_SUPPORTED_POLICY_VERSION) return "unsupportedVersion";
+  if (item.session?.flowVersion !== REWARD_SUPPORTED_FLOW_VERSION || !isSupportedLearningPolicy(item.policyVersion) || encounter.policyVersion !== item.policyVersion) return "unsupportedVersion";
   if (
     !encounter.wordId || !encounter.senseId || !item.wordId || !item.senseId ||
     encounter.wordId !== item.wordId || encounter.senseId !== item.senseId || encounter.streamItemId !== item.id ||
