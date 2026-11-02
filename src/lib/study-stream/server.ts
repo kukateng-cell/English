@@ -74,7 +74,6 @@ import {
 const STREAM_SESSION_TTL_MS = 30 * 60_000;
 const STREAM_ITEM_LEASE_MS = 15 * 60_000;
 const MAX_TRANSACTION_ATTEMPTS = 5;
-const MAX_CANDIDATES = 80;
 const MAX_CREDENTIAL_LINEAGE_GRANTS = 8;
 const STUDY_STREAM_RECOVERY_TOKEN_PREFIX = "study-stream-recovery-v1:";
 const LOCAL_STUDY_STREAM_RECOVERY_SECRET = "local-study-stream-recovery-secret";
@@ -535,13 +534,11 @@ type LearnerStreamHistory = {
     id: string;
   }>;
   recentWordIds: string[];
-  contactTimes: Map<string, number>;
 };
 
 async function learnerStreamHistory(
   tx: StreamTransaction,
   userId: string,
-  scope: StreamScope,
 ): Promise<LearnerStreamHistory> {
   // Learning Card acknowledgement is recorded as a durable encounter. It is
   // deliberately queried independently from the short-lived stream item so a
@@ -595,22 +592,11 @@ async function learnerStreamHistory(
         }]
       : []),
   ].sort((left, right) => right.acknowledgedAt.getTime() - left.acknowledgedAt.getTime() || right.id.localeCompare(left.id)).slice(0, 40);
-  const contacts = await tx.studyEncounter.findMany({
-    where: { userId, wordId: { not: null }, word: scope.where },
-    orderBy: [{ acknowledgedAt: "asc" }, { id: "asc" }],
-    take: MAX_CANDIDATES * 8,
-    select: { wordId: true, acknowledgedAt: true },
-  });
-  const contactTimes = new Map<string, number>();
-  for (const row of contacts) {
-    if (row.wordId && !contactTimes.has(row.wordId)) contactTimes.set(row.wordId, row.acknowledgedAt.getTime());
-  }
   return {
     acknowledged,
     recentWordIds: acknowledged
       .slice(0, RETRIEVAL_V1_POLICY.minInterveningItems)
       .flatMap((row) => row.wordId ? [row.wordId] : []),
-    contactTimes,
   };
 }
 
@@ -636,17 +622,20 @@ function candidateForWork(
 
 /** 新發卡政策。所有資料均在既有 learner lock／Serializable transaction 內讀寫。 */
 async function buildV3Candidates(
-  tx: StreamTransaction, userId: string, scope: StreamScope, now: Date,
+  tx: StreamTransaction, userId: string, scope: StreamScope, now: Date, currentSessionId: string,
 ) {
-  const history = await learnerStreamHistory(tx, userId, scope);
+  const history = await learnerStreamHistory(tx, userId);
   const words = await tx.word.findMany({ where: scope.where });
+  // 範圍內詞語已在上方載入；下列查詢只按 userId 走索引再於記憶體篩選範圍，
+  // 避免把整個單元條件展開成數十個 catalog join（規劃時間可達數百毫秒）。
+  const inScope = new Set(words.map(w => w.id));
   const reviews = await tx.review.findMany({ where: { userId } });
   const reviewByWord = new Map(reviews.map(r => [r.wordId, r]));
-  const contacts = await tx.studyEncounter.findMany({
-    where: { userId, wordId: { not: null }, word: scope.where },
+  const contacts = (await tx.studyEncounter.findMany({
+    where: { userId, wordId: { not: null } },
     orderBy: [{ acknowledgedAt: "desc" }, { id: "desc" }], distinct: ["wordId"],
     select: { wordId: true, acknowledgedAt: true, operationId: true },
-  });
+  })).filter(c => c.wordId !== null && inScope.has(c.wordId));
   const contactByWord = new Map(contacts.map(c => [c.wordId, c]));
   const exposures = await tx.studyStreamItem.groupBy({
     by: ["wordId"], where: { session: { userId }, wordId: { not: null } },
@@ -679,7 +668,7 @@ async function buildV3Candidates(
   const unissued = pending.filter(w => (!w.wordId || !reviewByWord.has(w.wordId)) && !w.workStreamItems.length);
   if (unissued.length) {
     const content = await tx.word.findMany({ where: withCurrentCatalogWord({ id: { in: unissued.flatMap(w => w.wordId ? [w.wordId] : []) } }) });
-    const usable = new Set(content.filter(w => buildObjectiveQuestion(questionWord(w), [questionWord(w)], `eligibility:${w.id}`)).map(w => w.id));
+    const usable = new Set(content.filter(canBuildObjectiveQuestion).map(w => w.id));
     const invalid = unissued.filter(w => !w.wordId || !usable.has(w.wordId)).map(w => w.id);
     if (invalid.length) {
       await tx.objectiveEvidenceTarget.updateMany({ where: { obligationId: { in: invalid }, status: "OPEN" }, data: { status: "CANCELLED", activeKey: null } });
@@ -687,6 +676,13 @@ async function buildV3Candidates(
       pending = pending.filter(w => !invalid.includes(w.id));
     }
   }
+  // 其他 session 中租約已過期、仍未自評的字卡視為已放棄：退役後釋放其詞語及初驗名額，
+  // 避免學生在別的單元留下字卡後，主學習流長期沒有新詞可學。
+  await tx.studyStreamItem.updateMany({
+    where: { session: { userId }, sessionId: { not: currentSessionId }, itemKind: "LEARNING_CARD",
+      status: "LEASED", usedAt: null, leaseExpiresAt: { lte: now } },
+    data: { status: "SUPERSEDED" },
+  });
   const reserved = await tx.studyStreamItem.findMany({
     where: { session: { userId, retiredAt: null }, status: "LEASED", usedAt: null,
       OR: [{ itemKind: "LEARNING_CARD" }, { session: { expiresAt: { gt: now } } }] },
@@ -703,12 +699,13 @@ async function buildV3Candidates(
     userId, status: { in: ["CANCELLED", "SUPERSEDED"] }, OR: [{ terminalReason: null }, { terminalReason: { not: "phase-transfer" } }],
   }, select: { sourceOperationId: true } });
   const cancelledSources = new Set(cancelled.map(w => w.sourceOperationId));
-  const validWords = words.filter(w => buildObjectiveQuestion(questionWord(w), [questionWord(w)], `eligibility:${w.id}`));
+  const validWords = words.filter(canBuildObjectiveQuestion);
+  const wordById = new Map(words.map(w => [w.id, w]));
   const validIds = new Set(validWords.map(w => w.id));
-  const transfers = await tx.evidenceObligation.findMany({
-    where: { userId, status: "SUPERSEDED", terminalReason: "phase-transfer", word: scope.where },
+  const transfers = (await tx.evidenceObligation.findMany({
+    where: { userId, status: "SUPERSEDED", terminalReason: "phase-transfer" },
     orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
-  });
+  })).filter(w => w.wordId !== null && inScope.has(w.wordId));
   for (const work of transfers) {
     if (!capacity || !work.wordId || !validIds.has(work.wordId) || reviewByWord.has(work.wordId)
       || workWords.has(work.wordId) || reservedWords.has(work.wordId)) continue;
@@ -724,15 +721,15 @@ async function buildV3Candidates(
   for (const c of [...contacts].reverse()) {
     if (!capacity || !c.wordId || !validIds.has(c.wordId) || reviewByWord.has(c.wordId)
       || workWords.has(c.wordId) || reservedWords.has(c.wordId) || cancelledSources.has(c.operationId)) continue;
-    const word = words.find(w => w.id === c.wordId)!;
+    const word = wordById.get(c.wordId)!;
     const admitted = await admissionWork(tx, userId, word.id, word.senseId, "EVIDENCE_OBLIGATION", now,
       c.operationId, "retrieval-v3", now);
     if (admitted.disposition === "accepted") { capacity--; workWords.add(word.id); }
   }
-  const rows = await tx.evidenceObligation.findMany({
-    where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now }, word: scope.where },
+  const rows = (await tx.evidenceObligation.findMany({
+    where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now } },
     orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
-  });
+  })).filter(w => w.wordId !== null && inScope.has(w.wordId));
   const active = rows.flatMap(r => { const w = toWorkRecord(r); return w ? [w] : []; });
   const acknowledged = await tx.studyStreamItem.findMany({
     where: { session: { userId }, feedbackAcknowledgedAt: { gt: new Date(now.getTime() - 600_000) } },
@@ -745,7 +742,7 @@ async function buildV3Candidates(
   const candidates: CandidateRecord[] = [];
   const waits: number[] = [];
   for (const [index, work] of active.entries()) {
-    const word = words.find(w => w.id === work.wordId);
+    const word = wordById.get(work.wordId);
     if (!word) continue;
     const exposure = lastExposure.get(work.wordId) ?? work.admittedAt;
     if (work.policyVersion !== "retrieval-v3") {
@@ -830,6 +827,23 @@ function snapshotToData(snapshot: ObjectiveQuestionSnapshot): ObjectiveQuestionS
     correctOptionId: snapshot.correctOptionId,
     itemConstructionVersion: snapshot.itemConstructionVersion as ObjectiveQuestionSnapshotData["itemConstructionVersion"],
   };
+}
+
+// 固定 seed、只以詞條自身作詞池時，出題可行性完全由詞條內容決定。按內容快取，
+// 避免每次取題都為整個詞庫重建題目（約佔取題時間的六成）。內容改動會產生新 key。
+const objectiveEligibilityCache = new Map<string, boolean>();
+const OBJECTIVE_ELIGIBILITY_CACHE_LIMIT = 50_000;
+
+function canBuildObjectiveQuestion(word: Word): boolean {
+  const input = questionWord(word);
+  const key = JSON.stringify(input);
+  let eligible = objectiveEligibilityCache.get(key);
+  if (eligible === undefined) {
+    if (objectiveEligibilityCache.size >= OBJECTIVE_ELIGIBILITY_CACHE_LIMIT) objectiveEligibilityCache.clear();
+    eligible = buildObjectiveQuestion(input, [input], `eligibility:${word.id}`) !== null;
+    objectiveEligibilityCache.set(key, eligible);
+  }
+  return eligible;
 }
 
 function questionWord(word: Word): QuestionWord {
@@ -1519,7 +1533,7 @@ export async function getOrCreateStudyStream(
             );
           }
 
-          const built = await buildV3Candidates(tx, userId, scope, now);
+          const built = await buildV3Candidates(tx, userId, scope, now, session.id);
           const shape = recentStreamShape(built.history.acknowledged);
           const excluded = new Set<string>();
           for (let selectionAttempt = 0; selectionAttempt < built.candidates.length; selectionAttempt += 1) {

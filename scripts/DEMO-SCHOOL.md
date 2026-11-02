@@ -18,6 +18,13 @@ admin/teacher 使用 INITIAL_ADMIN_PASSWORD；首兩名學生使用 TEST_STUDENT
 TEST_STUDENT_WEBKIT_USERNAME（未設定時 student-test / student-test_webkit）及 TEST_STUDENT_PASSWORD。
 其餘學生各自使用隨機密碼，需要登入時由管理員重設。
 
+其餘學生帳號為學生編號：入學年份 + 班別序號 + 兩位學號，例如 `2026105` 為 2026 年入學、
+甲班 5 號（高年級按年級往前推算入學年份）。帳戶建立時間早於開學日一至九日，按學生錯開；
+教職員帳戶在開學前兩星期建立。
+
+演示前不要用演示帳戶進入 `/study`：手動學習會令 `demo:update` 報衝突。需要現場示範學習流程時，
+另建一個學生帳戶。
+
 ## 每日補上活動
 
 ```powershell
@@ -37,7 +44,12 @@ npm run demo:check
 
 ## 模型及界限
 
-固定 seed 決定姓名、班級人數、個人能力、參與率、時段、週末偏好、近期趨勢及晚加入。
+固定 seed 決定姓名、班級人數、學習習慣、個人能力、參與率、時段、週末偏好、近期趨勢及晚加入。
+學習習慣分五類（示範假設，不是真實學生研究）：進階型約 5%、穩定型約 13%、一般型約 45%、
+隨意型約 34%、停用型約 3%。第一個演示帳戶固定為進階型，第二個為穩定型。
+模擬按現行 `retrieval-v3` 政策（`DEMO_POLICY_VERSION`）產生，寫入的 session、item、obligation、
+target 及 encounter 版本一致；每名學生寫入後按現有規則補上已達成的成就。
+`DEMO_VERSION` 改變後舊 manifest 不能 update，需要重新 `demo:init`。
 日／學生 random stream 互相獨立，活動按時間排序。沿用正式純排程、admission、quality、SM-2
 及全詞庫單元解鎖；歷史 writer 批次寫入 V2 target/snapshot/event/receipt，並不重播 HTTP/auth。
 正確率受詞難度、重複次數及逾期影響；自評獨立抽樣，不直接推進 Review。

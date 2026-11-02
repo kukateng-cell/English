@@ -12,6 +12,7 @@ import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 import { ROLES, isRole, type Role } from "@/lib/roles";
 import { signOut } from "next-auth/react";
 import { rosterFetch } from "@/lib/http-client";
+import { CLASS_LABELS, GRADE_LABELS, parseClassCode, parseStudentGrade } from "@/lib/roster-domain";
 
 interface UserItem {
   id: string;
@@ -411,7 +412,7 @@ export default function AdminUsersPage() {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-4 text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
-                  {roleOf(user) === ROLES.STUDENT ? <span>{tc("學號")}：{user.studentNumber ?? tc("未設定")}</span> : null}
+                  {roleOf(user) === ROLES.STUDENT ? <span>{classPlacement(user.grade, user.classCode, tc)}{tc("學號")}：{user.studentNumber ?? tc("未設定")}</span> : null}
                   <span className="admin-meta-item"><Icon name="repeat" size={14} /> {user.totalReviews ?? 0} {tc("次練習")}</span>
                   <span className="admin-meta-item"><Icon name="clock" size={14} /> {new Date(user.createdAt).toLocaleDateString(dateLocale, { timeZone: "Asia/Shanghai" })} {tc("加入")}</span>
                 </div>
@@ -468,4 +469,12 @@ export default function AdminUsersPage() {
       />
     </motion.div>
   );
+}
+
+/** 學生所屬年級及班別，例如「高三甲班 · 」；未分班時不顯示。 */
+function classPlacement(grade: string | null | undefined, classCode: string | null | undefined, tc: (text: string) => string): string {
+  const parsedGrade = parseStudentGrade(grade);
+  const parsedClass = parseClassCode(classCode);
+  if (!parsedGrade) return "";
+  return tc(`${GRADE_LABELS[parsedGrade]}${parsedClass ? `${CLASS_LABELS[parsedClass]}班` : ""} · `);
 }

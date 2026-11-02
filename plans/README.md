@@ -21,6 +21,7 @@
 
 ### 目前進行中
 
+- [示範學校進度真實化及學習流穩定性](./demo-school-progress-and-stream-stability.md)：示範學生進度及帳號管理改善；修正其他 session 過期字卡令學習流卡住，減少取題時間。
 - [新詞引入、初次驗證與間隔複習重設計](./study-stream-learning-phases.md)：本地實作及驗收完成；以短期初驗釋放窗口、未來複習獨立排程，處理上一版五詞／十分鐘的新手阻塞。
 - [學習流揀詞、短期重複與驗證進度改進](./study-stream-selection-improvement.md)：本地修正已推送；節奏規則已由三階段方案取代，保留循環根因及驗收證據。
 - [項目整理、重構與學生交接](./project-consolidation-and-student-handoff.md)：本分支的主線工作；目前處於 P1 文件入口、P3 source layer 及 P4 cutover 階段。
@@ -56,6 +57,7 @@
 | [supabase-cloud-database-provisioning.md](./supabase-cloud-database-provisioning.md) | 雲端資料庫建立及資料上載 | 已完成（東京庫；已公開唯讀供評委） | 專案 `ogxdoezdhixgahlfylmf`（`ap-northeast-1`東京）：67 migration、396 MB、566 學生、資料至 2026-10-31；25 表 `public_read` 唯讀公開（`User` 欄位級隱藏密碼；寫入與敏感表封閉）；舊 `eu-west-1` 專案待刪 |
 | [vercel-demo-deployment.md](./vercel-demo-deployment.md) | 評委示範部署 | 已完成（示範性質；非正式 production workflow） | <https://english-seeword.vercel.app>（東京 `hnd1`）；14 項 production 環境變數、Upstash 限流、生產配置 gate 通過；登入／首頁／`/study`／`/stats` 及答題寫入實測通過 |
 | [demo-data-realism-backfill.md](./demo-data-realism-backfill.md) | 雲端示範資料補寫 | 已完成（2026-11-01） | 為部分學生補合法 A2／B1／B2 單元進度、少量長期掌握、依學習量回填成就，並補最近兩日活動；只改虛構示範資料，不改 schema／政策；結果見計劃書 |
+| [demo-school-progress-and-stream-stability.md](./demo-school-progress-and-stream-stability.md) | 示範學校進度真實化及學習流穩定性 | 已完成（本地驗證） | 示範學生按學習習慣分類並改用現行 retrieval-v3 模擬；學生編號及帳戶建立時間；退役跨 session 過期字卡；取題出題可行性快取 |
 | [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) | 學生排行榜重設計計劃 | 已完成（本地核心實作；大型DB效能／原生screen-reader列後續） | 本班每週學習分主榜、附近／完整排名、個人週目標；直接替換舊榜，已清空重建本地資料；含reward contract、API／snapshot、自動化及CUA視覺驗收，不含production工作 |
 | [teacher-reward-summary-usability.md](./teacher-reward-summary-usability.md) | 教師體驗修改計劃 | 已完成（本地驗收；native screen-reader matrix deferred；production／pilot deferred） | 首頁首屏匯出入口、獨立學生累積分頁、三個累積結果及簡潔 Excel／CSV；已核對客觀作答全零的舊 fixture 根因，保留 strict provenance 驗證 |
 | [teacher-learning-reward-index.md](./teacher-learning-reward-index.md) | 實施計劃 | 進行中（Revision 2；使用者已批准；兩位 reviewer PASS） | 教師自訂投入／成效權重、每日及期間累積分、完整明細匯出；不設派分或已匯出扣除機制；20/5量尺及目前學年範圍已按批准方案實作；四項分支審核修正及針對性回歸完成，整體環境驗證仍有既有阻礙；production／pilot／destructive migration 仍 deferred |

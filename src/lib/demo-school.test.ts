@@ -83,3 +83,16 @@ test("三階段示範共用排程、保留首次錯誤與未來複習、可重�
   const cut=new Date("2026-09-04T12:00:00+08:00");
   assert.deepEqual(simulateStudent("sample",student,words,"2026-09-01",cut,"retrieval-v3").actions,all.actions.filter(a=>a.end<=cut.getTime()));
 });
+
+test("學習習慣分佈：演示帳戶為進階及穩定型，停用型只佔少數，穩定型約一成多", () => {
+  const roster = schoolRoster("school-2026");
+  assert.equal(roster[0].habit, "advanced");
+  assert.equal(roster[1].habit, "steady");
+  const share = (habit: string) => roster.filter((s) => s.habit === habit).length / roster.length;
+  assert.ok(share("inactive") < 0.06);
+  assert.ok(share("steady") > 0.1 && share("steady") < 0.25);
+  for (const s of roster) {
+    if (s.habit === "inactive") assert.equal(s.participation, 0);
+    else assert.ok(s.participation > 0);
+  }
+});
