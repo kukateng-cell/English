@@ -5,12 +5,13 @@ import { parseArgs } from "node:util";
 import assert from "node:assert/strict";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../src/generated/prisma";
-import { DEMO_VERSION, demoId, schoolRoster, simulateStudent, type DemoStudent, type SimAction } from "../src/lib/demo-school";
+import { DEMO_POLICY_VERSION, DEMO_VERSION, demoId, randomFor, schoolRoster, simulateStudent, type DemoStudent, type SimAction } from "../src/lib/demo-school";
+import { checkAchievements } from "../src/lib/achievements";
 import { currentAcademicYearDates } from "../src/lib/roster-domain";
 import { offsetDay, todayKey } from "../src/lib/streak";
 import { currentCatalogWordWhere, isEligibleOperationalObjectiveEvent } from "../src/lib/catalog/runtime";
 import { buildObjectiveQuestion } from "../src/lib/learning-policy/question";
-import { RETRIEVAL_POLICY_VERSION, OBJECTIVE_ITEM_CONSTRUCTION_VERSION, OBJECTIVE_QUALITY_POLICY_VERSION } from "../src/lib/learning-policy/types";
+import { OBJECTIVE_ITEM_CONSTRUCTION_VERSION, OBJECTIVE_QUALITY_POLICY_VERSION } from "../src/lib/learning-policy/types";
 import { passwordPolicyError } from "../src/lib/password-policy";
 
 dotenv.config({ path: ".env.local", quiet: true });
@@ -65,11 +66,14 @@ async function initialize(words: Word[]) {
     await tx.databaseMetadata.deleteMany({ where: { OR: [{ key: { startsWith: "demoSchool:" } }, { key: "demoAnalytics" }, { key: { startsWith: "studentTemporaryCredential:" } }] } });
     await tx.rosterMutationState.create({ data: { id: 1, revision: 0, calendarRevision: 0 } });
     const academic = await tx.academicYear.create({ data: { ...year, isCurrent: true, status: "CURRENT" } });
-    const admin = await tx.user.create({ data: { accountName: "admin", accountNameCanonical: "admin", passwordHash: adminHash, credentialRevision: 1, role: "ADMIN", legacyName: "管理員", mustChangePassword: false } });
+    // 教職員帳戶在開學前兩星期建立；學生帳戶按人錯開，早於各自的入學日。
+    const staffCreatedAt = new Date(`${offsetDay(todayKey(year.startsOn), -14)}T09:30:00+08:00`);
+    const startYear = Number(todayKey(year.startsOn).slice(0, 4));
+    const admin = await tx.user.create({ data: { createdAt: staffCreatedAt, accountName: "admin", accountNameCanonical: "admin", passwordHash: adminHash, credentialRevision: 1, role: "ADMIN", legacyName: "管理員", mustChangePassword: false } });
     const teachers = [];
     for (const [i, name] of ["王雅雯", "陳志謙", "梁慧敏", "黃文軒", "李嘉穎", "何俊賢"].entries()) {
       const account = i === 0 ? "teacher" : i === 1 ? "teacher-reset" : `teacher-school-${i+1}`;
-      teachers.push(await tx.user.create({ data: { accountName: account, accountNameCanonical: account, passwordHash: adminHash, credentialRevision: 1, role: "TEACHER", legacyName: name, mustChangePassword: false, teacherProfile: { create: { legalName: name, canResetStudentPassword: i === 1 } } } }));
+      teachers.push(await tx.user.create({ data: { createdAt: new Date(staffCreatedAt.getTime() + i * 3_600_000), accountName: account, accountNameCanonical: account, passwordHash: adminHash, credentialRevision: 1, role: "TEACHER", legacyName: name, mustChangePassword: false, teacherProfile: { create: { legalName: name, canResetStudentPassword: i === 1 } } } }));
     }
     const classes = new Map<number, string>();
     for (const s of roster) if (!classes.has(s.classIndex)) {
@@ -81,10 +85,14 @@ async function initialize(words: Word[]) {
     const accounts = [process.env.TEST_STUDENT_USERNAME ?? "student-test", process.env.TEST_STUDENT_WEBKIT_USERNAME ?? "student-test_webkit"];
     if (new Set(accounts).size !== 2 || accounts.some(a => !/^(student-test|__test_student__)[A-Za-z0-9._-]*$/.test(a) || a.length > 64)) throw new Error("測試登入帳戶必須不同且使用保留前綴。");
     for (const [i, s] of roster.entries()) {
-      const account = i < 2 ? accounts[i] : `school-${String(s.classIndex+1).padStart(2,"0")}-${String(s.number).padStart(2,"0")}`;
+      // 學生編號：入學年份 + 班別序號 + 兩位學號，例如 2026105 為 2026 年入學、A 班 5 號。
+      const gradeIndex = Math.floor(s.classIndex / 3);
+      const account = i < 2 ? accounts[i] : `${startYear - gradeIndex}${s.classIndex % 3 + 1}${String(s.number).padStart(2, "0")}`;
       const classId = classes.get(s.classIndex)!;
       const startedAt = new Date(`${offsetDay(start, s.joinDelay)}T00:00:00+08:00`);
-      const u = await tx.user.create({ data: { accountName: account, accountNameCanonical: account, passwordHash: studentHashes[i], credentialRevision: 1, legacyName: s.name, role: "STUDENT", mustChangePassword: false,
+      const created = randomFor(`${seed}:created:${s.key}`);
+      const createdAt = new Date(startedAt.getTime() - (1 + Math.floor(created() * 9)) * 86_400_000 + Math.floor(created() * 10 * 3_600_000));
+      const u = await tx.user.create({ data: { createdAt, accountName: account, accountNameCanonical: account, passwordHash: studentHashes[i], credentialRevision: 1, legacyName: s.name, role: "STUDENT", mustChangePassword: false,
         studentProfile: { create: { legalName: s.name, nickname: s.name, nicknameNormalized: s.name.normalize("NFKC").toLowerCase(), enrollments: { create: { academicYearId: academic.id, grade: s.grade, classId, studentNumber: s.number, status: "ACTIVE", isCurrent: true, origin: "SEED", startedAt } } } } } });
       students.push({ ...s, userId: u.id, account, classId });
     }
@@ -99,17 +107,29 @@ async function writeActions(tx: Prisma.TransactionClient, student: Manifest["stu
   const added = model.actions.slice(from);
   const sessionActions = new Map<string, SimAction[]>();
   for (const a of model.actions) { const list = sessionActions.get(a.sessionKey) ?? []; list.push(a); sessionActions.set(a.sessionKey, list); }
-  for (const key of new Set(added.map(a => a.sessionKey))) {
+  // 批次寫入：新列用 createMany，已存在的列只在內容改變時逐列更新，避免每個詞一次往返。
+  const sessionKeys = [...new Set(added.map(a => a.sessionKey))];
+  const existingSessions = new Set((await tx.studySession.findMany({ where: { id: { in: sessionKeys.map(key => demoId(`${userId}:${key}`)) } }, select: { id: true } })).map(r => r.id));
+  const newSessions: Prisma.StudySessionCreateManyInput[] = [];
+  for (const key of sessionKeys) {
     const list = sessionActions.get(key)!;
+    const id = demoId(`${userId}:${key}`);
     const data = { revision: list.reduce((n,a) => n + (a.kind === "LEARNING_CARD" ? 1 : 2), 0), retiredAt: at(list.at(-1)!.end), expiresAt: at(list.at(-1)!.end) };
-    await tx.studySession.upsert({ where: { id: demoId(`${userId}:${key}`) }, create: { id: demoId(`${userId}:${key}`), userId, queueFingerprint: hash(key), flowVersion: "v2", mode: "global", catalogReadMode: "SENSE_V1", learningPolicyVersion: RETRIEVAL_POLICY_VERSION, createdAt: at(list[0].start), ...data }, update: data });
+    if (existingSessions.has(id)) await tx.studySession.update({ where: { id }, data });
+    else newSessions.push({ id, userId, queueFingerprint: hash(key), flowVersion: "v2", mode: "global", catalogReadMode: "SENSE_V1", learningPolicyVersion: DEMO_POLICY_VERSION, createdAt: at(list[0].start), ...data });
   }
+  await tx.studySession.createMany({ data: newSessions });
   // Persist terminal and legitimately pending work; never invent an early expiry.
+  const existingWork = new Map((await tx.evidenceObligation.findMany({ where: { userId }, select: { id: true, status: true, answeredAt: true } })).map(r => [r.id, r]));
+  const newWork: Prisma.EvidenceObligationCreateManyInput[] = [];
   for (const w of model.work) {
     const word = byId.get(w.wordId)!;
     const data = { status: w.status, answeredAt: w.answeredAt ? at(w.answeredAt) : null, terminalReason: w.status === "EXPIRED" ? "age-limit" : null, activeKey: w.status === "PENDING" ? `${userId}:${w.wordId}:${w.kind}` : null };
-    await tx.evidenceObligation.upsert({ where: { id: w.id }, create: { id: w.id, userId, wordId: w.wordId, senseId: word.senseId, kind: w.kind, sourceOperationId: w.sourceOperationId, selectionReason: "demo-policy-admission", policyVersion: RETRIEVAL_POLICY_VERSION, eligibleAt: at(w.eligibleAt), expiresAt: at(w.expiresAt), admittedAt: at(w.admittedAt), createdAt: at(w.admittedAt), ...data }, update: data });
+    const prior = existingWork.get(w.id);
+    if (!prior) newWork.push({ id: w.id, userId, wordId: w.wordId, senseId: word.senseId, kind: w.kind, sourceOperationId: w.sourceOperationId, selectionReason: "demo-policy-admission", policyVersion: DEMO_POLICY_VERSION, eligibleAt: at(w.eligibleAt), expiresAt: at(w.expiresAt), admittedAt: at(w.admittedAt), createdAt: at(w.admittedAt), ...data });
+    else if (prior.status !== data.status || prior.answeredAt?.getTime() !== data.answeredAt?.getTime()) await tx.evidenceObligation.update({ where: { id: w.id }, data });
   }
+  await tx.evidenceObligation.createMany({ data: newWork });
   const items: Prisma.StudyStreamItemCreateManyInput[] = [], encounters: Prisma.StudyEncounterCreateManyInput[] = [], events: Prisma.ReviewEventCreateManyInput[] = [], receipts: Prisma.OperationReceiptCreateManyInput[] = [];
   const targets: Prisma.ObjectiveEvidenceTargetCreateManyInput[] = [], snapshots: Prisma.ObjectiveQuestionSnapshotCreateManyInput[] = [];
   const revisions = new Map<string, number>();
@@ -121,15 +141,15 @@ async function writeActions(tx: Prisma.TransactionClient, student: Manifest["stu
     const sessionId = demoId(`${userId}:${a.sessionKey}`);
     const targetId = `${a.id}:target`, snapshotId = `${a.id}:snapshot`, eventId = `${a.id}:event`;
     const objective = a.kind === "OBJECTIVE_PROBE";
-    const item = { id: a.id, sessionId, streamItemKey: a.id, wordId: w.id, senseId: w.senseId, itemKind: a.kind, selectionReason: a.reason, selectionOverrideReason: a.override, policyVersion: RETRIEVAL_POLICY_VERSION, status: "ACKNOWLEDGED", createdAt: at(a.start), leaseExpiresAt: at(a.end), credentialDigest: hash(a.id), credentialExpiresAt: at(a.end), credentialLineage: json({ version: 1, parentDigest: null, issuedAt: at(a.start).toISOString(), expiresAt: at(a.end).toISOString() }), revealedAt: objective ? null : at(a.reveal), usedAt: at(a.answer), feedbackAcknowledgedAt: at(a.end), operationId: `${a.id}:answer`, clientRevision: prior + 1, workObligationId: a.workId ?? null };
+    const item = { id: a.id, sessionId, streamItemKey: a.id, wordId: w.id, senseId: w.senseId, itemKind: a.kind, selectionReason: a.reason, selectionOverrideReason: a.override, policyVersion: DEMO_POLICY_VERSION, status: "ACKNOWLEDGED", createdAt: at(a.start), leaseExpiresAt: at(a.end), credentialDigest: hash(a.id), credentialExpiresAt: at(a.end), credentialLineage: json({ version: 1, parentDigest: null, issuedAt: at(a.start).toISOString(), expiresAt: at(a.end).toISOString() }), revealedAt: objective ? null : at(a.reveal), usedAt: at(a.answer), feedbackAcknowledgedAt: at(a.end), operationId: `${a.id}:answer`, clientRevision: prior + 1, workObligationId: a.workId ?? null };
     items.push({ ...item, feedbackAcknowledgedAt: at(objective ? a.end : a.answer), objectiveEvidenceTargetId: objective ? targetId : null, objectiveQuestionSnapshotId: objective ? snapshotId : null });
     if (objective) {
       const q = buildObjectiveQuestion({ ...w, curatedDistractorsZh: w.distractorZh, curatedDistractorsEn: w.distractorEn }, [], a.id);
       if (!q) throw new Error(`詞條無法出題：${w.senseKey}`);
-      targets.push({ id: targetId, userId, wordId: w.id, senseId: w.senseId, purpose: a.purpose!, expectedReviewRevision: a.before?.revision ?? 0, policyVersion: RETRIEVAL_POLICY_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, status: "CONSUMED", obligationId: a.workId, winningOperationId: `${a.id}:answer`, winningReviewEventId: eventId, consumedAt: at(a.answer), createdAt: at(a.start) });
+      targets.push({ id: targetId, userId, wordId: w.id, senseId: w.senseId, purpose: a.purpose!, expectedReviewRevision: a.before?.revision ?? 0, policyVersion: DEMO_POLICY_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, status: "CONSUMED", obligationId: a.workId, winningOperationId: `${a.id}:answer`, winningReviewEventId: eventId, consumedAt: at(a.answer), createdAt: at(a.start) });
       snapshots.push({ id: snapshotId, targetId, wordId: w.id, senseId: w.senseId, contentRevisionId: w.contentRevisionId, catalogRevisionId: w.catalogRevisionId, prompt: q.prompt, wordTerm: q.wordTerm, wordDefinition: q.wordDefinition, direction: q.direction, options: json(q.options), correctOptionId: q.correctOptionId, contentVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, createdAt: at(a.start) });
       events.push({ id: eventId, operationId: `${a.id}:answer`, userId, submittedWordId: w.id, wordId: w.id, senseId: w.senseId, submittedSenseId: w.senseId, senseKey: w.senseKey, contentRevisionId: w.contentRevisionId, catalogRevisionId: w.catalogRevisionId, wordTerm: w.term, wordLevel: w.level, quality: a.correct ? 4 : 2, evidenceKind: "OBJECTIVE_PROBE", flowVersion: "v2", qualityPolicyVersion: OBJECTIVE_QUALITY_POLICY_VERSION, probePurpose: a.purpose, itemConstructionVersion: OBJECTIVE_ITEM_CONSTRUCTION_VERSION, objectiveEvidenceTargetId: targetId, objectiveQuestionSnapshotId: snapshotId, createdAt: at(a.answer) });
-    } else encounters.push({ userId, wordId: w.id, senseId: w.senseId, streamItemId: a.id, operationId: `${a.id}:answer`, selfRating: a.selfRating, selectionReason: a.reason, policyVersion: RETRIEVAL_POLICY_VERSION, requiresVerification: Boolean(a.admittedWorkId), evidenceObligationId: a.admittedWorkId, createdAt: at(a.answer), acknowledgedAt: at(a.answer) });
+    } else encounters.push({ userId, wordId: w.id, senseId: w.senseId, streamItemId: a.id, operationId: `${a.id}:answer`, selfRating: a.selfRating, selectionReason: a.reason, policyVersion: DEMO_POLICY_VERSION, requiresVerification: Boolean(a.admittedWorkId), evidenceObligationId: a.admittedWorkId, createdAt: at(a.answer), acknowledgedAt: at(a.answer) });
     receipts.push({ userId, operationId: `${a.id}:answer`, flowVersion: "v2", actionKind: objective ? "ANSWER" : "SELF_RATING", requestFingerprint: hash(`${a.id}:answer`), outcomeStatus: "COMMITTED", outcomeReference: objective ? eventId : a.id, createdAt: at(a.answer) }, { userId, operationId: `${a.id}:${objective ? "feedback" : "reveal"}`, flowVersion: "v2", actionKind: objective ? "FEEDBACK_ACK" : "REVEAL", requestFingerprint: hash(`${a.id}:secondary`), outcomeStatus: objective ? "COMMITTED" : "REVEALED", outcomeReference: a.id, createdAt: at(objective ? a.end : a.reveal) });
   }
   await tx.objectiveEvidenceTarget.createMany({ data: targets });
@@ -137,11 +157,16 @@ async function writeActions(tx: Prisma.TransactionClient, student: Manifest["stu
   await tx.studyStreamItem.createMany({ data: items });
   await tx.studyEncounter.createMany({ data: encounters });
   await tx.$executeRaw`SELECT set_config('app.review_event_writer', 'v2', true)`;
-  for (const wordId of new Set(added.filter(a => a.after).map(a => a.wordId))) {
+  const changedReviewWords = [...new Set(added.filter(a => a.after).map(a => a.wordId))];
+  const existingReviews = new Set((await tx.review.findMany({ where: { userId, wordId: { in: changedReviewWords } }, select: { wordId: true } })).map(r => r.wordId));
+  const newReviews: Prisma.ReviewCreateManyInput[] = [];
+  for (const wordId of changedReviewWords) {
     const r = model.reviews.get(wordId)!;
     const data = { ...r, totalReviews: r.revision, senseId: byId.get(wordId)!.senseId };
-    await tx.review.upsert({ where: { userId_wordId: { userId, wordId } }, create: { userId, wordId, ...data }, update: data });
+    if (existingReviews.has(wordId)) await tx.review.update({ where: { userId_wordId: { userId, wordId } }, data });
+    else newReviews.push({ userId, wordId, ...data });
   }
+  await tx.review.createMany({ data: newReviews });
   await tx.reviewEvent.createMany({ data: events });
   await tx.operationReceipt.createMany({ data: receipts });
   const days = new Map<string, Date>();
@@ -185,7 +210,7 @@ async function main() {
       const itemCount = await tx.studyStreamItem.count({ where: { session: { userId: student.userId } } });
       assert.equal(itemCount, cp.count, `${student.account} 有手動學習／checkpoint 衝突，未覆寫`);
       if (command === "update" && record && until.getTime() === new Date(cp.asOf).getTime()) { total += cp.count; return; }
-      const model = simulateStudent(manifest.seed, student, words, manifest.start, until);
+      const model = simulateStudent(manifest.seed, student, words, manifest.start, until, DEMO_POLICY_VERSION);
       const previousActions = model.actions.filter(a => a.end <= new Date(cp.asOf).getTime());
       assert.equal(previousActions.length, cp.count);
       const previousReviews = new Map(previousActions.filter(a => a.after).map(a => [a.wordId, a.after!]));
@@ -237,6 +262,8 @@ async function main() {
         }
       } else if (!values["dry-run"] && (!record || until.toISOString() !== new Date(cp.asOf).toISOString())) {
         await writeActions(tx, student, model, cp.count, words);
+        // 與學習 API 相同：按目前 Review／打卡紀錄補上已達成的成就。
+        await checkAchievements(student.userId, tx);
         await tx.databaseMetadata.upsert({ where: { key: checkpointKey }, create: { key: checkpointKey, value: JSON.stringify({ count: model.actions.length, asOf: until.toISOString() }) }, update: { value: JSON.stringify({ count: model.actions.length, asOf: until.toISOString() }) } });
       }
       appended += model.actions.length - cp.count;

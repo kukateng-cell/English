@@ -128,6 +128,14 @@ async function main() {
     assert.equal(new Set(leases.map(l=>l.wordId)).size,2,"跨 scope 不重派同詞");
     await prisma.studySession.update({where:{id:unitLease.session.id},data:{expiresAt:past}});
     assert.equal((await getOrCreateStudyStream(concurrent,scope)).item?.streamItemId,unitLease.item.streamItemId,"過期卡 session 能續接");
+    // 其他 session 留下五張租約已過期、未自評的字卡：退役後不能再佔滿初驗名額，全域學習流仍有新詞。
+    const abandoned=await user();
+    const oldSession=await prisma.studySession.create({data:{userId:abandoned,queueFingerprint:randomUUID(),flowVersion:"v2",learningPolicyVersion:"retrieval-v3",mode:"unit",scopeLevel:"A1",scopeCategory:scope.category,expiresAt:past}});
+    const staleCards=[];
+    for(const word of words.slice(0,5)) staleCards.push(await prisma.studyStreamItem.create({data:{sessionId:oldSession.id,streamItemKey:randomUUID(),wordId:word.id,senseId:word.senseId,itemKind:"LEARNING_CARD",selectionReason:"abandoned-fixture",policyVersion:"retrieval-v3",leaseExpiresAt:past,credentialExpiresAt:past,credentialDigest:digestStudyStreamCredential(createStudyStreamCredential()),clientRevision:0}}));
+    const freed=await getOrCreateStudyStream(abandoned);
+    assert.equal(freed.item?.kind,"LEARNING_CARD","過期字卡不能令全域學習流卡死");
+    for(const card of staleCards) assert.equal((await prisma.studyStreamItem.findUniqueOrThrow({where:{id:card.id}})).status,"SUPERSEDED","過期未自評字卡退役");
     // 舊未發補救有 Review：移交未來複習，不阻塞新詞；無 Review：有來源的後繼初驗。
     const legacy=await user();
     await prisma.review.create({data:{userId:legacy,wordId:words[0].id,interval:1,nextReviewDate:future}});

@@ -11,7 +11,9 @@ import { type CandidateRecord, type WorkRecord, type SelfRating, type LearningPo
 
 import { initialCheckReady, nextPhaseCursor } from "./learning-policy/phases";
 
-export const DEMO_VERSION = "school-simulation-v1";
+export const DEMO_VERSION = "school-simulation-v2";
+/** 示範學校按現行學習政策模擬，寫入的版本欄位與 runtime 一致。 */
+export const DEMO_POLICY_VERSION = "retrieval-v3" as const;
 export function demoId(key: string): string {
   return `school-${createHash("sha256").update(`${DEMO_VERSION}:${key}`).digest("hex").slice(0, 32)}`;
 }
@@ -30,8 +32,27 @@ const surnames = [
   ..."胡 郭 朱 譚 鍾 廖 莫 歐陽 司徒".split(" "),
 ];
 const givenNames = "柏謙 芷晴 樂言 嘉欣 子軒 曉彤 浩然 詠恩 俊熙 雅雯 卓賢 穎怡 宇軒 心怡 皓文 思澄 家朗 佩珊 梓晴 文軒 凱晴 以諾 沛霖 詠晴 昕彤 智賢 梓謙 嘉慧 朗熙 善怡 昊天 悅琳 逸軒 若曦 睿謙 芷柔 澤楷 可欣 浩賢 詩晴 承軒 允行 靜宜 明軒 皓晴 雨桐 宥謙 嘉敏 曉嵐 柏希 思穎 俊朗 諾言 芷欣 宇晴 梓樂 偉霖 婉婷 立言 映彤".split(" ");
+/**
+ * 學習習慣分類（示範假設）：進階型英文基礎較好且每天練習，穩定型每天練習較長時間，
+ * 一般型大多數日子有練習，隨意型間中練習，停用型開學後沒有登入。比例見 pickHabit。
+ */
+export type DemoHabit = "advanced" | "steady" | "regular" | "casual" | "inactive";
+const HABITS: Record<DemoHabit, { participation: [number, number]; ability: [number, number]; minutes: [number, number]; weekend: number }> = {
+  advanced: { participation: [0.9, 0.98], ability: [0.88, 0.97], minutes: [30, 45], weekend: 0.7 },
+  steady: { participation: [0.86, 0.97], ability: [0.74, 0.92], minutes: [22, 38], weekend: 0.6 },
+  regular: { participation: [0.58, 0.86], ability: [0.6, 0.86], minutes: [14, 28], weekend: 0.3 },
+  casual: { participation: [0.25, 0.55], ability: [0.48, 0.76], minutes: [8, 18], weekend: 0.15 },
+  inactive: { participation: [0, 0], ability: [0.48, 0.7], minutes: [8, 12], weekend: 0 },
+};
+function pickHabit(roll: number): DemoHabit {
+  if (roll < 0.03) return "inactive";
+  if (roll < 0.08) return "advanced";
+  if (roll < 0.21) return "steady";
+  if (roll < 0.66) return "regular";
+  return "casual";
+}
 export type DemoStudent = {
-  key: string; name: string; grade: typeof STUDENT_GRADES[number]; code: "A" | "B" | "C";
+  key: string; name: string; grade: typeof STUDENT_GRADES[number]; code: "A" | "B" | "C"; habit: DemoHabit;
   number: number; classIndex: number; participation: number; ability: number; minutes: number;
   hour: number; weekend: boolean; trend: number; joinDelay: number;
 };
@@ -47,10 +68,14 @@ export function schoolRoster(seed: string): DemoStudent[] {
       let name: string;
       do { name = surnames[Math.floor(r() * surnames.length)] + givenNames[Math.floor(r() * givenNames.length)]; } while (names.has(name));
       names.add(name);
-      result.push({ key, name, grade: STUDENT_GRADES[Math.floor(classIndex / 3)], code: (["A", "B", "C"] as const)[classIndex % 3], number, classIndex,
-        participation: r() < 0.06 ? 0 : 0.2 + r() * 0.68, ability: 0.48 + r() * 0.4,
-        minutes: 9 + Math.floor(r() * 19), hour: [7, 16, 19, 20, 21][Math.floor(r() * 5)],
-        weekend: r() < 0.25, trend: (r() - 0.45) * 0.003, joinDelay: r() < 0.05 ? 3 + Math.floor(r() * 4) : 0 });
+      // 首兩名學生是演示登入帳戶：第一個為進階型、第二個為穩定型，避免演示時抽到停用或隨意型。
+      const habit: DemoHabit = classIndex === 0 && number === 1 ? "advanced" : classIndex === 0 && number === 2 ? "steady" : pickHabit(r());
+      const h = HABITS[habit];
+      result.push({ key, name, grade: STUDENT_GRADES[Math.floor(classIndex / 3)], code: (["A", "B", "C"] as const)[classIndex % 3], number, classIndex, habit,
+        participation: habit === "inactive" ? 0 : h.participation[0] + r() * (h.participation[1] - h.participation[0]),
+        ability: h.ability[0] + r() * (h.ability[1] - h.ability[0]),
+        minutes: h.minutes[0] + Math.floor(r() * (h.minutes[1] - h.minutes[0] + 1)), hour: [7, 16, 19, 20, 21][Math.floor(r() * 5)],
+        weekend: r() < h.weekend, trend: (r() - 0.45) * 0.003, joinDelay: classIndex === 0 && number <= 2 ? 0 : r() < 0.05 ? 3 + Math.floor(r() * 4) : 0 });
     }
   }
   return result;
