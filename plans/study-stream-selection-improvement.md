@@ -324,7 +324,6 @@ SQL 的 `User.email` 是現行 Prisma `accountName @map("email")` 的實體欄�
 決策：保留已驗證的 server scoring／長期排程邊界，先修復短期候選、需求完整性與等待行為；
 具體新參數作版本化驗收，教學有效性留待另外獲授權的評估。
 
-
 ## 9. 實作決策與本輪結果（2026-11-02）
 
 - 新 issuance 使用 `retrieval-v2`；舊 item／work 採其原政策，quality／construction 不變。
@@ -345,7 +344,6 @@ SQL 的 `User.email` 是現行 Prisma `accountName @map("email")` 的實體欄�
 
 本次不需要 schema migration，故沒有執行 db push、migration deploy 或資料庫 reset。
 Production／Vercel 部署、線上帳戶核實、真實學生及完整原生讀屏驗收仍未執行。
-
 
 ### 最終本地驗收紀錄
 
