@@ -112,7 +112,7 @@ export default function TeacherProgressTable({ items, selectedIds, onToggle, tc 
                 <td className="px-1.5 py-4 align-top text-[var(--text)]"><EvaluationCell item={item} tc={tc} /></td>
                 <td className="whitespace-nowrap px-1.5 py-4 align-top font-semibold tabular-nums text-[var(--primary)]">{item.todayLearningEncounterCount}{tc("次")}</td>
                 <td className="whitespace-nowrap px-1.5 py-4 align-top tabular-nums text-[var(--muted)]">{item.dueReviewCount}</td>
-                <td className="whitespace-nowrap px-1.5 py-4 align-top text-xs tabular-nums text-[var(--muted)]">{item.lastActivityAt ? new Date(item.lastActivityAt).toLocaleDateString() : "—"}</td>
+                <td className="whitespace-nowrap px-1.5 py-4 align-top text-xs tabular-nums text-[var(--muted)]">{item.lastActivityAt ? new Date(item.lastActivityAt).toLocaleDateString(undefined, { timeZone: "Asia/Shanghai" }) : "—"}</td>
                 <td className="px-1.5 py-4 align-top">
                   <Link href={`/teacher/students/${item.id}?from=progress`} className="ui-button ui-button-secondary ui-button-small whitespace-nowrap">{tc("查看")}</Link>
                 </td>
@@ -150,7 +150,7 @@ export default function TeacherProgressTable({ items, selectedIds, onToggle, tc 
               <div><dt className="text-[var(--muted)]">{tc("今日認字")}</dt><dd className="mt-1 font-semibold text-[var(--primary)]">{item.todayLearningEncounterCount}{tc("次")}</dd></div>
               <div><dt className="text-[var(--muted)]">{tc("測驗次數")}</dt><dd className="mt-1 text-[var(--text)]"><EvaluationCell item={item} tc={tc} /></dd></div>
               <div><dt className="text-[var(--muted)]">{tc("待複習")}</dt><dd className="mt-1 font-semibold text-[var(--text)]">{item.dueReviewCount}</dd></div>
-              <div className="col-span-2"><dt className="text-[var(--muted)]">{tc("最近活動")}</dt><dd className="mt-1 font-semibold text-[var(--text)]">{item.lastActivityAt ? new Date(item.lastActivityAt).toLocaleDateString() : "—"}</dd></div>
+              <div className="col-span-2"><dt className="text-[var(--muted)]">{tc("最近活動")}</dt><dd className="mt-1 font-semibold text-[var(--text)]">{item.lastActivityAt ? new Date(item.lastActivityAt).toLocaleDateString(undefined, { timeZone: "Asia/Shanghai" }) : "—"}</dd></div>
             </dl>
             <Link href={`/teacher/students/${item.id}?from=progress`} className="ui-button ui-button-secondary ui-button-small mt-4 w-full">{tc("查看學生詳情")}</Link>
           </article>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/session";
+import { requireRole } from "@/lib/session";
+import { ROLES } from "@/lib/roles";
 import { getStudentLearningMetrics } from "@/lib/student-metrics";
 
 /**
@@ -22,7 +23,7 @@ import { getStudentLearningMetrics } from "@/lib/student-metrics";
  *     严格长期记忆口径（interval >= 22 天）仍保留在 masteredCount / mastery；排行榜／教师端查询不受此 projection 改动影响。
  */
 export async function GET() {
-  const auth = await requireUser();
+  const auth = await requireRole(ROLES.STUDENT);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.message }, { status: auth.status });
   }

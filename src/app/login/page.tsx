@@ -109,7 +109,7 @@ export default function LoginPage() {
     }
     if (!result || result.error) {
       try {
-        const loginStatus = await fetch(`/api/auth/login-status?account=${encodeURIComponent(email.trim().toLowerCase())}`).then((response) => response.json());
+        const loginStatus = await fetch(`/api/auth/login-status?account=${encodeURIComponent(email.trim().toLowerCase())}`, { cache: "no-store" }).then((response) => response.json());
         if (loginStatus?.locked) {
           setLockUntil(Date.now() + (loginStatus.retryAfterSec ?? 0) * 1000);
           setError(loginStatus.message ?? "登入嘗試過多，已臨時鎖定");

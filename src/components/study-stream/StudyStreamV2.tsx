@@ -440,6 +440,16 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return refreshAuthoritativeState();
   }, [refreshAuthoritativeState]);
 
+  // 伺服器已接受的操作：本地刪除失敗（私隱模式、配額已滿）不代表同步失敗。
+  // 殘留的同一 operationId 之後重送時由伺服器冪等處理，不會重複計分。
+  const forgetAcceptedAction = useCallback(async (operationId: string) => {
+    try {
+      await removeStudyStreamAction(userId, operationId);
+    } catch {
+      // 保留殘留紀錄，交由下次同步處理。
+    }
+  }, [userId]);
+
   const discardTerminalAction = useCallback(async (action: StudyStreamActionInput): Promise<{ removed: boolean; refreshed: boolean }> => {
     try {
       await removeStudyStreamAction(userId, action.operationId);
@@ -518,7 +528,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           response = await recoverAction(row.action, recoveryCredential);
         }
       }
-      await removeStudyStreamAction(userId, row.action.operationId);
+      await forgetAcceptedAction(row.action.operationId);
       timeoutNoticeRef.current = false;
       const refreshed = await applyActionResponse(row.action, response);
       if (refreshed) setSyncError(null);
@@ -595,7 +605,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
                   : {}),
               });
               const response = await postAction(rebound);
-              await removeStudyStreamAction(userId, rebound.operationId);
+              await forgetAcceptedAction(rebound.operationId);
               timeoutNoticeRef.current = false;
               const refreshed = await applyActionResponse(rebound, response);
               if (refreshed) setSyncError(null);
@@ -628,7 +638,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       refreshOutbox();
       return "blocked";
     }
-  }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, prepareLegacyRecovery, recoverAction, reconcileAction, refreshOutbox, showRequestTimeout, userId]);
+  }, [applyActionResponse, discardTerminalAction, fetchStream, forgetAcceptedAction, handleAuthInvalidation, postAction, postActionWithRecovery, prepareLegacyRecovery, recoverAction, reconcileAction, refreshOutbox, showRequestTimeout, userId]);
 
   const flushRunningRef = useRef(false);
   const flushPending = useCallback(async (): Promise<void> => {
@@ -695,7 +705,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     setOutboxCount((count) => count + 1);
     try {
       const response = await postActionWithRecovery(action, item.recoveryCredential);
-      await removeStudyStreamAction(userId, action.operationId);
+      await forgetAcceptedAction(action.operationId);
       timeoutNoticeRef.current = false;
       const refreshed = await applyActionResponse(action, response);
       if (refreshed) {
@@ -765,7 +775,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setActionPending(false);
       refreshOutbox();
     }
-  }, [actionPending, applyActionResponse, discardTerminalAction, flushPending, handleAuthInvalidation, item, postActionWithRecovery, reconcileAction, refreshOutbox, refreshPending, session, showRequestTimeout, syncBlocked, updateCheckpoint, userId]);
+  }, [actionPending, applyActionResponse, discardTerminalAction, flushPending, forgetAcceptedAction, handleAuthInvalidation, item, postActionWithRecovery, reconcileAction, refreshOutbox, refreshPending, session, showRequestTimeout, syncBlocked, updateCheckpoint, userId]);
 
   const retryRefresh = useCallback(async () => {
     if (!refreshPending || actionPending) return;
@@ -969,7 +979,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
         ) : (
           <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center text-center">
             <p className="mb-4 text-[var(--muted)]">{tc(availability?.state === "waiting" ? "進度已保留，可以稍後再回來複習" : "目前沒有待學習或到期複習的內容")}</p>
-            {availability?.nextEligibleAt && <p className="mb-4 text-sm text-[var(--muted)]">{tc("最早可再檢查時間")} {new Date(availability.nextEligibleAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>}
+            {availability?.nextEligibleAt && <p className="mb-4 text-sm text-[var(--muted)]">{tc("最早可再檢查時間")} {new Date(availability.nextEligibleAt).toLocaleString([], { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>}
             {availability?.resumePath && <Link className="mb-4 underline" href={availability.resumePath}>{tc("返回未完成的學習")}</Link>}
             <Link className="mb-4 underline" href="/">{tc("返回首頁")}</Link>
             <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50">{tc("重新載入")}</button>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/session";
+import { requireRole } from "@/lib/session";
+import { ROLES } from "@/lib/roles";
 import { getClientIp } from "@/lib/login-limiter";
 import { checkStudyQueueRate } from "@/lib/study-limiter";
 import {
@@ -21,7 +22,7 @@ function errorResponse(error: unknown): NextResponse {
 export async function GET(req: Request) {
   const context: { flowVersion?: "v2"; outcome?: "rate-limited" } = {};
   return observeStudyStreamRequest("bootstrap", async () => {
-    const auth = await requireUser();
+    const auth = await requireRole(ROLES.STUDENT);
     if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
     context.flowVersion = "v2";
     const rate = await checkStudyQueueRate(auth.userId, getClientIp(req.headers));
