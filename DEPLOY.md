@@ -150,4 +150,4 @@ identity、revision 及目標資料庫，再用隔離環境驗證；不要直接
 
 - Project ID：`prj_0wp8aRY5l83xzr72RqNFBHat3ChY`
 - Org ID：`team_TEUByW1O0T2ztBXSHJ5a5Kag`
-- 此 workflow 只部署最新 commit，不執行 migration；migration 仍按本文前述流程處理。
+- 設定 repository secret `MIGRATE_URL_SEEWORD`（示範庫的 direct 或 5432 Session pooler 連線）後，workflow 會先以 `npm run db:deploy` 套用 migration，成功後才部署；migration 失敗則不部署。未設定時只部署並顯示警告：若示範庫落後於程式碼，登入後會被擋在 `/auth-unavailable`（見 #89）。
