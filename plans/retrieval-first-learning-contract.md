@@ -253,7 +253,8 @@ mastery、remediation 或正常 scheduler state；feedback／retention 由 appro
 | 自評校準 | self-rating 與其後合資格 probe 嘅配對 | 未經驗證 encounter |
 | 到期複習 | SM-2 due state | pending research-only probes |
 | Legacy／mixed mastery continuity | 現有 Review state，另標 legacy provenance | 宣稱成純 V2 objective accuracy |
-| V2 掌握／單元解鎖 | 合資格 operational Objective ReviewEvent policy | 單次右滑、research diagnostic |
+| V2 掌握 | 合資格 operational Objective ReviewEvent policy（`repetitions` 推進） | 單次右滑、research diagnostic |
+| 單元解鎖 | 同一 operational Objective Probe policy 嘅 first-response 記錄；答對或答錯都算「已學過」，達 learned 80% 即解鎖下一單元 | Learning Card 自評、reveal、未發出／未作答嘅 work、mastered 以外的替代口徑 |
 | verification coverage | answered／expired／cancelled／eligible work | 將 expired 當答啱 |
 | probe completion／abandonment | issued、visible、answered、left／expired | 未顯示 item |
 | personal learning-day streak | 現行 `Asia/Shanghai` operational calendar rules | research upload 成功與否 |
@@ -267,6 +268,18 @@ V2 objective-recognition 分子／分母。每個 V2 scored row 至少保存 evi
 flow version、quality mapping version、item-construction version及 evidence target provenance。
 如 personal learning-day streak 納入 acknowledged Learning Encounter，必須同 leaderboard scored
 streak 分名、分欄、分 projection，避免右滑間接加排行榜。
+
+### 單元解鎖與掌握嘅分界（2026-11-03 決定，issue #94）
+
+單元／級別解鎖代表「可以接觸更深嘅內容」，唔代表掌握：
+
+- 已學過（learned）= 該詞已有由合資格 operational Objective Probe 寫入嘅 Review，
+  答啱或答錯都算；答錯仍然保留較低 ease 及一日後複習。
+- 掌握／認字（mastered, `repetitions >= 1`）及長期掌握（interval >= 22 日）語義不變，
+  仍然用於單元「已完成」標記、認字進度、統計、排行榜及教師端。
+- 單元及級別解鎖門檻為 learned 80%；唔會因為 Learning Card 自評、reveal、
+  research diagnostic、未發出或未作答嘅 work 而推進。
+- 目的：避免弱學生在第一天完成單元全部初驗但答錯較多時，下一單元仍然鎖住而無新詞可學。
 
 教師學習累積分係 read-only reward projection，唔係 mastery、SM-2、unit unlock、student leaderboard
 或學生能力判定。`reward-v1` 以 `Asia/Shanghai` 本地日計算：`Ud = Learning Card + first

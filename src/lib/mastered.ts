@@ -4,8 +4,10 @@
  * 语义：SM-2 间隔达到阈值（默认 22 天，等价原 interval > 21）才算真正
  * 「掌握」（记得牢、间隔久）。
  *
- * 与单元解锁的「认字」明确区分（见 units.ts 的 MASTERED_REPETITIONS）：
- *   - 认字（repetitions >= 1）：答对一次即算，门槛低，用于单元闯关解锁（认字率 80%）；
+ * 与单元解锁／认字明确区分（见 units.ts）：
+ *   - 已学过（learned，有 Review 记录）：完成第一次合资格客观题作答即算，不论正误，
+ *     用于单元闯关解锁（learned 率 80%，见 `UNIT_UNLOCK_RATIO`）；
+ *   - 认字（repetitions >= 1）：答对一次即算，用于单元「已完成」标记及认字进度；
  *   - 掌握（本模块，interval >= MASTERED_MIN_INTERVAL）：间隔够久才算，门槛高，
  *     用于排行榜 / 教师端统计真实掌握量。
  *
