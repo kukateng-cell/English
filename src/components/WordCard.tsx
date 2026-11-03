@@ -10,6 +10,7 @@ import {
 } from "react";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
+import { studentCategoryLabel } from "@/lib/catalog/student-category-label";
 import Icon from "@/components/ui/Icon";
 import {
   advanceReleaseTimeline,
@@ -1497,7 +1498,7 @@ export default function WordCard({
 
   const renderCardMeta = () => (
     <div className="word-card-top">
-      {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(category ?? "未分類")}</span> : null}
+      {level ? <span data-testid="word-card-level" className="level-badge">{level} · {tc(studentCategoryLabel(category))}</span> : null}
       <span
         data-testid="word-card-context"
         className="word-context"

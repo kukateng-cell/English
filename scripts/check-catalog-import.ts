@@ -1,7 +1,8 @@
 import dotenv from "dotenv";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../src/generated/prisma";
-import { CATALOG_SOURCE_FILES } from "../src/lib/catalog/seed";
+import { CATALOG_SOURCE_FILES, readCatalogSourceFiles } from "../src/lib/catalog/seed";
+import { catalogPhoneticCharacterIssues } from "../src/lib/catalog/csv";
 import { CATALOG_IDENTITY_MANIFEST_PATH } from "../src/lib/catalog/identity";
 import {
   catalogSenseKeySetDigest,
@@ -20,6 +21,16 @@ const requireInitialBaseline = process.env.CATALOG_REQUIRE_INITIAL_BASELINE === 
 function fail(message: string): never { throw new Error(message); }
 
 async function main() {
+  const phoneticIssues = (await readCatalogSourceFiles(process.cwd())).flatMap((file) =>
+    file.rows.flatMap((row) =>
+      catalogPhoneticCharacterIssues(row.phonetic_ipa).map(
+        (message) => `${row.sourceFile}:${row.sourceRow} ${row.term}: ${message}`,
+      ),
+    ),
+  );
+  if (phoneticIssues.length > 0) {
+    fail(`catalog phonetic 字元檢查失敗：\n${phoneticIssues.join("\n")}`);
+  }
   const manifest = JSON.parse(await readFile(path.join(process.cwd(), CATALOG_IDENTITY_MANIFEST_PATH), "utf8")) as { sourceDigest: string; assignments: unknown[] };
   const activationManifest = await readCatalogInitialActivationManifest(
     process.cwd(),

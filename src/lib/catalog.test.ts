@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CATALOG_HEADERS,
+  catalogLegacyValidationIssue,
+  catalogPhoneticCharacterIssues,
   normalizeCatalogRow,
   parseCatalogCsv,
   validateCatalogRow,
 } from "@/lib/catalog/csv";
+import { readCatalogSourceFiles } from "@/lib/catalog/seed";
 
 function csvRow(values: Partial<Record<(typeof CATALOG_HEADERS)[number], string>> = {}): string {
   const row = CATALOG_HEADERS.map((header) => values[header] ?? "");
@@ -136,4 +139,50 @@ test("a row with both directions disabled remains draft-blocked", () => {
   assert.equal(result.directionEligible, false);
   assert.equal(result.eligibility, "DRAFT_BLOCKED");
   assert.ok(result.warnings.includes("both directions are disabled"));
+});
+
+test("phonetic_ipa blocks legacy non-IPA placeholder characters", () => {
+  // 舊詞表把 IPA ɡ 及主重音 ˈ 誤轉成 ASCII ^ 及 ˊ；兩種字元都必須擋在匯入之前。
+  for (const phonetic of ["'^rændtʃaild", "\u02CAgudlukiŋ"]) {
+    const result = validateCatalogRow(normalized({ phonetic_ipa: phonetic }));
+    assert.equal(result.eligibility, "DRAFT_BLOCKED");
+    assert.ok(result.errors.some((error) => error.includes("non-IPA character")), phonetic);
+    assert.equal(
+      result.issues.filter((issue) => issue.code === "CATALOG_PHONETIC_CHARACTER_INVALID").length,
+      1,
+      phonetic,
+    );
+    assert.equal(
+      result.issues.find((issue) => issue.code === "CATALOG_PHONETIC_CHARACTER_INVALID")?.field,
+      "phoneticIpa",
+      phonetic,
+    );
+  }
+  const clean = validateCatalogRow(normalized({ phonetic_ipa: "ˈɡʊdlʊkɪŋ" }));
+  assert.equal(clean.errors.length, 0);
+  assert.equal(clean.eligibility, "ACTIVATION_ELIGIBLE");
+});
+
+test("phonetic helper only reports the known non-IPA placeholder characters", () => {
+  assert.deepEqual(catalogPhoneticCharacterIssues(null), []);
+  assert.deepEqual(catalogPhoneticCharacterIssues(""), []);
+  assert.deepEqual(catalogPhoneticCharacterIssues("ˈɡʊdlʊkɪŋ"), []);
+  assert.equal(catalogPhoneticCharacterIssues("i^'zæktli").length, 1);
+  assert.equal(catalogPhoneticCharacterIssues("\u02CAgudlukiŋ").length, 1);
+  assert.equal(
+    catalogLegacyValidationIssue("phonetic_ipa contains non-IPA character U+005E ^; use ɡ（U+0261）").code,
+    "CATALOG_PHONETIC_CHARACTER_INVALID",
+  );
+});
+
+test("checked-in catalog CSV phonetics contain no forbidden non-IPA characters", async () => {
+  const files = await readCatalogSourceFiles();
+  const offenders = files.flatMap((file) =>
+    file.rows.flatMap((row) =>
+      catalogPhoneticCharacterIssues(row.phonetic_ipa).map(
+        (message) => `${row.sourceFile}:${row.sourceRow} ${row.term}: ${message}`,
+      ),
+    ),
+  );
+  assert.deepEqual(offenders, []);
 });

@@ -2310,6 +2310,22 @@ test("capacity waiting keeps progress and offers an accessible exit without a fa
   await expect(page.getByTestId("word-card-hint")).toHaveCount(0);
 });
 
+test("unit mode completion offers a return to the units list instead of an empty-unit reload", async ({ page }) => {
+  await page.route("**/api/study/stream**", route => route.fulfill({ json: {
+    ok: true, assigned: true, resumedFeedback: false, item: null,
+    session: { id: "unit-complete-session", mode: "unit", flowVersion: "v2", policyVersion: "retrieval-v1", revision: 9, expiresAt: new Date(Date.now()+1800000).toISOString() },
+    unitSummary: { totalWordCount: 12, encounteredWordCount: 12, objectiveRecognitionCount: 7 },
+    availability: { state: "no-content", nextEligibleAt: null },
+  } }));
+  await page.goto("/study?mode=unit&level=A1&category=people-family");
+  await expect(page.getByText("這個單元目前沒有待學習或到期複習的詞")).toBeVisible();
+  await expect(page.getByText("目前沒有待學習或到期複習的內容")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "返回單元清單" })).toHaveAttribute("href", "/units");
+  await expect(page.getByRole("link", { name: "返回首頁", exact: true })).toHaveAttribute("href", "/");
+  await expect(page.getByRole("button", { name: "重新載入", exact: true })).toBeEnabled();
+  await expect(page.getByTestId("word-card-hint")).toHaveCount(0);
+});
+
 test("real retrieval-v3 beginner keeps learning after wrong initial checks", async ({ browser }) => {
   test.setTimeout(90_000);
   if (!["localhost","127.0.0.1","::1"].includes(new URL(process.env.DATABASE_URL ?? "").hostname)) throw new Error("只允許本機測試庫");

@@ -182,6 +182,7 @@ export const CATALOG_VALIDATION_ISSUE_CODES = [
   "CATALOG_CATEGORY_UNKNOWN",
   "CATALOG_DEFINITION_REQUIRED",
   "CATALOG_PROMPT_NOT_EMPTY",
+  "CATALOG_PHONETIC_CHARACTER_INVALID",
   "CATALOG_BOOTSTRAP_STATUS_INVALID",
   "CATALOG_BOOTSTRAP_ACTION_INVALID",
   "CATALOG_GOVERNANCE_ACTION_INVALID",
@@ -200,6 +201,26 @@ export const CATALOG_VALIDATION_ISSUE_CODES = [
   "CATALOG_DISTRACTOR_SIBLING_COLLISION",
   "CATALOG_DIRECTIONS_DISABLED",
 ] as const;
+
+/**
+ * 舊詞表由多個字典來源合併而成，曾把 IPA ɡ（U+0261）及主重音 ˈ（U+02C8）
+ * 誤轉成 ASCII `^`（U+005E）及 `ˊ`（U+02CA）。兩者都不屬國際音標，
+ * 匯入或重新提交前必須先修正，避免錯誤符號再次進入正式詞庫。
+ */
+export const CATALOG_PHONETIC_FORBIDDEN_CHARACTERS = [
+  { character: "^", codePoint: "U+005E", expected: "ɡ（U+0261）" },
+  { character: "\u02CA", codePoint: "U+02CA", expected: "ˈ（U+02C8）" },
+] as const;
+
+/** 只檢查已知會流入詞庫的非 IPA 替代字元；空音標視為未填寫，交由其他規則處理。 */
+export function catalogPhoneticCharacterIssues(phonetic: string | null): string[] {
+  if (!phonetic) return [];
+  return CATALOG_PHONETIC_FORBIDDEN_CHARACTERS
+    .filter(({ character }) => phonetic.includes(character))
+    .map(({ character, codePoint, expected }) =>
+      `phonetic_ipa contains non-IPA character ${codePoint} ${character}; use ${expected}`,
+    );
+}
 
 export function catalogLegacyValidationIssue(
   message: string,
@@ -269,6 +290,8 @@ export function catalogLegacyValidationIssue(
     return { code: "CATALOG_DISTRACTOR_SIBLING_COLLISION", field: distractorField, direction, severity };
   if (normalized === "both directions are disabled")
     return { code: "CATALOG_DIRECTIONS_DISABLED", field: null, direction: null, severity };
+  if (normalized.includes("non-IPA character"))
+    return { code: "CATALOG_PHONETIC_CHARACTER_INVALID", field: "phoneticIpa", direction: null, severity };
   return { code: "CATALOG_PARSE_INVALID", field: null, direction: null, severity };
 }
 
@@ -688,6 +711,9 @@ export function validateCatalogRow(
   }
   if (row.exampleEn && !row.exampleZh) addError("example_zh is required when example_en is present", "CATALOG_EXAMPLE_ZH_REQUIRED", "exampleZh");
   if (row.exampleZh && !row.exampleEn) addError("example_en is required when example_zh is present", "CATALOG_EXAMPLE_EN_REQUIRED", "exampleEn");
+  for (const message of catalogPhoneticCharacterIssues(row.phoneticIpa)) {
+    addError(message, "CATALOG_PHONETIC_CHARACTER_INVALID", "phoneticIpa");
+  }
 
   const directionChecks: Array<[CatalogDirection, boolean]> = [["en-zh", row.enableEnToZh], ["zh-en", row.enableZhToEn]];
   for (const [direction, enabled] of directionChecks) {

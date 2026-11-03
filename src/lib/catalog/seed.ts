@@ -10,6 +10,7 @@ import {
   type CatalogPrimaryDisposition,
   type CatalogSourceRow,
   buildCatalogImportReport,
+  catalogPhoneticCharacterIssues,
   normalizeCatalogRow,
   parseCatalogCsv,
   type NormalizedCatalogRow,
@@ -139,6 +140,19 @@ export async function seedCatalog(
 ): Promise<CatalogSeedResult> {
   const files = await readCatalogSourceFiles(options.rootDir);
   const sourceDigest = digest(files.map((file) => `${file.relativePath}\0${file.digest}`).join("\n"));
+  // 音標字元問題不屬 identity 變更；必須在匯入前擋住，否則錯誤符號會直接進入正式詞庫。
+  const phoneticIssues = files.flatMap((file) =>
+    file.rows.flatMap((row) =>
+      catalogPhoneticCharacterIssues(row.phonetic_ipa).map(
+        (message) => `${row.sourceFile}:${row.sourceRow} ${row.term}: ${message}`,
+      ),
+    ),
+  );
+  if (phoneticIssues.length > 0) {
+    throw new Error(
+      `Catalog CSV contains non-IPA phonetic characters; fix them before re-importing:\n${phoneticIssues.slice(0, 20).join("\n")}`,
+    );
+  }
   const root = sourceRoot(options.rootDir);
   const manifest = await readIdentityManifest(root, sourceDigest);
   const activationManifest = await readCatalogInitialActivationManifest(
