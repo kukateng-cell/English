@@ -31,6 +31,9 @@ export function buildAuthServiceUnavailableResponse(
     locale,
   );
   const retry = convertText("重試", locale);
+  // 持續失敗時重試只會回到同一頁；提供登出出口，讓使用者清除舊登入狀態後重新登入。
+  const stuckHint = convertText("如果多次重試仍然出現這個畫面，可以先登出，再重新登入。", locale);
+  const signOut = convertText("登出", locale);
 
   return new Response(`<!doctype html>
 <html lang="${locale}" dir="ltr">
@@ -48,11 +51,15 @@ export function buildAuthServiceUnavailableResponse(
     h1 { margin: 0; font-size: clamp(1.5rem, 5vw, 2rem); line-height: 1.25; }
     a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 0 20px; border-radius: 999px; background: #315c4c; color: white; font-weight: 700; text-decoration: none; }
     a:focus-visible { outline: 3px solid #dcae4f; outline-offset: 3px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .hint { margin: 20px 0 0; font-size: .9rem; }
+    a.secondary { background: transparent; color: #315c4c; border: 1px solid #315c4c; }
     @media (prefers-color-scheme: dark) {
       body { background: #171a18; color: #f4f1e8; }
       main { border-color: #3c443f; background: #222824; box-shadow: none; }
       p { color: #c7cec9; }
       a { background: #9ac8b5; color: #102119; }
+      a.secondary { background: transparent; color: #9ac8b5; border-color: #9ac8b5; }
     }
   </style>
 </head>
@@ -60,7 +67,11 @@ export function buildAuthServiceUnavailableResponse(
   <main>
     <h1>${title}</h1>
     <p>${description}</p>
-    <a href="${returnTo}">${retry}</a>
+    <div class="actions">
+      <a href="${returnTo}">${retry}</a>
+      <a class="secondary" href="/api/auth/signout?callbackUrl=%2Flogin">${signOut}</a>
+    </div>
+    <p class="hint">${stuckHint}</p>
   </main>
 </body>
 </html>`, {
