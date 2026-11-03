@@ -40,20 +40,32 @@ export function sortUnits(level: string, names: string[]): string[] {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 闯关解锁（Progressive Unlock）
+// 闖關解鎖（Progressive Unlock）
 //
-// 规则：
-//   1. 一个单元「已完成」= 认字数（mastered）达到该单元总词数的 80% 或以上。
-//   2. 同一级别内，单元按 UNIT_ORDER 顺序解锁：第 1 个单元默认开放；
-//      后续单元只有在前一个单元「已完成」后才解锁。
-//   3. 级别之间同样按顺序解锁：A1 默认开放；A2 只有在 A1 的全部单元都「已完成」
-//      后才解锁；B1 依此类推。
+// 規則：
+//   1. 一個單元「可解鎖下一單元」= 已學過（learned）的詞數達到該單元總詞數的
+//      80% 或以上。已學過 = 該詞已完成第一次合資格的 operational Objective Probe，
+//      不論答對或答錯（答錯仍會留下較低 ease 及一日後的複習）。
+//   2. 「已完成／已認字」= 認字數（mastered，repetitions >= 1）達到 80%。
+//      這是掌握程度，與解鎖分開，用於單元卡的已完成標記及認字進度顯示。
+//   3. 同一級別內，單元按 UNIT_ORDER 順序解鎖：第 1 個單元預設開放；
+//      後續單元只有在前一個單元達到解鎖門檻（learned 80%）後才解鎖。
+//   4. 級別之間同樣按順序解鎖：A1 預設開放；A2 只有在 A1 的全部單元都達到
+//      解鎖門檻後才解鎖；B1 依此類推。
+//
+// 背景（GitHub issue #94）：舊規則用「已答對」決定解鎖。弱學生第一天把單元的
+// 20 個詞都做過初驗但答錯超過 4 個時，下一單元未解鎖、本單元又沒有新詞，
+// 會被擋到隔天。解鎖代表「可以接觸更深的內容」，掌握仍然由客觀答題獨立反映，
+// 所以解鎖門檻改用 learned；mastery 語義完全不放寬。
 // ────────────────────────────────────────────────────────────────
 
-/** 「掌握」判定：连续答对至少 1 次（SM-2 repetitions >= 1）。 */
+/** 「掌握」判定：連續答對至少 1 次（SM-2 repetitions >= 1）。 */
 export const MASTERED_REPETITIONS = 1;
 
-/** 一个单元「已完成」所需的认字比例（mastered / total）。 */
+/** 一個單元「可解鎖下一單元」所需的已學過比例（learned / total）。 */
+export const UNIT_UNLOCK_RATIO = 0.8;
+
+/** 一個單元「已完成」所需的認字比例（mastered / total）。 */
 export const UNIT_COMPLETION_RATIO = 0.8;
 
 /** 级别顺序（用于解锁判定与排序）。未列出的级别排在已知级别之后。 */
@@ -104,10 +116,23 @@ export function unitCategoryToStorage(category: string | null): string | null {
   return category === "未分類" || category === "未分类" ? null : category;
 }
 
-/** 单元是否「已完成」：总词数 > 0 且 认字数占比 >= 80%。 */
+/**
+ * 單元是否已達到「解鎖下一單元」的門檻：總詞數 > 0 且 learned 佔比 >= 80%。
+ *
+ * learned 只計已完成第一次合資格 operational Objective Probe 的詞（Review 記錄），
+ * 答對或答錯都算。這樣弱學生不會因為答錯而被擋到隔天，但未做初驗的詞仍然不計入。
+ */
+export function isUnitUnlockedByProgress(total: number, learned: number): boolean {
+  // 空單元（0 詞）直接視為已達門檻，避免「0 詞單元永遠無法解鎖」導致
+  // 後續單元／下一級別被永久鎖死（闖關解鎖死鎖）。
+  if (total <= 0) return true;
+  return learned / total >= UNIT_UNLOCK_RATIO;
+}
+
+/** 單元是否「已完成」：總詞數 > 0 且認字數（mastered）佔比 >= 80%。 */
 export function isUnitCompleted(total: number, mastered: number): boolean {
-  // 空单元（0 词）直接视为已完成，避免「0 词单元永远无法完成」导致
-  // 后续单元 / 下一级别被永久锁死（闯关解锁死锁）。
+  // 空單元（0 詞）直接視為已完成，避免「0 詞單元永遠無法完成」導致
+  // 後續單元／下一級別被永久鎖死（闖關解鎖死鎖）。
   if (total <= 0) return true;
   return mastered / total >= UNIT_COMPLETION_RATIO;
 }
@@ -133,7 +158,7 @@ export interface UnitStat {
 /** 给前端展示用的、带解锁/完成标记的单元。 */
 export interface AggregatedUnit extends UnitStat {
   name: string;
-  progress: number; // mastered / total * 100，已四舍五入
+  progress: number; // mastered / total * 100，已四捨五入（認字進度）
   completed: boolean;
   unlocked: boolean;
 }
@@ -153,10 +178,12 @@ interface LeveledUnitStats {
 }
 
 /**
- * 根据每个级别内【有序】单元的认字统计，推算各单元与各级别的解锁状态。
+ * 根据每个级别内【有序】单元的 learned／mastered 统计，推算各单元与各级别的解锁状态。
  *
- * - 第一级别恒解锁；其后级别需前一级别「全部单元已完成」。
- * - 每级别第一个单元在该级别解锁时即开放；其后单元需前一单元「已完成」。
+ * - 解锁只看「已学过」比例（`isUnitUnlockedByProgress`），答对或答错都计算；
+ *   「已完成／已认字」另由 `isUnitCompleted` 以 mastered 判定，只用于显示。
+ * - 第一级别恒解锁；其后级别需前一级别「全部单元都达到解锁门槛」。
+ * - 每级别第一个单元在该级别解锁时即开放；其后单元需前一单元达到解锁门槛。
  *
  * 返回：
  *   - levelUnlock: { [level]: boolean }
@@ -170,10 +197,10 @@ export function computeUnlocks(stats: LeveledUnitStats): {
   const levelUnlock: Record<string, boolean> = {};
   const unitUnlock: Record<string, boolean> = {};
 
-  let previousLevelChainCompleted = true; // 第一个级别恒解锁
+  let previousLevelChainUnlocked = true; // 第一个级别恒解锁
   for (const lvl of sortedLevels) {
     const units = stats[lvl] ?? [];
-    const levelUnlocked: boolean = previousLevelChainCompleted;
+    const levelUnlocked: boolean = previousLevelChainUnlocked;
     levelUnlock[lvl] = levelUnlocked;
 
     if (!levelUnlocked) {
@@ -182,21 +209,21 @@ export function computeUnlocks(stats: LeveledUnitStats): {
         unitUnlock[`${lvl}::${u.name}`] = false;
       }
     } else {
-      let previousUnitChainCompleted = true; // 该级别第一个单元直接开放
+      let previousUnitChainUnlocked = true; // 该级别第一个单元直接开放
       for (const u of units) {
-        unitUnlock[`${lvl}::${u.name}`] = previousUnitChainCompleted;
-        previousUnitChainCompleted =
-          previousUnitChainCompleted &&
-          isUnitCompleted(u.stat.total, u.stat.mastered);
+        unitUnlock[`${lvl}::${u.name}`] = previousUnitChainUnlocked;
+        previousUnitChainUnlocked =
+          previousUnitChainUnlocked &&
+          isUnitUnlockedByProgress(u.stat.total, u.stat.learned);
       }
     }
 
-    // 本级别是否「全部单元已完成」（用于解锁下一级别）。
+    // 本级别是否「全部单元都达到解锁门槛」（用于解锁下一级别）。
     // 注意：必须基于真实数据，而非解锁标记，确保解锁判定稳健。
-    previousLevelChainCompleted =
+    previousLevelChainUnlocked =
       levelUnlocked &&
       units.length > 0 &&
-      units.every((u) => isUnitCompleted(u.stat.total, u.stat.mastered));
+      units.every((u) => isUnitUnlockedByProgress(u.stat.total, u.stat.learned));
   }
 
   return { levelUnlock, unitUnlock };
