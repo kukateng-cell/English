@@ -28,6 +28,19 @@ jobs:
         with:
           node-version: "22"
 
+      # 先把示範庫 migrate 到與程式碼一致，再部署；否則新程式對舊 schema 查詢會持續失敗，
+      # 登入後被 session 驗證擋在 /auth-unavailable（#89）。migration 失敗時不部署。
+      - name: Apply demo database migrations
+        env:
+          MIGRATE_URL: ${{ secrets.MIGRATE_URL_SEEWORD }}
+        run: |
+          if [ -z "$MIGRATE_URL" ]; then
+            echo "::warning::MIGRATE_URL_SEEWORD is not configured; deploying without migrating the demo database. Pending migrations will make sign-in fail with 503."
+            exit 0
+          fi
+          npm ci --no-audit --no-fund
+          npm run db:deploy
+
       - name: Deploy to Vercel
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_SEEWORD }}

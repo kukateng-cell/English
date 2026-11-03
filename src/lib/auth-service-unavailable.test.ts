@@ -24,6 +24,7 @@ test("auth outage document has an explicit retryable 503 contract", async () => 
   const body = await response.text();
   assert.match(body, /登入服務暫時無法使用/);
   assert.match(body, /href="\/teacher"/);
+  assert.match(body, /href="\/api\/auth\/signout\?callbackUrl=%2Flogin"/, "持續失敗時要有登出出口");
 });
 
 test("auth outage document falls back to the student root for an unsafe target", async () => {

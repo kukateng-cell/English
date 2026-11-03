@@ -23,9 +23,14 @@ export async function withStudyOutboxLock<T>(mutate: () => T): Promise<T> {
       tx.oncomplete = () => resolve(result);
       tx.onabort = () => reject(failure ?? tx.error);
       tx.onerror = () => reject(failure ?? tx.error);
-      tx.objectStore("mutex").get("lock").onsuccess = () => {
+      const store = tx.objectStore("mutex");
+      store.get("lock").onsuccess = () => {
         try { result = mutate(); }
-        catch (error) { failure = error; tx.abort(); }
+        catch (error) { failure = error; tx.abort(); return; }
+        // Firefox 把本 task 內的 localStorage 改動在 task 結束時才送出；若交易在同一
+        // task 內完成，另一分頁可能在改動送達前取得鎖並讀到舊資料，造成遺失寫入。
+        // 在下一個 task 再發一個請求，令鎖持有到 localStorage 改動已送出之後。
+        store.put(Date.now(), "lock").onsuccess = () => { store.get("lock"); };
       };
     });
   } finally { db.close(); }
