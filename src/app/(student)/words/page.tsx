@@ -13,6 +13,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import { EmptyState, RetryState, Skeleton } from "@/components/ui/Feedback";
 import SegmentedControl from "@/components/ui/SegmentedControl";
 import { StudentPageStack, StudentSectionStack } from "@/components/student/StudentPageStack";
+import { studentCategoryLabel } from "@/lib/catalog/student-category-label";
 import type { StudentWordStatus } from "@/lib/student-metrics";
 
 interface WordItem {
@@ -183,7 +184,7 @@ export default function WordsPage() {
             />
             <div className="words-status-filter" role="group" aria-label={tc("按狀態篩選") as string}>{STATUS_OPTIONS.map((option) => <FilterChip key={option.value} selected={status === option.value} onClick={() => updateFilters({ status: option.value === "all" ? null : option.value })}>{tc(option.label)}</FilterChip>)}</div>
           </div>
-          <div className="ui-field words-filter-field"><span>{tc("單元")}</span><div className="words-category-chips" role="group" aria-label={tc("按單元篩選") as string}><FilterChip selected={!category} onClick={() => updateFilters({ category: null })}>{tc("全部單元")}</FilterChip>{(data?.availableCategories ?? []).map((item) => <FilterChip key={item} selected={category === item} onClick={() => updateFilters({ category: item })}>{item === "未分類" ? tc("未分類") : tc(item)}</FilterChip>)}</div></div>
+          <div className="ui-field words-filter-field"><span>{tc("單元")}</span><div className="words-category-chips" role="group" aria-label={tc("按單元篩選") as string}><FilterChip selected={!category} onClick={() => updateFilters({ category: null })}>{tc("全部單元")}</FilterChip>{(data?.availableCategories ?? []).map((item) => <FilterChip key={item} selected={category === item} onClick={() => updateFilters({ category: item })}>{tc(studentCategoryLabel(item))}</FilterChip>)}</div></div>
         </div>
           </Card>
 
@@ -198,7 +199,7 @@ export default function WordsPage() {
         </StudentSectionStack>
       </StudentPageStack>
 
-      <BottomSheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.term ?? ""} description={selected ? [selected.level, selected.category ? (selected.category === "未分類" ? tc("未分類") : selected.category) : null, selected.pos].filter(Boolean).join(" · ") : undefined} returnFocusRef={triggerRef}>
+      <BottomSheet open={selected !== null} onClose={() => setSelected(null)} title={selected?.term ?? ""} description={selected ? [selected.level, tc(studentCategoryLabel(selected.category)), selected.pos].filter(Boolean).join(" · ") : undefined} returnFocusRef={triggerRef}>
         {selected ? <div className="word-detail"><div className="word-detail-phonetic">{selected.phonetic || tc("暫無音標")}</div><p>{tc(selected.definition)}</p><div className="word-detail-state"><span>{tc("狀態")}</span><strong>{statusText(selected.status)}</strong></div>{selected.nextReviewAt ? <div className="word-detail-state"><span>{tc("下一次複習")}</span><strong>{nextReviewText(selected.nextReviewAt)}</strong></div> : null}<p className="ui-field-helper">{tc("詞表只供查閱，不會直接計入學習進度；認字卡完成小測後，進度才會更新。")} </p></div> : null}
       </BottomSheet>
     </div>

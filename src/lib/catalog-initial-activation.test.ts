@@ -7,7 +7,7 @@ import {
 } from "@/lib/catalog/initial-activation";
 
 const SOURCE_DIGEST =
-  "6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a";
+  "696557d4267efc4cb46ecfc84a0c2c3f0b87b274f2f9743b51ac40c5c5cc136a";
 
 test("checked-in initial activation manifest fixes the formal baseline", async () => {
   const manifest = await readCatalogInitialActivationManifest(

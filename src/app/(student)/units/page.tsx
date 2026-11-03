@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
 import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
+import { studentCategoryLabel } from "@/lib/catalog/student-category-label";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface Unit {
@@ -305,7 +306,7 @@ function UnitCard({
               : "text-[var(--text)] group-hover:text-[var(--primary)] dark:text-[var(--text)] dark:group-hover:text-[var(--primary)]"
           }`}
         >
-          {tc(unit.name)}
+          {tc(studentCategoryLabel(unit.name))}
         </h3>
       </div>
 

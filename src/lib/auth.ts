@@ -228,6 +228,9 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: "/login",
+    // GET /api/auth/signout 會 redirect 到自訂繁中確認頁；POST 仍由 NextAuth
+    // 驗證 CSRF token 後登出（pages 設定不影響 POST 分支）。
+    signOut: "/auth/signout",
     error: "/login",
   },
   // 禁用详细错误日志，避免 CLIENT_FETCH_ERROR

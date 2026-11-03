@@ -49,7 +49,7 @@ A1、A2、B1、B2 CSV 則以「一行一個詞義」表示資料，能夠保存�
 - 5,534 只代表「至少一個出題方向開啟」，並不代表已通過內容驗證或可 ACTIVE；當中 5,332 行暫無 `example_en`，而多義、非字面或易混詞的例句屬條件必填，必須由可重現規則及人工 disposition 判斷，不能單靠方向 flag 推算可啟用數量；
 - 規範共有 25 個合法 category code（包括 fallback `other`），目前四份 CSV 實際使用其中 24 個；
 - 實作後 strict validator 額外封鎖 65 行：60 行有同一方向的 accepted／synonym／antonym 答案碰撞，2 行有中譯英 sibling-sense 正解碰撞，4 行有英譯中 sibling-sense 正解碰撞；因此目前可匯入 5,576 行，其中 5,469 行已由 digest-bound initial activation manifest 正式設為 ACTIVE。呢個係 fail-closed 結果，不把疑似危險干擾項靜默放入題庫；65 行仍保留喺 import report，待內容修訂後再重新產生 digest／manifest；
-- 四份 CSV exact source digest 為 `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`；checked-in identity manifest 覆蓋 5,641 行，seed 同 rebuild dry-run 都已重新核對；
+- 四份 CSV exact source digest 為 `696557d4267efc4cb46ecfc84a0c2c3f0b87b274f2f9743b51ac40c5c5cc136a`（2026-11-03 修正 24 條異常音標後重生；舊值 `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`）；checked-in identity manifest 覆蓋 5,641 行，seed 同 rebuild dry-run 都已重新核對；
 - CSV 是受控匯入及版本保存格式；runtime canonical source 仍然是 PostgreSQL，而不是每次 request 即場讀 CSV。
 
 ### 2.2 現有本地資料庫盤點（2026-08-19 read-only snapshot）

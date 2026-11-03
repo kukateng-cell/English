@@ -9,6 +9,7 @@ import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/ThemeToggle";
 import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
+import { studentCategoryLabel } from "@/lib/catalog/student-category-label";
 import {
   fetchWithTimeout,
   readResponseJsonWithTimeout,
@@ -919,6 +920,17 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   }
 
   const interactionDisabled = actionPending || syncBlocked || refreshPending;
+  // 單元模式（伺服器提供 unitSummary）和全域模式的空狀態文案及出口不同：
+  // 單元模式要帶學生返回單元清單，而不是只留在同一個已空的單元反覆重新載入。
+  const isUnitMode = Boolean(unitSummary);
+  const isWaiting = availability?.state === "waiting";
+  const emptyStateMessage = isUnitMode
+    ? isWaiting
+      ? "這個單元的進度已保留，可以稍後再回來複習"
+      : "這個單元目前沒有待學習或到期複習的詞"
+    : isWaiting
+      ? "進度已保留，可以稍後再回來複習"
+      : "目前沒有待學習或到期複習的內容";
 
   return (
     <div className="flex min-h-full flex-col pb-8">
@@ -978,11 +990,23 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           )
         ) : (
           <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center text-center">
-            <p className="mb-4 text-[var(--muted)]">{tc(availability?.state === "waiting" ? "進度已保留，可以稍後再回來複習" : "目前沒有待學習或到期複習的內容")}</p>
+            <p className="mb-4 text-[var(--muted)]">{tc(emptyStateMessage)}</p>
             {availability?.nextEligibleAt && <p className="mb-4 text-sm text-[var(--muted)]">{tc("最早可再檢查時間")} {new Date(availability.nextEligibleAt).toLocaleString([], { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>}
             {availability?.resumePath && <Link className="mb-4 underline" href={availability.resumePath}>{tc("返回未完成的學習")}</Link>}
-            <Link className="mb-4 underline" href="/">{tc("返回首頁")}</Link>
-            <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50">{tc("重新載入")}</button>
+            {isUnitMode ? (
+              <>
+                <Link className="study-primary-action mb-4 inline-block rounded-2xl px-5 py-3 text-sm font-semibold" href="/units">{tc("返回單元清單")}</Link>
+                <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
+                  <Link className="underline" href="/">{tc("返回首頁")}</Link>
+                  <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="underline disabled:opacity-50">{tc("重新載入")}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Link className="mb-4 underline" href="/">{tc("返回首頁")}</Link>
+                <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50">{tc("重新載入")}</button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1125,7 +1149,7 @@ function ObjectiveProbeView({
           <span className="quiz-prompt-label">{tc(isEnglishToChinese ? "看英文" : "看中文")}</span>
           {item.level ? (
             <span data-testid="study-stream-probe-level" className="level-badge">
-              {item.level} · {tc(item.category ?? "未分類")}
+              {item.level} · {tc(studentCategoryLabel(item.category))}
             </span>
           ) : null}
         </div>
