@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClassCode, StudentGrade } from "@/generated/prisma";
 import { useLocale } from "@/components/LocaleProvider";
 import ErrorBanner from "@/components/ErrorBanner";
@@ -12,7 +12,7 @@ import Icon from "@/components/ui/Icon";
 import { rosterFetch } from "@/lib/http-client";
 import { responseErrorDetails, responseErrorMessage } from "@/lib/api-error";
 import { CLASS_LABELS, GRADE_LABELS, STUDENT_GRADES } from "@/lib/roster-domain";
-import { MAX_ANALYTICS_CLASS_SELECTION } from "@/lib/learning-analytics-contract";
+import { MAX_ANALYTICS_CLASS_SELECTION, millisecondsUntilNextShanghaiMidnight } from "@/lib/learning-analytics-contract";
 
 type Role = "TEACHER" | "ADMIN";
 type ComparisonGranularity = "DAY" | "WEEK" | "MONTH";
@@ -91,10 +91,12 @@ export default function AnalyticsDashboard({ role }: { role: Role }) {
   const { tc } = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const today = useMemo(() => dateKey(new Date()), []);
+  const [today, setToday] = useState(() => dateKey(new Date()));
+  const todayRef = useRef(today);
   const requestedStudentClassId = role === "ADMIN" ? searchParams.get("classId") ?? "" : "";
   const requestedTeacherClassId = role === "TEACHER" ? searchParams.get("classId") ?? "" : "";
   const [preset, setPreset] = useState<"7" | "30" | "90" | "custom">("30");
+  const presetRef = useRef(preset);
   const [fromDate, setFromDate] = useState(() => offset(today, -29));
   const [toDate, setToDate] = useState(today);
   const [grade, setGrade] = useState(() => searchParams.get("grade") ?? "");
@@ -129,6 +131,37 @@ export default function AnalyticsDashboard({ role }: { role: Role }) {
       setPayload(next); setClasses((current) => selected.length ? current : next.items);
     } catch (cause) { setError(cause instanceof Error ? cause.message : tc("讀取學習分析失敗")); } finally { setLoading(false); }
   }, [comparisonGranularity, fromDate, toDate, grade, selected, tc]);
+
+  const loadRef = useRef(load);
+  useEffect(() => { loadRef.current = load; }, [load]);
+  useEffect(() => { presetRef.current = preset; }, [preset]);
+
+  // 活躍率按 Asia/Shanghai 曆日結算：每日 00:00 之後自動重新抓取一次，讓剛結束
+  // 的一日計入，並把「近 7／30／90 天」的範圍推到新的一天；自訂範圍維持不變。
+  useEffect(() => {
+    let timer = 0;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        const nextToday = dateKey(new Date());
+        if (nextToday !== todayRef.current) {
+          todayRef.current = nextToday;
+          setToday(nextToday);
+          const activePreset = presetRef.current;
+          if (activePreset === "custom") {
+            void loadRef.current();
+          } else {
+            setFromDate(offset(nextToday, -(Number(activePreset) - 1)));
+            setToDate(nextToday);
+          }
+        } else {
+          void loadRef.current();
+        }
+        schedule();
+      }, millisecondsUntilNextShanghaiMidnight());
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const loadStudents = useCallback(async (nextCursor: string | null = null, append = false) => {
     if (role !== "ADMIN" || !requestedStudentClassId) return;
@@ -238,7 +271,7 @@ export default function AnalyticsDashboard({ role }: { role: Role }) {
 
   return <div className="space-y-5">
     <header className="analytics-page-header flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold text-[var(--primary)]">{tc(role === "ADMIN" ? "管理工作臺" : "教師工作臺")}</p><h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)]">{tc("學習分析")}</h1><p className="mt-1 text-sm text-[var(--muted)]">{tc("按目前在籍學生統計；期間活動和目前掌握程度分開顯示。")}</p></div><div className="analytics-page-header-actions flex flex-wrap items-center gap-2"><Link href={rewardHref} className="ui-button ui-button-primary ui-button-small">{tc("學生累積分")}</Link><select aria-label={tc("報告格式")} value={exportFormat} onChange={(event) => setExportFormat(event.target.value as typeof exportFormat)} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 text-xs"><option value="XLSX">{tc("Excel（XLSX）")}</option><option value="CSV">{tc("CSV")}</option></select><button type="button" className="ui-button ui-button-secondary ui-button-small" disabled={Boolean(exporting)} onClick={() => void exportReport("STUDENTS")}>{exporting === "STUDENTS" ? tc("匯出中…") : tc("匯出學生報告")}</button><button type="button" className="ui-button ui-button-secondary ui-button-small" disabled={Boolean(exporting)} onClick={() => void exportReport("CLASSES")}>{exporting === "CLASSES" ? tc("匯出中…") : tc("匯出班級報告")}</button><Link href={role === "ADMIN" ? "/admin/users" : "/teacher/roster"} className="ui-button ui-button-secondary ui-button-small"><Icon name="clipboard" size={16} />{tc("查看名單")}</Link></div></header>
-    <section className="ui-card ui-card-padding space-y-4" aria-labelledby="analytics-date-range-title"><div className="flex flex-wrap items-center gap-2"><span id="analytics-date-range-title" className="text-sm font-semibold text-[var(--text)]">{tc("活動日期範圍")}</span>{(["7", "30", "90", "custom"] as const).map((value) => <button key={value} type="button" onClick={() => choosePreset(value)} className={`rounded-xl px-3 py-2 text-xs font-semibold ${preset === value ? "bg-[var(--primary)] text-white" : "border border-[var(--border)] text-[var(--muted)]"}`}>{value === "custom" ? tc("自訂") : `${value}${tc("日")}`}</button>)}<select aria-label={tc("年級")} value={grade} onChange={(event) => chooseGrade(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部年級")}</option>{STUDENT_GRADES.map((value) => <option key={value} value={value}>{tc(GRADE_LABELS[value])}</option>)}</select></div>{preset === "custom" ? <div className="flex flex-wrap gap-2"><input type="date" value={fromDate} max={toDate} onChange={(event) => setFromDate(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><span className="self-center text-[var(--muted)]">至</span><input type="date" value={toDate} min={fromDate} max={today} onChange={(event) => setToDate(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /></div> : null}<p className="text-xs text-[var(--muted)]">{payload ? `${tc("期間活動分析")}: ${payload.effectiveRange.from} 至 ${payload.effectiveRange.to}${payload.effectiveRange.rangeClamped ? ` · ${tc("已按目前學年調整")}` : ""}` : tc("載入中…")}</p><p className="text-xs text-[var(--muted)]">{tc("下方班級卡片會按這段期間顯示活躍、評測及待複習情況。")}</p></section>
+    <section className="ui-card ui-card-padding space-y-4" aria-labelledby="analytics-date-range-title"><div className="flex flex-wrap items-center gap-2"><span id="analytics-date-range-title" className="text-sm font-semibold text-[var(--text)]">{tc("活動日期範圍")}</span>{(["7", "30", "90", "custom"] as const).map((value) => <button key={value} type="button" onClick={() => choosePreset(value)} className={`rounded-xl px-3 py-2 text-xs font-semibold ${preset === value ? "bg-[var(--primary)] text-white" : "border border-[var(--border)] text-[var(--muted)]"}`}>{value === "custom" ? tc("自訂") : `${value}${tc("日")}`}</button>)}<select aria-label={tc("年級")} value={grade} onChange={(event) => chooseGrade(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"><option value="">{tc("全部年級")}</option>{STUDENT_GRADES.map((value) => <option key={value} value={value}>{tc(GRADE_LABELS[value])}</option>)}</select></div>{preset === "custom" ? <div className="flex flex-wrap gap-2"><input type="date" value={fromDate} max={toDate} onChange={(event) => setFromDate(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><span className="self-center text-[var(--muted)]">至</span><input type="date" value={toDate} min={fromDate} max={today} onChange={(event) => setToDate(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /></div> : null}<p className="text-xs text-[var(--muted)]">{payload ? `${tc("期間活動分析")}: ${payload.effectiveRange.from} 至 ${payload.effectiveRange.to}${payload.effectiveRange.rangeClamped ? ` · ${tc("已按目前學年調整")}` : ""}` : tc("載入中…")}</p><p className="text-xs text-[var(--muted)]">{tc("下方班級卡片會按這段期間顯示活躍、評測及待複習情況。")}{tc("活躍率於每日 00:00（東八區）自動更新。")}</p></section>
     {exportMessage ? <p className="text-sm font-semibold text-[var(--success)]" role="status" aria-live="polite">{exportMessage}</p> : null}
     {error ? <ErrorBanner message={error} onRetry={() => void load()} /> : null}
     {loading && !payload ? <div className="ui-card ui-card-padding text-sm text-[var(--muted)]">{tc("正在載入分析…")}</div> : payload ? <>

@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma";
 import {
   OBJECTIVE_ITEM_CONSTRUCTION_VERSION,
   OBJECTIVE_QUALITY_POLICY_VERSION,
-  RETRIEVAL_POLICY_VERSION,
+  isSupportedLearningPolicy,
 } from "@/lib/learning-policy/types";
 
 /**
@@ -182,7 +182,7 @@ export function isEligibleOperationalObjectiveEvent(event: {
     event.objectiveEvidenceTarget.userId !== event.userId ||
     event.objectiveEvidenceTarget.wordId !== event.wordId ||
     event.objectiveEvidenceTarget.senseId !== event.senseId ||
-    event.objectiveEvidenceTarget.policyVersion !== RETRIEVAL_POLICY_VERSION ||
+    !isSupportedLearningPolicy(event.objectiveEvidenceTarget.policyVersion) ||
     event.objectiveEvidenceTarget.itemConstructionVersion !== OBJECTIVE_ITEM_CONSTRUCTION_VERSION ||
     event.objectiveEvidenceTarget.status !== "CONSUMED" ||
     event.objectiveEvidenceTarget.winningOperationId !== event.operationId ||

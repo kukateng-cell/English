@@ -1,3 +1,4 @@
+import { summarizeObjectivePhases, type ObjectivePhases } from "./learning-policy/evidence-phase";
 import { Prisma, prisma } from "@/lib/prisma";
 import { computeStreak, todayStartUtc } from "@/lib/streak";
 import { MASTERED_MIN_INTERVAL } from "@/lib/mastered";
@@ -146,6 +147,7 @@ export interface StudentDashboardResponse {
 }
 
 export interface StudentLearningMetrics {
+  objectivePhases?: ObjectivePhases;
   totalWords: number;
   reviewedCount: number;
   reviewedWordCount: number;
@@ -315,9 +317,11 @@ export async function getStudentLearningMetrics(
     prisma.review.count({ where: { userId, interval: { gte: MASTERED_MIN_INTERVAL }, word: unlockedWordWhere } }),
     fetchLibraryLevelAggregates(userId),
   ]);
-  const objectiveRecognitionCount = objectiveRecognitionEvents.filter((event) =>
+  const eligibleObjectiveEvents = objectiveRecognitionEvents.filter((event) =>
     isEligibleOperationalObjectiveEvent({ ...event, eventKind: "REVIEW" }),
-  ).length;
+  );
+  const objectiveRecognitionCount = eligibleObjectiveEvents.length;
+  const objectivePhases = summarizeObjectivePhases(eligibleObjectiveEvents);
   const libraryByLevel = buildLibraryByLevel(levelAggregates, unlockedLevels);
   const allLevelTotals = levelAggregates.reduce(
     (totals, row) => ({
@@ -337,6 +341,7 @@ export async function getStudentLearningMetrics(
     byLevel: libraryByLevel,
   };
   return {
+    objectivePhases,
     totalWords: allLevelTotals.totalWords,
     reviewedCount,
     reviewedWordCount,

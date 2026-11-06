@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import ErrorBanner from "@/components/ErrorBanner";
 import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
+import { studentCategoryLabel } from "@/lib/catalog/student-category-label";
 import { networkErrorMessage, responseErrorMessage } from "@/lib/api-error";
 
 interface Unit {
@@ -154,7 +155,7 @@ export default function UnitsPage() {
                   ? st?.completed
                     ? tc(`${lvl} 已全部完成`)
                     : tc(`${lvl} 進度 ${st?.progress ?? 0}%`)
-                    : tc("請先完成上一個級別")
+                    : tc("請先學過上一個級別每個單元 80% 的詞")
               }
               className={`shrink-0 rounded-full px-5 py-2 text-[14px] font-medium transition ${
                 isActive
@@ -182,7 +183,7 @@ export default function UnitsPage() {
             {tc(`${level} 級別尚未解鎖`)}
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--warning)]">
-            {tc(`請先回到上一個級別，把所有單元的認字率都練到 80% 以上，即可解鎖 ${level} 級別。`)}
+            {tc(`請先回到上一個級別，把每個單元至少 80% 的詞學過（完成初次驗證），即可解鎖 ${level} 級別。`)}
           </p>
         </div>
       )}
@@ -196,7 +197,7 @@ export default function UnitsPage() {
         <div className="relative">
           <div className="mb-4 flex items-end justify-between">
             <div>
-              <p className="text-[13px] opacity-70">{tc(`${level} 級別總進度`)}</p>
+              <p className="text-[13px] opacity-70">{tc(`${level} 級別認字進度`)}</p>
               <p className="mt-1 text-[36px] font-bold leading-none tracking-[-0.02em]">{grandProgress}%</p>
             </div>
             <div className="text-right text-[13px] opacity-80">
@@ -253,6 +254,9 @@ function UnitCard({
   const completed = unit.completed;
   const started = unit.learned > 0;
   const locked = !unit.unlocked;
+  // 解鎖進度以「已學過」（完成初次驗證，正誤都算）計算；認字進度另外顯示。
+  const unlockProgress =
+    unit.total > 0 ? Math.round((unit.learned / unit.total) * 100) : 0;
 
   const go = () => {
     if (locked) return;
@@ -305,7 +309,7 @@ function UnitCard({
               : "text-[var(--text)] group-hover:text-[var(--primary)] dark:text-[var(--text)] dark:group-hover:text-[var(--primary)]"
           }`}
         >
-          {tc(unit.name)}
+          {tc(studentCategoryLabel(unit.name))}
         </h3>
       </div>
 
@@ -319,20 +323,20 @@ function UnitCard({
               ? "bg-[var(--primary)]"
                 : "bg-[var(--muted)] dark:bg-[var(--muted)]"
           }`}
-          style={{ width: `${unit.progress}%` }}
+          style={{ width: `${unlockProgress}%` }}
           initial={{ width: 0 }}
-          animate={{ width: `${unit.progress}%` }}
+          animate={{ width: `${unlockProgress}%` }}
           transition={{ duration: 0.6, ease: "easeOut" }}
         />
       </div>
 
       <div className="flex items-center justify-between text-[12px] text-[var(--muted)] dark:text-[var(--muted)]">
         <span>
-          {unit.mastered}/{unit.total} {tc("詞")}
+          {tc("已學")} {unit.learned}/{unit.total} · {tc("認字")} {unit.mastered}
         </span>
         <span className={`inline-flex items-center gap-1 font-medium ${locked ? "" : "text-[var(--primary)] dark:text-[var(--primary)]"}`}>
           {locked
-            ? tc("完成上一單元解鎖")
+            ? tc("學過上一單元 80% 詞即可解鎖")
             : completed
               ? tc("鞏固複習")
               : started

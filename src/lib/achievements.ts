@@ -13,11 +13,11 @@ export interface AchievementDef {
   key: string;
   /** EMM Style 02 icon key rendered by the student UI. */
   icon: AchievementIcon;
-  /** 简体标题（前端经 tc() 转繁简）。 */
+  /** 繁體標題（前端經 tc() 轉繁簡）。 */
   title: string;
   description: string;
-  /** 进度来源：复习词数 / 连续天数 / 累计打卡天数 */
-  type: "reviews" | "streak" | "studyDays";
+  /** 進度來源：複習詞數 / 首次學習紀錄 / 連續天數 / 累計打卡天數 */
+  type: "reviews" | "firstStudy" | "streak" | "studyDays";
   /** 达成目标值。 */
   target: number;
 }
@@ -25,7 +25,9 @@ export interface AchievementDef {
 export type AchievementIcon = RewardIconName;
 
 export const ACHIEVEMENTS: AchievementDef[] = [
-  { key: "first_study", icon: "seedling", title: "初次學習", description: "完成第一次學習", type: "reviews", target: 1 },
+  // 初次學習以「是否已有任何學習紀錄」判定：字卡自評會留下 StudyEncounter，
+  // 客觀認讀題會留下 Review；兩者都代表學生已踏出第一步，不應因未遇到客觀題而顯示 0 / 1。
+  { key: "first_study", icon: "seedling", title: "初次學習", description: "完成第一次學習", type: "firstStudy", target: 1 },
   { key: "review_10", icon: "book", title: "小試牛刀", description: "累計複習 10 個詞", type: "reviews", target: 10 },
   { key: "review_50", icon: "word-stack", title: "漸入佳境", description: "累計複習 50 個詞", type: "reviews", target: 50 },
   { key: "review_100", icon: "medal", title: "百詞斬", description: "累計複習 100 個詞", type: "reviews", target: 100 },
@@ -36,9 +38,9 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { key: "study_30", icon: "trophy", title: "月度堅持", description: "累計打卡 30 天", type: "studyDays", target: 30 },
 ];
 
-type AchievementDb = Pick<
+export type AchievementDb = Pick<
   Prisma.TransactionClient,
-  "review" | "studyDay" | "userAchievement"
+  "review" | "studyDay" | "studyEncounter" | "userAchievement"
 >;
 
 const ACHIEVEMENT_BY_KEY = new Map(ACHIEVEMENTS.map((a) => [a.key, a]));
@@ -57,29 +59,44 @@ export interface AchievementStatus extends AchievementDef {
   progress: number;
 }
 
-/** 取用户的进度数据（复习词数 / 连续天数 / 累计打卡天数）。 */
-async function getUserProgress(userId: string, db: AchievementDb): Promise<{
+/** 用户的进度数据（复习词数 / 首次学习纪录 / 连续天数 / 累计打卡天数）。 */
+export interface AchievementProgress {
   reviews: number;
+  /** 字卡自評留下的學習紀錄數量；客觀認讀題只會建立 Review，不會建立 StudyEncounter。 */
+  encounters: number;
   streak: number;
   studyDays: number;
-}> {
+}
+
+async function getUserProgress(userId: string, db: AchievementDb): Promise<AchievementProgress> {
   // A Prisma interactive transaction is backed by one pg client. Running
   // these reads concurrently makes pg@9 queue overlapping client.query calls
   // and can produce nondeterministic warnings during the V2 action path.
   const reviews = await db.review.count({ where: { userId } });
+  const encounters = await db.studyEncounter.count({ where: { userId } });
   const studyDays = await db.studyDay.count({ where: { userId } });
   const streakInfo = await computeStreak(userId, db);
-  return { reviews, streak: streakInfo.count, studyDays };
+  return { reviews, encounters, streak: streakInfo.count, studyDays };
 }
 
-function valueFor(a: AchievementDef, p: {
-  reviews: number;
-  streak: number;
-  studyDays: number;
-}): number {
-  return a.type === "reviews" ? p.reviews
-    : a.type === "streak" ? p.streak
-    : p.studyDays;
+/**
+ * 依成就類型換算目前進度值。
+ *
+ * 「初次學習」不直接使用 Review 數量：Review 只在客觀認讀題作答後才建立，
+ * 只完成字卡自評的學生雖然已有 StudyEncounter，卻會被誤判為未學習。
+ * 因此只要存在任何一種學習紀錄（字卡 encounter 或認讀題 Review）即視為已達成。
+ */
+export function achievementProgressValue(a: AchievementDef, p: AchievementProgress): number {
+  switch (a.type) {
+    case "reviews":
+      return p.reviews;
+    case "firstStudy":
+      return p.reviews > 0 || p.encounters > 0 ? 1 : 0;
+    case "streak":
+      return p.streak;
+    case "studyDays":
+      return p.studyDays;
+  }
 }
 
 /**
@@ -99,7 +116,7 @@ export async function checkAchievements(
   const unlockedSet = new Set(unlocked.map((u) => u.key));
 
   const eligible = ACHIEVEMENTS.filter(
-    (a) => !unlockedSet.has(a.key) && valueFor(a, progress) >= a.target,
+    (a) => !unlockedSet.has(a.key) && achievementProgressValue(a, progress) >= a.target,
   );
   if (eligible.length > 0) {
     // PostgreSQL 的 skipDuplicates 会在唯一键竞争时忽略已由另一请求写入的项。
@@ -131,7 +148,7 @@ export async function getAchievementStatus(
       ...a,
       unlocked: !!u,
       unlockedAt: u ? u.unlockedAt.toISOString() : null,
-      progress: valueFor(a, progress),
+      progress: achievementProgressValue(a, progress),
     };
   });
 }

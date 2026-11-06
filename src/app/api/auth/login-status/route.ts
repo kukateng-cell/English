@@ -6,6 +6,9 @@ import {
   fuzzRetryAfterSec,
 } from "@/lib/login-limiter";
 
+// 鎖定狀態隨時間變化，任何一層都不可快取舊結果。
+const NO_STORE = { "Cache-Control": "no-store" } as const;
+
 /**
  * GET /api/auth/login-status?account=xxx
  *
@@ -45,7 +48,7 @@ export async function GET(req: Request) {
     const coarse = fuzzRetryAfterSec(statusLimit.retryAfterSec ?? 60);
     return NextResponse.json(
       { locked: false },
-      { status: 429, headers: { "Retry-After": String(coarse) } },
+      { status: 429, headers: { ...NO_STORE, "Retry-After": String(coarse) } },
     );
   }
 
@@ -54,7 +57,7 @@ export async function GET(req: Request) {
   const status = await getLimitStatus(account, ip);
 
   if (!status.locked) {
-    return NextResponse.json({ locked: false });
+    return NextResponse.json({ locked: false }, { headers: NO_STORE });
   }
 
   // 3. 模糊化剩余时间：向上取整到 30s 桶（窗口最长 60s → 只回 30 或 60），
@@ -74,6 +77,6 @@ export async function GET(req: Request) {
       retryAfterSec: coarseRetry,
       message,
     },
-    { status: 429, headers: { "Retry-After": String(coarseRetry) } },
+    { status: 429, headers: { ...NO_STORE, "Retry-After": String(coarseRetry) } },
   );
 }

@@ -4,6 +4,8 @@ export const ANALYTICS_EXPORT_COLUMNS = [
   ["grade", "年級"], ["classCode", "班別"], ["classLabel", "班級"], ["currentMemberCount", "目前學生數"], ["eligibleStudentCount", "符合計算學生數"],
   ["activeStudentCount", "活躍學生數"], ["activeRate", "活躍率"], ["eligibleDayCount", "符合計算日數"], ["activeDayCount", "活躍日數"], ["studyDays", "學習日"],
   ["learningEncounterCount", "練習次數"], ["medianLearningEncounters", "每生練習中位數"], ["effectiveReviewCount", "有效評測"],
+  ["initialCheckAttempts", "初次驗證次數"], ["initialCheckAccuracy", "初次驗證正確率"],
+  ["dueCheckAttempts", "到期複習次數"], ["dueCheckAccuracy", "到期複習正確率"], ["unknownPhaseAttempts", "歷史階段不明次數"],
   ["objectiveCorrectCount", "客觀答對"], ["objectiveAttemptCount", "客觀有效嘗試"], ["objectiveAccuracyPercent", "客觀正確率"],
   ["objectiveAccuracyStatus", "正確率樣本狀態"], ["objectiveExcludedCount", "排除客觀評測"], ["masteryMeanPercent", "平均掌握率"],
   ["masteryMedianPercent", "掌握率中位數"], ["dueReviewCount", "待複習詞數"], ["dueStudentCount", "待複習學生"], ["dueRate", "待複習率"],

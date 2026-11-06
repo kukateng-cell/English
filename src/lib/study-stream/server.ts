@@ -20,6 +20,9 @@ import {
 import { mapObjectiveFirstResponse } from "@/lib/learning-policy/quality";
 import {
   RETRIEVAL_V1_POLICY,
+  RETRIEVAL_V3_POLICY,
+  isSupportedLearningPolicy,
+  type LearningPolicyVersion,
   type CandidateRecord,
   type ProbePurpose,
   type SelfRating,
@@ -34,6 +37,7 @@ import {
   type ObjectiveQuestionSnapshotData,
   type QuestionWord,
 } from "@/lib/learning-policy/question";
+import { initialCheckReady, nextPhaseCursor } from "@/lib/learning-policy/phases";
 import { selectNextItem } from "@/lib/learning-policy/scheduler";
 import {
   actionFingerprint,
@@ -50,8 +54,6 @@ import {
   type StudyStreamActionInput,
 } from "@/lib/study-stream/contracts";
 import {
-  compareNewWordCandidates,
-  newWordSelectionReason,
   recentStreamShape,
 } from "@/lib/study-stream/history";
 export {
@@ -72,7 +74,6 @@ import {
 const STREAM_SESSION_TTL_MS = 30 * 60_000;
 const STREAM_ITEM_LEASE_MS = 15 * 60_000;
 const MAX_TRANSACTION_ATTEMPTS = 5;
-const MAX_CANDIDATES = 80;
 const MAX_CREDENTIAL_LINEAGE_GRANTS = 8;
 const STUDY_STREAM_RECOVERY_TOKEN_PREFIX = "study-stream-recovery-v1:";
 const LOCAL_STUDY_STREAM_RECOVERY_SECRET = "local-study-stream-recovery-secret";
@@ -475,6 +476,7 @@ function toWorkRecord(row: {
   expiresAt: Date;
   sourceOperationId: string | null;
   updatedAt: Date;
+  policyVersion?: string;
 }): WorkRecord | null {
   if (!row.wordId) return null;
   return {
@@ -482,6 +484,7 @@ function toWorkRecord(row: {
     learnerId: row.userId,
     wordId: row.wordId,
     senseId: row.senseId,
+    policyVersion: isSupportedLearningPolicy(row.policyVersion) ? row.policyVersion : "retrieval-v1",
     kind: workKind(row.kind),
     status: row.status as WorkRecord["status"],
     admittedAt: row.admittedAt.getTime(),
@@ -498,6 +501,7 @@ async function expireWork(tx: StreamTransaction, userId: string, now: Date): Pro
       userId,
       status: { in: ["PENDING", "LEASED"] },
       expiresAt: { lte: now },
+      policyVersion: { not: "retrieval-v3" },
     },
     select: { id: true },
   });
@@ -520,34 +524,6 @@ async function expireWork(tx: StreamTransaction, userId: string, now: Date): Pro
   });
 }
 
-async function activeWork(
-  tx: StreamTransaction,
-  userId: string,
-  scope: StreamScope,
-  now: Date,
-): Promise<WorkRecord[]> {
-  const rows = await tx.evidenceObligation.findMany({
-    where: {
-      userId,
-      status: { in: ["PENDING", "LEASED"] },
-      eligibleAt: { lte: now },
-      expiresAt: { gt: now },
-      wordId: { not: null },
-      word: scope.where,
-    },
-    orderBy: [{ expiresAt: "asc" }, { createdAt: "asc" }],
-    // Filtered presentation rows can occupy the first part of the review
-    // index (for example an already leased target). Read a bounded surplus
-    // before applying application-level admission checks so legal candidates
-    // are not starved behind stale rows.
-    take: MAX_CANDIDATES * 8,
-  });
-  return rows.flatMap((row) => {
-    const work = toWorkRecord(row);
-    return work ? [work] : [];
-  });
-}
-
 type LearnerStreamHistory = {
   acknowledged: Array<{
     itemKind: string;
@@ -558,13 +534,11 @@ type LearnerStreamHistory = {
     id: string;
   }>;
   recentWordIds: string[];
-  contactTimes: Map<string, number>;
 };
 
 async function learnerStreamHistory(
   tx: StreamTransaction,
   userId: string,
-  scope: StreamScope,
 ): Promise<LearnerStreamHistory> {
   // Learning Card acknowledgement is recorded as a durable encounter. It is
   // deliberately queried independently from the short-lived stream item so a
@@ -618,22 +592,11 @@ async function learnerStreamHistory(
         }]
       : []),
   ].sort((left, right) => right.acknowledgedAt.getTime() - left.acknowledgedAt.getTime() || right.id.localeCompare(left.id)).slice(0, 40);
-  const contacts = await tx.studyEncounter.findMany({
-    where: { userId, wordId: { not: null }, word: scope.where },
-    orderBy: [{ acknowledgedAt: "asc" }, { id: "asc" }],
-    take: MAX_CANDIDATES * 8,
-    select: { wordId: true, acknowledgedAt: true },
-  });
-  const contactTimes = new Map<string, number>();
-  for (const row of contacts) {
-    if (row.wordId && !contactTimes.has(row.wordId)) contactTimes.set(row.wordId, row.acknowledgedAt.getTime());
-  }
   return {
     acknowledged,
     recentWordIds: acknowledged
       .slice(0, RETRIEVAL_V1_POLICY.minInterveningItems)
       .flatMap((row) => row.wordId ? [row.wordId] : []),
-    contactTimes,
   };
 }
 
@@ -643,6 +606,7 @@ function candidateForWork(
 ): CandidateRecord {
   const remediation = row.kind === "REMEDIATION";
   return {
+    policyVersion: row.policyVersion,
     id: `work:${row.id}`,
     wordId: row.wordId,
     senseId: row.senseId,
@@ -656,163 +620,174 @@ function candidateForWork(
   };
 }
 
-async function buildCandidates(
-  tx: StreamTransaction,
-  userId: string,
-  session: StudySession,
-  scope: StreamScope,
-  now: Date,
-): Promise<{ candidates: CandidateRecord[]; active: WorkRecord[]; history: LearnerStreamHistory }> {
-  await expireWork(tx, userId, now);
-  const history = await learnerStreamHistory(tx, userId, scope);
-  const active = await activeWork(tx, userId, scope, now);
+/** 新發卡政策。所有資料均在既有 learner lock／Serializable transaction 內讀寫。 */
+async function buildV3Candidates(
+  tx: StreamTransaction, userId: string, scope: StreamScope, now: Date, currentSessionId: string,
+) {
+  const history = await learnerStreamHistory(tx, userId);
+  const words = await tx.word.findMany({ where: scope.where });
+  // 範圍內詞語已在上方載入；下列查詢只按 userId 走索引再於記憶體篩選範圍，
+  // 避免把整個單元條件展開成數十個 catalog join（規劃時間可達數百毫秒）。
+  const inScope = new Set(words.map(w => w.id));
+  const reviews = await tx.review.findMany({ where: { userId } });
+  const reviewByWord = new Map(reviews.map(r => [r.wordId, r]));
+  const contacts = (await tx.studyEncounter.findMany({
+    where: { userId, wordId: { not: null } },
+    orderBy: [{ acknowledgedAt: "desc" }, { id: "desc" }], distinct: ["wordId"],
+    select: { wordId: true, acknowledgedAt: true, operationId: true },
+  })).filter(c => c.wordId !== null && inScope.has(c.wordId));
+  const contactByWord = new Map(contacts.map(c => [c.wordId, c]));
+  const exposures = await tx.studyStreamItem.groupBy({
+    by: ["wordId"], where: { session: { userId }, wordId: { not: null } },
+    _max: { revealedAt: true, usedAt: true, feedbackAcknowledgedAt: true },
+  });
+  const lastExposure = new Map(exposures.map(e => [e.wordId, Math.max(
+    e._max.revealedAt?.getTime() ?? 0, e._max.usedAt?.getTime() ?? 0, e._max.feedbackAcknowledgedAt?.getTime() ?? 0,
+  )]));
+  // 未派舊工作保留來源並移交；已派 item／target 仍按原版本恢復。
+  const old = await tx.evidenceObligation.findMany({
+    where: { userId, status: { in: ["PENDING", "LEASED"] } },
+    include: { workStreamItems: { where: { usedAt: null, status: "LEASED" }, take: 1 }, objectiveEvidenceTarget: true },
+  });
+  for (const work of old) {
+    if (work.workStreamItems.length) continue;
+    if (work.policyVersion === "retrieval-v3" && (!work.wordId || !reviewByWord.has(work.wordId))) continue;
+    if (work.objectiveEvidenceTarget?.status === "OPEN") await tx.objectiveEvidenceTarget.update({
+      where: { id: work.objectiveEvidenceTarget.id }, data: { status: "CANCELLED", activeKey: null },
+    });
+    await tx.evidenceObligation.update({ where: { id: work.id }, data: {
+      status: "SUPERSEDED", activeKey: null, terminalReason: "phase-transfer",
+    } });
+  }
+  let pending = await tx.evidenceObligation.findMany({
+    where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now } },
+    orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
+    include: { workStreamItems: { where: { status: "LEASED", usedAt: null }, take: 1 } },
+  });
+  // 用 learner-wide catalog 判定內容失效；scope 外的合法工作不能被誤取消。
+  const unissued = pending.filter(w => (!w.wordId || !reviewByWord.has(w.wordId)) && !w.workStreamItems.length);
+  if (unissued.length) {
+    const content = await tx.word.findMany({ where: withCurrentCatalogWord({ id: { in: unissued.flatMap(w => w.wordId ? [w.wordId] : []) } }) });
+    const usable = new Set(content.filter(canBuildObjectiveQuestion).map(w => w.id));
+    const invalid = unissued.filter(w => !w.wordId || !usable.has(w.wordId)).map(w => w.id);
+    if (invalid.length) {
+      await tx.objectiveEvidenceTarget.updateMany({ where: { obligationId: { in: invalid }, status: "OPEN" }, data: { status: "CANCELLED", activeKey: null } });
+      await tx.evidenceObligation.updateMany({ where: { id: { in: invalid } }, data: { status: "CANCELLED", activeKey: null, terminalReason: "content-unavailable" } });
+      pending = pending.filter(w => !invalid.includes(w.id));
+    }
+  }
+  // 其他 session 中租約已過期、仍未自評的字卡視為已放棄：退役後釋放其詞語及初驗名額，
+  // 避免學生在別的單元留下字卡後，主學習流長期沒有新詞可學。
+  await tx.studyStreamItem.updateMany({
+    where: { session: { userId }, sessionId: { not: currentSessionId }, itemKind: "LEARNING_CARD",
+      status: "LEASED", usedAt: null, leaseExpiresAt: { lte: now } },
+    data: { status: "SUPERSEDED" },
+  });
+  const reserved = await tx.studyStreamItem.findMany({
+    where: { session: { userId, retiredAt: null }, status: "LEASED", usedAt: null,
+      OR: [{ itemKind: "LEARNING_CARD" }, { session: { expiresAt: { gt: now } } }] },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { wordId: true, itemKind: true, workObligationId: true,
+      session: { select: { mode: true, scopeLevel: true, scopeCategory: true } } },
+  });
+  const workWords = new Set(pending.flatMap(w => w.wordId ? [w.wordId] : []));
+  const reservedWords = new Set(reserved.flatMap(r => r.wordId ? [r.wordId] : []));
+  const initialWords = new Set([...workWords, ...reserved.filter(r => r.itemKind === "LEARNING_CARD").flatMap(r => r.wordId ? [r.wordId] : [])]
+    .filter(id => !reviewByWord.has(id)));
+  let capacity = Math.max(0, 5 - initialWords.size);
+  const cancelled = await tx.evidenceObligation.findMany({ where: {
+    userId, status: { in: ["CANCELLED", "SUPERSEDED"] }, OR: [{ terminalReason: null }, { terminalReason: { not: "phase-transfer" } }],
+  }, select: { sourceOperationId: true } });
+  const cancelledSources = new Set(cancelled.map(w => w.sourceOperationId));
+  const validWords = words.filter(canBuildObjectiveQuestion);
+  const wordById = new Map(words.map(w => [w.id, w]));
+  const validIds = new Set(validWords.map(w => w.id));
+  const transfers = (await tx.evidenceObligation.findMany({
+    where: { userId, status: "SUPERSEDED", terminalReason: "phase-transfer" },
+    orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
+  })).filter(w => w.wordId !== null && inScope.has(w.wordId));
+  for (const work of transfers) {
+    if (!capacity || !work.wordId || !validIds.has(work.wordId) || reviewByWord.has(work.wordId)
+      || workWords.has(work.wordId) || reservedWords.has(work.wordId)) continue;
+    const admitted = await admissionWork(tx, userId, work.wordId, work.senseId, "EVIDENCE_OBLIGATION", now,
+      work.sourceOperationId ?? `phase-transfer:${work.id}`, "retrieval-v3", now);
+    if (admitted.disposition === "accepted") {
+      await tx.evidenceObligation.update({ where: { id: admitted.obligationId! }, data: {
+        admittedAt: work.admittedAt, selectionReason: `phase-successor:${work.id}`,
+      } });
+      capacity--; workWords.add(work.wordId);
+    }
+  }
+  for (const c of [...contacts].reverse()) {
+    if (!capacity || !c.wordId || !validIds.has(c.wordId) || reviewByWord.has(c.wordId)
+      || workWords.has(c.wordId) || reservedWords.has(c.wordId) || cancelledSources.has(c.operationId)) continue;
+    const word = wordById.get(c.wordId)!;
+    const admitted = await admissionWork(tx, userId, word.id, word.senseId, "EVIDENCE_OBLIGATION", now,
+      c.operationId, "retrieval-v3", now);
+    if (admitted.disposition === "accepted") { capacity--; workWords.add(word.id); }
+  }
+  const rows = (await tx.evidenceObligation.findMany({
+    where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now } },
+    orderBy: [{ admittedAt: "asc" }, { id: "asc" }],
+  })).filter(w => w.wordId !== null && inScope.has(w.wordId));
+  const active = rows.flatMap(r => { const w = toWorkRecord(r); return w ? [w] : []; });
+  const acknowledged = await tx.studyStreamItem.findMany({
+    where: { session: { userId }, feedbackAcknowledgedAt: { gt: new Date(now.getTime() - 600_000) } },
+    select: { feedbackAcknowledgedAt: true, word: { select: { term: true } } },
+  });
+  const last = await tx.studyStreamItem.findFirst({
+    where: { session: { userId }, policyVersion: "retrieval-v3", status: "ACKNOWLEDGED", feedbackAcknowledgedAt: { not: null } },
+    orderBy: [{ feedbackAcknowledgedAt: "desc" }, { id: "desc" }], select: { selectionOverrideReason: true },
+  });
   const candidates: CandidateRecord[] = [];
-  for (const work of active) {
-    candidates.push(candidateForWork(work, scope.mode));
-    if (work.kind === "EVIDENCE_OBLIGATION") {
-      // An evidence obligation must remain an Objective Probe when it is
-      // served. If the learner-wide probe gap is closed, provide a separate
-      // non-scoring card for the same word as an intervening item. It is
-      // deliberately not linked to workId: revealing/self-rating this card
-      // must not mark the pending obligation ANSWERED or consume its target.
-      candidates.push({
-        id: `work-card:${work.id}`,
-        wordId: work.wordId,
-        senseId: work.senseId,
-        kind: "LEARNING_CARD",
-        mode: scope.mode,
-        eligibleAt: work.eligibleAt,
-        expiresAt: work.expiresAt,
-        selectionReason: "evidence-obligation-gap-filler",
-      });
+  const waits: number[] = [];
+  for (const [index, work] of active.entries()) {
+    const word = wordById.get(work.wordId);
+    if (!word) continue;
+    const exposure = lastExposure.get(work.wordId) ?? work.admittedAt;
+    if (work.policyVersion !== "retrieval-v3") {
+      const eligibleAt = Math.max(work.eligibleAt, exposure + 600_000);
+      if (eligibleAt > now.getTime()) { waits.push(eligibleAt); continue; }
+      candidates.push({ ...candidateForWork(work, scope.mode), eligibleAt });
+      continue;
+    }
+    if (reviewByWord.has(work.wordId) || !validIds.has(work.wordId)) continue;
+    const otherTerms = acknowledged.filter(r => r.feedbackAcknowledgedAt!.getTime() > exposure).flatMap(r => r.word ? [r.word.term] : []);
+    const ready = initialCheckReady(now.getTime(), exposure, otherTerms, word.term);
+    candidates.push({ ...candidateForWork(work, scope.mode), eligibleAt: undefined, expiresAt: undefined,
+      selectionReason: "initial-check", selectionPriority: index, initialGapPending: !ready });
+    if (!ready) waits.push(exposure + 600_000);
+  }
+  const ordered = [...validWords].sort((a,b) =>
+    (contactByWord.get(a.id)?.acknowledgedAt.getTime() ?? 0) - (contactByWord.get(b.id)?.acknowledgedAt.getTime() ?? 0)
+    || a.term.localeCompare(b.term) || a.id.localeCompare(b.id));
+  for (const word of ordered) {
+    if (workWords.has(word.id) || reservedWords.has(word.id)) continue;
+    const review = reviewByWord.get(word.id);
+    if (review && review.nextReviewDate > now) { waits.push(review.nextReviewDate.getTime()); continue; }
+    if (review) {
+      const readyAt = Math.max(review.nextReviewDate.getTime(), (lastExposure.get(word.id) ?? 0) + 600_000);
+      if (readyAt > now.getTime()) { waits.push(readyAt); continue; }
+      candidates.push({ id: `due:${word.id}`, wordId: word.id, senseId: word.senseId, kind: "OBJECTIVE_PROBE",
+        purpose: "DUE_REVIEW", policyVersion: "retrieval-v3", eligibleAt: review.nextReviewDate.getTime(), selectionReason: "due-review", mode: scope.mode });
+    } else if (capacity && !contactByWord.has(word.id)) {
+      candidates.push({ id: `new:${word.id}`, wordId: word.id, senseId: word.senseId, kind: "LEARNING_CARD",
+        policyVersion: "retrieval-v3", selectionReason: "new-word", selectionPriority: candidates.length, mode: scope.mode });
     }
   }
-  const workWordIds = new Set(active.map((work) => work.wordId));
-
-  const due = await tx.review.findMany({
-    where: {
-      userId,
-      nextReviewDate: { lte: now },
-      word: scope.where,
+  const blockedScope = pending.some(w => w.wordId && !words.some(word => word.id === w.wordId) && !reviewByWord.has(w.wordId));
+  const r = reserved[0];
+  const resumePath = r ? (r.session.mode === "unit"
+    ? `/study?${new URLSearchParams({ mode: "unit", level: r.session.scopeLevel ?? "A1", category: r.session.scopeCategory ?? "未分類" })}` : "/study") : blockedScope ? "/study" : undefined;
+  return { candidates, active, history, phaseCursor: nextPhaseCursor(last?.selectionOverrideReason),
+    allowSmallPoolInitial: !reserved.length && !blockedScope,
+    availability: {
+      state: (pending.length || reserved.length || waits.length ? "waiting" : "no-content") as "waiting" | "no-content",
+      reason: reserved.length || blockedScope ? "other-scope" : !capacity ? "capacity" : "cooldown",
+      nextEligibleAt: waits.length ? new Date(Math.min(...waits)).toISOString() : null,
+      ...(resumePath ? { resumePath } : {}),
     },
-    orderBy: [{ nextReviewDate: "asc" }, { id: "asc" }],
-    take: MAX_CANDIDATES * 8,
-    select: { id: true, wordId: true, senseId: true },
-  });
-  const openTargets = await tx.objectiveEvidenceTarget.findMany({
-    where: {
-      userId, status: "OPEN", wordId: { not: null },
-      streamItems: { some: {
-        status: "LEASED", usedAt: null, leaseExpiresAt: { gt: now },
-        session: { retiredAt: null, expiresAt: { gt: now } },
-      } },
-    },
-    select: { wordId: true, purpose: true },
-  });
-  const openTargetKeys = new Set(openTargets.map((target) => `${target.purpose}:${target.wordId}`));
-  for (const [selectionPriority, review] of due.entries()) {
-    if (workWordIds.has(review.wordId)) continue;
-    if (openTargetKeys.has(`DUE_REVIEW:${review.wordId}`)) continue;
-    candidates.push({
-      id: `due:${review.id}`,
-      wordId: review.wordId,
-      senseId: review.senseId,
-      kind: "OBJECTIVE_PROBE",
-      purpose: "DUE_REVIEW",
-      eligibleAt: now.getTime(),
-      expiresAt: now.getTime() + RETRIEVAL_V1_POLICY.maxObligationAgeMs,
-      mode: scope.mode,
-      // Preserve the deterministic nextReviewDate/id ordering established by
-      // the database query when scheduler urgency fields tie.
-      selectionPriority,
-      selectionReason: "due-review",
-    });
-    // A due review is normally served as an Objective Probe. When the
-    // learner-wide probe gap is closed, however, the same due word remains a
-    // safe non-scoring Learning Card candidate that can provide the required
-    // intervening items. The card and probe share the review identity, so a
-    // probe selected first makes the card disappear on the next request once
-    // the Review revision advances; no duplicate score can be produced.
-    candidates.push({
-      id: `due-card:${review.id}`,
-      wordId: review.wordId,
-      senseId: review.senseId,
-      kind: "LEARNING_CARD",
-      mode: scope.mode,
-      selectionPriority,
-      selectionReason: "due-review-gap-filler",
-    });
-  }
-
-  const newWordWhere: Prisma.WordWhereInput = {
-    AND: [scope.where, { reviews: { none: { userId } } }],
   };
-  // Partition the bounded pool before sorting. Once a word has an encounter,
-  // it moves out of the untouched partition, allowing later alphabetic words
-  // to enter on the next request instead of starving behind a fixed prefix.
-  const untouchedWords = await tx.word.findMany({
-    where: { AND: [newWordWhere, { studyEncounters: { none: { userId } } }] },
-    orderBy: { term: "asc" },
-    take: MAX_CANDIDATES * 8,
-  });
-  const contactedWords = await tx.word.findMany({
-    where: { AND: [newWordWhere, { studyEncounters: { some: { userId } } }] },
-    orderBy: { term: "asc" },
-    take: MAX_CANDIDATES * 8,
-  });
-  // The contacted/untouched query is the authoritative partition. The
-  // learner history intentionally has a bounded contact-time window, so a
-  // long-running learner may have contacted words whose first timestamp is
-  // outside that window; they must not be promoted back to "new" merely
-  // because their timestamp was not loaded.
-  const contactedWordIds = new Set(contactedWords.map((word) => word.id));
-  const newWords = [...untouchedWords, ...contactedWords];
-  newWords.sort((left, right) => compareNewWordCandidates(left, right, contactedWordIds, history.contactTimes));
-  for (const [selectionPriority, word] of newWords.entries()) {
-    if (workWordIds.has(word.id)) continue;
-    candidates.push({
-      id: `new:${word.id}`,
-      wordId: word.id,
-      senseId: word.senseId,
-      kind: "LEARNING_CARD",
-      mode: scope.mode,
-      selectionPriority,
-      selectionReason: newWordSelectionReason(word.id, contactedWordIds),
-    });
-  }
-
-  const recentWordIds = new Set(history.recentWordIds);
-  const hasSpacedLearningCard = candidates.some(
-    (candidate) => candidate.kind === "LEARNING_CARD" && !recentWordIds.has(candidate.wordId),
-  );
-  if (!hasSpacedLearningCard) {
-    const ordinary = await tx.review.findMany({
-      where: {
-        userId,
-        nextReviewDate: { gt: now },
-        word: scope.where,
-      },
-      orderBy: [{ lastReviewedAt: "asc" }, { id: "asc" }],
-      take: MAX_CANDIDATES * 8,
-      select: { id: true, wordId: true, senseId: true },
-    });
-    for (const [selectionPriority, review] of ordinary.entries()) {
-      if (workWordIds.has(review.wordId)) continue;
-      candidates.push({
-        id: `ordinary:${review.id}`,
-        wordId: review.wordId,
-        senseId: review.senseId,
-        kind: "LEARNING_CARD",
-        mode: scope.mode,
-        // Preserve the database's lastReviewedAt/id order when scheduler
-        // urgency fields tie. This is the ordinary-review counterpart to the
-        // due-review priority above.
-        selectionPriority,
-        selectionReason: "spaced-learning-card",
-      });
-    }
-  }
-  return { candidates, active, history };
 }
 
 function snapshotToData(snapshot: ObjectiveQuestionSnapshot): ObjectiveQuestionSnapshotData | null {
@@ -852,6 +827,23 @@ function snapshotToData(snapshot: ObjectiveQuestionSnapshot): ObjectiveQuestionS
     correctOptionId: snapshot.correctOptionId,
     itemConstructionVersion: snapshot.itemConstructionVersion as ObjectiveQuestionSnapshotData["itemConstructionVersion"],
   };
+}
+
+// 固定 seed、只以詞條自身作詞池時，出題可行性完全由詞條內容決定。按內容快取，
+// 避免每次取題都為整個詞庫重建題目（約佔取題時間的六成）。內容改動會產生新 key。
+const objectiveEligibilityCache = new Map<string, boolean>();
+const OBJECTIVE_ELIGIBILITY_CACHE_LIMIT = 50_000;
+
+function canBuildObjectiveQuestion(word: Word): boolean {
+  const input = questionWord(word);
+  const key = JSON.stringify(input);
+  let eligible = objectiveEligibilityCache.get(key);
+  if (eligible === undefined) {
+    if (objectiveEligibilityCache.size >= OBJECTIVE_ELIGIBILITY_CACHE_LIMIT) objectiveEligibilityCache.clear();
+    eligible = buildObjectiveQuestion(input, [input], `eligibility:${word.id}`) !== null;
+    objectiveEligibilityCache.set(key, eligible);
+  }
+  return eligible;
 }
 
 function questionWord(word: Word): QuestionWord {
@@ -1116,6 +1108,7 @@ async function retireInvalidObjectivePresentation(
   tx: StreamTransaction,
   item: StreamItemWithRelations,
   currentReviewRevision: number,
+  invalidPhaseOrExposure = false,
 ): Promise<boolean> {
   if (
     item.itemKind !== "OBJECTIVE_PROBE" ||
@@ -1125,7 +1118,7 @@ async function retireInvalidObjectivePresentation(
     return false;
   }
   const target = item.objectiveEvidenceTarget;
-  if (target.status === "OPEN" && target.expectedReviewRevision === currentReviewRevision) {
+  if (!invalidPhaseOrExposure && target.status === "OPEN" && target.expectedReviewRevision === currentReviewRevision) {
     return false;
   }
 
@@ -1150,6 +1143,15 @@ async function retireInvalidObjectivePresentation(
   return true;
 }
 
+/** 發題後另一次合法揭示會污染當前題目；重建而不把提示當客觀保留。 */
+async function hasNewAnswerExposure(tx: StreamTransaction, userId: string, item: StudyStreamItem): Promise<boolean> {
+  if (item.policyVersion !== "retrieval-v3" || !item.wordId) return false;
+  return (await tx.studyStreamItem.count({ where: {
+    session: { userId }, wordId: item.wordId, id: { not: item.id }, itemKind: "LEARNING_CARD",
+    revealedAt: { gte: item.createdAt },
+  } })) > 0;
+}
+
 async function ensureSession(
   tx: StreamTransaction,
   userId: string,
@@ -1164,18 +1166,18 @@ async function ensureSession(
       scopeLevel: scope.level,
       scopeCategory: scope.category,
       retiredAt: null,
-      expiresAt: { gt: now },
+      OR: [{ expiresAt: { gt: now } }, { streamItems: { some: { itemKind: "LEARNING_CARD", status: "LEASED", usedAt: null } } }],
     },
     orderBy: { createdAt: "desc" },
   });
-  if (existing) return existing;
+  if (existing) return existing.expiresAt > now ? existing : tx.studySession.update({ where: { id: existing.id }, data: { expiresAt: new Date(now.getTime() + STREAM_SESSION_TTL_MS) } });
   return tx.studySession.create({
     data: {
       userId,
-      queueFingerprint: `retrieval-v2:${scope.mode}:${scope.level ?? ""}:${scope.category ?? ""}`,
+      queueFingerprint: `retrieval-v3:${scope.mode}:${scope.level ?? ""}:${scope.category ?? ""}`,
       expiresAt: new Date(now.getTime() + STREAM_SESSION_TTL_MS),
       flowVersion: STUDY_STREAM_FLOW_VERSION,
-      learningPolicyVersion: RETRIEVAL_V1_POLICY.policyVersion,
+      learningPolicyVersion: RETRIEVAL_V3_POLICY.policyVersion,
       mode: scope.mode,
       catalogReadMode: "SENSE_V1",
       scopeLevel: scope.level,
@@ -1234,7 +1236,7 @@ async function createObjectiveTarget(
         senseId: word.senseId,
         purpose,
         expectedReviewRevision: expectedRevision,
-        policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
+        policyVersion: candidate.policyVersion ?? "retrieval-v3",
         itemConstructionVersion: RETRIEVAL_V1_POLICY.itemConstructionVersion,
         status: "OPEN",
         activeKey,
@@ -1315,7 +1317,7 @@ async function createStreamItem(
       itemKind: candidate.kind,
       selectionReason: candidate.selectionReason,
       selectionOverrideReason: selectionOverrideReason ?? null,
-      policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
+      policyVersion: candidate.policyVersion ?? "retrieval-v3",
       status: "LEASED",
       leaseExpiresAt: new Date(now.getTime() + STREAM_ITEM_LEASE_MS),
       credentialDigest: digestStudyStreamCredential(credential),
@@ -1489,7 +1491,10 @@ export async function getOrCreateStudyStream(
               select: { revision: true },
             });
             const currentReviewRevision = review?.revision ?? 0;
-            if (await retireInvalidObjectivePresentation(tx, current, currentReviewRevision)) {
+            const invalidPhase = current.policyVersion === "retrieval-v3"
+              && current.objectiveEvidenceTarget?.purpose === "EVIDENCE_OBLIGATION" && review !== null;
+            if (await retireInvalidObjectivePresentation(tx, current, currentReviewRevision,
+              invalidPhase || await hasNewAnswerExposure(tx, userId, current))) {
               current = null;
             }
           }
@@ -1528,7 +1533,7 @@ export async function getOrCreateStudyStream(
             );
           }
 
-          const built = await buildCandidates(tx, userId, session, scope, now);
+          const built = await buildV3Candidates(tx, userId, scope, now, session.id);
           const shape = recentStreamShape(built.history.acknowledged);
           const excluded = new Set<string>();
           for (let selectionAttempt = 0; selectionAttempt < built.candidates.length; selectionAttempt += 1) {
@@ -1543,7 +1548,9 @@ export async function getOrCreateStudyStream(
               recentWordIds: built.history.recentWordIds,
               activeWork: built.active,
               candidates,
-            });
+              phaseCursor: built.phaseCursor,
+              allowSmallPoolInitial: built.allowSmallPoolInitial,
+            }, RETRIEVAL_V3_POLICY);
             if (!decision.candidate) break;
             try {
               const created = await createStreamItem(
@@ -1562,7 +1569,7 @@ export async function getOrCreateStudyStream(
               excluded.add(decision.candidate.id);
             }
           }
-          return streamResponse(session, null, false, unitSummary);
+          return { ...streamResponse(session, null, false, unitSummary), availability: built.availability };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -1779,18 +1786,21 @@ async function admissionWork(
   kind: WorkKind,
   now: Date,
   sourceOperationId: string,
+  policyVersion: LearningPolicyVersion = "retrieval-v1",
+  eligibleOverride?: Date,
 ): Promise<AdmissionOutcome> {
   await expireWork(tx, userId, now);
   const activeRows = await tx.evidenceObligation.findMany({
     where: { userId, status: { in: ["PENDING", "LEASED"] }, expiresAt: { gt: now } },
     orderBy: [{ expiresAt: "asc" }, { createdAt: "asc" }],
   });
-  const activeRecords = activeRows.flatMap((row) => {
+  const reviewed = policyVersion === "retrieval-v3" ? new Set((await tx.review.findMany({ where: { userId }, select: { wordId: true } })).map(r => r.wordId)) : new Set<string>();
+  const activeRecords = activeRows.filter(r => !r.wordId || !reviewed.has(r.wordId)).flatMap((row) => {
     const record = toWorkRecord(row);
     return record ? [record] : [];
   });
   const times = kind === "EVIDENCE_OBLIGATION"
-    ? verificationTimes(now.getTime())
+    ? verificationTimes(now.getTime(), policyVersion === "retrieval-v3" ? RETRIEVAL_V3_POLICY : RETRIEVAL_V1_POLICY)
     : { eligibleAt: now.getTime(), expiresAt: now.getTime() + RETRIEVAL_V1_POLICY.maxObligationAgeMs };
   const admitted = admitWork({
     learnerId: userId,
@@ -1816,9 +1826,9 @@ async function admissionWork(
       status: "PENDING",
       sourceOperationId,
       selectionReason: kind === "REMEDIATION" ? "self-forgot-remediation" : "self-recalled-verification",
-      policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
-      eligibleAt: new Date(admitted.record.eligibleAt),
-      expiresAt: new Date(admitted.record.expiresAt),
+      policyVersion,
+      eligibleAt: eligibleOverride ?? new Date(admitted.record.eligibleAt),
+      expiresAt: policyVersion === "retrieval-v3" ? new Date("9999-12-31T00:00:00.000Z") : new Date(admitted.record.expiresAt),
       activeKey: `${userId}:${kind}:${wordId}`,
     },
   });
@@ -1905,7 +1915,9 @@ async function processSelfRating(
     },
   }) > 0;
   let admission: AdmissionOutcome = { disposition: "not-required", obligationId: null };
-  if (selfRating === "selfRecalled") {
+  if (item.policyVersion === "retrieval-v3") {
+    if (!review) admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "EVIDENCE_OBLIGATION", now, input.operationId, "retrieval-v3", now);
+  } else if (selfRating === "selfRecalled") {
     const required = requiresEvidenceObligation({
       learnerId: userId,
       wordId: item.word.id,
@@ -1916,9 +1928,9 @@ async function processSelfRating(
       now: now.getTime(),
       sourceOperationId: input.operationId,
     });
-    if (required) admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "EVIDENCE_OBLIGATION", now, input.operationId);
+    if (required) admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "EVIDENCE_OBLIGATION", now, input.operationId, isSupportedLearningPolicy(item.policyVersion) ? item.policyVersion : "retrieval-v1");
   } else {
-    admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "REMEDIATION", now, input.operationId);
+    admission = await admissionWork(tx, userId, item.word.id, item.word.senseId, "REMEDIATION", now, input.operationId, isSupportedLearningPolicy(item.policyVersion) ? item.policyVersion : "retrieval-v1");
   }
 
   await checkInStudyDay(userId, tx);
@@ -1934,7 +1946,7 @@ async function processSelfRating(
       selfRating,
       selectionReason: item.selectionReason,
       policyVersion: item.policyVersion,
-      requiresVerification: selfRating === "selfRecalled" && admission.disposition === "accepted",
+      requiresVerification: (item.policyVersion === "retrieval-v3" || selfRating === "selfRecalled") && admission.disposition !== "not-required",
       verificationDisposition: admission.disposition,
       evidenceObligationId: admission.obligationId,
       createdAt: now,
@@ -2014,6 +2026,11 @@ async function processObjectiveAnswer(
     });
   }
   const purpose = item.objectiveEvidenceTarget.purpose as ProbePurpose;
+  if (item.policyVersion === "retrieval-v3" && (
+    (purpose === "EVIDENCE_OBLIGATION" && review !== null)
+    || (purpose === "DUE_REVIEW" && (!review || review.nextReviewDate > new Date()))
+    || await hasNewAnswerExposure(tx, userId, item)
+  )) throw new StudyStreamError(409, "學習內容已變更，請重新取得題目", { code: "STALE_EVIDENCE_TARGET" });
   const isCorrect = selectedOptionId === snapshot.correctOptionId;
   const mapping = mapObjectiveFirstResponse(isCorrect ? "correct" : "wrong", purpose);
   if (!mapping) throw new StudyStreamError(409, "目前客觀題目的評分策略無效");
@@ -2118,8 +2135,8 @@ async function processObjectiveAnswer(
       },
     });
   }
-  if (!isCorrect) {
-    await admissionWork(tx, userId, item.word.id, item.word.senseId, "REMEDIATION", new Date(), input.operationId);
+  if (!isCorrect && item.policyVersion !== "retrieval-v3") {
+    await admissionWork(tx, userId, item.word.id, item.word.senseId, "REMEDIATION", new Date(), input.operationId, isSupportedLearningPolicy(item.policyVersion) ? item.policyVersion : "retrieval-v1");
   }
 
   const now = new Date();

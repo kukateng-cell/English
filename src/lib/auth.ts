@@ -54,6 +54,21 @@ const authValidationStore: AuthValidationStore = {
   }),
 };
 
+const AUTH_VALIDATION_ATTEMPTS = 2;
+const AUTH_VALIDATION_RETRY_MS = 150;
+
+function authValidationRetryDelay(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, AUTH_VALIDATION_RETRY_MS));
+}
+
+/** 只取 Prisma／pg 的錯誤碼（如 P1001、P2021、ECONNREFUSED），不含連線字串或查詢內容。 */
+export function databaseErrorCode(error: unknown, depth = 0): string | null {
+  if (typeof error !== "object" || error === null || depth > 3) return null;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string" && /^[A-Z0-9_]{2,32}$/.test(code)) return code;
+  return databaseErrorCode((error as { cause?: unknown }).cause, depth + 1);
+}
+
 /**
  * Revalidate the account-bound claims used by protected routes. Keeping this
  * boundary callable outside the NextAuth callback makes token-version
@@ -68,16 +83,29 @@ export async function validateAuthTokenVersion(
 
   // Session validity is a security decision: a transient DB failure keeps the
   // cookie but marks it unavailable so protected APIs fail closed with 503.
-  let dbUser: AuthValidationUser | null;
+  // 連線池偶發中斷時先重試一次；仍失敗才標記不可用，並記錄錯誤碼方便判斷是
+  // 連線問題還是 schema 落後（例如 P2021／P2022），不記錄訊息內容以免洩露連線資料。
+  let dbUser: AuthValidationUser | null = null;
   let currentEnrollment: { id: string } | null = null;
-  try {
-    dbUser = await store.findUser(userId);
-    if (dbUser?.role === "STUDENT") {
-      currentEnrollment = await store.findCurrentStudentEnrollment(userId);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= AUTH_VALIDATION_ATTEMPTS; attempt += 1) {
+    try {
+      dbUser = await store.findUser(userId);
+      currentEnrollment = dbUser?.role === "STUDENT"
+        ? await store.findCurrentStudentEnrollment(userId)
+        : null;
+      lastError = undefined;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < AUTH_VALIDATION_ATTEMPTS) await authValidationRetryDelay();
     }
-  } catch (error) {
+  }
+  if (lastError !== undefined) {
     console.error("[auth] session validation database unavailable", {
-      name: error instanceof Error ? error.name : "UnknownError",
+      name: lastError instanceof Error ? lastError.name : "UnknownError",
+      code: databaseErrorCode(lastError),
+      attempts: AUTH_VALIDATION_ATTEMPTS,
     });
     token.authUnavailable = true;
     return token;
@@ -200,6 +228,9 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: "/login",
+    // GET /api/auth/signout 會 redirect 到自訂繁中確認頁；POST 仍由 NextAuth
+    // 驗證 CSRF token 後登出（pages 設定不影響 POST 分支）。
+    signOut: "/auth/signout",
     error: "/login",
   },
   // 禁用详细错误日志，避免 CLIENT_FETCH_ERROR

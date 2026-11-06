@@ -276,7 +276,7 @@ Importer 必須實作標準文件第 9–12 節，最少包含：
 - development、test、CI 及未來 production 使用完全相同的詞庫生命週期：學生 runtime 只可讀 `ACTIVE`、有 approved revision、且所屬 `CatalogRevision` 為 `READY` 的 sense；
 - 取消 `LOCAL_DEMO_BOOTSTRAP`／environment-scoped DRAFT eligibility。測試帳戶及學習歷史可以是 fixture，但詞庫本身不再有測試版語義；
 - checked-in initial activation manifest 綁定 CSV source digest、validator／normalization version、selection rule 及預期數量，代表現有初始詞庫的明確正式啟用決定；任何 CSV 或規則改動令 digest／數量不符時必須 fail closed，先更新及重新審批 manifest；
-- 現行 digest `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a` 的正式 baseline 為：5,641 source rows、5,576 valid rows、5,469 ACTIVE、107 DRAFT、65 validation failed；
+- 現行 digest `696557d4267efc4cb46ecfc84a0c2c3f0b87b274f2f9743b51ac40c5c5cc136a` 的正式 baseline 為：5,641 source rows、5,576 valid rows、5,469 ACTIVE、107 DRAFT、65 validation failed；（2026-11-03 修正 24 條異常音標後重生 digest，assignments 及上述數量不變；舊 digest 為 `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`）
 - seed 只會為 baseline manifest 判定可啟用、目前仍為 DRAFT 且沒有 approved revision 的 sense 建立初始 approved pointer；不覆寫老師其後批准的 revision，不把 RETIRED sense 重新啟用，亦不以 CSV 缺行作停用；
 - 舊 `CatalogEligibility` physical table 暫留作 expand compatibility，runtime、seed、治理 API 及 checker 不再讀寫；刪表須另走 destructive contract migration。
 
@@ -496,7 +496,7 @@ npm run test:e2e:card-motion
 - 新增 `CatalogChangeRequest`、`CatalogAuditEvent`、request identity／revision CAS、immutable proposal payload、approved revision pointer 及 `TeacherProfile.canManageWordCatalog`；只保留 ADMIN／TEACHER／STUDENT 三個角色。
 - 新增 `/admin/words` 及 `/teacher/words` 共用治理工作區：管理員及老師可查看完整 current READY catalog，按狀態、程度、題目方向、搜尋字串篩選；capability teacher／管理員可處理審核 queue，一般老師只可提交草稿。
 - 新增逐條 UPDATE／CREATE／RETIRE／REACTIVATE request API；所有 mutation 經現有 roster CSRF 流程、server-side role／capability、self-review block、current READY batch、identity check、validator 及 revision CAS；批准後才更新 approved revision／Word projection，拒絕不會覆蓋正式內容。
-- current local CSV source digest `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a`：5,641 source rows、5,576 valid、65 validation failed；development database 目前 5,469 ACTIVE、107 DRAFT、0 RETIRED。DRAFT 係方向／內容未達到 initial activation gate 的項目，ACTIVE 項目已指向 approved revision。
+- current local CSV source digest `696557d4267efc4cb46ecfc84a0c2c3f0b87b274f2f9743b51ac40c5c5cc136a`：5,641 source rows、5,576 valid、65 validation failed；development database 目前 5,469 ACTIVE、107 DRAFT、0 RETIRED。DRAFT 係方向／內容未達到 initial activation gate 的項目，ACTIVE 項目已指向 approved revision。（2026-11-03 修正異常音標後 digest 由 `6b8dee4f8cb9efe0ec71e173ac34a407031dc3967c2b290e4878fda83d5fa23a` 更新；既有資料庫需重新匯入才會有新 batch。）
 - 當時 initial activation 由 guarded `scripts/activate-initial-catalog.ts` 執行；此 local-only 入口已於同日被下述單一正式 baseline 設計取代。seed 保留 approved lineage，缺行／缺資料／重匯不會自動 RETIRE 或刪除舊 revision；停用及重啟必須使用明確 request。
 - read-only `scripts/check-catalog-governance.ts` 已確認 READY batch／revision、sourceData、pending request identity、DRAFT approved pointer、ACTIVE lineage 及 Word projection 全部 invariant 通過。
 - 已執行／通過：`npm test`、`npm run lint`、`npx tsc --noEmit`、`npm run build`、`npm run test:migrations`、`npm run test:migration-checksums`、`npm run check:catalog`、`npm run check:catalog-governance` 及 guarded activation idempotency smoke。建置曾因 sandbox process restriction 失敗，改用獲准權限重跑後通過。

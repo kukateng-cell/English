@@ -9,6 +9,7 @@ import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/ThemeToggle";
 import Icon from "@/components/ui/Icon";
 import { useLocale } from "@/components/LocaleProvider";
+import { studentCategoryLabel } from "@/lib/catalog/student-category-label";
 import {
   fetchWithTimeout,
   readResponseJsonWithTimeout,
@@ -160,6 +161,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   const router = useRouter();
   const [session, setSession] = useState<PublicStreamResponse["session"] | null>(null);
   const [item, setItem] = useState<PublicStreamItemBase | null>(null);
+  const [availability, setAvailability] = useState<PublicStreamResponse["availability"]>();
   const [unitSummary, setUnitSummary] = useState<PublicStreamResponse["unitSummary"]>();
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState(false);
@@ -246,6 +248,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     itemRef.current = data.item;
     setItem(data.item);
     setUnitSummary(data.unitSummary);
+    setAvailability(data.availability);
     setSelectedOptionId(data.item?.feedback?.selectedOptionId ?? null);
     updateCheckpoint(data.item, data.session);
   }, [updateCheckpoint]);
@@ -438,6 +441,16 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     return refreshAuthoritativeState();
   }, [refreshAuthoritativeState]);
 
+  // 伺服器已接受的操作：本地刪除失敗（私隱模式、配額已滿）不代表同步失敗。
+  // 殘留的同一 operationId 之後重送時由伺服器冪等處理，不會重複計分。
+  const forgetAcceptedAction = useCallback(async (operationId: string) => {
+    try {
+      await removeStudyStreamAction(userId, operationId);
+    } catch {
+      // 保留殘留紀錄，交由下次同步處理。
+    }
+  }, [userId]);
+
   const discardTerminalAction = useCallback(async (action: StudyStreamActionInput): Promise<{ removed: boolean; refreshed: boolean }> => {
     try {
       await removeStudyStreamAction(userId, action.operationId);
@@ -516,7 +529,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           response = await recoverAction(row.action, recoveryCredential);
         }
       }
-      await removeStudyStreamAction(userId, row.action.operationId);
+      await forgetAcceptedAction(row.action.operationId);
       timeoutNoticeRef.current = false;
       const refreshed = await applyActionResponse(row.action, response);
       if (refreshed) setSyncError(null);
@@ -593,7 +606,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
                   : {}),
               });
               const response = await postAction(rebound);
-              await removeStudyStreamAction(userId, rebound.operationId);
+              await forgetAcceptedAction(rebound.operationId);
               timeoutNoticeRef.current = false;
               const refreshed = await applyActionResponse(rebound, response);
               if (refreshed) setSyncError(null);
@@ -626,7 +639,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       refreshOutbox();
       return "blocked";
     }
-  }, [applyActionResponse, discardTerminalAction, fetchStream, handleAuthInvalidation, postAction, postActionWithRecovery, prepareLegacyRecovery, recoverAction, reconcileAction, refreshOutbox, showRequestTimeout, userId]);
+  }, [applyActionResponse, discardTerminalAction, fetchStream, forgetAcceptedAction, handleAuthInvalidation, postAction, postActionWithRecovery, prepareLegacyRecovery, recoverAction, reconcileAction, refreshOutbox, showRequestTimeout, userId]);
 
   const flushRunningRef = useRef(false);
   const flushPending = useCallback(async (): Promise<void> => {
@@ -693,7 +706,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
     setOutboxCount((count) => count + 1);
     try {
       const response = await postActionWithRecovery(action, item.recoveryCredential);
-      await removeStudyStreamAction(userId, action.operationId);
+      await forgetAcceptedAction(action.operationId);
       timeoutNoticeRef.current = false;
       const refreshed = await applyActionResponse(action, response);
       if (refreshed) {
@@ -763,7 +776,7 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
       setActionPending(false);
       refreshOutbox();
     }
-  }, [actionPending, applyActionResponse, discardTerminalAction, flushPending, handleAuthInvalidation, item, postActionWithRecovery, reconcileAction, refreshOutbox, refreshPending, session, showRequestTimeout, syncBlocked, updateCheckpoint, userId]);
+  }, [actionPending, applyActionResponse, discardTerminalAction, flushPending, forgetAcceptedAction, handleAuthInvalidation, item, postActionWithRecovery, reconcileAction, refreshOutbox, refreshPending, session, showRequestTimeout, syncBlocked, updateCheckpoint, userId]);
 
   const retryRefresh = useCallback(async () => {
     if (!refreshPending || actionPending) return;
@@ -907,6 +920,17 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
   }
 
   const interactionDisabled = actionPending || syncBlocked || refreshPending;
+  // 單元模式（伺服器提供 unitSummary）和全域模式的空狀態文案及出口不同：
+  // 單元模式要帶學生返回單元清單，而不是只留在同一個已空的單元反覆重新載入。
+  const isUnitMode = Boolean(unitSummary);
+  const isWaiting = availability?.state === "waiting";
+  const emptyStateMessage = isUnitMode
+    ? isWaiting
+      ? "這個單元的進度已保留，可以稍後再回來複習"
+      : "這個單元目前沒有待學習或到期複習的詞"
+    : isWaiting
+      ? "進度已保留，可以稍後再回來複習"
+      : "目前沒有待學習或到期複習的內容";
 
   return (
     <div className="flex min-h-full flex-col pb-8">
@@ -966,8 +990,23 @@ export default function StudyStreamV2({ userId }: StudyStreamV2Props) {
           )
         ) : (
           <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center text-center">
-            <p className="mb-4 text-[var(--muted)]">{tc(unitSummary ? "本單元目前沒有可安全安排的學習項目" : "目前沒有可安全安排的學習項目")}</p>
-            <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50">{tc("重新載入")}</button>
+            <p className="mb-4 text-[var(--muted)]">{tc(emptyStateMessage)}</p>
+            {availability?.nextEligibleAt && <p className="mb-4 text-sm text-[var(--muted)]">{tc("最早可再檢查時間")} {new Date(availability.nextEligibleAt).toLocaleString([], { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>}
+            {availability?.resumePath && <Link className="mb-4 underline" href={availability.resumePath}>{tc("返回未完成的學習")}</Link>}
+            {isUnitMode ? (
+              <>
+                <Link className="study-primary-action mb-4 inline-block rounded-2xl px-5 py-3 text-sm font-semibold" href="/units">{tc("返回單元清單")}</Link>
+                <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
+                  <Link className="underline" href="/">{tc("返回首頁")}</Link>
+                  <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="underline disabled:opacity-50">{tc("重新載入")}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Link className="mb-4 underline" href="/">{tc("返回首頁")}</Link>
+                <button type="button" onClick={() => void retryInitialLoad()} disabled={actionPending || loading} className="study-primary-action rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50">{tc("重新載入")}</button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1110,7 +1149,7 @@ function ObjectiveProbeView({
           <span className="quiz-prompt-label">{tc(isEnglishToChinese ? "看英文" : "看中文")}</span>
           {item.level ? (
             <span data-testid="study-stream-probe-level" className="level-badge">
-              {item.level} · {tc(item.category ?? "未分類")}
+              {item.level} · {tc(studentCategoryLabel(item.category))}
             </span>
           ) : null}
         </div>

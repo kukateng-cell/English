@@ -14,7 +14,8 @@ const fixtures = [
     id: "localized",
     term: "internationalization",
     level: "A2",
-    category: "日常生活和校園溝通以及世界各地的學習場景",
+    // 正式 taxonomy 代碼：學生端只會收到代碼，標籤由 student-category-label 轉成中文。
+    category: "arts-culture-media",
     phonetic: null,
   },
 ] as const;

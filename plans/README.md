@@ -22,6 +22,11 @@
 
 ### 目前進行中
 
+- [單元解鎖改用「已學過」而非「已答對」（#94）](./unit-unlock-by-exposure.md)：已完成（本地實作及驗證）；單元／級別解鎖改以 learned 80% 計算，認字／掌握語義不變，解決新學生第一天被鎖住無新詞可學。
+- [學生端回報問題修正（#91–#96）](./student-reported-issue-fixes-91-96.md)：已完成（本地實作及驗證）；修正單元中文名稱、單元空狀態出口、初次學習成就、詞庫異常音標及自訂登出頁；#94 當時暫時跳過，現由上一條計劃處理。
+- [示範學校進度真實化及學習流穩定性](./demo-school-progress-and-stream-stability.md)：示範學生進度及帳號管理改善；修正其他 session 過期字卡令學習流卡住，減少取題時間。
+- [新詞引入、初次驗證與間隔複習重設計](./study-stream-learning-phases.md)：本地實作及驗收完成；以短期初驗釋放窗口、未來複習獨立排程，處理上一版五詞／十分鐘的新手阻塞。
+- [學習流揀詞、短期重複與驗證進度改進](./study-stream-selection-improvement.md)：本地修正已推送；節奏規則已由三階段方案取代，保留循環根因及驗收證據。
 - [項目整理、重構與學生交接](./project-consolidation-and-student-handoff.md)：本分支的主線工作；目前處於 P1 文件入口、P3 source layer 及 P4 cutover 階段。
 - [教師學習／獎勵索引](./teacher-learning-reward-index.md)：本地功能已實作，整體環境驗證及 external gates 仍待處理。
 - [詞庫問題指引及選擇版面修正](./catalog-issue-guidance-and-selection-layout-corrections.md)：匯出格式修訂已完成，完整 viewport matrix 仍待執行。
@@ -48,8 +53,14 @@
 
 | 文件 | 類型 | 狀態 | 說明 |
 |---|---|---|---|
+| [study-stream-learning-phases.md](./study-stream-learning-phases.md) | 三階段重設計及驗收方案 | 已完成（本地實作及驗收） | 取消初驗十分鐘硬門檻；正誤都釋放初學名額；到期複習獨立；含概念模擬、細詞集、舊版相容及實作 gates |
+| [study-stream-selection-improvement.md](./study-stream-selection-improvement.md) | 分析及改進方案 | 本地修正已推送；節奏已取代 | 保留三字循環、驗證容量缺口及修正證據；五詞／十分鐘方案有新手阻塞，不作最終教學方案；線上個案仍待可用憑證 |
 | [project-consolidation-and-student-handoff.md](./project-consolidation-and-student-handoff.md) | 全項目整頓與交接計劃 | 進行中（P1／P3 source layer／P4 cutover） | 現行開發主線、P1 獨立交接、P3 existing-DB 回歸、P4 cutover／測試移植矩陣、環境分離及主線治理已補入；四份新人指南、`data/catalog/` source mapping、V2 study entry、legacy retirement barrier 及 active V2 shell／stream browser coverage 已實作，DB／browser cutover 回歸及獨立交接仍待驗證 |
 | [realistic-demo-school.md](./realistic-demo-school.md) | 虛構學校及增量模擬 | 已完成（本地驗證） | 18班566人、自然名冊、seeded 活動、每日補漏、重跑/中斷續跑及正式報表reader驗證；只供本地 |
+| [supabase-cloud-database-provisioning.md](./supabase-cloud-database-provisioning.md) | 雲端資料庫建立及資料上載 | 已完成（東京庫；已公開唯讀供評委） | 專案 `ogxdoezdhixgahlfylmf`（`ap-northeast-1`東京）：67 migration、396 MB、566 學生、資料至 2026-10-31；25 表 `public_read` 唯讀公開（`User` 欄位級隱藏密碼；寫入與敏感表封閉）；舊 `eu-west-1` 專案待刪 |
+| [vercel-demo-deployment.md](./vercel-demo-deployment.md) | 評委示範部署 | 已完成（示範性質；非正式 production workflow） | <https://english-seeword.vercel.app>（東京 `hnd1`）；14 項 production 環境變數、Upstash 限流、生產配置 gate 通過；登入／首頁／`/study`／`/stats` 及答題寫入實測通過 |
+| [demo-data-realism-backfill.md](./demo-data-realism-backfill.md) | 雲端示範資料補寫 | 已完成（2026-11-01） | 為部分學生補合法 A2／B1／B2 單元進度、少量長期掌握、依學習量回填成就，並補最近兩日活動；只改虛構示範資料，不改 schema／政策；結果見計劃書 |
+| [demo-school-progress-and-stream-stability.md](./demo-school-progress-and-stream-stability.md) | 示範學校進度真實化及學習流穩定性 | 已完成（本地驗證） | 示範學生按學習習慣分類並改用現行 retrieval-v3 模擬；學生編號及帳戶建立時間；退役跨 session 過期字卡；取題出題可行性快取 |
 | [student-weekly-leaderboard-redesign.md](./student-weekly-leaderboard-redesign.md) | 學生排行榜重設計計劃 | 已完成（本地核心實作；大型DB效能／原生screen-reader列後續） | 本班每週學習分主榜、附近／完整排名、個人週目標；直接替換舊榜，已清空重建本地資料；含reward contract、API／snapshot、自動化及CUA視覺驗收，不含production工作 |
 | [teacher-reward-summary-usability.md](./teacher-reward-summary-usability.md) | 教師體驗修改計劃 | 已完成（本地驗收；native screen-reader matrix deferred；production／pilot deferred） | 首頁首屏匯出入口、獨立學生累積分頁、三個累積結果及簡潔 Excel／CSV；已核對客觀作答全零的舊 fixture 根因，保留 strict provenance 驗證 |
 | [teacher-learning-reward-index.md](./teacher-learning-reward-index.md) | 實施計劃 | 進行中（Revision 2；使用者已批准；兩位 reviewer PASS） | 教師自訂投入／成效權重、每日及期間累積分、完整明細匯出；不設派分或已匯出扣除機制；20/5量尺及目前學年範圍已按批准方案實作；四項分支審核修正及針對性回歸完成，整體環境驗證仍有既有阻礙；production／pilot／destructive migration 仍 deferred |

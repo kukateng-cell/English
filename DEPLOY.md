@@ -141,3 +141,13 @@ identity、revision 及目標資料庫，再用隔離環境驗證；不要直接
 先核對 `MIGRATE_URL`、`DATABASE_ENVIRONMENT`、marker 及 `npx prisma migrate status`。保留資料庫快照，按
 `npm run db:deploy` 套用 pending migrations；不要執行 `prisma db push`。若是示範資料，先確認正在使用 demo reset DB，
 才按 [`scripts/DEMO-SCHOOL.md`](scripts/DEMO-SCHOOL.md) 的明確 reset 流程。
+
+### 示範站（english-seeword）如何自動部署？
+
+`main` 每次 push 會由 [`.github/workflows/deploy-seeword.yml`](.github/workflows/deploy-seeword.yml) 觸發
+`english-seeword` 專案的 production 部署。此 workflow 需要 repository secret `VERCEL_TOKEN_SEEWORD`
+（Vercel 帳戶 `chao9` 的 token）；未設定時會跳過並記錄 warning。
+
+- Project ID：`prj_0wp8aRY5l83xzr72RqNFBHat3ChY`
+- Org ID：`team_TEUByW1O0T2ztBXSHJ5a5Kag`
+- 設定 repository secret `MIGRATE_URL_SEEWORD`（示範庫的 direct 或 5432 Session pooler 連線）後，workflow 會先以 `npm run db:deploy` 套用 migration，成功後才部署；migration 失敗則不部署。未設定時只部署並顯示警告：若示範庫落後於程式碼，登入後會被擋在 `/auth-unavailable`（見 #89）。

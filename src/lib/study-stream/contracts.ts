@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   OBJECTIVE_ITEM_CONSTRUCTION_VERSION,
   OBJECTIVE_QUALITY_POLICY_VERSION,
-  RETRIEVAL_POLICY_VERSION,
+  type LearningPolicyVersion,
   type ProbePurpose,
   type SelfRating,
   type StreamItemKind,
@@ -40,7 +40,7 @@ export interface PublicStreamItemBase {
   streamItemId: string;
   kind: StreamItemKind;
   flowVersion: typeof STUDY_STREAM_FLOW_VERSION;
-  policyVersion: typeof RETRIEVAL_POLICY_VERSION;
+  policyVersion: LearningPolicyVersion;
   qualityPolicyVersion: typeof OBJECTIVE_QUALITY_POLICY_VERSION;
   itemConstructionVersion: typeof OBJECTIVE_ITEM_CONSTRUCTION_VERSION;
   selectionReason: string;
@@ -80,7 +80,7 @@ export interface PublicStreamSession {
   id: string;
   flowVersion: typeof STUDY_STREAM_FLOW_VERSION;
   mode: StreamMode;
-  policyVersion: typeof RETRIEVAL_POLICY_VERSION;
+  policyVersion: LearningPolicyVersion;
   revision: number;
   expiresAt: string;
 }
@@ -97,6 +97,7 @@ export interface PublicStreamResponse {
   session: PublicStreamSession;
   item: PublicStreamItemBase | null;
   resumedFeedback: boolean;
+  availability?: { state: "waiting" | "no-content"; reason?: string; nextEligibleAt: string | null; resumePath?: string };
   unitSummary?: PublicStreamUnitSummary;
 }
 

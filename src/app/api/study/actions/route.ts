@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/session";
+import { requireRole } from "@/lib/session";
+import { ROLES } from "@/lib/roles";
 import { checkStudyRate } from "@/lib/study-limiter";
 import {
   applyStudyStreamAction,
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
     outcome?: "duplicate-replay" | "rate-limited";
   } = {};
   return observeStudyStreamRequest("action", async () => {
-    const auth = await requireUser();
+    const auth = await requireRole(ROLES.STUDENT);
     if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
     context.flowVersion = "v2";
     let body: unknown = null;

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { speakEnglish } from "@/lib/speech";
 import { useLocale } from "@/components/LocaleProvider";
+import { studentCategoryLabel } from "@/lib/catalog/student-category-label";
 import Icon from "@/components/ui/Icon";
 
 export interface QuizOption {
@@ -103,7 +104,7 @@ export default function QuizCard({
           <span className="quiz-prompt-label">{tc(isEnZh ? "看英文" : "看中文")}</span>
           {question.word.level ? (
             <span className="level-badge">
-              {question.word.level} · {tc(question.word.category ?? "未分類")}
+              {question.word.level} · {tc(studentCategoryLabel(question.word.category))}
             </span>
           ) : null}
         </div>

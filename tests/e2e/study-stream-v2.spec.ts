@@ -2295,3 +2295,125 @@ test("V2 study surface keeps its hierarchy in dark reduced-motion mode", async (
     await expect(visibleFace.getByRole("button", { name: "發音" })).toContainText("發音");
   }
 });
+
+test("capacity waiting keeps progress and offers an accessible exit without a fake completion", async ({ page }) => {
+  await page.route("**/api/study/stream**", route => route.fulfill({ json: {
+    ok: true, assigned: true, resumedFeedback: false, item: null,
+    session: { id: "waiting-session", mode: "global", flowVersion: "v2", policyVersion: "retrieval-v2", revision: 5, expiresAt: new Date(Date.now()+1800000).toISOString() },
+    availability: { state: "waiting", reason: "capacity", nextEligibleAt: new Date(Date.now()+600000).toISOString(), resumePath: "/study?mode=unit&level=A1&category=people-family" },
+  } }));
+  await page.goto("/study");
+  await expect(page.getByText("進度已保留，可以稍後再回來複習")).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回首頁", exact: true })).toHaveAttribute("href", "/");
+  await expect(page.getByRole("link", { name: "返回未完成的學習" })).toHaveAttribute("href", /mode=unit/);
+  await expect(page.getByRole("button", { name: "重新載入", exact: true })).toBeEnabled();
+  await expect(page.getByTestId("word-card-hint")).toHaveCount(0);
+});
+
+test("unit mode completion offers a return to the units list instead of an empty-unit reload", async ({ page }) => {
+  await page.route("**/api/study/stream**", route => route.fulfill({ json: {
+    ok: true, assigned: true, resumedFeedback: false, item: null,
+    session: { id: "unit-complete-session", mode: "unit", flowVersion: "v2", policyVersion: "retrieval-v1", revision: 9, expiresAt: new Date(Date.now()+1800000).toISOString() },
+    unitSummary: { totalWordCount: 12, encounteredWordCount: 12, objectiveRecognitionCount: 7 },
+    availability: { state: "no-content", nextEligibleAt: null },
+  } }));
+  await page.goto("/study?mode=unit&level=A1&category=people-family");
+  await expect(page.getByText("這個單元目前沒有待學習或到期複習的詞")).toBeVisible();
+  await expect(page.getByText("目前沒有待學習或到期複習的內容")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "返回單元清單" })).toHaveAttribute("href", "/units");
+  await expect(page.getByRole("link", { name: "返回首頁", exact: true })).toHaveAttribute("href", "/");
+  await expect(page.getByRole("button", { name: "重新載入", exact: true })).toBeEnabled();
+  await expect(page.getByTestId("word-card-hint")).toHaveCount(0);
+});
+
+test("real retrieval-v3 beginner keeps learning after wrong initial checks", async ({ browser }) => {
+  test.setTimeout(90_000);
+  if (!["localhost","127.0.0.1","::1"].includes(new URL(process.env.DATABASE_URL ?? "").hostname)) throw new Error("只允許本機測試庫");
+  const fixture = await createPhaseFixtureDatabase();
+  const { prisma } = fixture;
+  const { randomUUID } = await import("node:crypto");
+  const bcrypt = await import("bcryptjs");
+  const { CATALOG_CATEGORIES } = await import("../../src/lib/catalog/taxonomy");
+  const password=`e2e-${randomUUID()}`;
+  const user=await prisma.user.create({data:{accountName:`phase-${randomUUID()}`,passwordHash:await bcrypt.hash(password,4),mustChangePassword:false,studentProfile:{create:{legalName:"流程測試學生",nickname:"流程測試",nicknameNormalized:`phase-${randomUUID()}`}}}});
+  const context=await browser.newContext({baseURL:"http://127.0.0.1:3100"});
+  try {
+    const year=await prisma.academicYear.findFirstOrThrow({where:{status:"CURRENT"}});
+    await prisma.studentEnrollment.create({data:{studentId:user.id,academicYearId:year.id,grade:"JUNIOR_1",status:"ACTIVE",isCurrent:true,origin:"SEED",startedAt:new Date()}});
+    const page=await context.newPage();
+    await page.goto("/login");
+    await page.getByRole("textbox",{name:/帳號|賬號|账号/}).fill(user.accountName);
+    await page.getByRole("textbox",{name:/密碼|密码/}).fill(password);
+    await page.getByRole("button",{name:/登入|登錄|登录/}).click();
+    await page.waitForURL(url=>!url.pathname.startsWith("/login"));
+    const initial=page.waitForResponse(r=>r.url().includes("/api/study/stream")&&r.request().method()==="GET");
+    await page.goto(`/study?${new URLSearchParams({mode:"unit",level:"A1",category:CATALOG_CATEGORIES[0]})}`);
+    let stream=await (await initial).json() as PublicStreamResponse;
+    const words=new Set<string>();let probes=0;
+    for(let i=0;i<14&&words.size<6;i++) {
+      expect(stream.item,"新手不應卡在五詞等待").not.toBeNull();
+      expect(stream.item!.policyVersion).toBe("retrieval-v3");
+      if(stream.item!.kind==="LEARNING_CARD") {
+        expect(words.has(stream.item!.prompt)).toBe(false);words.add(stream.item!.prompt);
+        const hint=page.getByTestId("word-card-hint");await expect(hint).toBeVisible();
+        const box=(await hint.boundingBox())!;
+        await page.mouse.move(box.x+box.width/2,box.y+box.height/2);
+        await page.mouse.down();await page.waitForTimeout(3250);await page.mouse.up();
+        const forgot=page.getByTestId("study-stream-self-rating-left");await expect(forgot).toBeEnabled();
+        const next=page.waitForResponse(r=>r.url().includes("/api/study/stream")&&r.request().method()==="GET");
+        await forgot.click();stream=await (await next).json() as PublicStreamResponse;
+      } else {
+        const row=await prisma.studyStreamItem.findUniqueOrThrow({where:{id:stream.item!.streamItemId},include:{objectiveQuestionSnapshot:true}});
+        const snapshot=row.objectiveQuestionSnapshot!;
+        const options=snapshot.options as Array<{id:string}>;
+        const index=options.findIndex(o=>o.id!==snapshot.correctOptionId);
+        await page.getByTestId("study-stream-probe-options").locator("label").nth(index).click();
+        const feedback=page.getByTestId("study-stream-probe-card");
+        await expect(feedback).toHaveAttribute("aria-label","輕點一下任意區域");
+        const next=page.waitForResponse(r=>r.url().includes("/api/study/stream")&&r.request().method()==="GET");
+        await feedback.click({position:{x:48,y:48}});stream=await (await next).json() as PublicStreamResponse;probes++;
+      }
+    }
+    expect(words.size).toBe(6);expect(probes).toBeGreaterThanOrEqual(3);
+    const reviews=await prisma.review.findMany({where:{userId:user.id}});
+    expect(reviews.length).toBeGreaterThanOrEqual(3);
+    expect(reviews.every(r=>r.interval===1&&r.repetitions===0)).toBe(true);
+    expect(await prisma.evidenceObligation.count({where:{userId:user.id,kind:"REMEDIATION"}})).toBe(0);
+  } finally {await context.close();await prisma.user.delete({where:{id:user.id}});await fixture.close();}
+});
+
+test("teacher sees initial and due outcomes separately", async ({ browser }, testInfo) => {
+  if (!["localhost","127.0.0.1","::1"].includes(new URL(process.env.DATABASE_URL ?? "").hostname)) throw new Error("只允許本機測試庫");
+  const fixture = await createPhaseFixtureDatabase();
+  const { prisma } = fixture;
+  const { randomUUID }=await import("node:crypto");
+  const bcrypt=await import("bcryptjs");
+  const password=`e2e-${randomUUID()}`;
+  const teacher=await prisma.user.create({data:{accountName:`phase-teacher-${randomUUID()}`,role:"TEACHER",passwordHash:await bcrypt.hash(password,4),mustChangePassword:false}});
+  const context=await browser.newContext({baseURL:"http://127.0.0.1:3100",viewport:{width:390,height:844}});
+  try {
+    const page=await context.newPage();
+    await page.goto("/login");
+    await page.getByRole("textbox",{name:/帳號|賬號|账号/}).fill(teacher.accountName);
+    await page.getByRole("textbox",{name:/密碼|密码/}).fill(password);
+    await page.getByRole("button",{name:/登入|登錄|登录/}).click();
+    await page.waitForURL(url=>!url.pathname.startsWith("/login"));
+    await page.route("**/api/teacher/students/phase-preview",route=>route.fulfill({json:{student:{id:"phase-preview",accountName:"preview",studentNumber:1,legalName:"流程預覽",nickname:"預覽",grade:"JUNIOR_1",classCode:"A",canResetStudentPassword:false,resetPrecondition:null,masteredWords:0,totalWords:10,masteryPercent:0,dueReviewCount:0,effectiveObjectiveProbeCount:5,effectiveReviewEventCount:5,todayLearningEncounterCount:2,lastActivityAt:null,byLevel:[]}}}));
+    await page.route("**/api/learning-analytics/students/phase-preview/timeline/query",route=>route.fulfill({json:{summary:{learningEncounterCount:2,effectiveReviewCount:5,activeDayCount:1,eligibleDayCount:1,objective:{eligibleAttemptCount:5,correctCount:1,accuracyPercent:20,accuracyDisplayStatus:"SUFFICIENT",phases:{initial:{attempts:2,correct:1,accuracyPercent:50},due:{attempts:3,correct:0,accuracyPercent:0},unknown:{attempts:0,correct:0,accuracyPercent:null}}}},timeline:[]}}));
+    await page.goto("/teacher/students/phase-preview");
+    await expect(page.getByText("初次驗證 1/2 · 到期複習 0/3")).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+    await page.screenshot({path:testInfo.outputPath("phase-summary.png"),fullPage:true});
+  } finally {await context.close();await prisma.user.delete({where:{id:teacher.id}});await fixture.close();}
+});
+
+// Playwright runner 使用相對路徑載入 client，避免依賴應用的 tsx alias loader。
+async function createPhaseFixtureDatabase() {
+  const { PrismaClient } = await import("../../src/generated/prisma/index.js");
+  const { PrismaPg } = await import("@prisma/adapter-pg");
+  const { Pool } = await import("pg");
+  const pool = new Pool({connectionString:process.env.DATABASE_URL,max:2});
+  const schema = new URL(process.env.DATABASE_URL!).searchParams.get("schema") ?? "public";
+  const prisma = new PrismaClient({adapter:new PrismaPg(pool,{schema})});
+  return {prisma,close:async()=>{await prisma.$disconnect();await pool.end();}};
+}

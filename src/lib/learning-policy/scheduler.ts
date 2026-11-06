@@ -7,6 +7,7 @@ import {
   type SelectionDecision,
   type SelectionState,
 } from "./types";
+import { choosePhase } from "./phases";
 
 function compareUrgency(left: CandidateRecord, right: CandidateRecord): number {
   const leftExpiry = left.expiresAt ?? Number.POSITIVE_INFINITY;
@@ -72,13 +73,31 @@ function decision(
     reason,
     ...(overrideReason ? { overrideReason } : {}),
     versionBundle: {
-      policyVersion: RETRIEVAL_V1_POLICY.policyVersion,
+      policyVersion: candidate?.policyVersion ?? RETRIEVAL_V1_POLICY.policyVersion,
       qualityPolicyVersion: RETRIEVAL_V1_POLICY.qualityPolicyVersion,
       itemConstructionVersion: RETRIEVAL_V1_POLICY.itemConstructionVersion,
     },
     candidateCount: eligible.length,
     eligibleSetDigestInput: digestInput(eligible),
   };
+}
+
+function selectV3(state: SelectionState): SelectionDecision {
+  const eligible = eligibleCandidates(state);
+  // Server 只保留已派發的舊 work；先續接其原身份，再開始新版來源輪次。
+  const leased = eligible.find(c => c.leasedToCurrentSession || (c.workId && c.policyVersion !== "retrieval-v3"));
+  if (leased) return decision(leased, "resume-leased", eligible);
+  const initial = eligible.filter(c => c.workId).sort(compareUrgency);
+  const due = eligible.filter(c => !c.workId && c.kind === "OBJECTIVE_PROBE").sort(compareUrgency);
+  const fresh = eligible.filter(c => !c.workId && c.kind === "LEARNING_CARD").sort(compareUrgency);
+  const selected = choosePhase(state.phaseCursor ?? 3, lane => lane === "initial"
+    ? initial.find(c => !c.initialGapPending) : lane === "due" ? due[0] : fresh[0]);
+  const fallback = !selected && state.allowSmallPoolInitial ? initial.find(c => c.initialGapPending) : undefined;
+  const candidate = selected?.value ?? fallback;
+  const result = decision(candidate ?? null, candidate?.selectionReason ?? "waiting", eligible,
+    candidate ? `phase-lane:${selected?.laneIndex ?? 0}${fallback ? "+small-pool-initial-check" : ""}` : undefined);
+  result.versionBundle.policyVersion = candidate?.policyVersion ?? "retrieval-v3";
+  return result;
 }
 
 /**
@@ -89,6 +108,8 @@ export function selectNextItem(
   state: SelectionState,
   policy: RetrievalPolicyConfig = RETRIEVAL_V1_POLICY,
 ): SelectionDecision {
+  if (policy.policyVersion === "retrieval-v3") return selectV3(state);
+  if (policy.policyVersion === "retrieval-v2") return selectV2(state, policy);
   const eligible = eligibleCandidates(state);
   if (eligible.length === 0) return decision(null, "no-candidate", eligible);
 
@@ -198,4 +219,25 @@ export function combinedDebtWithinCap(
   policy: RetrievalPolicyConfig = RETRIEVAL_V1_POLICY,
 ): boolean {
   return activeWorkCount(work) <= policy.maxCombinedWorkDebt;
+}
+
+/** 新政策不以無目的的認讀卡湊 probe 間隔。時間冷卻由 server 候選 gate 保護。 */
+function selectV2(state: SelectionState, policy: RetrievalPolicyConfig): SelectionDecision {
+  const eligible = eligibleCandidates(state);
+  const leased = eligible.find(c => c.leasedToCurrentSession);
+  if (leased) return decision(leased, "resume-leased", eligible);
+  const spaced = spacedCandidates(eligible, state);
+  const cards = spaced.candidates.filter(c => c.kind === "LEARNING_CARD").sort(compareUrgency);
+  const probes = spaced.candidates.filter(c => c.kind === "OBJECTIVE_PROBE").sort(compareUrgency);
+  const rested = state.lastProbeAt === undefined || state.now - state.lastProbeAt >= 60_000;
+  const burstClosed = state.consecutiveProbes >= policy.maxConsecutiveProbes && !rested;
+  const preferCard = state.hasPreviousProbe && state.acknowledgedItemsSinceProbe < policy.minInterveningItems;
+  const fresh = cards.find(c => c.selectionReason === "new-word");
+  const urgent = probes.some(c => c.expiresAt !== undefined && c.expiresAt - state.now <= policy.minVerificationDelayMs);
+  const newWordTurn = fresh && !urgent && (state.itemsSinceNewWord ?? 0) >= policy.maxEligibleServiceGap;
+  const selected = newWordTurn ? fresh : !burstClosed && probes[0] && (!preferCard || !cards[0]) ? probes[0] : cards[0];
+  const result = decision(selected ?? null, selected ? selected.selectionReason : "waiting", eligible,
+    selected?.kind === "OBJECTIVE_PROBE" && preferCard ? "probe-only-time-gated" : undefined);
+  result.versionBundle.policyVersion = selected?.policyVersion ?? "retrieval-v2";
+  return result;
 }

@@ -129,6 +129,7 @@ const FIELD_LABELS: Record<string, string> = {
   enableZhToEn: "中譯英設定",
   distractorZh: "英譯中干擾項",
   distractorEn: "中譯英干擾項",
+  phoneticIpa: "音標",
   synonymsEn: "英文近義詞",
   antonymsEn: "英文反義詞",
 };
@@ -229,6 +230,10 @@ const ISSUE_COPY: Record<string, { reason: string; fix: string }> = {
   CATALOG_EXAMPLE_EN_REQUIRED: {
     reason: "已有中文例句，但欠缺英文例句。",
     fix: "請補上對應英文例句，或同時清除兩個例句。",
+  },
+  CATALOG_PHONETIC_CHARACTER_INVALID: {
+    reason: "音標包含不屬於國際音標的替代字元（例如把 ɡ 寫成 ^，或把重音 ˈ 寫成 ˊ）。",
+    fix: "請改用正確國際音標：^ 應為 ɡ，ˊ 應為 ˈ；其餘音節結構保持不變。",
   },
   CATALOG_DISTRACTOR_COUNT: {
     reason: "有效干擾項數量不足或過多；每個啟用方向需要 5 至 6 個。",

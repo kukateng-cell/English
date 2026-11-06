@@ -28,12 +28,17 @@ Objective Probe
 ```
 
 Global `/study` 是 continuous stream，沒有固定完成題數；每次已確認 action 後都可安全離開。
+新詞最多同時有五個尚未完成首次試答的詞；兩種自評均安排初驗。一般穿插兩個不同的其他詞後便可試答，
+不用等十分鐘；返回滿十分鐘亦可直接初驗。正誤都釋放名額，首次 Review 約一天後再測。
+到期詞直接出選擇題，按 SM-2 調整間隔；不以未到期詞或同詞補位卡填充，亦無兩題後強制休息。
+詞集尾段可一次降低初驗詞距並記原因；沒有合適內容時保留進度並提供安全離開／續接入口。
+本地實作及驗收見 [三階段學習方案](../plans/study-stream-learning-phases.md)，Vercel 是否上線須另外核對部署。
 Unit mode 可以限制詞集，仍使用同一張卡片、題目、續接及 server action contract。
 
 ## 現行功能範圍
 
 - A1、A2、B1、B2 sense-level 詞庫、主題及解鎖進度。
-- Retrieval-first Learning Card、Objective Probe、versioned `retrieval-v1` learning policy 及 SM-2。
+- Retrieval-first Learning Card、Objective Probe、versioned `retrieval-v3` learning policy（保留 `retrieval-v1`／`retrieval-v2` 歷史及既有 action 支援） 及 SM-2。
 - Study session、opaque item credential、operationId、global receipt、CAS、Serializable transaction、
   offline outbox、checkpoint、跨分頁／跨裝置 reconciliation 及 bounded recovery。
 - 學生、教師、管理員角色；首次改密、session 撤銷、名冊權限及最後管理員保護。
@@ -46,7 +51,7 @@ Unit mode 可以限制詞集，仍使用同一張卡片、題目、續接及 ser
 這條分支的目標是只保留 V2。`/study` 及 V2 stream routes 已固定使用 V2；V1 writer、舊 queue／checkpoint
 engine 已退役，歷史資料欄位及舊 client namespace 仍按 P4 cutover matrix 保留可讀／一次性清理邊界，
 目前不能把整個退役當成已完成。
-`retrieval-v1` 是現行 V2 的 policy identifier，不是 V1 UI 的名稱，不能因字串包含 `v1` 而刪除。
+`retrieval-v1` 是歷史學習 policy identifier，不是 V1 UI 的名稱，不能因字串包含 `v1` 而刪除。
 
 學生 shell 的 rail／bottom navigation 直接連到現行頁面；V2 action 先寫入 account-scoped outbox，離開後
 仍可由下一次 bootstrap／reconciliation 繼續，不再使用 V1 quiz／完成頁的 navigation state adapter。

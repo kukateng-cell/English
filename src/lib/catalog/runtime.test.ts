@@ -84,3 +84,14 @@ test("objective eligibility rejects unsupported policy outcomes and mismatched w
   };
   assert.equal(isEligibleOperationalObjectiveEvent(missingDueObligation), false);
 });
+
+test("all supported learning policies keep valid objective provenance readable", () => {
+  for (const version of ["retrieval-v1", "retrieval-v2", "retrieval-v3"]) {
+    const row = event("DUE_REVIEW", null);
+    row.objectiveEvidenceTarget.policyVersion = version;
+    assert.equal(isEligibleOperationalObjectiveEvent(row), true);
+  }
+  const unsupported = event("DUE_REVIEW", null);
+  unsupported.objectiveEvidenceTarget.policyVersion = "retrieval-v999";
+  assert.equal(isEligibleOperationalObjectiveEvent(unsupported), false);
+});

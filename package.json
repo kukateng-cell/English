@@ -25,6 +25,8 @@
     "test:e2e:catalog-workspace": "ENABLE_TEST_ROUTES=1 CATALOG_BULK_SUBMISSION_ENABLED=1 CATALOG_HISTORY_ENABLED=1 SECURITY_AUDIT_HMAC_SECRET=catalog-e2e-audit-secret-32-bytes SECURITY_AUDIT_HMAC_KEY_ID=catalog-e2e-v1 playwright test --project=catalog-workspace",
     "test:e2e:admin-roster": "node scripts/run-admin-roster-e2e.mjs",
     "test:db": "node --import tsx scripts/check-review-idempotency.ts",
+    "test:db:selection": "node --import tsx scripts/check-study-selection-v2.ts",
+    "audit:study-selection": "node --import tsx scripts/audit-study-selection.mjs",
     "test:db:stream-v2": "node --import tsx scripts/check-study-stream-v2.ts",
     "test:db:weekly-leaderboard": "node --import tsx scripts/check-weekly-leaderboard.ts",
     "test:browser:outbox": "node scripts/check-study-outbox-browser.mjs",
@@ -82,12 +84,13 @@
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "framer-motion": "^12.42.2",
-    "next": "16.3.8",
+    "next": "16.4.3",
     "next-auth": "^4.24.15",
     "opencc-js": "^1.4.1",
     "pg": "^8.22.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "esbuild": "0.28.1",
@@ -118,7 +121,7 @@
     },
     "next": {
       "postcss": "8.5.23",
-      "sharp": "0.35.4"
+      "sharp": "0.35.5"
     }
   }
 }

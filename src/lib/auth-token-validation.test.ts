@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { JWT } from "next-auth/jwt";
 import {
+  databaseErrorCode,
   validateAuthTokenVersion,
   type AuthValidationStore,
 } from "./auth";
@@ -105,4 +106,36 @@ test("user and enrollment database failures mark auth unavailable instead of esc
     }),
   );
   assert.equal(enrollmentFailure.authUnavailable, true);
+});
+
+test("a single transient database error is retried before failing closed", async () => {
+  let calls = 0;
+  const result = await validateAuthTokenVersion(token(), store({
+    findUser: async () => {
+      calls += 1;
+      if (calls === 1) throw Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+      return activeTeacher;
+    },
+  }));
+  assert.equal(calls, 2);
+  assert.equal(result.authUnavailable, false);
+});
+
+test("a persistent database error still fails closed after the retry", async () => {
+  let calls = 0;
+  const result = await validateAuthTokenVersion(token(), store({
+    findUser: async () => {
+      calls += 1;
+      throw Object.assign(new Error("relation missing"), { code: "P2021" });
+    },
+  }));
+  assert.equal(calls, 2);
+  assert.equal(result.authUnavailable, true);
+});
+
+test("database error codes are extracted without message content", () => {
+  assert.equal(databaseErrorCode(Object.assign(new Error("secret dsn"), { code: "P1001" })), "P1001");
+  assert.equal(databaseErrorCode(new Error("wrap", { cause: { code: "ECONNREFUSED" } })), "ECONNREFUSED");
+  assert.equal(databaseErrorCode(new Error("no code")), null);
+  assert.equal(databaseErrorCode({ code: "postgres://user:pass@host" }), null);
 });

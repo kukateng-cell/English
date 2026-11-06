@@ -70,7 +70,8 @@ test("localized category follows the Traditional and Simplified locale contract"
     const category = page
       .getByTestId("word-card-fixture-localized")
       .getByTestId("word-card-level");
-    await expect(category).toContainText(locale === "zh-Hant" ? "校園" : "校园");
-    await expect(category).toContainText(locale === "zh-Hant" ? "學習" : "学习");
+    await expect(category).toContainText(locale === "zh-Hant" ? "藝術" : "艺术");
+    await expect(category).toContainText(locale === "zh-Hant" ? "媒體" : "媒体");
+    await expect(category).not.toContainText("arts-culture-media");
   }
 });
